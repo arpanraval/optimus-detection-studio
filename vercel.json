@@ -30,14 +30,22 @@
     { "source": "/.env:path*", "destination": "/", "statusCode": 404 },
     { "source": "/.git/:path*", "destination": "/", "statusCode": 404 },
     { "source": "/.vscode/:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/__env:path*", "destination": "/", "statusCode": 404 },
     { "source": "/wp-:path*", "destination": "/", "statusCode": 404 },
     { "source": "/config:path*", "destination": "/", "statusCode": 404 },
     { "source": "/storage/:path*", "destination": "/", "statusCode": 404 },
     { "source": "/debug/:path*", "destination": "/", "statusCode": 404 },
     { "source": "/stripe:path*", "destination": "/", "statusCode": 404 },
     { "source": "/backend/:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/vendor:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/core/:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/env/:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/old/:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/new/:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/payment/:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/api/:path*", "destination": "/", "statusCode": 404 },
     { "source": "/graphql", "destination": "/", "statusCode": 404 },
-    { "source": "/api/graphql", "destination": "/", "statusCode": 404 },
-    { "source": "/api/gql", "destination": "/", "statusCode": 404 }
+    { "source": "/bundle.js", "destination": "/", "statusCode": 404 },
+    { "source": "/constants.js", "destination": "/", "statusCode": 404 }
   ]
 }
