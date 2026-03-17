@@ -19,6 +19,11 @@ dist-ssr
 
 # Internal docs (security audits, roadmaps, plans)
 .internal/
+docs/
+MARKET_COMPARISON_ANVILOGIC.md
+
+# Generated output files
+scripts/threat-group-enrichment/enrichment-output/
 
 # Claude/MCP local config
 .claude/
