@@ -1,0 +1,11 @@
+# AI Agents Directory
+#
+# This directory will contain AI agent implementations for complex,
+# multi-step tasks that require autonomous decision-making.
+#
+# Planned agents:
+# - ThreatHuntingAgent: Autonomous threat hunting across data sources
+# - DetectionTuningAgent: Automatic detection rule optimization
+# - ReportGenerationAgent: Automated report writing
+#
+# See lib/ai/README.md for architecture details.

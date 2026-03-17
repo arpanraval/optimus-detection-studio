@@ -1,0 +1,4803 @@
+{
+  "timestamp": "2026-01-23T15:32:28.943Z",
+  "version": "1.0.0",
+  "previewHash": "55eb7182e6f26c19c54bbf6a232fe1abd7f14cecf68f453f925115a5528e3292",
+  "summary": {
+    "totalMitreGroups": 172,
+    "totalMispActors": 899,
+    "matchedGroups": 151,
+    "groupsWithTargeting": 112,
+    "unmatchedGroups": 21,
+    "rejectedAmbiguous": 0
+  },
+  "matches": [
+    {
+      "mitreId": "G0006",
+      "mitreName": "APT1",
+      "mitreStixId": "intrusion-set--6a2e693f-24e5-451a-9f88-b36a108e5662",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "1cb7e1cc-d695-42b1-92f4-fd0112a3c9be",
+          "value": "APT1",
+          "matchedOn": "G0006"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "Belgium",
+          "Canada",
+          "France",
+          "India",
+          "Israel",
+          "Japan",
+          "Luxembourg",
+          "Norway",
+          "Singapore",
+          "South Africa",
+          "Switzerland",
+          "Taiwan",
+          "United Arab Emirates",
+          "United Kingdom",
+          "United States"
+        ],
+        "targetSectors": [
+          "Government",
+          "Private sector"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0024",
+      "mitreName": "Putter Panda",
+      "mitreStixId": "intrusion-set--5ce5392a-3a6c-4e07-9df3-9b6a9159ac45",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "0ca45163-e223-4167-b1af-f088ed14a93d",
+          "value": "APT2",
+          "matchedOn": "G0024"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "U.S. satellite and aerospace sector"
+        ],
+        "targetSectors": [
+          "Government",
+          "Private sector"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0012",
+      "mitreName": "Darkhotel",
+      "mitreStixId": "intrusion-set--9e729a7e-0dd6-4097-95bf-db8d64911383",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "b8c8b96d-61e6-47b1-8e38-fd8ad5d9854d",
+          "value": "DarkHotel",
+          "matchedOn": "G0012"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Korea (Republic of)",
+        "originCountryCode": null,
+        "targetCountries": [
+          "China",
+          "Japan",
+          "Russian Federation",
+          "South Korea",
+          "Taiwan"
+        ],
+        "targetSectors": [
+          "Private sector"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Zigzag Hail"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0023",
+      "mitreName": "APT16",
+      "mitreStixId": "intrusion-set--d6e88e18-81e8-4709-82d8-973095da1e70",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "1f73e14f-b882-4032-a565-26dc653b0daf",
+          "value": "APT16",
+          "matchedOn": "G0023"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "Japan",
+          "Taiwan"
+        ],
+        "targetSectors": [
+          "Private sector"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0025",
+      "mitreName": "APT17",
+      "mitreStixId": "intrusion-set--090242d7-73fc-4738-af68-20162f7a5aae",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "99e30d89-9361-4b73-a999-9e5ff9320bcb",
+          "value": "APT17",
+          "matchedOn": "G0025"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "Belgium",
+          "China",
+          "Germany",
+          "Indonesia",
+          "Italy",
+          "Japan",
+          "Netherlands",
+          "Russian Federation",
+          "Switzerland",
+          "United Kingdom",
+          "United States"
+        ],
+        "targetSectors": [
+          "Civil society",
+          "Defense",
+          "Government",
+          "Government, Administration",
+          "Intelligence",
+          "Justice",
+          "Mining",
+          "Private sector",
+          "Technology"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Heart Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0026",
+      "mitreName": "APT18",
+      "mitreStixId": "intrusion-set--38fd6a28-3353-4f2b-bb2b-459fecd5c648",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "9a683d9c-8f7d-43df-bba2-ad0ca71e277c",
+          "value": "APT18",
+          "matchedOn": "G0026"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "United States"
+        ],
+        "targetSectors": [
+          "Aerospace",
+          "Civil society",
+          "Defense",
+          "Government",
+          "Health",
+          "High tech",
+          "Private sector",
+          "Telecoms"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Satin Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0009",
+      "mitreName": "Deep Panda",
+      "mitreStixId": "intrusion-set--a653431d-6a5e-4600-8ad3-609b5af57064",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "066d25c1-71bd-4bd4-8ca7-edbba00063f4",
+          "value": "APT19",
+          "matchedOn": "G0009"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "United States"
+        ],
+        "targetSectors": [
+          "Finance",
+          "Military",
+          "Non-profit organisation",
+          "Private sector",
+          "Technology"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Checkered Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0019",
+      "mitreName": "Naikon",
+      "mitreStixId": "intrusion-set--2a158b0a-7ef8-43cb-9985-bf34d1e12050",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "2f1fd017-9df6-4759-91fb-e7039609b5ff",
+          "value": "Naikon",
+          "matchedOn": "G0019"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "Cambodia",
+          "China",
+          "India",
+          "Indonesia",
+          "Laos",
+          "Malaysia",
+          "Myanmar",
+          "Philippines",
+          "Saudi Arabia",
+          "Singapore",
+          "South Korea",
+          "Thailand",
+          "United States",
+          "Vietnam"
+        ],
+        "targetSectors": [
+          "Government",
+          "Private sector"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0013",
+      "mitreName": "APT30",
+      "mitreStixId": "intrusion-set--f047ee18-7985-4946-8bfb-4ed754d3a0dd",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "d3881afe-f781-4c53-9f68-33487a119a59",
+          "value": "APT30",
+          "matchedOn": "G0013"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "India",
+          "Malaysia",
+          "Saudi Arabia",
+          "South Korea",
+          "Thailand",
+          "United States",
+          "Vietnam"
+        ],
+        "targetSectors": [
+          "Government"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Raspberry Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0030",
+      "mitreName": "Lotus Blossom",
+      "mitreStixId": "intrusion-set--88b7dbc2-32d3-4e31-af2f-3fc24e1582d7",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "32fafa69-fe3c-49db-afd4-aac2664bcf0d",
+          "value": "LOTUS PANDA",
+          "matchedOn": "G0030"
+        },
+        {
+          "uuid": "37f012df-54d8-4b3d-a288-af47240430ea",
+          "value": "Raspberry Typhoon",
+          "matchedOn": "Raspberry Typhoon"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "Hong Kong",
+          "Indonesia",
+          "Japan",
+          "Philippines",
+          "Taiwan",
+          "Vietnam"
+        ],
+        "targetSectors": [
+          "Government",
+          "Government, Administration",
+          "Military"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Raspberry Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0027",
+      "mitreName": "Threat Group-3390",
+      "mitreStixId": "intrusion-set--fb366179-766c-4a4a-afa1-52bff1fd601c",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "834e0acd-d92a-4e38-bb14-dc4159d7cb32",
+          "value": "APT27",
+          "matchedOn": "G0027"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Unknown",
+        "originCountryCode": null,
+        "targetCountries": [
+          "Australia",
+          "Canada",
+          "China",
+          "France",
+          "India",
+          "Iran",
+          "Israel",
+          "Japan",
+          "Russian Federation",
+          "South Korea",
+          "Taiwan",
+          "Thailand",
+          "Turkey",
+          "United Kingdom",
+          "United States"
+        ],
+        "targetSectors": [
+          "Defense",
+          "Government",
+          "Government, Administration",
+          "Private sector",
+          "Technology"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Linen Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0045",
+      "mitreName": "menuPass",
+      "mitreStixId": "intrusion-set--222fbd21-fc4f-4b7e-9f85-0e6e3a76c33f",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "56b37b05-72e7-4a89-ba8a-61ce45269a8c",
+          "value": "APT10",
+          "matchedOn": "G0045"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "Australia",
+          "Brazil",
+          "Canada",
+          "Finland",
+          "France",
+          "India",
+          "Japan",
+          "Norway",
+          "South Africa",
+          "South Korea",
+          "Sweden",
+          "Switzerland",
+          "Thailand",
+          "United Kingdom",
+          "United States"
+        ],
+        "targetSectors": [
+          "Government",
+          "Private sector"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Purple Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0004",
+      "mitreName": "Ke3chang",
+      "mitreStixId": "intrusion-set--6713ab67-e25b-49cc-808d-2b36d4fbc35c",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "3501fbf2-098f-47e7-be6a-6b0ff5742ce8",
+          "value": "APT15",
+          "matchedOn": "G0004"
+        },
+        {
+          "uuid": "e6d16c22-0780-483c-9920-c1d9f27b10c8",
+          "value": "GREF",
+          "matchedOn": "GREF"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "European Union",
+          "Germany",
+          "India",
+          "United Kingdom"
+        ],
+        "targetSectors": [
+          "Government",
+          "Government, Administration"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Nylon Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0011",
+      "mitreName": "PittyTiger",
+      "mitreStixId": "intrusion-set--fe98767f-9df8-42b9-83c9-004b1dec8647",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "4d37813c-b8e9-4e58-a758-03168d8aa189",
+          "value": "APT24",
+          "matchedOn": "G0011"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Canary Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0066",
+      "mitreName": "Elderwood",
+      "mitreStixId": "intrusion-set--03506554-5f37-4f8f-9ce4-0e9f01a1b484",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "da754aeb-a86d-4874-b388-d1d2028a56be",
+          "value": "Beijing Group",
+          "matchedOn": "G0066"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "Australia",
+          "Canada",
+          "China",
+          "Denmark",
+          "Hong Kong",
+          "India",
+          "Switzerland",
+          "Taiwan",
+          "United Kingdom",
+          "United States"
+        ],
+        "targetSectors": [
+          "Civil society",
+          "Private sector"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0018",
+      "mitreName": "admin@338",
+      "mitreStixId": "intrusion-set--16ade1aa-0ea1-4bb7-88cc-9079df2ae756",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "ac4bce1f-b3ec-4c44-bd36-b6cc986b319b",
+          "value": "TEMPER PANDA",
+          "matchedOn": "G0018"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "Hong Kong",
+          "United States"
+        ],
+        "targetSectors": [
+          "Activists",
+          "Civil society",
+          "Finance",
+          "Government",
+          "Political party",
+          "Private sector",
+          "Trade"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0081",
+      "mitreName": "Tropic Trooper",
+      "mitreStixId": "intrusion-set--56319646-eb6e-41fc-ae53-aadfa7adb924",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "7f16d1f5-04ee-4d99-abf0-87e1f23f9fee",
+          "value": "APT23",
+          "matchedOn": "G0081"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [],
+        "targetSectors": [
+          "Government, Administration",
+          "Military"
+        ],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0064",
+      "mitreName": "APT33",
+      "mitreStixId": "intrusion-set--fbd29c89-18ba-4c2d-b792-51c0adee049f",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "4f69ec6d-cb6b-42af-b8e2-920a2aa4be10",
+          "value": "APT33",
+          "matchedOn": "G0064"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Iran (Islamic Republic of)",
+        "originCountryCode": null,
+        "targetCountries": [
+          "Saudi Arabia",
+          "South Korea",
+          "United States"
+        ],
+        "targetSectors": [
+          "Private sector"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Peach Sandstorm"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0003",
+      "mitreName": "Cleaver",
+      "mitreStixId": "intrusion-set--8f5e8dc7-739d-4f5e-a8a1-a66e004d7063",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "86724806-7ec9-4a48-a0a7-ecbde3bf4810",
+          "value": "Cleaver",
+          "matchedOn": "G0003"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Iran (Islamic Republic of)",
+        "originCountryCode": null,
+        "targetCountries": [
+          "Canada",
+          "China",
+          "France",
+          "Germany",
+          "India",
+          "Israel",
+          "Kuwait",
+          "Mexico",
+          "Pakistan",
+          "Qatar",
+          "Saudi Arabia",
+          "South Korea",
+          "Turkey",
+          "United Kingdom",
+          "United States"
+        ],
+        "targetSectors": [
+          "Academia - University",
+          "Defense",
+          "Energy",
+          "Government",
+          "Government, Administration",
+          "Private sector",
+          "Technology"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Hazel Sandstorm"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0007",
+      "mitreName": "APT28",
+      "mitreStixId": "intrusion-set--bef4c620-0787-42a8-a96d-b7eb6e85917c",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "5b4ee3ea-eee3-4c8e-8323-85ae32658754",
+          "value": "APT28",
+          "matchedOn": "G0007"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [
+          "Afghanistan",
+          "Armenia",
+          "Asia Pacific Economic Cooperation",
+          "Belgium",
+          "China",
+          "European Commission",
+          "France",
+          "Georgia",
+          "Germany",
+          "Hungary",
+          "International Association of Athletics Federations",
+          "Japan",
+          "Jordan",
+          "Kazakhstan",
+          "Mongolia",
+          "NATO",
+          "OSCE",
+          "Pakistan",
+          "Poland",
+          "Tajikistan",
+          "Turkey",
+          "Ukraine",
+          "United Kingdom",
+          "United States",
+          "World Anti-Doping Agency"
+        ],
+        "targetSectors": [
+          "Government",
+          "Government, Administration",
+          "Military",
+          "Security Service"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Forest Blizzard"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0016",
+      "mitreName": "APT29",
+      "mitreStixId": "intrusion-set--899ce53f-13a0-479b-a0e4-67d46e241542",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "b2056ff0-00b9-482e-b11c-c771daa5f28a",
+          "value": "APT29",
+          "matchedOn": "G0016"
+        },
+        {
+          "uuid": "2ee5ed7a-c4d0-40be-a837-20817474a15b",
+          "value": "UNC2452",
+          "matchedOn": "UNC2452"
+        },
+        {
+          "uuid": "bee8b09c-07e5-4c12-94d6-266ebcb1ec24",
+          "value": "UNC3524",
+          "matchedOn": "UNC3524"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [
+          "Belgium",
+          "Brazil",
+          "China",
+          "Georgia",
+          "Germany",
+          "India",
+          "Japan",
+          "Kazakhstan",
+          "Mexico",
+          "New Zealand",
+          "Portugal",
+          "Romania",
+          "South Korea",
+          "Turkey",
+          "Ukraine",
+          "United States"
+        ],
+        "targetSectors": [
+          "Government",
+          "Government, Administration",
+          "Private sector",
+          "Think Tanks"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Midnight Blizzard"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0010",
+      "mitreName": "Turla",
+      "mitreStixId": "intrusion-set--7a19ecb1-3c65-4de3-a230-993516aed6a6",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "fa80877c-f509-4daf-8b62-20aba1635f68",
+          "value": "Turla",
+          "matchedOn": "G0010"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [
+          "Belarus",
+          "France",
+          "Germany",
+          "India",
+          "Iran",
+          "Iraq",
+          "Kazakhstan",
+          "Netherlands",
+          "Poland",
+          "Romania",
+          "Russian Federation",
+          "Saudi Arabia",
+          "Tajikistan",
+          "United States",
+          "Uzbekistan"
+        ],
+        "targetSectors": [
+          "Education",
+          "Electric",
+          "Energy",
+          "Government",
+          "Government, Administration",
+          "Health",
+          "Military"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Secret Blizzard"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0035",
+      "mitreName": "Dragonfly",
+      "mitreStixId": "intrusion-set--1c63d4ec-0a75-4daa-b1df-0d11af3d3cc1",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "64d6559c-6d5c-4585-bbf9-c17868f763ee",
+          "value": "ENERGETIC BEAR",
+          "matchedOn": "G0035"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [
+          "China",
+          "France",
+          "Germany",
+          "Ireland",
+          "Italy",
+          "Japan",
+          "Poland",
+          "Spain",
+          "Turkey",
+          "United States"
+        ],
+        "targetSectors": [
+          "Energy",
+          "Government",
+          "Private sector"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Ghost Blizzard"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0034",
+      "mitreName": "Sandworm Team",
+      "mitreStixId": "intrusion-set--381fcf73-60f6-4ab2-9991-6af3cbc35192",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "f512de42-f76b-40d2-9923-59e7dbdfec35",
+          "value": "Sandworm",
+          "matchedOn": "G0034"
+        },
+        {
+          "uuid": "29cfe970-5446-4cfc-a2da-00e9f49e02ba",
+          "value": "IRIDIUM",
+          "matchedOn": "IRIDIUM"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [
+          "Azerbaijan",
+          "Belarus",
+          "Georgia",
+          "Iran",
+          "Israel",
+          "Kazakhstan",
+          "Kyrgyzstan",
+          "Lithuania",
+          "Poland",
+          "Russian Federation",
+          "Ukraine"
+        ],
+        "targetSectors": [
+          "Electric",
+          "Energy",
+          "Government",
+          "Industrial",
+          "Private sector"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Seashell Blizzard"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0046",
+      "mitreName": "FIN7",
+      "mitreStixId": "intrusion-set--3753cc21-2dae-4dfb-8481-d004e74502cc",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "00220228-a5a4-4032-a30d-826bb55aa3fb",
+          "value": "FIN7",
+          "matchedOn": "G0046"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": "Financial Theft",
+        "vendorNames": {
+          "microsoft": "Sangria Tempest"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0085",
+      "mitreName": "FIN4",
+      "mitreStixId": "intrusion-set--d0b3393b-3bec-4ba3-bda9-199d30db47b6",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "ff449346-aa9f-45f6-b482-71e886a5cf57",
+          "value": "WOLF SPIDER",
+          "matchedOn": "G0085"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "RO",
+        "originCountryCode": "RO",
+        "targetCountries": [],
+        "targetSectors": [
+          "Finance",
+          "Health",
+          "Pharmacy"
+        ],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0032",
+      "mitreName": "Lazarus Group",
+      "mitreStixId": "intrusion-set--c93fccb1-e8e8-42cf-ae33-2ad1d183913a",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "68391641-859f-4a9a-9a1e-3e5cf71ec376",
+          "value": "Lazarus Group",
+          "matchedOn": "G0032"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Korea (Democratic People's Republic of)",
+        "originCountryCode": null,
+        "targetCountries": [
+          "Australia",
+          "Bangladesh",
+          "Bangladesh Bank",
+          "Brazil",
+          "Canada",
+          "China",
+          "Cryptocurrency exchanges in South Korea",
+          "France",
+          "Germany",
+          "Guatemala",
+          "Hong Kong",
+          "India",
+          "Japan",
+          "Sony Pictures Entertainment",
+          "South Korea",
+          "Thailand",
+          "United Kingdom",
+          "United States"
+        ],
+        "targetSectors": [
+          "Government",
+          "Private sector"
+        ],
+        "activityType": [
+          "Espionage",
+          "Sabotage"
+        ],
+        "vendorNames": {
+          "microsoft": "Onyx Sleet"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0038",
+      "mitreName": "Stealth Falcon",
+      "mitreStixId": "intrusion-set--894aab42-3371-47b1-8859-a4a074c804c8",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "dab75e38-6969-4e78-9304-dc269c3cbcf0",
+          "value": "Stealth Falcon",
+          "matchedOn": "G0038"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "United Arab Emirates",
+        "originCountryCode": "AE",
+        "targetCountries": [
+          "United Arab Emirates",
+          "United Kingdom"
+        ],
+        "targetSectors": [
+          "Activists",
+          "Civil society",
+          "Dissidents",
+          "Journalist"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Daffodil Gust"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0040",
+      "mitreName": "Patchwork",
+      "mitreStixId": "intrusion-set--17862c7d-9e60-48a0-b48e-da4dc4c3f6b0",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "18d473a5-831b-47a5-97a1-a32156299825",
+          "value": "QUILTED TIGER",
+          "matchedOn": "G0040"
+        },
+        {
+          "uuid": "e2b87f81-a6a1-4524-b03f-193c3191d239",
+          "value": "VICEROY TIGER",
+          "matchedOn": "OPERATION HANGOVER"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "India",
+        "originCountryCode": "IN",
+        "targetCountries": [
+          "Bangladesh",
+          "Germany",
+          "Pakistan",
+          "Sri Lanka"
+        ],
+        "targetSectors": [
+          "Diplomacy",
+          "Finance",
+          "Government, Administration",
+          "Military",
+          "Private sector",
+          "Security Service"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0029",
+      "mitreName": "Scarlet Mimic",
+      "mitreStixId": "intrusion-set--c5574ca0-d5a4-490a-b207-e4658e5fd1d7",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "0da10682-85c6-4c0b-bace-ba1f7adfb63e",
+          "value": "Scarlet Mimic",
+          "matchedOn": "G0029"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [],
+        "targetSectors": [
+          "Activists"
+        ],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0033",
+      "mitreName": "Poseidon Group",
+      "mitreStixId": "intrusion-set--7ecc3b4f-5cdb-457e-b55a-df376b359446",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "5fc09923-fcff-4e81-9cae-4518ef31cf4d",
+          "value": "Poseidon Group",
+          "matchedOn": "G0033"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Brazil",
+        "originCountryCode": "BR",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0017",
+      "mitreName": "DragonOK",
+      "mitreStixId": "intrusion-set--f3bdec95-3d62-42d9-a840-29630f6cdc1a",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "a9b44750-992c-4743-8922-129880d277ea",
+          "value": "DragonOK",
+          "matchedOn": "G0017"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "United States"
+        ],
+        "targetSectors": [
+          "Private sector"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0041",
+      "mitreName": "Strider",
+      "mitreStixId": "intrusion-set--277d2f87-2ae5-4730-a3aa-50c1fdff9656",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "f3179cfb-9c86-4980-bd6b-e4fa74adaaa7",
+          "value": "ProjectSauron",
+          "matchedOn": "G0041"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "United States",
+        "originCountryCode": "US",
+        "targetCountries": [
+          "Belgium",
+          "China",
+          "Iran",
+          "Russian Federation",
+          "Rwanda",
+          "Sweden"
+        ],
+        "targetSectors": [
+          "Government",
+          "Intelligence",
+          "Military"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0036",
+      "mitreName": "GCMAN",
+      "mitreStixId": "intrusion-set--0ea72cd5-ca30-46ba-bc04-378f701c658f",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "d93889de-b4bc-4a29-9ce7-d67717c140a0",
+          "value": "GCMAN",
+          "matchedOn": "G0036"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [],
+        "targetSectors": [
+          "Bank"
+        ],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0039",
+      "mitreName": "Suckfly",
+      "mitreStixId": "intrusion-set--5cbe0d3b-6fb1-471f-b591-4b192915116d",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "5abb12e7-5066-4f84-a109-49a037205c76",
+          "value": "APT22",
+          "matchedOn": "G0039"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0037",
+      "mitreName": "FIN6",
+      "mitreStixId": "intrusion-set--2a7914cf-dff3-428d-ab0f-1014d1c28aeb",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "647894f6-1723-4cba-aba4-0ef0966d5302",
+          "value": "FIN6",
+          "matchedOn": "G0037"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Storm-0538"
+        }
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0049",
+      "mitreName": "OilRig",
+      "mitreStixId": "intrusion-set--4ca1929c-7d64-4aab-b849-badbfc0c760d",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "42be2a84-5a5c-4c6d-9864-3f09d75bb0ba",
+          "value": "OilRig",
+          "matchedOn": "G0049"
+        },
+        {
+          "uuid": "a0082cfa-32e2-42b8-92d8-5c7a7409dcf1",
+          "value": "CHRYSENE",
+          "matchedOn": "OilRig"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Iran (Islamic Republic of)",
+        "originCountryCode": null,
+        "targetCountries": [
+          "Iraq",
+          "Israel",
+          "Kuwait",
+          "Lebanon",
+          "Middle East",
+          "Pakistan",
+          "Qatar",
+          "Saudi Arabia",
+          "Turkey",
+          "United Kingdom",
+          "United States"
+        ],
+        "targetSectors": [
+          "Chemical",
+          "Civil society",
+          "Energy",
+          "Engineering",
+          "Finance",
+          "Government",
+          "Government, Administration",
+          "Other",
+          "Private sector",
+          "Telecoms"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Hazel Sandstorm"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0021",
+      "mitreName": "Molerats",
+      "mitreStixId": "intrusion-set--df71bb3b-813c-45eb-a8bc-f2a419837411",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "f7c2e501-73b1-400f-a5d9-2e2e07b7dfde",
+          "value": "Molerats",
+          "matchedOn": "G0021"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Palestine",
+        "originCountryCode": null,
+        "targetCountries": [
+          "Europe",
+          "Israel",
+          "Middle East",
+          "Palestine",
+          "United States"
+        ],
+        "targetSectors": [
+          "Civil Society",
+          "Defense",
+          "Education",
+          "Energy",
+          "Finance",
+          "Government",
+          "Healthcare",
+          "Legal",
+          "Media",
+          "Military",
+          "NGOs",
+          "Pharmaceuticals"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0056",
+      "mitreName": "PROMETHIUM",
+      "mitreStixId": "intrusion-set--efed95ba-d7e8-47ff-8c53-99c42426ee7c",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "43894e2a-174e-4931-94a8-2296afe8f650",
+          "value": "PROMETHIUM",
+          "matchedOn": "G0056"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Turkey",
+        "originCountryCode": "TR",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Magenta Dust"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0055",
+      "mitreName": "NEODYMIUM",
+      "mitreStixId": "intrusion-set--025bdaa9-897d-4bad-afa6-013ba5734653",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "ada08ea8-4517-4eea-aff1-3ad69e5466bb",
+          "value": "NEODYMIUM",
+          "matchedOn": "G0055"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0020",
+      "mitreName": "Equation",
+      "mitreStixId": "intrusion-set--96e239be-ad99-49eb-b127-3007b8c1bec9",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "7036fb3d-86b7-4d9c-bc66-1e1ead8b7840",
+          "value": "Equation Group",
+          "matchedOn": "G0020"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "United States",
+        "originCountryCode": "US",
+        "targetCountries": [
+          "Afghanistan",
+          "Algeria",
+          "China",
+          "India",
+          "Iran",
+          "Kenya",
+          "Lebanon",
+          "Libya",
+          "Mali",
+          "Pakistan",
+          "Russian Federation",
+          "Syria",
+          "United Arab Emirates",
+          "United Kingdom",
+          "Yemen"
+        ],
+        "targetSectors": [
+          "Government",
+          "Military"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0047",
+      "mitreName": "Gamaredon Group",
+      "mitreStixId": "intrusion-set--2e290bfe-93b5-48ce-97d6-edcd6d32b7cf",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "1a77e156-76bc-43f5-bdd7-bd67f30fbbbb",
+          "value": "Gamaredon Group",
+          "matchedOn": "G0047"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [
+          "Germany",
+          "Ukraine"
+        ],
+        "targetSectors": [
+          "Government"
+        ],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Aqua Blizzard"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0050",
+      "mitreName": "APT32",
+      "mitreStixId": "intrusion-set--247cb30b-955f-42eb-97a5-a89fef69341e",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "aa29ae56-e54b-47a2-ad16-d3ab0242d5d7",
+          "value": "APT32",
+          "matchedOn": "G0050"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Vietnam",
+        "originCountryCode": "VN",
+        "targetCountries": [
+          "Association of Southeast Asian Nations",
+          "China",
+          "Germany",
+          "Philippines",
+          "United States",
+          "Vietnam"
+        ],
+        "targetSectors": [
+          "Civil society",
+          "Dissidents",
+          "Government",
+          "Government, Administration",
+          "Journalist",
+          "Private sector"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Canvas Cyclone"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0068",
+      "mitreName": "PLATINUM",
+      "mitreStixId": "intrusion-set--f9c06633-dcff-48a1-8588-759e7cec5694",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "1fc5671f-5757-43bf-8d6d-a9a93b03713a",
+          "value": "PLATINUM",
+          "matchedOn": "G0068"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [
+          "Defense",
+          "Diplomacy",
+          "Government, Administration",
+          "Intelligence",
+          "Telecoms"
+        ],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Fallow Squall"
+        }
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0061",
+      "mitreName": "FIN8",
+      "mitreStixId": "intrusion-set--fd19bd82-1b14-49a1-a176-6cdc46b8a826",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "a78ae9fe-71cd-4563-9213-7b6260bd9a73",
+          "value": "FIN8",
+          "matchedOn": "G0061"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [
+          "Entertainment",
+          "Hospitality",
+          "Retail"
+        ],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Storm-0288"
+        }
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0095",
+      "mitreName": "Machete",
+      "mitreStixId": "intrusion-set--38863958-a201-4ce1-9dbe-539b0b6804e0",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "827c17e0-c3f5-4ad1-a4f4-30a40ed0a2d3",
+          "value": "El Machete",
+          "matchedOn": "G0095"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Unknown",
+        "originCountryCode": null,
+        "targetCountries": [
+          "Belgium",
+          "Brazil",
+          "China",
+          "Colombia",
+          "Cuba",
+          "Ecuador",
+          "France",
+          "Germany",
+          "Malaysia",
+          "Peru",
+          "Russian Federation",
+          "Spain",
+          "Sweden",
+          "United States",
+          "Venezuela"
+        ],
+        "targetSectors": [
+          "Government",
+          "Military"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0080",
+      "mitreName": "Cobalt Group",
+      "mitreStixId": "intrusion-set--dc6fe6ee-04c2-49be-ba3d-f38d2463c02a",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "01967480-c49b-4d4a-a7fa-aef0eaf535fe",
+          "value": "Cobalt",
+          "matchedOn": "G0080"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0062",
+      "mitreName": "TA459",
+      "mitreStixId": "intrusion-set--62a64fd3-aaf7-4d09-a375-d6f8bb118481",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "c6472ae1-c6ad-4cf1-8d6e-8c94b94fe314",
+          "value": "TA459",
+          "matchedOn": "G0062"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0131",
+      "mitreName": "Tonto Team",
+      "mitreStixId": "intrusion-set--c5b81590-6814-4d2a-8baa-15c4b6c7f960",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "0ab7c8de-fc23-4793-99aa-7ee336199e26",
+          "value": "Tonto Team",
+          "matchedOn": "G0131"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "Eastern Europe",
+          "Japan",
+          "South Korea",
+          "Taiwan",
+          "United States"
+        ],
+        "targetSectors": [
+          "Government",
+          "Military",
+          "Private sector"
+        ],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Copper Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0060",
+      "mitreName": "BRONZE BUTLER",
+      "mitreStixId": "intrusion-set--93f52415-0fe4-4d3d-896c-fc9b8e88ab90",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "add6554a-815a-4ac3-9b22-9337b9661ab8",
+          "value": "Tick",
+          "matchedOn": "G0060"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "China",
+          "Japan",
+          "Korea (Republic of)",
+          "Russian Federation"
+        ],
+        "targetSectors": [
+          "Diplomacy",
+          "Engineering",
+          "Industrial",
+          "Infrastructure",
+          "Manufacturing",
+          "News - Media",
+          "Political party",
+          "Private sector"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Swirl Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0052",
+      "mitreName": "CopyKittens",
+      "mitreStixId": "intrusion-set--dcd81c6e-ebf7-4a16-93e0-9a97fa49c88a",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "8cca9a1d-66e4-4bc4-ad49-95f759f4c1ae",
+          "value": "CopyKittens",
+          "matchedOn": "G0052"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Iran (Islamic Republic of)",
+        "originCountryCode": null,
+        "targetCountries": [
+          "Germany",
+          "Israel",
+          "Jordan",
+          "Saudi Arabia",
+          "United States"
+        ],
+        "targetSectors": [
+          "Civil society",
+          "Government",
+          "Private sector"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0054",
+      "mitreName": "Sowbug",
+      "mitreStixId": "intrusion-set--d1acfbb3-647b-4723-9154-800ec119006e",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "1ca3b039-404e-4132-88c2-4e41235cd2f5",
+          "value": "Sowbug",
+          "matchedOn": "G0054"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Unknown",
+        "originCountryCode": null,
+        "targetCountries": [
+          "Argentina",
+          "Brazil",
+          "Brunei",
+          "Ecuador",
+          "Malaysia",
+          "Peru"
+        ],
+        "targetSectors": [
+          "Government"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0069",
+      "mitreName": "MuddyWater",
+      "mitreStixId": "intrusion-set--269e8108-68c6-4f99-b911-14b2e765dec2",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "a29af069-03c3-4534-b78b-7d1a77ea085b",
+          "value": "MuddyWater",
+          "matchedOn": "G0069"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Iran (Islamic Republic of)",
+        "originCountryCode": null,
+        "targetCountries": [
+          "Georgia",
+          "India",
+          "Iraq",
+          "Israel",
+          "Pakistan",
+          "Saudi Arabia",
+          "Turkey",
+          "United Arab Emirates",
+          "United States"
+        ],
+        "targetSectors": [
+          "Government"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Mango Sandstorm"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0070",
+      "mitreName": "Dark Caracal",
+      "mitreStixId": "intrusion-set--8a831aaa-f3e0-47a3-bed8-a9ced744dd12",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "3d449c83-4426-431a-b06a-cb4f8a0fca94",
+          "value": "Dark Caracal",
+          "matchedOn": "G0070"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Lebanon",
+        "originCountryCode": "LB",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0067",
+      "mitreName": "APT37",
+      "mitreStixId": "intrusion-set--4a2ce82e-1a74-468a-a6fb-bbead541383c",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "50cd027f-df14-40b2-aa22-bf5de5061163",
+          "value": "APT37",
+          "matchedOn": "G0067"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Korea (Democratic People's Republic of)",
+        "originCountryCode": null,
+        "targetCountries": [
+          "Japan",
+          "South Korea",
+          "Vietnam"
+        ],
+        "targetSectors": [
+          "Government",
+          "Private sector"
+        ],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0065",
+      "mitreName": "Leviathan",
+      "mitreStixId": "intrusion-set--7113eaa5-ba79-4fb3-b68a-398ee9cd698e",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "5b4b6980-3bc7-11e8-84d6-879aaac37dd9",
+          "value": "APT40",
+          "matchedOn": "G0065"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "Asia Pacific Economic Cooperation",
+          "Belgium",
+          "Cambodia",
+          "Germany",
+          "Hong Kong",
+          "Malaysia",
+          "Norway",
+          "Philippines",
+          "Saudi Arabia",
+          "Switzerland",
+          "The Philippines",
+          "United Kingdom",
+          "United States"
+        ],
+        "targetSectors": [
+          "Government",
+          "Private sector"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Gingham Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0059",
+      "mitreName": "Magic Hound",
+      "mitreStixId": "intrusion-set--f9d6633a-55e6-4adc-9263-6ae080421a13",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "b8967b3c-3bc9-11e8-8701-8b1ead8c099e",
+          "value": "APT35",
+          "matchedOn": "G0059"
+        },
+        {
+          "uuid": "f98bac6b-12fd-4cad-be84-c84666932232",
+          "value": "Charming Kitten",
+          "matchedOn": "Charming Kitten"
+        },
+        {
+          "uuid": "c1d44f44-425e-48fd-b78b-84b988da8bc3",
+          "value": "TA453",
+          "matchedOn": "TA453"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Iran",
+        "originCountryCode": "IR",
+        "targetCountries": [
+          "Iraq",
+          "Israel",
+          "Saudi Arabia",
+          "U.S. government/defense sector websites",
+          "United Kingdom"
+        ],
+        "targetSectors": [
+          "Defense",
+          "Diplomacy",
+          "Government",
+          "Government, Administration",
+          "Military",
+          "Technology"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Mint Sandstorm"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0075",
+      "mitreName": "Rancor",
+      "mitreStixId": "intrusion-set--f40eb8ce-2a74-4e56-89a1-227021410142",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "79c7c7e0-79d5-11e8-9b9c-1ff96be20c0b",
+          "value": "RANCOR",
+          "matchedOn": "G0075"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "Cambodia",
+          "Singapore"
+        ],
+        "targetSectors": [
+          "Civil society",
+          "Government"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0078",
+      "mitreName": "Gorgon Group",
+      "mitreStixId": "intrusion-set--1f21da59-6a13-455b-afd0-d58d0a5a7d27",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "e47c2c4d-706b-4098-92a2-b93e7103e131",
+          "value": "The Gorgon Group",
+          "matchedOn": "G0078"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0079",
+      "mitreName": "DarkHydrus",
+      "mitreStixId": "intrusion-set--6b9ebeb5-20bf-48b0-afb7-988d769a2f01",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "ce2c2dfd-2445-4fbc-a747-9e7092e383f9",
+          "value": "DarkHydrus",
+          "matchedOn": "G0079"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0100",
+      "mitreName": "Inception",
+      "mitreStixId": "intrusion-set--ead23196-d7b6-4ce6-a124-4ab4b67d81bd",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "71ef51ca-a791-11e8-a026-07980ca910ca",
+          "value": "Inception Framework",
+          "matchedOn": "G0100"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [
+          "Afghanistan",
+          "Armenia",
+          "Azerbaijan",
+          "Belarus",
+          "Belgium",
+          "Czech Republic",
+          "Greece",
+          "India",
+          "Iran",
+          "Italy",
+          "Kazakhstan",
+          "Kenya",
+          "Malaysia",
+          "Russian Federation",
+          "South Africa",
+          "Suriname",
+          "Turkmenistan",
+          "Ukraine",
+          "United Kingdom",
+          "United States",
+          "Vietnam"
+        ],
+        "targetSectors": [
+          "Government",
+          "Private sector"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0076",
+      "mitreName": "Thrip",
+      "mitreStixId": "intrusion-set--d69e568e-9ac8-4c08-b32c-d93b43ba9172",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "98be4300-a9ef-11e8-9a95-bb9221083cfc",
+          "value": "Thrip",
+          "matchedOn": "G0076"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Unknown",
+        "originCountryCode": null,
+        "targetCountries": [
+          "United States"
+        ],
+        "targetSectors": [
+          "Private sector"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0092",
+      "mitreName": "TA505",
+      "mitreStixId": "intrusion-set--7eda3dd8-b09b-4705-8090-c2ad9fb8c14d",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "03c80674-35f8-4fe0-be2b-226ed0fcd69f",
+          "value": "TA505",
+          "matchedOn": "G0092"
+        },
+        {
+          "uuid": "168a9e38-70e3-4542-b78f-afa2414436bb",
+          "value": "MONTY SPIDER",
+          "matchedOn": "Spandex Tempest"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [
+          "Australia",
+          "Canada",
+          "Czech Republic",
+          "Germany",
+          "Hungary",
+          "India",
+          "Japan",
+          "Romania",
+          "Serbia",
+          "Singapore",
+          "South Korea",
+          "Spain",
+          "Thailand",
+          "Turkey",
+          "United Kingdom",
+          "United States"
+        ],
+        "targetSectors": [
+          "Education",
+          "Finance",
+          "Health",
+          "Hospitality",
+          "Retail"
+        ],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Spandex Tempest"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0087",
+      "mitreName": "APT39",
+      "mitreStixId": "intrusion-set--44e43fad-ffcb-4210-abcf-eaaed9735f80",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "c2c64bd3-a325-446f-91a8-b4c0f173a30b",
+          "value": "APT39",
+          "matchedOn": "G0087"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Iran",
+        "originCountryCode": "IR",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Burgundy Sandstorm"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0063",
+      "mitreName": "BlackOasis",
+      "mitreStixId": "intrusion-set--da49b9f1-ca99-443f-9728-0a074db66850",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "8fbd195f-5e03-4e85-8ca5-4f1dff300bec",
+          "value": "BlackOasis",
+          "matchedOn": "G0063"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0098",
+      "mitreName": "BlackTech",
+      "mitreStixId": "intrusion-set--6fe8a2a1-a1b0-4af8-953d-4babd329f8f8",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "320c42f7-eab7-4ef9-b09a-74396caa6c3e",
+          "value": "BlackTech",
+          "matchedOn": "G0098"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Canary Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0053",
+      "mitreName": "FIN5",
+      "mitreStixId": "intrusion-set--85403903-15e0-4f9f-9be4-a259ecad4022",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "44dc2f9c-8c28-11e9-9b9a-7fdced8cbf70",
+          "value": "FIN5",
+          "matchedOn": "G0053"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0051",
+      "mitreName": "FIN10",
+      "mitreStixId": "intrusion-set--fbe9387f-34e6-4828-ac28-3080020c597b",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "f2d02410-8c2c-11e9-8df1-a31c1fb33d79",
+          "value": "FIN10",
+          "matchedOn": "G0051"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0043",
+      "mitreName": "Group5",
+      "mitreStixId": "intrusion-set--7331c66a-5601-4d3f-acf6-ad9e3035eb40",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "bc8390aa-8c4e-11e9-a9cb-e37c361210af",
+          "value": "Group5",
+          "matchedOn": "G0043"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0048",
+      "mitreName": "RTM",
+      "mitreStixId": "intrusion-set--c416b28c-103b-4df1-909e-78089a7e0e5f",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "88100602-8e8b-11e9-bb7c-1bf20b58e305",
+          "value": "RTM",
+          "matchedOn": "G0048"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0088",
+      "mitreName": "TEMP.Veles",
+      "mitreStixId": "intrusion-set--9538b1a4-4120-4e2d-bf59-3b11fcab05a4",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "90abfc42-91c6-11e9-89b1-af58de8f7ec2",
+          "value": "TEMP.Veles",
+          "matchedOn": "G0088"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0096",
+      "mitreName": "APT41",
+      "mitreStixId": "intrusion-set--18854f55-ac7c-4634-bd9a-352dd07613b7",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "9c124874-042d-48cd-b72b-ccdc51ecbbd6",
+          "value": "APT41",
+          "matchedOn": "G0096"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "China",
+          "France",
+          "Hong Kong",
+          "India",
+          "Italy",
+          "Japan",
+          "Myanmar",
+          "Netherlands",
+          "Singapore",
+          "South Africa",
+          "South Korea",
+          "Switzerland",
+          "Thailand",
+          "Turkey",
+          "United Kingdom",
+          "United States"
+        ],
+        "targetSectors": [
+          "Automotive",
+          "Business",
+          "Cryptocurrency",
+          "Education",
+          "Energy",
+          "Financial",
+          "Healthcare",
+          "High-Tech",
+          "Intergovernmental",
+          "Media and Entertainment",
+          "Pharmaceuticals",
+          "Private sector",
+          "Retail",
+          "Services",
+          "Telecommunications",
+          "Travel"
+        ],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Brass Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0125",
+      "mitreName": "HAFNIUM",
+      "mitreStixId": "intrusion-set--2688b13e-8e71-405a-9c40-0dee94bddf87",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "4f05d6c1-3fc1-4567-91cd-dd4637cc38b5",
+          "value": "HAFNIUM",
+          "matchedOn": "G0125"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Silk Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0127",
+      "mitreName": "TA551",
+      "mitreStixId": "intrusion-set--94873029-f950-4268-9cfd-5032e15cb182",
+      "matchType": "mitre_id",
+      "confidence": 100,
+      "mispActors": [
+        {
+          "uuid": "36e8c848-4d20-47ea-9fc2-31aa17bf82d1",
+          "value": "GOLD CABIN",
+          "matchedOn": "G0127"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0022",
+      "mitreName": "APT3",
+      "mitreStixId": "intrusion-set--0bbdf25b-30ff-4894-a1cd-49260d0dd2d9",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "d144c83e-2302-4947-9e24-856fbf7949ae",
+          "value": "APT3",
+          "matchedOn": "APT3"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "Hong Kong",
+          "United Kingdom",
+          "United States"
+        ],
+        "targetSectors": [
+          "Political party",
+          "Private sector"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Brocade Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0005",
+      "mitreName": "APT12",
+      "mitreStixId": "intrusion-set--c47f937f-1022-4f42-8525-e7a4779a14cb",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "48146604-6693-4db1-bd94-159744726514",
+          "value": "APT12",
+          "matchedOn": "APT12"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "Japan",
+          "Taiwan"
+        ],
+        "targetSectors": [
+          "Government",
+          "Private sector"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Hexagon Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0123",
+      "mitreName": "Volatile Cedar",
+      "mitreStixId": "intrusion-set--b2e34388-6938-4c59-a702-80dc219e15e3",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "cf421ce6-ddfe-419a-bc65-6a9fc953232a",
+          "value": "Volatile Cedar",
+          "matchedOn": "Volatile Cedar"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Lebanon",
+        "originCountryCode": "LB",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Amethyst Rain"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0083",
+      "mitreName": "SilverTerrier",
+      "mitreStixId": "intrusion-set--76565741-3452-4069-ab08-80c0ea95bbeb",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "acbfd9e4-f78c-4ae0-9b52-c35ed679e546",
+          "value": "SilverTerrier",
+          "matchedOn": "SilverTerrier"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Nigeria",
+        "originCountryCode": "NG",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1023",
+      "mitreName": "APT5",
+      "mitreStixId": "intrusion-set--c1aab4c9-4c34-4f4f-8541-d529e46a07f9",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "a47b79ae-7a0c-4308-9efc-294af19cc795",
+          "value": "APT5",
+          "matchedOn": "APT5"
+        },
+        {
+          "uuid": "86dfe64e-7101-4d45-bb94-efc40c5e14fe",
+          "value": "UNC2630",
+          "matchedOn": "UNC2630"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [],
+        "targetSectors": [
+          "Electronic",
+          "Technology",
+          "Telecoms"
+        ],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Mulberry Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0103",
+      "mitreName": "Mofang",
+      "mitreStixId": "intrusion-set--88489675-d216-4884-a98f-49a89fcc1643",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "999f3008-2b2f-467d-ab4d-c5a2fd80b344",
+          "value": "Mofang",
+          "matchedOn": "Mofang"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "Canada",
+          "Germany",
+          "India",
+          "Myanmar",
+          "Singapore",
+          "South Korea",
+          "United States"
+        ],
+        "targetSectors": [
+          "Government",
+          "Private sector"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0094",
+      "mitreName": "Kimsuky",
+      "mitreStixId": "intrusion-set--0ec2f388-bf0f-4b5c-97b1-fc736d26c25f",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "bcaaad6f-0597-4b89-b69b-84a6be2b7bc3",
+          "value": "Kimsuky",
+          "matchedOn": "Kimsuky"
+        },
+        {
+          "uuid": "aac49b4e-74e9-49fa-84f9-e340cf8bafbc",
+          "value": "APT43",
+          "matchedOn": "APT43"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Korea (Democratic People's Republic of)",
+        "originCountryCode": null,
+        "targetCountries": [
+          "Germany",
+          "Korea Institute for Defense Analyses",
+          "Ministry of Unification",
+          "Sejong Institute"
+        ],
+        "targetSectors": [
+          "Academia - University ",
+          "Defense",
+          "Diplomacy",
+          "Energy",
+          "Government",
+          "News - Media",
+          "Private sector",
+          "Research - Innovation"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Emerald Sleet"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0071",
+      "mitreName": "Orangeworm",
+      "mitreStixId": "intrusion-set--5636b7b3-d99b-4edd-aa05-ee649c1d4ef1",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "35d71626-4794-11e8-b74d-bbcbe48fee3c",
+          "value": "Orangeworm",
+          "matchedOn": "Orangeworm"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0129",
+      "mitreName": "Mustang Panda",
+      "mitreStixId": "intrusion-set--420ac20b-f2b9-42b8-aa1a-6d4b72895ca4",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "78bf726c-a9e6-11e8-9e43-77249a2f7339",
+          "value": "MUSTANG PANDA",
+          "matchedOn": "MUSTANG PANDA"
+        },
+        {
+          "uuid": "fceed509-938e-4f9e-acd4-76e6c28dc6f1",
+          "value": "RedDelta",
+          "matchedOn": "RedDelta"
+        },
+        {
+          "uuid": "9ee446fd-b0cd-4662-9cd1-a60b429192db",
+          "value": "Camaro Dragon",
+          "matchedOn": "Camaro Dragon"
+        },
+        {
+          "uuid": "a3e4a57e-4b50-4bca-9282-3307e92e5539",
+          "value": "UNC6384",
+          "matchedOn": "UNC6384"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "Germany",
+          "United States"
+        ],
+        "targetSectors": [
+          "Civil society"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Twill Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0119",
+      "mitreName": "Indrik Spider",
+      "mitreStixId": "intrusion-set--01e28736-2ffc-455b-9880-ed4d1407ae07",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "658314bc-3bb8-48d2-913a-c528607b75c8",
+          "value": "INDRIK SPIDER",
+          "matchedOn": "INDRIK SPIDER"
+        },
+        {
+          "uuid": "c30fbdc8-b66d-4242-a02a-e01946bc86d8",
+          "value": "Evil Corp",
+          "matchedOn": "Evil Corp"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Mustard Tempest"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0105",
+      "mitreName": "DarkVishnya",
+      "mitreStixId": "intrusion-set--813636db-3939-4a45-bea9-6113e970c029",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "db7fd7dd-28f7-4e8d-a807-8405e4b0f4e2",
+          "value": "DarkVishnya",
+          "matchedOn": "DarkVishnya"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0102",
+      "mitreName": "Wizard Spider",
+      "mitreStixId": "intrusion-set--dd2d9ca6-505b-4860-a604-233685b802c7",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "bdf4fe4f-af8a-495f-a719-cf175cecda1f",
+          "value": "WIZARD SPIDER",
+          "matchedOn": "WIZARD SPIDER"
+        },
+        {
+          "uuid": "3cf6dbb5-bf9e-47d4-a8d5-b6d76f5a791f",
+          "value": "GRIM SPIDER",
+          "matchedOn": "GRIM SPIDER"
+        },
+        {
+          "uuid": "3c2bb7d7-a085-4594-adc7-4a20cf724abb",
+          "value": "UNC1878",
+          "matchedOn": "UNC1878"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [
+          "Australia",
+          "Bahamas",
+          "Canada",
+          "Costa Rica",
+          "France",
+          "Germany",
+          "India",
+          "Ireland",
+          "Italy",
+          "Japan",
+          "Mexico",
+          "New Zealand",
+          "Spain",
+          "Switzerland",
+          "Taiwan",
+          "Ukraine",
+          "United Kingdom",
+          "United States"
+        ],
+        "targetSectors": [
+          "Defense",
+          "Financial",
+          "Government",
+          "Healthcare",
+          "Telecommunications"
+        ],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Storm-0230"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0084",
+      "mitreName": "Gallmaker",
+      "mitreStixId": "intrusion-set--2fd2be6a-d3a2-4a65-b499-05ea2693abee",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "c79dab01-3f9f-491e-8a5f-6423339c9f76",
+          "value": "Gallmaker",
+          "matchedOn": "Gallmaker"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0099",
+      "mitreName": "APT-C-36",
+      "mitreStixId": "intrusion-set--c4d50cdf-87ce-407d-86d8-862883485842",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "ae1c64ff-5a37-4291-97f8-ea402c63efd0",
+          "value": "APT-C-36",
+          "matchedOn": "APT-C-36"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [
+          "Chile",
+          "Colombia",
+          "Ecuador",
+          "Panama",
+          "Spain"
+        ],
+        "targetSectors": [
+          "Financial",
+          "Government",
+          "Manufacturing",
+          "Petroleum",
+          "Private sector"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0107",
+      "mitreName": "Whitefly",
+      "mitreStixId": "intrusion-set--b74f909f-8e52-4b69-b770-162bf59a1b4e",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "943f490e-ac7f-40fe-b6f3-33e2623649d2",
+          "value": "Whitefly",
+          "matchedOn": "Whitefly"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G1041",
+      "mitreName": "Sea Turtle",
+      "mitreStixId": "intrusion-set--56a05d27-4d47-418a-b330-781c5614f202",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "ce7bba52-5ae8-44ea-9979-68502d832ab7",
+          "value": "Sea Turtle",
+          "matchedOn": "Sea Turtle"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Turkey",
+        "originCountryCode": "TR",
+        "targetCountries": [
+          "Germany"
+        ],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Marbled Dust"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0122",
+      "mitreName": "Silent Librarian",
+      "mitreStixId": "intrusion-set--90784c1e-4aba-40eb-9adf-7556235e6384",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "5059b44d-2753-4977-b987-4922f09afe6b",
+          "value": "Silent Librarian",
+          "matchedOn": "Silent Librarian"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Iran",
+        "originCountryCode": "IR",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0112",
+      "mitreName": "Windshift",
+      "mitreStixId": "intrusion-set--afec6dc3-a18e-4b62-b1a4-5510e1a498d1",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "cbbbfc82-9294-11e9-8e19-2bc14137b25b",
+          "value": "WindShift",
+          "matchedOn": "WindShift"
+        },
+        {
+          "uuid": "dc3edacc-bb24-11e8-81fb-8c16458922a7",
+          "value": "Bahamut",
+          "matchedOn": "Bahamut"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0106",
+      "mitreName": "Rocke",
+      "mitreStixId": "intrusion-set--44102191-3a31-45f8-acbe-34bdb441d5ad",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "53583c40-935e-11e9-b4fc-d7e217a306d2",
+          "value": "Rocke",
+          "matchedOn": "Rocke"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0126",
+      "mitreName": "Higaisa",
+      "mitreStixId": "intrusion-set--54dfec3e-6464-4f74-9d69-b7c817b7e5a3",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "a9df6cb7-74ff-482f-b23b-ac40e975a31a",
+          "value": "Higaisa",
+          "matchedOn": "Higaisa"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Korea (Republic of)",
+        "originCountryCode": null,
+        "targetCountries": [
+          "China",
+          "Japan",
+          "Nepal",
+          "North Korea",
+          "Poland",
+          "Russian Federation",
+          "Singapore",
+          "Switzerland"
+        ],
+        "targetSectors": [
+          "Government"
+        ],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0093",
+      "mitreName": "GALLIUM",
+      "mitreStixId": "intrusion-set--06a11b7e-2a36-47fe-8d3e-82c265df3258",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "e400b6c5-77cf-453d-ba0f-44575583ac6c",
+          "value": "GALLIUM",
+          "matchedOn": "GALLIUM"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Granite Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0120",
+      "mitreName": "Evilnum",
+      "mitreStixId": "intrusion-set--1f0f9a14-11aa-49aa-9174-bcd0eaa979de",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "b6f3150f-2240-4c57-9dda-5144c5077058",
+          "value": "Evilnum",
+          "matchedOn": "Evilnum"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0117",
+      "mitreName": "Fox Kitten",
+      "mitreStixId": "intrusion-set--c21dd6f1-1364-4a70-a1f7-783080ec34ee",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "bfb0bc20-5bdf-47ff-b07f-dbd9a3cb9772",
+          "value": "Fox Kitten",
+          "matchedOn": "Fox Kitten"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Iran",
+        "originCountryCode": "IR",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Lemon Sandstorm"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0139",
+      "mitreName": "TeamTNT",
+      "mitreStixId": "intrusion-set--35d1b3be-49d4-42f1-aaa6-ef159c880bca",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "27de6a09-844b-4dcb-9ff9-7292aad826ba",
+          "value": "TeamTNT",
+          "matchedOn": "TeamTNT"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G1042",
+      "mitreName": "RedEcho",
+      "mitreStixId": "intrusion-set--2c40f629-6cf9-4f75-af32-9a98caec24ae",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "986fcc3f-5f36-4975-bf5f-c42524466bbd",
+          "value": "RedEcho",
+          "matchedOn": "RedEcho"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0115",
+      "mitreName": "GOLD SOUTHFIELD",
+      "mitreStixId": "intrusion-set--c77c5576-ca19-42ed-a36f-4b4486a84133",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "262c8537-1cdb-4297-aa3e-1410164160bf",
+          "value": "GOLD SOUTHFIELD",
+          "matchedOn": "GOLD SOUTHFIELD"
+        },
+        {
+          "uuid": "80f07c15-cad3-44a2-a8a4-dd14490b5117",
+          "value": "PINCHY SPIDER",
+          "matchedOn": "PINCHY SPIDER"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0135",
+      "mitreName": "BackdoorDiplomacy",
+      "mitreStixId": "intrusion-set--9735c036-8ebe-47e9-9c77-b0ae656dab93",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "6472be4d-c186-4c86-b3b7-7dc1b4d3a3d8",
+          "value": "BackdoorDiplomacy",
+          "matchedOn": "BackdoorDiplomacy"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [
+          "Albania",
+          "Croatia",
+          "Georgia",
+          "Iran",
+          "Libya",
+          "Namibia",
+          "Poland",
+          "Qatar",
+          "Saudi Arabia",
+          "Sri Lanka",
+          "Sudan",
+          "Uzbekistan"
+        ],
+        "targetSectors": [
+          "Government",
+          "Telecomms"
+        ],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1016",
+      "mitreName": "FIN13",
+      "mitreStixId": "intrusion-set--fd66436e-4d33-450e-ac4c-f7810f1c85f4",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "60fa684d-c738-4b77-98fb-3f6605e2bb82",
+          "value": "FIN13",
+          "matchedOn": "FIN13"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1008",
+      "mitreName": "SideCopy",
+      "mitreStixId": "intrusion-set--03be849d-b5a2-4766-9dda-48976bae5710",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "f6d02ac3-3447-4892-b844-1ef31839e04f",
+          "value": "SideCopy",
+          "matchedOn": "SideCopy"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Pakistan",
+        "originCountryCode": "PK",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Storm-0156"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1018",
+      "mitreName": "TA2541",
+      "mitreStixId": "intrusion-set--467271fd-47c0-4e90-a3f9-d84f5cf790d0",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "a57e5bf5-d7f4-43a1-9c15-8a44cdb95079",
+          "value": "TA2541",
+          "matchedOn": "TA2541"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G1011",
+      "mitreName": "EXOTIC LILY",
+      "mitreStixId": "intrusion-set--129f2f77-1ab2-4c35-bd5e-21260cee92af",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "3ce2a9e0-c435-402a-a7f3-d48b64d1ab9d",
+          "value": "EXOTIC LILY",
+          "matchedOn": "EXOTIC LILY"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G1038",
+      "mitreName": "TA578",
+      "mitreStixId": "intrusion-set--a5cfbc79-316c-42f2-915d-6e8fef4085f8",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "d1a8626a-06a5-4ecc-9519-e17fc6724f15",
+          "value": "TA578",
+          "matchedOn": "TA578"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G1022",
+      "mitreName": "ToddyCat",
+      "mitreStixId": "intrusion-set--b516b235-fc7d-4635-aca5-3d33312339c3",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "091a0b69-74de-44b6-bb12-16b7a8fd078b",
+          "value": "ToddyCat",
+          "matchedOn": "ToddyCat"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [
+          "Afghanistan",
+          "India",
+          "Indonesia",
+          "Iran",
+          "Kyrgyzstan",
+          "Malaysia",
+          "Pakistan",
+          "Russian Federation",
+          "Slovakia",
+          "Taiwan",
+          "Thailand",
+          "United Kingdom",
+          "Uzbekistan",
+          "Vietnam"
+        ],
+        "targetSectors": [
+          "Government",
+          "Military"
+        ],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Storm-0247"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1005",
+      "mitreName": "POLONIUM",
+      "mitreStixId": "intrusion-set--5f3d0238-d058-44a9-8812-3dd1b6741a8c",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "3c5129ea-8f18-4bcf-a33b-b5aab0720494",
+          "value": "POLONIUM",
+          "matchedOn": "POLONIUM"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Lebanon",
+        "originCountryCode": "LB",
+        "targetCountries": [
+          "Israel"
+        ],
+        "targetSectors": [
+          "Civil Society",
+          "Critical manufacturing",
+          "Defense",
+          "Defense industrial base",
+          "Financial services",
+          "Food and agriculture",
+          "Government agencies and services",
+          "Healthcare",
+          "Information technology",
+          "Military",
+          "NGOs",
+          "Pharmaceuticals",
+          "Transportation systems"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Plaid Rain"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1006",
+      "mitreName": "Earth Lusca",
+      "mitreStixId": "intrusion-set--cc613a49-9bfa-4e22-98d1-15ffbb03f034",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "39150b30-61af-4d9c-9682-1595e145f3c1",
+          "value": "Earth Lusca",
+          "matchedOn": "Earth Lusca"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "Australia",
+          "China",
+          "France",
+          "Germany",
+          "Hong Kong",
+          "Japan",
+          "Mongolia",
+          "Nepal",
+          "Nigeria",
+          "Philippines",
+          "Taiwan",
+          "Thailand",
+          "United Arab Emirates",
+          "United States",
+          "Vietnam"
+        ],
+        "targetSectors": [
+          "Covid-19 research organizations",
+          "Cryptocurrency",
+          "Education",
+          "Gambling companies",
+          "Government Institutions",
+          "Media and Entertainment",
+          "Medical",
+          "Pro-democracy and human rights political organizations",
+          "Religious organization",
+          "Telecommunications"
+        ],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Charcoal Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1007",
+      "mitreName": "Aoqin Dragon",
+      "mitreStixId": "intrusion-set--64d5f96a-f121-4d19-89f6-6709f5c49faa",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "fa1fdccb-1a06-4607-bd45-1a7df4db02d7",
+          "value": "Aoqin Dragon",
+          "matchedOn": "Aoqin Dragon"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "Australia",
+          "Cambodia",
+          "Hong Kong",
+          "Singapore",
+          "Vietnam"
+        ],
+        "targetSectors": [
+          "Education",
+          "Government",
+          "Telecommunications"
+        ],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1026",
+      "mitreName": "Malteiro",
+      "mitreStixId": "intrusion-set--bf668120-e9a6-4017-a014-bfc0f5232656",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "ba57c28a-47d0-46ba-a933-9aed69f7b84f",
+          "value": "Malteiro",
+          "matchedOn": "Malteiro"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G1037",
+      "mitreName": "TA577",
+      "mitreStixId": "intrusion-set--13ef3485-70d2-4567-b934-0e83c1eafcf1",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "e405b7d0-3eed-4f9d-9b68-728e9793974c",
+          "value": "TA577",
+          "matchedOn": "TA577"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1044",
+      "mitreName": "APT42",
+      "mitreStixId": "intrusion-set--c0291346-defe-48d7-9542-9e074ba1bdfb",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "35f887ad-6709-4d0b-8e9c-6b3fa09c783f",
+          "value": "APT42",
+          "matchedOn": "APT42"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Iran (Islamic Republic of)",
+        "originCountryCode": null,
+        "targetCountries": [
+          "Australia",
+          "Europe",
+          "Israel",
+          "Middle East",
+          "United States"
+        ],
+        "targetSectors": [
+          "Civil Society",
+          "Defense",
+          "Education",
+          "Energy",
+          "Finance",
+          "Government",
+          "Healthcare",
+          "Legal",
+          "Manufacturing",
+          "Media",
+          "Military",
+          "NGOs",
+          "Pharmaceuticals"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1017",
+      "mitreName": "Volt Typhoon",
+      "mitreStixId": "intrusion-set--174279b4-399f-4ddb-966e-5efedd1dd5f2",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "f02679fa-5e85-4050-8eb5-c2677d93306f",
+          "value": "Volt Typhoon",
+          "matchedOn": "Volt Typhoon"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Volt Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1019",
+      "mitreName": "MoustachedBouncer",
+      "mitreStixId": "intrusion-set--7251b44b-6072-476c-b8d9-a6e32c355b28",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "01ac8b25-492e-444b-891b-968f2694e7b2",
+          "value": "MoustachedBouncer",
+          "matchedOn": "MoustachedBouncer"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Belarus",
+        "originCountryCode": "BY",
+        "targetCountries": [
+          "Eastern Europe",
+          "Europe",
+          "Northeast Africa",
+          "South Asia"
+        ],
+        "targetSectors": [
+          "Government"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Storm-1125"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1015",
+      "mitreName": "Scattered Spider",
+      "mitreStixId": "intrusion-set--44d37b89-a739-4810-9111-0d2617a8939b",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "3b238f3a-c67a-4a9e-b474-dc3897e00129",
+          "value": "Scattered Spider",
+          "matchedOn": "Scattered Spider"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Octo Tempest"
+        }
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G1035",
+      "mitreName": "Winter Vivern",
+      "mitreStixId": "intrusion-set--75a07184-a7e5-4222-95a1-a04dbc96a29c",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "b7497d28-02de-4722-8b97-1fc53e1d1b68",
+          "value": "Winter Vivern",
+          "matchedOn": "Winter Vivern"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [
+          "Germany"
+        ],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1048",
+      "mitreName": "UNC3886",
+      "mitreStixId": "intrusion-set--461b8e25-8f4a-4ea2-a4a8-e39df7ce6630",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "8c08dbe7-3ed0-4d7d-b315-22d8774a5bd9",
+          "value": "UNC3886",
+          "matchedOn": "UNC3886"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1013",
+      "mitreName": "Metador",
+      "mitreStixId": "intrusion-set--bfc5ddb3-4dfb-4278-8928-020e1b3feddd",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "5d22315b-55ef-4d8a-86aa-00ba38057641",
+          "value": "Metador",
+          "matchedOn": "Metador"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0136",
+      "mitreName": "IndigoZebra",
+      "mitreStixId": "intrusion-set--e5603ea8-4c36-40e7-b7af-a077d24fedc1",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "79e826b0-b051-4a61-b38c-496021b3afdb",
+          "value": "IndigoZebra",
+          "matchedOn": "IndigoZebra"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0090",
+      "mitreName": "WIRTE",
+      "mitreStixId": "intrusion-set--f8cb7b36-62ef-4488-8a6d-a7033e3271c1",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "ec6bcaa9-4cb3-4397-a735-c806bc986c81",
+          "value": "WIRTE",
+          "matchedOn": "WIRTE"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "PS",
+        "originCountryCode": "PS",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1020",
+      "mitreName": "Mustard Tempest",
+      "mitreStixId": "intrusion-set--0d4ac089-ced4-4cc4-a989-174d08e6d030",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "3ce9610b-2435-4c41-80d1-3f95a5ff2984",
+          "value": "Mustard Tempest",
+          "matchedOn": "Mustard Tempest"
+        },
+        {
+          "uuid": "8134c96d-d6ed-49cc-99d6-fe74c0636387",
+          "value": "GOLD PRELUDE",
+          "matchedOn": "GOLD PRELUDE"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Mustard Tempest"
+        }
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0137",
+      "mitreName": "Ferocious Kitten",
+      "mitreStixId": "intrusion-set--6566aac9-dad8-4332-ae73-20c23bad7f02",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "f34962a4-a792-4f23-af23-a8bf0f053fcf",
+          "value": "Ferocious Kitten",
+          "matchedOn": "Ferocious Kitten"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Iran",
+        "originCountryCode": "IR",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1053",
+      "mitreName": "Storm-0501",
+      "mitreStixId": "intrusion-set--7b404cd0-3ae9-41d4-90c0-023793d35d97",
+      "matchType": "exact_name",
+      "confidence": 95,
+      "mispActors": [
+        {
+          "uuid": "f6a60403-4bcc-4fc6-ac07-abb913c1f080",
+          "value": "Storm-0501",
+          "matchedOn": "Storm-0501"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Storm-0501"
+        }
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0130",
+      "mitreName": "Ajax Security Team",
+      "mitreStixId": "intrusion-set--fa19de15-6169-428d-9cd6-3ca3d56075b7",
+      "matchType": "alias",
+      "confidence": 80,
+      "mispActors": [
+        {
+          "uuid": "ba724df5-9aa0-45ca-8e0e-7101c208ae48",
+          "value": "Flying Kitten",
+          "matchedOn": "Flying Kitten"
+        },
+        {
+          "uuid": "f873db71-3d53-41d5-b141-530675ade27a",
+          "value": "Rocket Kitten",
+          "matchedOn": "Rocket Kitten"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Iran (Islamic Republic of)",
+        "originCountryCode": null,
+        "targetCountries": [
+          "Afghanistan",
+          "Canada",
+          "Egypt",
+          "Iran",
+          "Iranian internet activists",
+          "Iraq",
+          "Israel",
+          "Jordan",
+          "Kuwait",
+          "Saudi Arabia",
+          "Syria",
+          "Turkey",
+          "United Arab Emirates",
+          "United Kingdom",
+          "United States",
+          "Venezuela",
+          "Yemen"
+        ],
+        "targetSectors": [
+          "Academia - University",
+          "Activists",
+          "Aerospace",
+          "Civil society",
+          "Defense",
+          "Gas",
+          "Government",
+          "Government, Administration",
+          "Journalist",
+          "Military",
+          "Oil",
+          "Research - Innovation"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0138",
+      "mitreName": "Andariel",
+      "mitreStixId": "intrusion-set--39d6890e-7f23-4474-b8ef-e7b0343c5fc8",
+      "matchType": "alias",
+      "confidence": 80,
+      "mispActors": [
+        {
+          "uuid": "245c8dde-ed42-4c49-b48b-634e3e21bdd7",
+          "value": "Silent Chollima",
+          "matchedOn": "Silent Chollima"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "North Korea",
+        "originCountryCode": "KP",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Onyx Sleet"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0077",
+      "mitreName": "Leafminer",
+      "mitreStixId": "intrusion-set--32bca8ff-d900-4877-aa65-d70baa041b74",
+      "matchType": "alias",
+      "confidence": 80,
+      "mispActors": [
+        {
+          "uuid": "2c8994ba-367c-46f6-bfb0-390c8760dd9e",
+          "value": "RASPITE",
+          "matchedOn": "RASPITE"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [
+          "Electric"
+        ],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0082",
+      "mitreName": "APT38",
+      "mitreStixId": "intrusion-set--00f67a77-86a4-4adf-be26-1a54fc713340",
+      "matchType": "alias",
+      "confidence": 80,
+      "mispActors": [
+        {
+          "uuid": "d8e1762a-0063-48c2-9ea1-8d176d14b70f",
+          "value": "STARDUST CHOLLIMA",
+          "matchedOn": "STARDUST CHOLLIMA"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Sapphire Sleet"
+        }
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0128",
+      "mitreName": "ZIRCONIUM",
+      "mitreStixId": "intrusion-set--4283ae19-69c7-4347-a35e-b56f08eb660b",
+      "matchType": "alias",
+      "confidence": 80,
+      "mispActors": [
+        {
+          "uuid": "6bf7e6b6-5917-45a6-9567-f0baba79768c",
+          "value": "APT31",
+          "matchedOn": "APT31"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Violet Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1001",
+      "mitreName": "HEXANE",
+      "mitreStixId": "intrusion-set--f29b7c5e-2439-42ad-a86f-9f8984fafae3",
+      "matchType": "alias",
+      "confidence": 80,
+      "mispActors": [
+        {
+          "uuid": "e1b95185-8db6-4f3c-9ffd-1749087d934a",
+          "value": "LYCEUM",
+          "matchedOn": "LYCEUM"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Iran (Islamic Republic of)",
+        "originCountryCode": null,
+        "targetCountries": [
+          "Israel",
+          "Middle East"
+        ],
+        "targetSectors": [
+          "Defense",
+          "Education",
+          "Energy",
+          "Government",
+          "High-Tech",
+          "Military",
+          "Telecomms"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Storm-0133"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1003",
+      "mitreName": "Ember Bear",
+      "mitreStixId": "intrusion-set--a7f57cc1-4540-4429-823f-f4e56b8473c9",
+      "matchType": "alias",
+      "confidence": 80,
+      "mispActors": [
+        {
+          "uuid": "a5f64c1a-c829-4855-903d-e0ff2098b2d7",
+          "value": "DEV-0586",
+          "matchedOn": "DEV-0586"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [
+          "Ukraine"
+        ],
+        "targetSectors": [],
+        "activityType": "Sabotage",
+        "vendorNames": {
+          "microsoft": "Cadet Blizzard"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1021",
+      "mitreName": "Cinnamon Tempest",
+      "mitreStixId": "intrusion-set--8b1e16f6-e7c8-4b7a-a5df-f81232c13e2f",
+      "matchType": "alias",
+      "confidence": 80,
+      "mispActors": [
+        {
+          "uuid": "737c0207-1a1a-4480-86e7-b6a5066e1ee5",
+          "value": "BRONZE STARLIGHT",
+          "matchedOn": "BRONZE STARLIGHT"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Cinnamon Tempest"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1034",
+      "mitreName": "Daggerfly",
+      "mitreStixId": "intrusion-set--f3be6240-f68e-47e1-90d2-ad8f3b3bb8a6",
+      "matchType": "alias",
+      "confidence": 80,
+      "mispActors": [
+        {
+          "uuid": "62710572-e416-419d-bb1f-81ffc1ddc976",
+          "value": "BRONZE HIGHLAND",
+          "matchedOn": "BRONZE HIGHLAND"
+        },
+        {
+          "uuid": "171d0590-be92-443f-addb-af5dc2a8034d",
+          "value": "Evasive Panda",
+          "matchedOn": "Evasive Panda"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [
+          "Hong Kong",
+          "India",
+          "Macao",
+          "Malaysia",
+          "Nigeria",
+          "Taiwan"
+        ],
+        "targetSectors": [
+          "Government",
+          "Individuals",
+          "Universities"
+        ],
+        "activityType": "Espionage"
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0133",
+      "mitreName": "Nomadic Octopus",
+      "mitreStixId": "intrusion-set--fed4f0a2-4347-4530-b0f5-6dfd49b29172",
+      "matchType": "alias",
+      "confidence": 80,
+      "mispActors": [
+        {
+          "uuid": "7b227f41-efea-4dc0-8a2a-148893795ce4",
+          "value": "DustSquad",
+          "matchedOn": "DustSquad"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1049",
+      "mitreName": "AppleJeus",
+      "mitreStixId": "intrusion-set--14225573-63b5-4e50-ba9a-5fdcaf6a7b4c",
+      "matchType": "alias",
+      "confidence": 80,
+      "mispActors": [
+        {
+          "uuid": "afe5526e-e5e4-4b05-bc69-2bfb6785fc7e",
+          "value": "UNC4736",
+          "matchedOn": "UNC4736"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "North Korea",
+        "originCountryCode": "KP",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1030",
+      "mitreName": "Agrius",
+      "mitreStixId": "intrusion-set--b8137919-38cb-4db0-90f3-437be885faba",
+      "matchType": "alias",
+      "confidence": 80,
+      "mispActors": [
+        {
+          "uuid": "0876c327-c82a-45f7-82fa-267c312ceb05",
+          "value": "Pink Sandstorm",
+          "matchedOn": "Pink Sandstorm"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Iran",
+        "originCountryCode": "IR",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Pink Sandstorm"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0134",
+      "mitreName": "Transparent Tribe",
+      "mitreStixId": "intrusion-set--e44e0985-bc65-4a8f-b578-211c858128e3",
+      "matchType": "synonym_to_name",
+      "confidence": 70,
+      "mispActors": [
+        {
+          "uuid": "acbb5cad-ffe7-4b0e-a57a-2dbc916e8905",
+          "value": "Operation C-Major",
+          "matchedOn": "Transparent Tribe"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Pakistan",
+        "originCountryCode": "PK",
+        "targetCountries": [],
+        "targetSectors": [
+          "Activists",
+          "Civil society",
+          "Government",
+          "Military"
+        ],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Storm-0156"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1033",
+      "mitreName": "Star Blizzard",
+      "mitreStixId": "intrusion-set--9b36c218-4d80-4ec6-a68d-cc2886bbe410",
+      "matchType": "synonym_to_name",
+      "confidence": 70,
+      "mispActors": [
+        {
+          "uuid": "fbd279ab-c095-48dc-ba48-4bece3dd5b0f",
+          "value": "Callisto",
+          "matchedOn": "Star Blizzard"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [],
+        "targetSectors": [
+          "Government Administration",
+          "Journalist",
+          "Military",
+          "Think Tanks"
+        ],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Star Blizzard"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1028",
+      "mitreName": "APT-C-23",
+      "mitreStixId": "intrusion-set--8332952e-b86b-486b-acc3-1c2a85d39394",
+      "matchType": "synonym_to_name",
+      "confidence": 70,
+      "mispActors": [
+        {
+          "uuid": "0cfff0f4-868c-40a1-b9b4-0d153c0b33b6",
+          "value": "AridViper",
+          "matchedOn": "APT-C-23"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Palestine",
+        "originCountryCode": null,
+        "targetCountries": [
+          "Europe",
+          "Israel",
+          "Middle East",
+          "Palestine",
+          "United States"
+        ],
+        "targetSectors": [
+          "Civil Society",
+          "Defense",
+          "Education",
+          "Energy",
+          "Finance",
+          "Government",
+          "High-Tech",
+          "Legal",
+          "Media",
+          "Military",
+          "NGOs",
+          "Telecoms",
+          "Transportation"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Pinstripe Lightning"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G0091",
+      "mitreName": "Silence",
+      "mitreStixId": "intrusion-set--d13c8a7f-740b-4efa-a232-de7d6bb05321",
+      "matchType": "synonym_to_name",
+      "confidence": 70,
+      "mispActors": [
+        {
+          "uuid": "0d5e17fd-7a71-47fd-b4bc-867cdb833726",
+          "value": "Silence group",
+          "matchedOn": "Silence"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G0121",
+      "mitreName": "Sidewinder",
+      "mitreStixId": "intrusion-set--3fc023b2-c5cc-481d-9c3e-70141ae1a87e",
+      "matchType": "synonym_to_name",
+      "confidence": 70,
+      "mispActors": [
+        {
+          "uuid": "c4ce1174-9462-47e9-8038-794f40a184b3",
+          "value": "RAZOR TIGER",
+          "matchedOn": "SideWinder"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "India",
+        "originCountryCode": "IN",
+        "targetCountries": [
+          "Afghanistan",
+          "China",
+          "Nepal",
+          "Pakistan"
+        ],
+        "targetSectors": [
+          "Government",
+          "Military",
+          "Private Sector"
+        ],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1009",
+      "mitreName": "Moses Staff",
+      "mitreStixId": "intrusion-set--4c4a7846-45d5-4761-8eea-725fa989914c",
+      "matchType": "synonym_to_name",
+      "confidence": 70,
+      "mispActors": [
+        {
+          "uuid": "d45dd940-b38d-4b2c-9f2f-3e4a0eac841c",
+          "value": "MosesStaff",
+          "matchedOn": "Moses Staff"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Iran",
+        "originCountryCode": "IR",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Marigold Sandstorm"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1002",
+      "mitreName": "BITTER",
+      "mitreStixId": "intrusion-set--7f848c02-4d1e-4808-a4ae-4670681370a9",
+      "matchType": "synonym_to_name",
+      "confidence": 70,
+      "mispActors": [
+        {
+          "uuid": "1e9bd6fe-e009-41ce-8e92-ad78c73ee772",
+          "value": "HAZY TIGER",
+          "matchedOn": "Bitter"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "India",
+        "originCountryCode": "IN",
+        "targetCountries": [
+          "Germany"
+        ],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1004",
+      "mitreName": "LAPSUS$",
+      "mitreStixId": "intrusion-set--d8bc9788-4f7d-41a9-9e9d-ee1ea18a8cf7",
+      "matchType": "synonym_to_name",
+      "confidence": 70,
+      "mispActors": [
+        {
+          "uuid": "d9e5be22-1a04-4956-af6c-37af02330980",
+          "value": "LAPSUS",
+          "matchedOn": "LAPSUS$"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Strawberry Tempest"
+        }
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G1031",
+      "mitreName": "Saint Bear",
+      "mitreStixId": "intrusion-set--674582ec-51c4-42ce-b409-797239e37a2a",
+      "matchType": "synonym_to_name",
+      "confidence": 70,
+      "mispActors": [
+        {
+          "uuid": "c67d3dfb-ab39-46e1-a971-5efdfe6a5b9f",
+          "value": "SaintBear",
+          "matchedOn": "Saint Bear"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Russian Federation",
+        "originCountryCode": "RU",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Cadet Blizzard"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1024",
+      "mitreName": "Akira",
+      "mitreStixId": "intrusion-set--46bb06cb-f2d9-4b37-8c92-a27e224ad90d",
+      "matchType": "synonym_to_name",
+      "confidence": 70,
+      "mispActors": [
+        {
+          "uuid": "3a912680-6f38-4fe7-9941-744f0e2280b3",
+          "value": "Storm-1567",
+          "matchedOn": "Akira"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Storm-1567"
+        }
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G1045",
+      "mitreName": "Salt Typhoon",
+      "mitreStixId": "intrusion-set--1c3dcf91-b859-4aae-a09c-ae26dc8b6390",
+      "matchType": "synonym_to_name",
+      "confidence": 70,
+      "mispActors": [
+        {
+          "uuid": "3c3ca8f3-c6ab-4c5d-9bd0-be6677d6cdeb",
+          "value": "GhostEmperor",
+          "matchedOn": "Salt Typhoon"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "China",
+        "originCountryCode": "CN",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Salt Typhoon"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1039",
+      "mitreName": "RedCurl",
+      "mitreStixId": "intrusion-set--82323c70-4186-4b61-94f5-b227c3b28e89",
+      "matchType": "synonym_to_name",
+      "confidence": 70,
+      "mispActors": [
+        {
+          "uuid": "d4004926-bf12-4cfe-b141-563c8ffb304a",
+          "value": "Earth Kapre",
+          "matchedOn": "RedCurl"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G1046",
+      "mitreName": "Storm-1811",
+      "mitreStixId": "intrusion-set--319fd652-edde-46b2-9987-3519493989f5",
+      "matchType": "synonym_to_name",
+      "confidence": 70,
+      "mispActors": [
+        {
+          "uuid": "8191e28a-fb2d-4d50-b992-b877807a2f37",
+          "value": "UNC4393",
+          "matchedOn": "Storm-1811"
+        }
+      ],
+      "enrichment": {
+        "originCountry": null,
+        "originCountryCode": null,
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null,
+        "vendorNames": {
+          "microsoft": "Storm-1811"
+        }
+      },
+      "warnings": [
+        "No targeting data available from matched MISP actors"
+      ]
+    },
+    {
+      "mitreId": "G1012",
+      "mitreName": "CURIUM",
+      "mitreStixId": "intrusion-set--3ea7add5-5b8f-45d8-b1f1-905d2729d62a",
+      "matchType": "synonym_to_alias",
+      "confidence": 60,
+      "mispActors": [
+        {
+          "uuid": "5f108484-db7f-11e9-aaa4-fb0176425734",
+          "value": "Tortoiseshell",
+          "matchedOn": "Yellow Liderc"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "Iran (Islamic Republic of)",
+        "originCountryCode": null,
+        "targetCountries": [
+          "Europe",
+          "Israel",
+          "Middle East",
+          "United States"
+        ],
+        "targetSectors": [
+          "Civil Society",
+          "Defense",
+          "Energy",
+          "Finance",
+          "Government",
+          "Healthcare",
+          "High-Tech",
+          "Legal",
+          "Media",
+          "Military",
+          "NGOs",
+          "Pharmaceuticals",
+          "Rail",
+          "Telecoms",
+          "Transportation"
+        ],
+        "activityType": "Espionage",
+        "vendorNames": {
+          "microsoft": "Smoke Sandstorm"
+        }
+      },
+      "warnings": []
+    },
+    {
+      "mitreId": "G1052",
+      "mitreName": "Contagious Interview",
+      "mitreStixId": "intrusion-set--46599a4a-77ee-4697-9474-2683b6464859",
+      "matchType": "synonym_to_alias",
+      "confidence": 60,
+      "mispActors": [
+        {
+          "uuid": "09aa3edb-e956-43f0-9fcb-a3154b47d202",
+          "value": "WageMole",
+          "matchedOn": "PurpleBravo"
+        }
+      ],
+      "enrichment": {
+        "originCountry": "North Korea",
+        "originCountryCode": "KP",
+        "targetCountries": [],
+        "targetSectors": [],
+        "activityType": null
+      },
+      "warnings": []
+    }
+  ],
+  "ambiguous": [],
+  "unmatchedMitre": [
+    "G1014",
+    "G1051",
+    "G1047",
+    "G0143",
+    "G1040",
+    "G0114",
+    "G0073",
+    "G0028",
+    "G1032",
+    "G0044",
+    "G0124",
+    "G0108",
+    "G0142",
+    "G1043",
+    "G1036",
+    "G0001",
+    "G0008",
+    "G0089",
+    "G0140",
+    "G1050",
+    "G0002"
+  ]
+}

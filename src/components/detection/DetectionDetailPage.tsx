@@ -1,0 +1,703 @@
+import React, { useState, useEffect } from 'react';
+import { Detection, Role, hasPermission } from '../../types';
+import { Icon } from '../Icon';
+import { Breadcrumb } from '../ui';
+import { StatusBadge } from '../StatusBadge';
+import { OverviewTab } from './tabs/OverviewTab';
+import { DetectionLogicTab } from './tabs/DetectionLogicTab';
+import { InvestigationTab } from './tabs/InvestigationTab';
+import { TuningTab } from './tabs/TuningTab';
+import { HistoryTab } from './tabs/HistoryTab';
+import { SEVERITY_COLORS } from '../../constants';
+import { useToast } from '../../hooks/useToast';
+import { CircularProgress } from '../CircularProgress';
+import { PublishStatusBadge, PublishModal, PDFExportModal } from '../library';
+import { useLibrary } from '../../context/LibraryContext';
+import { sourceConfig } from '../card-utils';
+import { CollaborationTab } from './tabs/CollaborationTab';
+import { DeployDetectionModal } from '../integrations/DeployDetectionModal';
+import { DeploymentHistoryTab } from '../integrations/DeploymentHistoryTab';
+import { batchResolveTechniques } from '../../mitre';
+import { supabase } from '../../lib/supabaseClient';
+import { SimilarDetectionsPanel } from './SimilarDetectionsPanel';
+
+interface DetectionDetailPageProps {
+  detection: Detection;
+  onBack: () => void;
+  onEdit: (detection: Detection) => void;
+  onDelete: (id: string) => Promise<void>;
+  userRole?: Role;
+  onNavigateToGroup?: (mitreId: string) => void;
+  onNavigateToSoftware?: (mitreId: string) => void;
+  onNavigateToCampaign?: (mitreId: string) => void;
+  onNavigateToTechnique?: (mitreId: string) => void;
+  onNavigateToDetection?: (detectionId: string) => void; // NEW: For viewing source rule
+}
+
+type TabId = 'overview' | 'logic' | 'investigation' | 'tuning' | 'collaboration' | 'history' | 'deployments';
+
+const TABS: { id: TabId; label: string; icon?: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'logic', label: 'Detection Query' },
+  { id: 'investigation', label: 'Investigation' },
+  { id: 'tuning', label: 'Validation & Tuning' },
+  { id: 'collaboration', label: 'Collaboration' },
+  { id: 'deployments', label: 'Deployments' },
+  { id: 'history', label: 'History' }
+];
+
+export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
+  detection,
+  onBack,
+  onEdit,
+  onDelete,
+  userRole = 'analyst',
+  onNavigateToGroup,
+  onNavigateToSoftware,
+  onNavigateToCampaign,
+  onNavigateToTechnique,
+  onNavigateToDetection
+}) => {
+  const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
+  const [isPDFExportModalOpen, setIsPDFExportModalOpen] = useState(false);
+  const [isCopying, setIsCopying] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isResolvingMitre, setIsResolvingMitre] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
+  const [sourceRule, setSourceRule] = useState<Detection | null>(null);
+  const [rejectionReason, setRejectionReason] = useState<string | null>(null);
+  const { showToast } = useToast();
+  const { 
+    copyToUserLibrary, 
+    refreshUserLibrary, 
+    refreshUniversalLibrary, 
+    universalDetections,
+    submitForPublish 
+  } = useLibrary();
+
+  // Determine library type and permissions
+  const isUniversalRule = detection.library_type === 'universal';
+  const isUserRule = detection.library_type === 'user' || !detection.library_type;
+  const isCopiedFromUniversal = detection.source_rule_id !== null;
+  const isAdmin = userRole === 'admin';
+  
+  const isOwnerOrAdmin = userRole === 'owner' || userRole === 'admin';
+  // Can delete: own user rules OR owner/admin can delete universal rules
+  const canDelete = isUserRule || (isUniversalRule && isOwnerOrAdmin);
+  // Can edit: user rules always, or universal rules if owner/admin
+  const canEdit = isUserRule || (isUniversalRule && isOwnerOrAdmin);
+
+  // E2: Fetch source rule info for forked detections
+  useEffect(() => {
+    if (isCopiedFromUniversal && detection.source_rule_id) {
+      const source = universalDetections.find(d => d.id === detection.source_rule_id);
+      setSourceRule(source || null);
+    }
+  }, [detection.source_rule_id, isCopiedFromUniversal, universalDetections]);
+
+  const [localDetection, setLocalDetection] = useState<Detection>(detection);
+
+  // Add useEffect to sync with prop
+  useEffect(() => {
+    setLocalDetection(detection);
+  }, [detection]);
+
+  // Handler for collaboration updates
+  const handleDetectionUpdate = (updatedDetection: Detection) => {
+    setLocalDetection(updatedDetection);
+  };
+
+  // E3: Fetch rejection reason if status is rejected
+  useEffect(() => {
+    const fetchRejectionReason = async () => {
+      if (detection.publish_status === 'rejected') {
+        try {
+          const { supabase } = await import('../../lib/supabaseClient');
+          const { data } = await supabase
+            .from('publish_requests')
+            .select('review_notes')
+            .eq('detection_id', detection.id)
+            .eq('status', 'rejected')
+            .order('reviewed_at', { ascending: false })
+            .limit(1)
+            .single();
+          
+          if (data?.review_notes) {
+            setRejectionReason(data.review_notes);
+          }
+        } catch (err) {
+          console.error('Error fetching rejection reason:', err);
+        }
+      }
+    };
+    
+    fetchRejectionReason();
+  }, [detection.id, detection.publish_status]);
+
+  const handleDeleteClick = () => {
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    setShowDeleteConfirm(false);
+    setIsDeleting(true);
+    try {
+      await onDelete(detection.id);
+      showToast('success', 'Detection Deleted', 
+        isUniversalRule 
+          ? 'The rule has been removed from Universal Library.' 
+          : 'The detection has been permanently removed.'
+      );
+      // Refresh the appropriate library
+      if (isUniversalRule) {
+        await refreshUniversalLibrary();
+      } else {
+        await refreshUserLibrary();
+      }
+      onBack();
+    } catch (error: any) {
+      console.error('Delete error:', error);
+      showToast('error', 'Delete Failed', error.message || 'Could not delete detection.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setShowDeleteConfirm(false);
+  };
+
+  const handleExportPDF = () => {
+    setIsPDFExportModalOpen(true);
+  };
+
+  // E1: Copy/Duplicate to My Library
+  const handleCopyToLibrary = async () => {
+    setIsCopying(true);
+    try {
+      const newId = await copyToUserLibrary(detection.id);
+      if (newId) {
+        await refreshUserLibrary();
+        showToast('success', 'Added to Library', 'Rule copied to your library. You can now customize it.');
+        onBack();
+      }
+    } catch (error: any) {
+      showToast('error', 'Copy Failed', error.message || 'Could not copy rule.');
+    } finally {
+      setIsCopying(false);
+    }
+  };
+
+  const handlePublishSuccess = () => {
+    showToast('success', 'Submitted', 'Your rule has been submitted for review.');
+    setIsPublishModalOpen(false);
+  };
+
+  // E4: Re-submit after rejection
+  const handleResubmit = async () => {
+    setIsPublishModalOpen(true);
+  };
+
+  // E6: View source rule in Universal Library
+  const handleViewInUniversal = () => {
+    if (detection.source_rule_id && onNavigateToDetection) {
+      onNavigateToDetection(detection.source_rule_id);
+    }
+  };
+
+  // Check if MITRE resolution is needed (has technique IDs but missing tactics/techniques names)
+  const needsMitreResolution =
+    (localDetection.mitreAttackIds?.length ?? 0) > 0 &&
+    ((localDetection.mitreTactics?.length ?? 0) === 0 || (localDetection.mitreTechniques?.length ?? 0) === 0);
+
+  // Resolve MITRE data (populate mitreTactics and mitreTechniques from mitreAttackIds)
+  const handleResolveMitre = async () => {
+    if (!localDetection.mitreAttackIds || localDetection.mitreAttackIds.length === 0) {
+      showToast('warning', 'No MITRE IDs', 'This detection has no MITRE technique IDs to resolve.');
+      return;
+    }
+
+    setIsResolvingMitre(true);
+    try {
+      const resolvedMap = await batchResolveTechniques(localDetection.mitreAttackIds);
+
+      const tactics = new Set<string>();
+      const techniques: string[] = [];
+
+      for (const id of localDetection.mitreAttackIds) {
+        const resolved = resolvedMap.get(id.toUpperCase());
+        if (resolved) {
+          if (resolved.tactic && resolved.tactic !== 'Unknown') {
+            tactics.add(resolved.tactic);
+          }
+          if (resolved.name && resolved.name !== 'Unknown Technique') {
+            techniques.push(resolved.name);
+          }
+        }
+      }
+
+      const mitreTactics = Array.from(tactics);
+      const mitreTechniques = techniques;
+
+      // Update in database
+      const { error } = await supabase
+        .from('detections')
+        .update({ mitreTactics, mitreTechniques })
+        .eq('id', localDetection.id);
+
+      if (error) throw error;
+
+      // Update local state
+      setLocalDetection(prev => ({ ...prev, mitreTactics, mitreTechniques }));
+
+      showToast('success', 'MITRE Data Resolved', `Resolved ${mitreTactics.length} tactics and ${mitreTechniques.length} techniques.`);
+
+      // Refresh libraries to reflect changes
+      if (isUniversalRule) {
+        await refreshUniversalLibrary();
+      } else {
+        await refreshUserLibrary();
+      }
+    } catch (error: any) {
+      console.error('MITRE resolution error:', error);
+      showToast('error', 'Resolution Failed', error.message || 'Could not resolve MITRE data.');
+    } finally {
+      setIsResolvingMitre(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-background text-on-surface">
+      
+      {/* E3: Rejection Banner */}
+      {isUserRule && detection.publish_status === 'rejected' && (
+        <div className="bg-error/10 border-b border-error/20">
+          <div className="px-6 lg:px-8 py-3 max-w-[1600px] mx-auto flex items-start gap-3">
+            <Icon name="alert-triangle" className="w-5 h-5 text-error flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-error">
+                Publication Rejected
+              </p>
+              {rejectionReason && (
+                <p className="text-sm text-error/80 mt-1">
+                  <span className="font-medium">Reason:</span> {rejectionReason}
+                </p>
+              )}
+              <p className="text-xs text-error/70 mt-2">
+                You can update your detection and re-submit for review.
+              </p>
+            </div>
+            {/* E4: Re-submit button */}
+            <button
+              onClick={handleResubmit}
+              className="flex-shrink-0 px-3 py-1.5 text-sm font-medium bg-error text-on-error rounded-lg hover:brightness-110 transition-all"
+            >
+              Re-submit
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* E2: Fork Lineage Banner */}
+      {isCopiedFromUniversal && sourceRule && (
+        <div className="bg-surface-container-high border-b border-outline-variant/30">
+          <div className="px-6 lg:px-8 py-2.5 max-w-[1600px] mx-auto flex items-center gap-3">
+            <Icon name="git-branch" className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
+            <p className="text-sm text-on-surface-variant">
+              Forked from{' '}
+              <button
+                onClick={handleViewInUniversal}
+                className="font-medium text-on-surface hover:underline"
+              >
+                {sourceRule.name}
+              </button>
+              {' '}in Universal Library
+            </p>
+            {/* E6: View in Universal button */}
+            <button
+              onClick={handleViewInUniversal}
+              className="ml-auto text-xs px-2.5 py-1 rounded-md bg-surface-container-highest text-on-surface hover:bg-surface-container transition-colors flex items-center gap-1"
+            >
+              <Icon name="external-link" className="w-3 h-3" />
+              View Source
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* HEADER */}
+      <div className="bg-background border-b border-outline-variant/30 sticky top-0 z-30">
+        <div className="px-6 lg:px-8 py-5 max-w-[1600px] mx-auto">
+          {/* Breadcrumb Navigation */}
+          <Breadcrumb
+            items={[
+              { label: 'Detections', href: '/library', icon: 'library' },
+              { label: detection.name },
+            ]}
+            className="mb-3"
+          />
+
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+
+            {/* Left: Back + Title + Metadata */}
+            <div className="flex items-start lg:items-center gap-4 min-w-0">
+              <button
+                onClick={onBack}
+                className="flex items-center gap-2 text-sm text-on-surface-variant hover:text-on-surface transition-colors mt-1 lg:mt-0"
+              >
+                <Icon name="arrow-left" className="w-4 h-4" />
+                <span className="hidden sm:inline">Back</span>
+              </button>
+              
+              <div className="h-5 w-px bg-outline-variant/30 hidden lg:block" />
+              
+              <div className="min-w-0">
+                 <h1 className="text-xl font-medium text-on-surface truncate leading-tight" title={detection.name}>
+                   {detection.name}
+                 </h1>
+                 <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                    <span className="font-mono text-xs text-on-surface-variant/70">#{detection.id.slice(0,8)}</span>
+                    
+                    {/* Library Type Badge */}
+                    {isUniversalRule ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white border border-blue-500/30">
+                        <Icon name="globe" className="w-3 h-3" />
+                        Universal
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-white border border-white/20" style={{ backgroundColor: '#783264' }}>
+                        <Icon name="user" className="w-3 h-3" />
+                        My Library
+                      </span>
+                    )}
+                    
+                    {/* Source Badge - for Universal rules */}
+                    {isUniversalRule && detection.source && detection.source !== 'custom' && (
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${sourceConfig[detection.source]?.className || sourceConfig.custom.className}`}>
+                        {sourceConfig[detection.source]?.label || detection.source}
+                      </span>
+                    )}
+                    
+                    <StatusBadge status={detection.status} />
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide ${SEVERITY_COLORS[detection.severity]}`}>
+                        {detection.severity}
+                    </span>
+                    
+                    {/* Publish Status - only for user rules */}
+                    {isUserRule && detection.publish_status && detection.publish_status !== 'unpublished' && (
+                      <PublishStatusBadge status={detection.publish_status} size="sm" />
+                    )}
+                    
+                    {/* Forked indicator */}
+                    {isCopiedFromUniversal && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20">
+                        <Icon name="git-branch" className="w-3 h-3" />
+                        Forked
+                      </span>
+                    )}
+                 </div>
+              </div>
+            </div>
+
+            {/* Right: Actions */}
+            <div className="flex items-center gap-2 flex-shrink-0 self-end lg:self-auto">
+               {/* Quality Score */}
+               <div className="flex items-center gap-2 mr-2" title={`Quality Score: ${detection.qualityScore}%`}>
+                 <CircularProgress 
+                   score={detection.qualityScore} 
+                   size={36} 
+                   strokeWidth={3}
+                  />
+               </div>
+
+               {/* Resolve MITRE - show when needed */}
+               {needsMitreResolution && (
+                 <button
+                   onClick={handleResolveMitre}
+                   disabled={isResolvingMitre}
+                   className={`h-9 px-3 flex items-center gap-2 rounded-full text-sm font-medium transition-all ${
+                     isResolvingMitre
+                       ? 'bg-surface-container-highest text-on-surface-variant cursor-wait'
+                       : 'bg-surface-container-highest text-on-surface border border-outline-variant/30 hover:bg-surface-container-high'
+                   }`}
+                   title="Resolve MITRE tactics and techniques from technique IDs"
+                 >
+                   {isResolvingMitre ? (
+                     <>
+                       <Icon name="loader" className="w-4 h-4 animate-spin" />
+                       <span className="hidden sm:inline">Resolving...</span>
+                     </>
+                   ) : (
+                     <>
+                       <Icon name="zap" className="w-4 h-4" />
+                       <span className="hidden sm:inline">Resolve MITRE</span>
+                     </>
+                   )}
+                 </button>
+               )}
+
+               {/* Deploy to SIEM — permission gated */}
+               {detection.detectionQuery && hasPermission(userRole, 'integrations:sync') && (
+                 <button
+                   onClick={() => setIsDeployModalOpen(true)}
+                   className="h-9 px-3 flex items-center gap-2 rounded-full text-sm font-medium bg-surface-container-highest text-on-surface border border-outline-variant/30 hover:bg-surface-container-high transition-all"
+                   title="Deploy to SIEM"
+                 >
+                   <Icon name="upload" className="w-4 h-4" />
+                   <span className="hidden sm:inline">Deploy</span>
+                 </button>
+               )}
+
+               {/* PDF Export */}
+               <button
+                 onClick={handleExportPDF}
+                 className="p-2 rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest transition-colors"
+                 title="Export as PDF"
+               >
+                 <Icon name="download" className="w-5 h-5" />
+               </button>
+
+               {/* Delete button - conditional */}
+               {canDelete && (
+                 <button
+                   onClick={handleDeleteClick}
+                   disabled={isDeleting}
+                   className={`p-2 rounded-full transition-colors ${
+                     isDeleting 
+                       ? 'text-on-surface-variant/50 cursor-wait' 
+                       : 'text-on-surface-variant hover:text-error hover:bg-error-container/20'
+                   }`}
+                   title={isUniversalRule ? "Delete from Universal Library (Admin)" : "Delete Detection"}
+                 >
+                   <Icon name={isDeleting ? "loader" : "trash"} className={`w-5 h-5 ${isDeleting ? 'animate-spin' : ''}`} />
+                 </button>
+               )}
+
+               {/* === LIBRARY-SPECIFIC ACTIONS === */}
+               
+               {/* E1: For Universal Rules: "Add to My Library" / "Duplicate" button */}
+               {isUniversalRule && (
+                 <button
+                   onClick={handleCopyToLibrary}
+                   disabled={isCopying}
+                   className={`h-9 px-4 flex items-center gap-2 rounded-full text-sm font-medium transition-all active:scale-95 ${
+                     isCopying 
+                       ? 'bg-surface-container-highest text-on-surface-variant cursor-wait'
+                       : 'bg-secondary text-on-secondary hover:shadow-lg hover:brightness-110'
+                   }`}
+                   title="Copy this rule to your library"
+                 >
+                   {isCopying ? (
+                     <>
+                       <Icon name="loader" className="w-4 h-4 animate-spin" />
+                       <span>Adding...</span>
+                     </>
+                   ) : (
+                     <>
+                       <Icon name="copy" className="w-4 h-4" />
+                       <span>Duplicate to My Library</span>
+                     </>
+                   )}
+                 </button>
+               )}
+
+               {/* For User Rules: Publish + Edit buttons */}
+               {canEdit && (
+                 <>
+                   {/* Publish button - only show if not already pending */}
+                   {detection.publish_status !== 'pending' && (
+                     <button
+                       onClick={() => setIsPublishModalOpen(true)}
+                       className="h-9 px-4 flex items-center gap-2 rounded-full text-sm font-medium bg-surface-container-highest text-on-surface border border-outline-variant/30 hover:bg-surface-container-high hover:border-outline-variant transition-all active:scale-95"
+                       title={detection.publish_status === 'published' ? 'Submit update to Universal Library' : 'Publish to Universal Library'}
+                     >
+                       <Icon name="globe" className="w-4 h-4" />
+                       <span className="hidden sm:inline">
+                         {detection.publish_status === 'published' ? 'Update' : 
+                          detection.publish_status === 'rejected' ? 'Re-submit' : 'Publish'}
+                       </span>
+                     </button>
+                   )}
+                   
+                   {/* Edit button */}
+                   <button
+                     type="button"
+                     onClick={() => onEdit(detection)}
+                     className="h-9 px-5 flex items-center gap-2 rounded-full text-sm font-medium bg-primary text-on-primary hover:shadow-lg hover:brightness-110 transition-all active:scale-95 shadow-sm"
+                   >
+                     <Icon name="edit" className="w-4 h-4" />
+                     <span>Edit</span>
+                   </button>
+                 </>
+               )}
+            </div>
+          </div>
+        </div>
+        
+        {/* Tabs */}
+        <div className="px-6 lg:px-8 max-w-[1600px] mx-auto">
+          <div className="flex gap-1 -mb-px overflow-x-auto no-scrollbar">
+            {TABS.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${
+                  activeTab === tab.id
+                    ? 'text-on-surface border-on-surface'
+                    : 'text-on-surface-variant border-transparent hover:text-on-surface'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* CONTENT */}
+      <div className="max-w-[1600px] mx-auto px-6 lg:px-8 py-8">
+        {activeTab === 'overview' && (
+          <OverviewTab 
+            detection={detection}
+            sourceRule={sourceRule}
+            onNavigateToGroup={onNavigateToGroup}
+            onNavigateToSoftware={onNavigateToSoftware}
+            onNavigateToCampaign={onNavigateToCampaign}
+            onNavigateToTechnique={onNavigateToTechnique}
+            onViewSourceRule={handleViewInUniversal}
+          />
+        )}
+        {activeTab === 'logic' && (
+          <DetectionLogicTab detection={detection} />
+        )}
+        {activeTab === 'investigation' && (
+          <InvestigationTab detection={detection} />
+        )}
+        {activeTab === 'tuning' && (
+          <TuningTab detection={detection} />
+        )}
+        {activeTab === 'collaboration' && (
+          <CollaborationTab 
+            detection={localDetection}
+            onDetectionUpdate={handleDetectionUpdate}
+          />
+        )}
+        {activeTab === 'deployments' && (
+          <DeploymentHistoryTab detection={detection} />
+        )}
+        {activeTab === 'history' && (
+          <HistoryTab detection={detection} />
+        )}
+
+        {/* Similar Detections Panel - cross-vendor similarity */}
+        {activeTab === 'overview' && (
+          <div className="mt-8">
+            <SimilarDetectionsPanel
+              detectionId={detection.id}
+              onNavigateToDetection={onNavigateToDetection}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Publish Modal */}
+      <PublishModal
+        detection={detection}
+        isOpen={isPublishModalOpen}
+        onClose={() => setIsPublishModalOpen(false)}
+        onSuccess={handlePublishSuccess}
+      />
+
+      {/* PDF Export Modal */}
+      <PDFExportModal
+        detection={detection}
+        isOpen={isPDFExportModalOpen}
+        onClose={() => setIsPDFExportModalOpen(false)}
+        onExportStart={() => showToast('info', 'Generating PDF', 'Please wait...')}
+        onExportComplete={() => showToast('success', 'PDF Exported', 'Your detection report has been downloaded.')}
+        onExportError={(error) => showToast('error', 'Export Failed', error)}
+      />
+
+      {/* Deploy Modal */}
+      {isDeployModalOpen && (
+        <DeployDetectionModal
+          detection={detection}
+          onClose={() => setIsDeployModalOpen(false)}
+          onDeployed={() => {
+            setIsDeployModalOpen(false);
+            setActiveTab('deployments');
+          }}
+          userRole={userRole}
+        />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={handleDeleteCancel}
+          />
+          
+          {/* Modal */}
+          <div className="relative bg-surface-container-high border border-outline-variant/30 rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+            {/* Header */}
+            <div className="px-6 pt-6 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-full bg-error/10">
+                  <Icon name="alert-triangle" className="w-6 h-6 text-error" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-on-surface">Delete Detection</h3>
+                  <p className="text-sm text-on-surface-variant">This action cannot be undone</p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Content */}
+            <div className="px-6 pb-4">
+              <p className="text-on-surface-variant">
+                Are you sure you want to delete <span className="font-medium text-on-surface">"{detection.name}"</span>?
+                {isUniversalRule && (
+                  <span className="block mt-2 text-warning font-medium">
+                    ⚠️ This is a Universal Library rule. Deleting it will affect all users.
+                  </span>
+                )}
+              </p>
+            </div>
+            
+            {/* Actions */}
+            <div className="px-6 py-4 bg-surface-container flex justify-end gap-3">
+              <button
+                onClick={handleDeleteCancel}
+                className="px-4 py-2 text-sm font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteConfirm}
+                disabled={isDeleting}
+                className="px-4 py-2 text-sm font-medium bg-error text-on-error rounded-lg hover:brightness-110 transition-all disabled:opacity-50 flex items-center gap-2"
+              >
+                {isDeleting ? (
+                  <>
+                    <Icon name="loader" className="w-4 h-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Icon name="trash" className="w-4 h-4" />
+                    Delete
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

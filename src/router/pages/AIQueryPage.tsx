@@ -1,0 +1,23 @@
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import { AIQueryGenerator } from '../../components/AIQueryGenerator';
+import { PageErrorBoundary } from '../../components/ErrorBoundary';
+import { Detection } from '../../types';
+import { ROUTES } from '../routes';
+
+export const AIQueryPage: React.FC = () => {
+  const navigate = useNavigate();
+
+  const handleCreateDraft = (draft: Partial<Detection>) => {
+    sessionStorage.setItem('detectionDraft', JSON.stringify(draft));
+    navigate(ROUTES.DETECTION_NEW);
+  };
+
+  return (
+    <PageErrorBoundary pageName="AI Query Generator" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
+      <AIQueryGenerator onCreateDraft={handleCreateDraft} />
+    </PageErrorBoundary>
+  );
+};
+
+export default AIQueryPage;

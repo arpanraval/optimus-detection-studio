@@ -1,0 +1,7 @@
+dist
+node_modules
+supabase/functions
+public
+.internal
+bun.lock
+package-lock.json
