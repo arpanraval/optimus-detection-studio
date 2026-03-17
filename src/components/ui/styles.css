@@ -1,0 +1,383 @@
+/**
+ * Optimus Design System - UI Styles
+ *
+ * Global CSS styles for UI components.
+ * Import this file once in your app's entry point.
+ */
+
+/* ============================================
+   LOADING ANIMATIONS
+   ============================================ */
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+/* Elegant loading dot animation */
+@keyframes loadingDot {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Smooth pulse for loading elements */
+@keyframes loadingPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+
+/* Orbital loader animations */
+@keyframes orbit {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes orbitReverse {
+  0% {
+    transform: rotate(360deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes breathe {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+
+/* DNA Helix style loader */
+@keyframes helixRotate {
+  0% {
+    transform: rotateY(0deg);
+  }
+  100% {
+    transform: rotateY(360deg);
+  }
+}
+
+@keyframes dotPulse1 {
+  0%, 100% {
+    transform: translateZ(20px) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: translateZ(-20px) scale(0.6);
+    opacity: 0.3;
+  }
+}
+
+@keyframes dotPulse2 {
+  0%, 100% {
+    transform: translateZ(-20px) scale(0.6);
+    opacity: 0.3;
+  }
+  50% {
+    transform: translateZ(20px) scale(1);
+    opacity: 1;
+  }
+}
+
+/* ============================================
+   APP LOADER — PREMIUM COMPOSITIONS
+   ============================================ */
+
+/* --- Shared --- */
+@keyframes loaderSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+@keyframes loaderSpinReverse {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(-360deg); }
+}
+@keyframes loaderPulseRing {
+  0% { transform: scale(0.6); opacity: 0.6; }
+  50% { transform: scale(1); opacity: 0; }
+  100% { transform: scale(1); opacity: 0; }
+}
+@keyframes loaderBreathe {
+  0%, 100% { transform: scale(1); opacity: 0.7; }
+  50% { transform: scale(1.05); opacity: 1; }
+}
+@keyframes loaderFadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes loaderDash {
+  0% { stroke-dashoffset: var(--dash-len); }
+  50% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: calc(var(--dash-len) * -1); }
+}
+@keyframes loaderTracePulse {
+  0%, 100% { opacity: 0; }
+  15%, 85% { opacity: var(--trace-peak, 0.6); }
+}
+@keyframes loaderSonarPulse {
+  0% { transform: scale(0.3); opacity: 0.5; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+@keyframes loaderCornerPulse {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 0.6; }
+}
+
+/* --- Option A: Orbital Command --- */
+@keyframes orbitTilt1 {
+  0% { transform: rotateX(60deg) rotateZ(0deg); }
+  100% { transform: rotateX(60deg) rotateZ(360deg); }
+}
+@keyframes orbitTilt2 {
+  0% { transform: rotateX(60deg) rotateZ(120deg); }
+  100% { transform: rotateX(60deg) rotateZ(480deg); }
+}
+@keyframes orbitTilt3 {
+  0% { transform: rotateX(60deg) rotateZ(240deg); }
+  100% { transform: rotateX(60deg) rotateZ(600deg); }
+}
+
+/* --- Option B: Circuit Hex --- */
+@keyframes circuitFlowRight {
+  0% { transform: scaleX(0); transform-origin: left; opacity: 0.8; }
+  40% { transform: scaleX(1); transform-origin: left; opacity: 0.8; }
+  60% { transform: scaleX(1); transform-origin: right; opacity: 0.8; }
+  100% { transform: scaleX(0); transform-origin: right; opacity: 0; }
+}
+@keyframes circuitFlowLeft {
+  0% { transform: scaleX(0); transform-origin: right; opacity: 0.8; }
+  40% { transform: scaleX(1); transform-origin: right; opacity: 0.8; }
+  60% { transform: scaleX(1); transform-origin: left; opacity: 0.8; }
+  100% { transform: scaleX(0); transform-origin: left; opacity: 0; }
+}
+@keyframes circuitFlowDown {
+  0% { transform: scaleY(0); transform-origin: top; opacity: 0.8; }
+  40% { transform: scaleY(1); transform-origin: top; opacity: 0.8; }
+  60% { transform: scaleY(1); transform-origin: bottom; opacity: 0.8; }
+  100% { transform: scaleY(0); transform-origin: bottom; opacity: 0; }
+}
+@keyframes circuitFlowUp {
+  0% { transform: scaleY(0); transform-origin: bottom; opacity: 0.8; }
+  40% { transform: scaleY(1); transform-origin: bottom; opacity: 0.8; }
+  60% { transform: scaleY(1); transform-origin: top; opacity: 0.8; }
+  100% { transform: scaleY(0); transform-origin: top; opacity: 0; }
+}
+@keyframes circuitNodePulse {
+  0%, 30%, 100% { transform: scale(0); opacity: 0; }
+  40%, 80% { transform: scale(1); opacity: 1; }
+  90% { transform: scale(0.5); opacity: 0; }
+}
+@keyframes hexStrokeDraw {
+  0% { stroke-dashoffset: 680; }
+  40%, 60% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -680; }
+}
+
+/* --- Option C: Shield Matrix --- */
+@keyframes shieldGyroX {
+  0% { transform: rotateY(0deg); }
+  100% { transform: rotateY(360deg); }
+}
+@keyframes shieldGyroY {
+  0% { transform: rotateX(0deg); }
+  100% { transform: rotateX(360deg); }
+}
+@keyframes shieldGyroZ {
+  0% { transform: rotateZ(0deg); }
+  100% { transform: rotateZ(360deg); }
+}
+@keyframes shieldCoreGlow {
+  0%, 100% { box-shadow: 0 0 20px 4px rgba(0,80,145,0.3), 0 0 60px 10px rgba(120,50,100,0.1); transform: scale(1); }
+  50% { box-shadow: 0 0 30px 8px rgba(0,80,145,0.5), 0 0 80px 20px rgba(120,50,100,0.2); transform: scale(1.1); }
+}
+
+/* ============================================
+   SCROLLBAR STYLES
+   ============================================ */
+
+/**
+ * Minimal Scrollbar - .scrollbar-minimal
+ * Subtle scrollbar for small components: chat boxes, dropdowns, panels.
+ * 8px width, 8% opacity - unobtrusive.
+ */
+.scrollbar-minimal::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.scrollbar-minimal::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-minimal::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+}
+
+.scrollbar-minimal::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Firefox support */
+.scrollbar-minimal {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+}
+
+/* Light theme */
+:root:not(.dark) .scrollbar-minimal::-webkit-scrollbar-thumb,
+[data-theme="light"] .scrollbar-minimal::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+:root:not(.dark) .scrollbar-minimal::-webkit-scrollbar-thumb:hover,
+[data-theme="light"] .scrollbar-minimal::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+:root:not(.dark) .scrollbar-minimal,
+[data-theme="light"] .scrollbar-minimal {
+  scrollbar-color: rgba(0, 0, 0, 0.08) transparent;
+}
+
+/**
+ * Page Scrollbar - .scrollbar-page
+ * More visible scrollbar for full page content areas.
+ * 12px width, 20% opacity - easier to see on large screens.
+ */
+.scrollbar-page::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.scrollbar-page::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.scrollbar-page::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+}
+
+.scrollbar-page::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+/* Firefox support */
+.scrollbar-page {
+  scrollbar-width: auto;
+  scrollbar-color: rgba(255, 255, 255, 0.2) rgba(255, 255, 255, 0.03);
+}
+
+/* Light theme */
+:root:not(.dark) .scrollbar-page::-webkit-scrollbar-track,
+[data-theme="light"] .scrollbar-page::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+:root:not(.dark) .scrollbar-page::-webkit-scrollbar-thumb,
+[data-theme="light"] .scrollbar-page::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+}
+
+:root:not(.dark) .scrollbar-page::-webkit-scrollbar-thumb:hover,
+[data-theme="light"] .scrollbar-page::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+:root:not(.dark) .scrollbar-page,
+[data-theme="light"] .scrollbar-page {
+  scrollbar-width: auto;
+  scrollbar-color: rgba(0, 0, 0, 0.15) rgba(0, 0, 0, 0.03);
+}
+
+/**
+ * Hidden Scrollbar - .scrollbar-hidden
+ * Completely hides the scrollbar while maintaining scroll functionality.
+ */
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/**
+ * Thin Scrollbar - .scrollbar-thin
+ * Slightly wider than minimal, good for longer content areas.
+ */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+/* Light theme */
+:root:not(.dark) .scrollbar-thin::-webkit-scrollbar-thumb,
+[data-theme="light"] .scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+:root:not(.dark) .scrollbar-thin::-webkit-scrollbar-thumb:hover,
+[data-theme="light"] .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+:root:not(.dark) .scrollbar-thin,
+[data-theme="light"] .scrollbar-thin {
+  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
+}

@@ -1,0 +1,181 @@
+================================================================================
+THREAT GROUP TARGETING ENRICHMENT PREVIEW
+================================================================================
+
+Generated: 2026-01-23T15:32:28.943Z
+Version: 1.0.0
+Preview Hash: 55eb7182e6f26c19c54bbf6a232fe1abd7f14cecf68f453f925115a5528e3292
+
+--------------------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------------------
+
+Total MITRE Groups: 172
+Total MISP Actors: 899
+Matched Groups: 151 (87.8%)
+Groups with Targeting Data: 112 (65.1%)
+Unmatched Groups: 21
+Rejected (Ambiguous): 0
+
+--------------------------------------------------------------------------------
+VALIDATION RESULT
+--------------------------------------------------------------------------------
+
+Status: PASSED
+Checks: 4 passed, 0 failed, 1 warnings
+
+[OK] Known Cluster Separation
+    All known problem clusters (Lazarus, APT28/29, etc.) are properly separated
+[OK] Over-matching Prevention
+    No groups have excessive MISP actor matches
+[OK] Cross-contamination Check
+    No MISP actors are matched to multiple MITRE groups
+[WARN] Confidence Threshold
+    2 matches have confidence < 70% - review manually: CURIUM (60%), Contagious Interview (60%)
+[OK] Specific Group Validation
+    APT28/APT29 and Lazarus cluster groups are properly separated
+
+--------------------------------------------------------------------------------
+MATCH BREAKDOWN BY TYPE
+--------------------------------------------------------------------------------
+
+mitre_id: 74
+exact_name: 50
+alias: 12
+synonym_to_name: 13
+synonym_to_alias: 2
+
+--------------------------------------------------------------------------------
+SAMPLE MATCHES (First 20)
+--------------------------------------------------------------------------------
+
+G0006 APT1
+  Match: mitre_id (100% confidence)
+  Origin: China (CN)
+  Targets: Belgium, Canada, France, India, Israel
+  Sectors: Government, Private sector
+
+G0024 Putter Panda
+  Match: mitre_id (100% confidence)
+  Origin: China (CN)
+  Targets: U.S. satellite and aerospace sector
+  Sectors: Government, Private sector
+
+G0012 Darkhotel
+  Match: mitre_id (100% confidence)
+  Origin: Korea (Republic of) (??)
+  Targets: China, Japan, Russian Federation, South Korea, Taiwan
+  Sectors: Private sector
+
+G0023 APT16
+  Match: mitre_id (100% confidence)
+  Origin: China (CN)
+  Targets: Japan, Taiwan
+  Sectors: Private sector
+
+G0025 APT17
+  Match: mitre_id (100% confidence)
+  Origin: China (CN)
+  Targets: Belgium, China, Germany, Indonesia, Italy
+  Sectors: Civil society, Defense, Government
+
+G0026 APT18
+  Match: mitre_id (100% confidence)
+  Origin: China (CN)
+  Targets: United States
+  Sectors: Aerospace, Civil society, Defense
+
+G0009 Deep Panda
+  Match: mitre_id (100% confidence)
+  Origin: China (CN)
+  Targets: United States
+  Sectors: Finance, Military, Non-profit organisation
+
+G0019 Naikon
+  Match: mitre_id (100% confidence)
+  Origin: China (CN)
+  Targets: Cambodia, China, India, Indonesia, Laos
+  Sectors: Government, Private sector
+
+G0013 APT30
+  Match: mitre_id (100% confidence)
+  Origin: China (CN)
+  Targets: India, Malaysia, Saudi Arabia, South Korea, Thailand
+  Sectors: Government
+
+G0030 Lotus Blossom
+  Match: mitre_id (100% confidence)
+  Origin: China (CN)
+  Targets: Hong Kong, Indonesia, Japan, Philippines, Taiwan
+  Sectors: Government, Government, Administration, Military
+
+G0027 Threat Group-3390
+  Match: mitre_id (100% confidence)
+  Origin: Unknown (??)
+  Targets: Australia, Canada, China, France, India
+  Sectors: Defense, Government, Government, Administration
+
+G0045 menuPass
+  Match: mitre_id (100% confidence)
+  Origin: China (CN)
+  Targets: Australia, Brazil, Canada, Finland, France
+  Sectors: Government, Private sector
+
+G0004 Ke3chang
+  Match: mitre_id (100% confidence)
+  Origin: China (CN)
+  Targets: European Union, Germany, India, United Kingdom
+  Sectors: Government, Government, Administration
+
+G0011 PittyTiger
+  Match: mitre_id (100% confidence)
+  Origin: China (CN)
+  Targets: None
+  Sectors: None
+
+G0066 Elderwood
+  Match: mitre_id (100% confidence)
+  Origin: China (CN)
+  Targets: Australia, Canada, China, Denmark, Hong Kong
+  Sectors: Civil society, Private sector
+
+G0018 admin@338
+  Match: mitre_id (100% confidence)
+  Origin: China (CN)
+  Targets: Hong Kong, United States
+  Sectors: Activists, Civil society, Finance
+
+G0081 Tropic Trooper
+  Match: mitre_id (100% confidence)
+  Origin: China (CN)
+  Targets: None
+  Sectors: Government, Administration, Military
+
+G0064 APT33
+  Match: mitre_id (100% confidence)
+  Origin: Iran (Islamic Republic of) (??)
+  Targets: Saudi Arabia, South Korea, United States
+  Sectors: Private sector
+
+G0003 Cleaver
+  Match: mitre_id (100% confidence)
+  Origin: Iran (Islamic Republic of) (??)
+  Targets: Canada, China, France, Germany, India
+  Sectors: Academia - University, Defense, Energy
+
+G0007 APT28
+  Match: mitre_id (100% confidence)
+  Origin: Russian Federation (RU)
+  Targets: Afghanistan, Armenia, Asia Pacific Economic Cooperation, Belgium, China
+  Sectors: Government, Government, Administration, Military
+
+--------------------------------------------------------------------------------
+UNMATCHED MITRE GROUPS
+--------------------------------------------------------------------------------
+
+G1014, G1051, G1047, G0143, G1040, G0114, G0073, G0028, G1032, G0044, G0124, G0108, G0142, G1043, G1036, G0001, G0008, G0089, G0140, G1050, G0002
+
+================================================================================
+To apply this enrichment, run:
+  npx tsx scripts/threat-group-enrichment/enrich-groups.ts --apply --preview-hash 55eb7182e6f26c19c54bbf6a232fe1abd7f14cecf68f453f925115a5528e3292
+================================================================================

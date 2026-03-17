@@ -1,0 +1,5 @@
+# Exclude sensitive/unnecessary directories from Vercel uploads
+.internal/
+.claude/
+docs/
+.backup-*/

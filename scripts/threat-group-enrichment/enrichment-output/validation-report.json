@@ -1,0 +1,37 @@
+{
+  "valid": true,
+  "timestamp": "2026-01-23T15:32:28.947Z",
+  "summary": {
+    "totalChecks": 5,
+    "passed": 4,
+    "failed": 0,
+    "warnings": 1
+  },
+  "checks": [
+    {
+      "name": "Known Cluster Separation",
+      "status": "passed",
+      "message": "All known problem clusters (Lazarus, APT28/29, etc.) are properly separated"
+    },
+    {
+      "name": "Over-matching Prevention",
+      "status": "passed",
+      "message": "No groups have excessive MISP actor matches"
+    },
+    {
+      "name": "Cross-contamination Check",
+      "status": "passed",
+      "message": "No MISP actors are matched to multiple MITRE groups"
+    },
+    {
+      "name": "Confidence Threshold",
+      "status": "warning",
+      "message": "2 matches have confidence < 70% - review manually: CURIUM (60%), Contagious Interview (60%)"
+    },
+    {
+      "name": "Specific Group Validation",
+      "status": "passed",
+      "message": "APT28/APT29 and Lazarus cluster groups are properly separated"
+    }
+  ]
+}

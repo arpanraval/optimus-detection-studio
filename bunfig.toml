@@ -1,0 +1,11 @@
+[install]
+# Use faster binary lockfile
+saveBinaryLockfile = true
+
+[install.cache]
+# Enable global cache for faster installs
+dir = "~/.bun/install/cache"
+
+[test]
+root = "."
+preload = ["./test/setup.ts"]

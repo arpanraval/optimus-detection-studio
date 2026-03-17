@@ -1,0 +1,718 @@
+import React, { useState, useMemo } from 'react';
+import { usePackDetail, updatePack, deletePack, addDetectionsToPack, removeDetectionFromPack } from '../../hooks/useDetectionPacks';
+import { PackMiniMatrix } from './PackMiniMatrix';
+import { PackIcon } from './PackIcon';
+import { CreatePackModal } from './CreatePackModal';
+import { AddDetectionsModal } from './AddDetectionsModal';
+import { Icon } from '../Icon';
+import { ConfirmDialog, Breadcrumb } from '../ui';
+import { useToast } from '../../hooks/useToast';
+import { usePermissions } from '../../context/PermissionsContext';
+import { Detection, DetectionPack } from '../../types';
+import { useMitreCoverage } from '../../hooks/useMitreCoverage';
+import { MITRE_TACTICS } from '@/types/mitre-stix';
+
+interface DetectionPackDetailPageProps {
+  packId: string;
+  onBack: () => void;
+  onSelectDetection: (detection: Detection) => void;
+}
+
+type TabType = 'overview' | 'detections';
+
+const SEVERITY_ORDER: Record<string, number> = { Critical: 4, High: 3, Medium: 2, Low: 1, Informational: 0 };
+
+export const DetectionPackDetailPage: React.FC<DetectionPackDetailPageProps> = ({
+  packId,
+  onBack,
+  onSelectDetection,
+}) => {
+  const { pack, loading, error, refetch } = usePackDetail(packId);
+  const [activeTab, setActiveTab] = useState<TabType>('overview');
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isAddDetectionsModalOpen, setIsAddDetectionsModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState<string | null>(null);
+  const [removingDetectionId, setRemovingDetectionId] = useState<string | null>(null);
+  const [detectionSearch, setDetectionSearch] = useState('');
+  const [sortField, setSortField] = useState<'name' | 'severity' | 'status'>('name');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  
+  const { showToast } = useToast();
+  const { hasRoleOrHigher } = usePermissions();
+  const { coverage } = useMitreCoverage();
+  
+  const canManagePacks = hasRoleOrHigher('lead');
+  const canDeletePacks = hasRoleOrHigher('admin');
+
+  // Source configuration
+  const sourceConfig: Record<string, { gradient: string; badge: string; accent: string; label: string }> = {
+    community: { 
+      gradient: 'from-primary/30 via-primary/10 to-transparent',
+      badge: 'bg-primary/20 text-primary border-primary/30',
+      accent: 'bg-primary',
+      label: 'COMMUNITY PACK'
+    },
+    custom: { 
+      gradient: 'from-tertiary/30 via-tertiary/10 to-transparent',
+      badge: 'bg-tertiary/20 text-tertiary border-tertiary/30',
+      accent: 'bg-tertiary',
+      label: 'CUSTOM PACK'
+    },
+    official: { 
+      gradient: 'from-secondary/30 via-secondary/10 to-transparent',
+      badge: 'bg-secondary/20 text-secondary border-secondary/30',
+      accent: 'bg-secondary',
+      label: 'OFFICIAL PACK'
+    },
+  };
+
+  const source = sourceConfig[pack?.source || 'custom'] || sourceConfig.custom;
+
+  // Compute tactic coverage
+  const tacticCoverage = useMemo(() => {
+    const totalTactics = MITRE_TACTICS?.length || 14;
+    if (!pack?.detections) return { covered: 0, total: totalTactics };
+    
+    const coveredTactics = new Set<string>();
+    pack.detections.forEach(d => {
+      (d.mitreTactics || []).forEach(t => {
+        coveredTactics.add(t.toLowerCase().replace(/\s+/g, '-'));
+      });
+    });
+    
+    return {
+      covered: coveredTactics.size,
+      total: totalTactics,
+    };
+  }, [pack?.detections]);
+
+  // Calculate coverage score
+  const coverageScore = useMemo(() => {
+    if (!pack) return 0;
+    return Math.min(100, Math.round((pack.detection_count * 6) + (pack.technique_count * 3)));
+  }, [pack]);
+
+  // Filter and sort detections
+  const filteredDetections = useMemo(() => {
+    if (!pack?.detections) return [];
+    
+    let result = [...pack.detections];
+    
+    if (detectionSearch) {
+      const searchLower = detectionSearch.toLowerCase();
+      result = result.filter(d => 
+        d.name.toLowerCase().includes(searchLower) ||
+        d.id.toLowerCase().includes(searchLower) ||
+        (d.mitreAttackIds || []).some(id => id.toLowerCase().includes(searchLower))
+      );
+    }
+    
+    result.sort((a, b) => {
+      let comparison = 0;
+      switch (sortField) {
+        case 'name':
+          comparison = a.name.localeCompare(b.name);
+          break;
+        case 'severity':
+          comparison = (SEVERITY_ORDER[b.severity] || 0) - (SEVERITY_ORDER[a.severity] || 0);
+          break;
+        case 'status':
+          comparison = a.status.localeCompare(b.status);
+          break;
+      }
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+    
+    return result;
+  }, [pack?.detections, detectionSearch, sortField, sortDirection]);
+
+  const handleUpdatePack = async (packData: Partial<DetectionPack>) => {
+    try {
+      await updatePack(packId, packData);
+      showToast('success', 'Pack Updated', 'Changes saved successfully');
+      refetch();
+    } catch (err) {
+      showToast('error', 'Error', 'Failed to update pack');
+      throw err;
+    }
+  };
+
+  const handleDeletePack = async () => {
+    setShowDeleteConfirm(false);
+    setIsDeleting(true);
+    try {
+      await deletePack(packId);
+      showToast('success', 'Pack Deleted', `"${pack?.name}" has been deleted`);
+      onBack();
+    } catch (err) {
+      showToast('error', 'Error', 'Failed to delete pack');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleAddDetections = async (detectionIds: string[]) => {
+    try {
+      await addDetectionsToPack(packId, detectionIds);
+      showToast('success', 'Detections Added', `${detectionIds.length} detection${detectionIds.length !== 1 ? 's' : ''} added to pack`);
+      refetch();
+    } catch (err) {
+      showToast('error', 'Error', 'Failed to add detections');
+      throw err;
+    }
+  };
+
+  const handleRemoveDetection = async (detectionId: string) => {
+    setShowRemoveConfirm(null);
+    setRemovingDetectionId(detectionId);
+    try {
+      await removeDetectionFromPack(packId, detectionId);
+      showToast('success', 'Detection Removed', 'Detection removed from pack');
+      refetch();
+    } catch (err) {
+      showToast('error', 'Error', 'Failed to remove detection');
+    } finally {
+      setRemovingDetectionId(null);
+    }
+  };
+
+  const getSeverityColor = (severity: string): string => {
+    const colors: Record<string, string> = {
+      Critical: 'bg-error/20 text-error border-error/30',
+      High: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+      Medium: 'bg-warning/20 text-warning border-warning/30',
+      Low: 'bg-primary/20 text-primary border-primary/30',
+      Informational: 'bg-on-surface-variant/10 text-on-surface-variant border-on-surface-variant/20',
+    };
+    return colors[severity] || colors.Informational;
+  };
+
+  const getStatusColor = (status: string): string => {
+    const colors: Record<string, string> = {
+      Production: 'bg-tertiary/20 text-tertiary',
+      Testing: 'bg-secondary/20 text-secondary',
+      Review: 'bg-primary/20 text-primary',
+      Development: 'bg-warning/20 text-warning',
+      Draft: 'bg-on-surface-variant/10 text-on-surface-variant',
+    };
+    return colors[status] || colors.Draft;
+  };
+
+  if (loading) {
+    return (
+      <div className="p-8 flex flex-col items-center justify-center h-full bg-background">
+        <div className="relative">
+          <div className="absolute inset-0 bg-primary/20 blur-2xl rounded-full animate-pulse" />
+          <Icon name="spinner" className="relative w-16 h-16 text-primary animate-spin" />
+        </div>
+        <p className="text-on-surface-variant animate-pulse font-bold font-mono text-sm mt-6 tracking-widest">
+          LOADING DETECTION PACK...
+        </p>
+      </div>
+    );
+  }
+
+  if (error || !pack) {
+    return (
+      <div className="p-8 flex flex-col items-center justify-center h-full bg-background">
+        <Icon name="alert-circle" className="w-16 h-16 text-error mb-4" />
+        <p className="text-error mb-4 text-lg font-semibold">
+          {error?.message || 'Pack not found'}
+        </p>
+        <button
+          onClick={onBack}
+          className="px-6 py-3 bg-primary text-on-primary rounded-lg hover:bg-primary/90 transition-colors font-semibold"
+        >
+          Back to Packs
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full bg-surface-container-low text-on-surface overflow-hidden">
+      
+      {/* SUPER HEADER - Threat Intel Style */}
+      <div className="flex-shrink-0 bg-background border-b border-outline-variant/30 z-20 overflow-hidden relative">
+        {/* Background Gradient */}
+        <div className={`absolute inset-0 bg-gradient-to-r ${source.gradient} opacity-50`} />
+        <div className="absolute top-0 right-0 w-96 h-96 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+        
+        <div className="relative px-8 pt-6 pb-0 max-w-[1920px] mx-auto">
+          {/* Breadcrumb */}
+          <Breadcrumb
+            items={[
+              { label: 'Detection Packs', href: '/packs', icon: 'library' },
+              { label: pack.name },
+            ]}
+            className="mb-4"
+          />
+
+          {/* Back Button */}
+          <button
+            onClick={onBack}
+            className="flex items-center gap-2 text-xs font-bold text-on-surface-variant hover:text-on-surface uppercase tracking-widest transition-colors group mb-6"
+          >
+            <Icon name="arrowLeft" className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+            Back to Detection Packs
+          </button>
+          
+          {/* Main Header Content */}
+          <div className="flex items-start justify-between mb-8">
+            <div className="flex items-start gap-6">
+              {/* Large Generative Pack Icon */}
+              <PackIcon 
+                packId={pack.id}
+                packName={pack.name}
+                source={pack.source}
+                size="xl"
+              />
+
+              <div>
+                {/* Source Badge */}
+                <div className="flex items-center gap-3 mb-3">
+                  <span className={`inline-flex items-center px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border ${source.badge}`}>
+                    {source.label}
+                  </span>
+                  {pack.is_active && (
+                    <span className="flex items-center gap-2 text-xs text-tertiary font-bold">
+                      <span className="relative flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-tertiary opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-tertiary"></span>
+                      </span>
+                      ACTIVE
+                    </span>
+                  )}
+                </div>
+
+                {/* Pack Name */}
+                <h1 className="text-4xl md:text-5xl font-brand font-bold text-on-surface tracking-tight leading-none mb-4">
+                  {pack.name}
+                </h1>
+
+                {/* Tags & Platforms */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {(pack.platforms || []).slice(0, 4).map(platform => (
+                    <span key={platform} className="px-3 py-1.5 bg-surface-container text-on-surface-variant text-xs font-semibold rounded-lg border border-outline-variant/20">
+                      {platform}
+                    </span>
+                  ))}
+                  {(pack.tags || []).slice(0, 3).map(tag => (
+                    <span key={tag} className="px-3 py-1.5 bg-primary/10 text-primary text-xs font-semibold rounded-lg border border-primary/20">
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+            
+            {/* Action Buttons */}
+            <div className="flex gap-3">
+              {canManagePacks && (
+                <>
+                  <button 
+                    onClick={() => setIsAddDetectionsModalOpen(true)}
+                    className="px-5 py-3 bg-tertiary text-on-tertiary text-sm font-bold rounded-xl hover:brightness-110 transition-all shadow-lg shadow-tertiary/20 flex items-center gap-2"
+                  >
+                    <Icon name="plus" className="w-4 h-4" />
+                    Add Detections
+                  </button>
+                  <button 
+                    onClick={() => setIsEditModalOpen(true)}
+                    className="px-5 py-3 bg-surface-container text-on-surface text-sm font-bold rounded-xl hover:bg-surface-container-high transition-colors border border-outline-variant/30 flex items-center gap-2"
+                  >
+                    <Icon name="edit" className="w-4 h-4" />
+                    Edit
+                  </button>
+                </>
+              )}
+              {canDeletePacks && (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  disabled={isDeleting}
+                  className="px-5 py-3 bg-error/10 text-error text-sm font-bold rounded-xl hover:bg-error/20 transition-colors border border-error/30 flex items-center gap-2 disabled:opacity-50"
+                >
+                  {isDeleting ? (
+                    <Icon name="spinner" className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Icon name="trash" className="w-4 h-4" />
+                  )}
+                  Delete
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Stats Row - Threat Intel Style */}
+          <div className="grid grid-cols-5 gap-3 mb-6">
+            {/* Rules */}
+            <div className="bg-surface-container/80 backdrop-blur-sm rounded-xl p-4 border border-outline-variant/20 hover:border-primary/30 transition-colors group">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                  <Icon name="library" className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <p className="text-3xl font-mono font-black text-on-surface">{pack.detection_count}</p>
+                  <p className="text-[10px] text-on-surface-variant uppercase tracking-widest font-bold">Detection Rules</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Techniques */}
+            <div className="bg-surface-container/80 backdrop-blur-sm rounded-xl p-4 border border-outline-variant/20 hover:border-tertiary/30 transition-colors group">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-tertiary/10 flex items-center justify-center group-hover:bg-tertiary/20 transition-colors">
+                  <Icon name="matrix" className="w-5 h-5 text-tertiary" />
+                </div>
+                <div>
+                  <p className="text-3xl font-mono font-black text-on-surface">{pack.technique_count}</p>
+                  <p className="text-[10px] text-on-surface-variant uppercase tracking-widest font-bold">MITRE TTPs</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Tactics */}
+            <div className="bg-surface-container/80 backdrop-blur-sm rounded-xl p-4 border border-outline-variant/20 hover:border-secondary/30 transition-colors group">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-secondary/10 flex items-center justify-center group-hover:bg-secondary/20 transition-colors">
+                  <Icon name="shield" className="w-5 h-5 text-secondary" />
+                </div>
+                <div>
+                  <p className="text-3xl font-mono font-black text-on-surface">{tacticCoverage.covered}<span className="text-lg text-on-surface-variant">/{tacticCoverage.total}</span></p>
+                  <p className="text-[10px] text-on-surface-variant uppercase tracking-widest font-bold">Tactics Covered</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Platforms */}
+            <div className="bg-surface-container/80 backdrop-blur-sm rounded-xl p-4 border border-outline-variant/20 hover:border-warning/30 transition-colors group">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-warning/10 flex items-center justify-center group-hover:bg-warning/20 transition-colors">
+                  <Icon name="code" className="w-5 h-5 text-warning" />
+                </div>
+                <div>
+                  <p className="text-3xl font-mono font-black text-on-surface">{(pack.platforms || []).length}</p>
+                  <p className="text-[10px] text-on-surface-variant uppercase tracking-widest font-bold">Platforms</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Coverage Score */}
+            <div className="bg-surface-container/80 backdrop-blur-sm rounded-xl p-4 border border-outline-variant/20 relative overflow-hidden">
+              <div className="absolute bottom-0 left-0 right-0 h-1 bg-surface-container-highest">
+                <div 
+                  className="h-full bg-gradient-to-r from-primary via-secondary to-tertiary transition-all duration-700"
+                  style={{ width: `${coverageScore}%` }}
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary/20 via-secondary/20 to-tertiary/20 flex items-center justify-center">
+                  <Icon name="trending-up" className="w-5 h-5 text-on-surface" />
+                </div>
+                <div>
+                  <p className="text-3xl font-mono font-black text-on-surface">{coverageScore}<span className="text-lg">%</span></p>
+                  <p className="text-[10px] text-on-surface-variant uppercase tracking-widest font-bold">Coverage Score</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex gap-1 border-b border-transparent -mb-px">
+            {(['overview', 'detections'] as TabType[]).map(tab => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-8 py-4 text-sm font-bold uppercase tracking-wider transition-all rounded-t-xl border-b-2 ${
+                  activeTab === tab
+                    ? 'text-primary border-primary bg-surface-container-low'
+                    : 'text-on-surface-variant border-transparent hover:text-on-surface hover:bg-surface-container/50'
+                }`}
+              >
+                {tab}
+                {tab === 'detections' && (
+                  <span className="ml-2 px-2 py-0.5 text-[10px] bg-primary/10 text-primary rounded-full">
+                    {pack.detection_count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Content Area */}
+      <div className="flex-1 overflow-auto custom-scrollbar">
+        <div className="px-8 py-6 max-w-[1920px] mx-auto">
+          {activeTab === 'overview' ? (
+            <div className="grid grid-cols-3 gap-6">
+              {/* MITRE Coverage - Main Panel */}
+              <div className="col-span-2 bg-surface-container rounded-2xl border border-outline-variant/20 p-6 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+                <div className="relative">
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <h3 className="text-lg font-bold text-on-surface mb-1">MITRE ATT&CK Coverage</h3>
+                      <p className="text-sm text-on-surface-variant">Technique coverage across tactics</p>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="w-3 h-3 rounded bg-primary/30" />
+                      <span className="text-on-surface-variant">Has Coverage</span>
+                    </div>
+                  </div>
+                  <PackMiniMatrix detections={pack.detections || []} />
+                </div>
+              </div>
+
+              {/* Side Panel */}
+              <div className="space-y-6">
+                {/* Description */}
+                {pack.description && (
+                  <div className="bg-surface-container rounded-2xl border border-outline-variant/20 p-5 relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-primary via-secondary to-tertiary rounded-l-2xl" />
+                    <h3 className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-3 pl-4">
+                      Description
+                    </h3>
+                    <p className="text-sm text-on-surface/80 leading-relaxed pl-4">
+                      {pack.description}
+                    </p>
+                  </div>
+                )}
+
+                {/* Platforms */}
+                {(pack.platforms || []).length > 0 && (
+                  <div className="bg-surface-container rounded-2xl border border-outline-variant/20 p-5">
+                    <h3 className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-4">
+                      Target Platforms
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {pack.platforms!.map(platform => (
+                        <span key={platform} className="px-4 py-2 bg-surface-container-high text-on-surface text-sm font-medium rounded-xl border border-outline-variant/20 hover:border-primary/30 transition-colors">
+                          {platform}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Tags */}
+                {(pack.tags || []).length > 0 && (
+                  <div className="bg-surface-container rounded-2xl border border-outline-variant/20 p-5">
+                    <h3 className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-4">
+                      Tags
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {pack.tags!.map(tag => (
+                        <span key={tag} className="px-4 py-2 bg-primary/10 text-primary text-sm font-semibold rounded-xl border border-primary/20">
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Metadata */}
+                <div className="bg-surface-container rounded-2xl border border-outline-variant/20 p-5">
+                  <h3 className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-4">
+                    Pack Information
+                  </h3>
+                  <dl className="space-y-3 text-sm">
+                    <div className="flex justify-between items-center py-2 border-b border-outline-variant/10">
+                      <dt className="text-on-surface-variant font-medium">Created</dt>
+                      <dd className="text-on-surface font-mono">{new Date(pack.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</dd>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-b border-outline-variant/10">
+                      <dt className="text-on-surface-variant font-medium">Last Updated</dt>
+                      <dd className="text-on-surface font-mono">{new Date(pack.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</dd>
+                    </div>
+                    <div className="flex justify-between items-center py-2">
+                      <dt className="text-on-surface-variant font-medium">Source</dt>
+                      <dd className={`px-3 py-1 text-xs font-bold uppercase rounded-lg ${source.badge}`}>
+                        {pack.source}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Detections Tab */
+            <div className="bg-surface-container rounded-2xl border border-outline-variant/20 overflow-hidden">
+              {/* Detections Toolbar */}
+              <div className="px-6 py-4 border-b border-outline-variant/20 bg-surface-container-high/30 flex items-center justify-between gap-4">
+                <div className="flex-1 max-w-md relative">
+                  <Icon name="search" className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant" />
+                  <input
+                    type="text"
+                    value={detectionSearch}
+                    onChange={(e) => setDetectionSearch(e.target.value)}
+                    placeholder="Search detections by name or MITRE ID..."
+                    className="w-full pl-11 pr-4 py-3 bg-surface-container border border-outline-variant/30 rounded-xl text-sm text-on-surface placeholder-on-surface-variant/50 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <select
+                    value={sortField}
+                    onChange={(e) => setSortField(e.target.value as any)}
+                    className="px-4 py-3 bg-surface-container border border-outline-variant/30 rounded-xl text-sm text-on-surface focus:outline-none focus:border-primary cursor-pointer"
+                  >
+                    <option value="name">Sort by Name</option>
+                    <option value="severity">Sort by Severity</option>
+                    <option value="status">Sort by Status</option>
+                  </select>
+                  <button
+                    onClick={() => setSortDirection(d => d === 'asc' ? 'desc' : 'asc')}
+                    className="p-3 bg-surface-container border border-outline-variant/30 rounded-xl hover:border-primary/50 transition-colors"
+                  >
+                    <Icon name={sortDirection === 'asc' ? 'arrow-up' : 'arrow-down'} className="w-4 h-4 text-on-surface-variant" />
+                  </button>
+                  {canManagePacks && (
+                    <button
+                      onClick={() => setIsAddDetectionsModalOpen(true)}
+                      className="flex items-center gap-2 px-5 py-3 bg-tertiary text-on-tertiary text-sm font-bold rounded-xl hover:brightness-110 transition-all shadow-lg shadow-tertiary/20"
+                    >
+                      <Icon name="plus" className="w-4 h-4" />
+                      Add Detections
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Detections List */}
+              {filteredDetections.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-center">
+                  <div className="w-20 h-20 rounded-2xl bg-surface-container-high flex items-center justify-center mb-4">
+                    <Icon name="inbox" className="w-10 h-10 text-on-surface-variant/30" />
+                  </div>
+                  <p className="text-on-surface-variant font-semibold text-lg mb-2">
+                    {detectionSearch ? 'No detections match your search' : 'No detections in this pack yet'}
+                  </p>
+                  <p className="text-on-surface-variant/60 text-sm mb-6">
+                    {detectionSearch ? 'Try a different search term' : 'Add detection rules to build your coverage'}
+                  </p>
+                  {!detectionSearch && canManagePacks && (
+                    <button
+                      onClick={() => setIsAddDetectionsModalOpen(true)}
+                      className="flex items-center gap-2 px-6 py-3 bg-tertiary text-on-tertiary font-bold rounded-xl hover:brightness-110 transition-all"
+                    >
+                      <Icon name="plus" className="w-5 h-5" />
+                      Add Your First Detection
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="divide-y divide-outline-variant/10">
+                  {filteredDetections.map((detection, idx) => (
+                    <div
+                      key={detection.id}
+                      className="group px-6 py-5 flex items-center gap-5 hover:bg-surface-container-high/30 transition-colors cursor-pointer"
+                    >
+                      {/* Index */}
+                      <div className="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-xs font-mono font-bold text-on-surface-variant">
+                        {idx + 1}
+                      </div>
+
+                      {/* Detection Info */}
+                      <div 
+                        className="flex-1 min-w-0"
+                        onClick={() => onSelectDetection(detection)}
+                      >
+                        <div className="flex items-center gap-3 mb-1">
+                          <span className="font-semibold text-on-surface group-hover:text-primary transition-colors">
+                            {detection.name}
+                          </span>
+                          {(detection.mitreAttackIds || []).slice(0, 3).map(id => (
+                            <span key={id} className="px-2 py-0.5 text-[10px] font-mono font-bold bg-primary/10 text-primary rounded border border-primary/20">
+                              {id}
+                            </span>
+                          ))}
+                          {(detection.mitreAttackIds || []).length > 3 && (
+                            <span className="text-[10px] text-on-surface-variant/50">
+                              +{(detection.mitreAttackIds || []).length - 3} more
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-on-surface-variant/60">
+                          {detection.technology} • {detection.queryLanguage}
+                        </div>
+                      </div>
+
+                      {/* Severity Badge */}
+                      <span className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-lg border ${getSeverityColor(detection.severity)}`}>
+                        {detection.severity}
+                      </span>
+
+                      {/* Status Badge */}
+                      <span className={`px-3 py-1.5 text-[10px] font-bold uppercase rounded-lg ${getStatusColor(detection.status)}`}>
+                        {detection.status}
+                      </span>
+
+                      {/* Remove Button */}
+                      {canManagePacks && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setShowRemoveConfirm(detection.id); }}
+                          disabled={removingDetectionId === detection.id}
+                          className="p-2 text-on-surface-variant/30 hover:text-error hover:bg-error/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                          title="Remove from pack"
+                        >
+                          {removingDetectionId === detection.id ? (
+                            <Icon name="spinner" className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Icon name="x" className="w-4 h-4" />
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Modals */}
+      <CreatePackModal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        onSubmit={handleUpdatePack}
+        editPack={pack}
+      />
+
+      <AddDetectionsModal
+        isOpen={isAddDetectionsModalOpen}
+        onClose={() => setIsAddDetectionsModalOpen(false)}
+        onSubmit={handleAddDetections}
+        existingDetectionIds={(pack.detections || []).map(d => d.id)}
+        packName={pack.name}
+      />
+
+      {/* Delete Pack Confirmation */}
+      <ConfirmDialog
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={handleDeletePack}
+        title="Delete Pack"
+        message={`Are you sure you want to delete "${pack.name}"? This action cannot be undone.`}
+        variant="danger"
+        confirmLabel="Delete Pack"
+        loading={isDeleting}
+      />
+
+      {/* Remove Detection Confirmation */}
+      <ConfirmDialog
+        isOpen={showRemoveConfirm !== null}
+        onClose={() => setShowRemoveConfirm(null)}
+        onConfirm={() => showRemoveConfirm && handleRemoveDetection(showRemoveConfirm)}
+        title="Remove Detection"
+        message="Are you sure you want to remove this detection from the pack?"
+        variant="warning"
+        confirmLabel="Remove"
+      />
+    </div>
+  );
+};
+
+export default DetectionPackDetailPage;

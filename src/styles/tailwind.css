@@ -1,0 +1,389 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* react-grid-layout */
+@import 'react-grid-layout/css/styles.css';
+@import 'react-resizable/css/styles.css';
+
+/* ============================================
+   Enterprise Dashboard — Grid Overrides
+   ============================================ */
+
+/* Drag placeholder — shows where a widget will land */
+.react-grid-item.react-grid-placeholder {
+  background: rgb(var(--md-sys-color-primary) / 0.12);
+  border: 2px dashed rgb(var(--md-sys-color-primary) / 0.4);
+  border-radius: 16px;
+  opacity: 1;
+}
+
+/* Resize handles — visible in edit mode */
+.react-grid-item > .react-resizable-handle {
+  opacity: 0;
+  z-index: 50;
+  pointer-events: all;
+}
+.react-grid-item:hover > .react-resizable-handle {
+  opacity: 1;
+}
+.react-grid-item > .react-resizable-handle::after {
+  border-color: rgb(var(--md-sys-color-primary) / 0.6);
+  border-width: 3px;
+}
+/* SE corner handle — larger hit area with corner indicator */
+.react-grid-item > .react-resizable-handle-se {
+  width: 24px;
+  height: 24px;
+  bottom: 0;
+  right: 0;
+  cursor: se-resize;
+}
+.react-grid-item > .react-resizable-handle-se::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-right: 3px solid rgb(var(--md-sys-color-primary) / 0.6);
+  border-bottom: 3px solid rgb(var(--md-sys-color-primary) / 0.6);
+  border-radius: 0 0 2px 0;
+}
+/* S edge handle */
+.react-grid-item > .react-resizable-handle-s {
+  width: 40px;
+  height: 12px;
+  bottom: 0;
+  left: 50%;
+  margin-left: -20px;
+  cursor: s-resize;
+}
+.react-grid-item > .react-resizable-handle-s::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  margin-left: -8px;
+  width: 16px;
+  height: 3px;
+  border: none;
+  border-radius: 2px;
+  background: rgb(var(--md-sys-color-primary) / 0.5);
+}
+/* E edge handle */
+.react-grid-item > .react-resizable-handle-e {
+  width: 12px;
+  height: 40px;
+  right: 0;
+  top: 50%;
+  margin-top: -20px;
+  cursor: e-resize;
+}
+.react-grid-item > .react-resizable-handle-e::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  margin-top: -8px;
+  width: 3px;
+  height: 16px;
+  border: none;
+  border-radius: 2px;
+  background: rgb(var(--md-sys-color-primary) / 0.5);
+}
+
+/* Resizing state */
+.react-grid-item.resizing {
+  z-index: 10;
+  opacity: 0.95;
+}
+
+/* Dragging state */
+.react-grid-item.react-draggable-dragging {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  border-radius: 16px;
+  opacity: 0.9;
+}
+
+/* ============================================
+   M3 DESIGN TOKENS (CSS Variables)
+   ============================================ */
+
+:root {
+  /* M3 Light Theme — Core */
+  --md-sys-color-primary: 120 50 100;           /* #783264 — brand magenta */
+  --md-sys-color-on-primary: 255 255 255;
+  --md-sys-color-primary-container: 255 215 240;
+  --md-sys-color-on-primary-container: 50 15 40;
+
+  --md-sys-color-secondary: 75 95 115;
+  --md-sys-color-on-secondary: 255 255 255;
+  --md-sys-color-secondary-container: 215 227 248;
+  --md-sys-color-on-secondary-container: 20 28 43;
+
+  --md-sys-color-tertiary: 0 80 145;
+  --md-sys-color-on-tertiary: 255 255 255;
+  --md-sys-color-tertiary-container: 210 229 255;
+  --md-sys-color-on-tertiary-container: 0 29 54;
+
+  --md-sys-color-error: 186 26 26;
+  --md-sys-color-on-error: 255 255 255;
+  --md-sys-color-error-container: 255 218 214;
+  --md-sys-color-on-error-container: 65 0 2;
+
+  --md-sys-color-background: 250 252 255;
+  --md-sys-color-on-background: 25 28 30;
+
+  --md-sys-color-surface: 250 252 255;
+  --md-sys-color-on-surface: 25 28 30;
+  --md-sys-color-surface-variant: 222 227 235;
+  --md-sys-color-on-surface-variant: 64 72 85;
+
+  /* Surface elevation */
+  --md-sys-color-surface-container-lowest: 255 255 255;
+  --md-sys-color-surface-container-low: 245 248 253;
+  --md-sys-color-surface-container: 237 242 248;
+  --md-sys-color-surface-container-high: 231 237 243;
+  --md-sys-color-surface-container-highest: 225 231 238;
+
+  --md-sys-color-outline: 115 120 130;
+  --md-sys-color-outline-variant: 195 200 210;
+
+  /* Additional M3 system tokens */
+  --md-sys-color-surface-tint: 120 50 100;
+  --md-sys-color-surface-dim: 222 216 224;
+  --md-sys-color-surface-bright: 254 247 255;
+  --md-sys-color-inverse-surface: 45 50 55;
+  --md-sys-color-inverse-on-surface: 240 240 240;
+  --md-sys-color-inverse-primary: 207 189 254;
+  --md-sys-color-shadow: 0 0 0;
+  --md-sys-color-scrim: 0 0 0;
+
+  /* Fixed accent colors (always visible regardless of theme) */
+  --md-sys-color-primary-fixed: 255 215 240;
+  --md-sys-color-primary-fixed-dim: 230 180 210;
+  --md-sys-color-on-primary-fixed: 50 15 40;
+  --md-sys-color-on-primary-fixed-variant: 95 40 78;
+  --md-sys-color-secondary-fixed: 215 227 248;
+  --md-sys-color-secondary-fixed-dim: 185 200 220;
+  --md-sys-color-on-secondary-fixed: 20 28 43;
+  --md-sys-color-on-secondary-fixed-variant: 55 70 90;
+  --md-sys-color-tertiary-fixed: 210 229 255;
+  --md-sys-color-tertiary-fixed-dim: 150 195 240;
+  --md-sys-color-on-tertiary-fixed: 0 29 54;
+  --md-sys-color-on-tertiary-fixed-variant: 0 60 115;
+
+  /* ── Extended Colors (from Material Theme Builder) ── */
+
+  /* Blue — informational, links, data viz */
+  --md-ext-color-blue: 46 98 140;
+  --md-ext-color-on-blue: 255 255 255;
+  --md-ext-color-blue-container: 205 229 255;
+  --md-ext-color-on-blue-container: 11 74 114;
+
+  /* Indigo — secondary data, alt accent */
+  --md-ext-color-indigo: 92 88 145;
+  --md-ext-color-on-indigo: 255 255 255;
+  --md-ext-color-indigo-container: 227 223 255;
+  --md-ext-color-on-indigo-container: 68 64 120;
+
+  /* Violet — complementary purple */
+  --md-ext-color-violet: 126 77 123;
+  --md-ext-color-on-violet: 255 255 255;
+  --md-ext-color-violet-container: 255 214 248;
+  --md-ext-color-on-violet-container: 100 54 98;
+
+  /* Rose — romance pink, threats */
+  --md-ext-color-rose: 139 74 98;
+  --md-ext-color-on-rose: 255 255 255;
+  --md-ext-color-rose-container: 255 217 227;
+  --md-ext-color-on-rose-container: 111 51 74;
+
+  /* Coral — soft red, alerts */
+  --md-ext-color-coral: 144 75 63;
+  --md-ext-color-on-coral: 255 255 255;
+  --md-ext-color-coral-container: 255 218 212;
+  --md-ext-color-on-coral-container: 115 52 42;
+
+  /* Orange — warnings, attention */
+  --md-ext-color-orange: 141 78 43;
+  --md-ext-color-on-orange: 255 255 255;
+  --md-ext-color-orange-container: 255 219 203;
+  --md-ext-color-on-orange-container: 112 55 22;
+
+  /* Amber — caution, gold status */
+  --md-ext-color-amber: 113 92 12;
+  --md-ext-color-on-amber: 255 255 255;
+  --md-ext-color-amber-container: 254 224 134;
+  --md-ext-color-on-amber-container: 86 69 0;
+
+  /* Green — success, validated */
+  --md-ext-color-green: 65 104 53;
+  --md-ext-color-on-green: 255 255 255;
+  --md-ext-color-green-container: 193 239 175;
+  --md-ext-color-on-green-container: 41 79 31;
+
+  /* Teal — coverage, health */
+  --md-ext-color-teal: 0 104 119;
+  --md-ext-color-on-teal: 255 255 255;
+  --md-ext-color-teal-container: 164 238 255;
+  --md-ext-color-on-teal-container: 0 78 90;
+
+  /* Cyan — metadata, supplementary */
+  --md-ext-color-cyan: 25 101 132;
+  --md-ext-color-on-cyan: 255 255 255;
+  --md-ext-color-cyan-container: 194 232 255;
+  --md-ext-color-on-cyan-container: 0 77 103;
+}
+
+.dark {
+  /* M3 Dark Theme — Core */
+  --md-sys-color-primary: 120 50 100;           /* #783264 — brand magenta */
+  --md-sys-color-on-primary: 255 255 255;
+  --md-sys-color-primary-container: 148 72 120;
+  --md-sys-color-on-primary-container: 245 230 240;
+
+  --md-sys-color-secondary: 185 200 220;
+  --md-sys-color-on-secondary: 40 50 70;
+  --md-sys-color-secondary-container: 60 75 95;
+  --md-sys-color-on-secondary-container: 215 227 248;
+
+  --md-sys-color-tertiary: 0 80 145;
+  --md-sys-color-on-tertiary: 255 255 255;
+  --md-sys-color-tertiary-container: 0 109 180;
+  --md-sys-color-on-tertiary-container: 210 229 255;
+
+  --md-sys-color-error: 255 180 171;
+  --md-sys-color-on-error: 105 0 5;
+  --md-sys-color-error-container: 147 0 10;
+  --md-sys-color-on-error-container: 255 218 214;
+
+  --md-sys-color-background: 8 8 10;
+  --md-sys-color-on-background: 230 230 232;
+
+  --md-sys-color-surface: 8 8 10;
+  --md-sys-color-on-surface: 230 230 232;
+  --md-sys-color-surface-variant: 50 50 55;
+  --md-sys-color-on-surface-variant: 190 190 195;
+
+  /* Surface elevation */
+  --md-sys-color-surface-container-lowest: 4 4 5;
+  --md-sys-color-surface-container-low: 11 11 13;
+  --md-sys-color-surface-container: 18 18 20;
+  --md-sys-color-surface-container-high: 26 26 29;
+  --md-sys-color-surface-container-highest: 35 35 38;
+
+  --md-sys-color-outline: 130 130 135;
+  --md-sys-color-outline-variant: 50 50 55;
+
+  /* Additional M3 system tokens */
+  --md-sys-color-surface-tint: 120 50 100;
+  --md-sys-color-surface-dim: 20 18 24;
+  --md-sys-color-surface-bright: 59 56 62;
+  --md-sys-color-inverse-surface: 230 225 220;
+  --md-sys-color-inverse-on-surface: 30 30 35;
+  --md-sys-color-inverse-primary: 230 180 210;
+  --md-sys-color-shadow: 0 0 0;
+  --md-sys-color-scrim: 0 0 0;
+
+  /* Fixed accent colors */
+  --md-sys-color-primary-fixed: 255 215 240;
+  --md-sys-color-primary-fixed-dim: 230 180 210;
+  --md-sys-color-on-primary-fixed: 50 15 40;
+  --md-sys-color-on-primary-fixed-variant: 95 40 78;
+  --md-sys-color-secondary-fixed: 215 227 248;
+  --md-sys-color-secondary-fixed-dim: 185 200 220;
+  --md-sys-color-on-secondary-fixed: 20 28 43;
+  --md-sys-color-on-secondary-fixed-variant: 55 70 90;
+  --md-sys-color-tertiary-fixed: 210 229 255;
+  --md-sys-color-tertiary-fixed-dim: 150 195 240;
+  --md-sys-color-on-tertiary-fixed: 0 29 54;
+  --md-sys-color-on-tertiary-fixed-variant: 0 60 115;
+
+  /* ── Extended Colors (dark mode variants) ── */
+
+  /* Blue */
+  --md-ext-color-blue: 154 203 250;
+  --md-ext-color-on-blue: 0 51 82;
+  --md-ext-color-blue-container: 11 74 114;
+  --md-ext-color-on-blue-container: 205 229 255;
+
+  /* Indigo */
+  --md-ext-color-indigo: 197 192 255;
+  --md-ext-color-on-indigo: 45 41 96;
+  --md-ext-color-indigo-container: 68 64 120;
+  --md-ext-color-on-indigo-container: 227 223 255;
+
+  /* Violet */
+  --md-ext-color-violet: 239 180 232;
+  --md-ext-color-on-violet: 75 31 74;
+  --md-ext-color-violet-container: 100 54 98;
+  --md-ext-color-on-violet-container: 255 214 248;
+
+  /* Rose */
+  --md-ext-color-rose: 255 176 202;
+  --md-ext-color-on-rose: 84 29 51;
+  --md-ext-color-rose-container: 111 51 74;
+  --md-ext-color-on-rose-container: 255 217 227;
+
+  /* Coral */
+  --md-ext-color-coral: 255 180 167;
+  --md-ext-color-on-coral: 86 30 22;
+  --md-ext-color-coral-container: 115 52 42;
+  --md-ext-color-on-coral-container: 255 218 212;
+
+  /* Orange */
+  --md-ext-color-orange: 255 182 146;
+  --md-ext-color-on-orange: 84 33 3;
+  --md-ext-color-orange-container: 112 55 22;
+  --md-ext-color-on-orange-container: 255 219 203;
+
+  /* Amber */
+  --md-ext-color-amber: 225 196 109;
+  --md-ext-color-on-amber: 60 47 0;
+  --md-ext-color-amber-container: 86 69 0;
+  --md-ext-color-on-amber-container: 254 224 134;
+
+  /* Green */
+  --md-ext-color-green: 166 211 149;
+  --md-ext-color-on-green: 18 56 10;
+  --md-ext-color-green-container: 41 79 31;
+  --md-ext-color-on-green-container: 193 239 175;
+
+  /* Teal */
+  --md-ext-color-teal: 131 210 228;
+  --md-ext-color-on-teal: 0 54 63;
+  --md-ext-color-teal-container: 0 78 90;
+  --md-ext-color-on-teal-container: 164 238 255;
+
+  /* Cyan */
+  --md-ext-color-cyan: 142 207 242;
+  --md-ext-color-on-cyan: 0 53 72;
+  --md-ext-color-cyan-container: 0 77 103;
+  --md-ext-color-on-cyan-container: 194 232 255;
+}
+
+/* Onboarding Pipeline Styles */
+@layer utilities {
+  .stream-glow {
+    filter: drop-shadow(0 0 6px currentColor);
+  }
+  .node-glow {
+    filter: drop-shadow(0 0 12px rgb(var(--md-sys-color-primary) / 0.4));
+  }
+  .node-glow-error {
+    filter: drop-shadow(0 0 12px rgb(var(--md-sys-color-error) / 0.4));
+  }
+  .node-glow-success {
+    filter: drop-shadow(0 0 12px rgb(75 95 115 / 0.4));
+  }
+}
+
+/* ============================================
+   Shared Widget Animations
+   ============================================ */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}

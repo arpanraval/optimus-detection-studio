@@ -1,0 +1,12 @@
+# AI Skills Directory
+#
+# This directory will contain reusable AI skill implementations
+# that can be composed into more complex workflows.
+#
+# Planned skills:
+# - SummarizationSkill: Text summarization with configurable length
+# - EntityExtractionSkill: Named entity recognition
+# - ClassificationSkill: Multi-label classification
+# - SimilaritySkill: Semantic similarity comparison
+#
+# See lib/ai/README.md for architecture details.

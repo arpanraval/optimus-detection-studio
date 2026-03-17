@@ -1,0 +1,428 @@
+import React, { useState, useMemo } from 'react';
+import { useDetectionPacks, createPack } from '../../hooks/useDetectionPacks';
+import { DetectionPackCard } from './DetectionPackCard';
+import { PackIcon } from './PackIcon';
+import { CreatePackModal } from './CreatePackModal';
+import { Icon } from '../Icon';
+import { useToast } from '../../hooks/useToast';
+import { usePermissions } from '../../context/PermissionsContext';
+import { DetectionPack } from '../../types';
+import { routeHelpers } from '../../router/routes';
+
+interface DetectionPacksPageProps {
+  onSelectPack: (packId: string) => void;
+}
+
+type ViewMode = 'grid' | 'list';
+
+export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelectPack }) => {
+  const { packs, loading, error, filters, setFilters, refetch } = useDetectionPacks();
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const { showToast } = useToast();
+  const { hasRoleOrHigher } = usePermissions();
+  
+  const canManagePacks = hasRoleOrHigher('lead');
+
+  // Extract unique values for filters
+  const sourceOptions = ['community', 'custom', 'official'];
+  const platformOptions = Array.from(
+    new Set((packs || []).flatMap(p => p?.platforms || []))
+  ).sort();
+
+  // Calculate aggregate stats
+  const stats = useMemo(() => {
+    const packsArray = packs || [];
+    return {
+      totalPacks: packsArray.length,
+      totalRules: packsArray.reduce((sum, p) => sum + (p.rule_count || 0), 0),
+      totalTechniques: new Set(packsArray.flatMap(p => p.mitre_technique_ids || [])).size,
+      totalPlatforms: new Set(packsArray.flatMap(p => p.platforms || [])).size,
+    };
+  }, [packs]);
+
+  const handleCreatePack = async (packData: Partial<DetectionPack>) => {
+    try {
+      await createPack(packData);
+      showToast('success', 'Pack Created', `"${packData.name}" has been created`);
+      refetch();
+    } catch (err) {
+      showToast('error', 'Error', 'Failed to create pack');
+      throw err;
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="p-8 flex flex-col items-center justify-center h-full bg-background">
+        <div className="relative">
+          <div className="absolute inset-0 bg-primary/20 blur-2xl rounded-full animate-pulse" />
+          <Icon name="spinner" className="relative w-16 h-16 text-primary animate-spin" />
+        </div>
+        <p className="text-on-surface-variant animate-pulse font-bold font-mono text-sm mt-6 tracking-widest">
+          LOADING DETECTION PACKS...
+        </p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-8 flex flex-col items-center justify-center h-full bg-background">
+        <div className="text-center max-w-md">
+          <Icon name="alert-circle" className="w-16 h-16 text-error mx-auto mb-4" />
+          <p className="text-error mb-4 text-lg font-semibold">Failed to load detection packs</p>
+          <p className="text-on-surface-variant mb-6 text-sm">{error.message}</p>
+          <button
+            onClick={() => refetch()}
+            className="px-6 py-3 bg-primary text-on-primary rounded-lg hover:bg-primary/90 transition-colors font-semibold"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full bg-background">
+      {/* Hero Header */}
+      <div className="flex-shrink-0 relative overflow-hidden bg-surface-container-low border-b border-outline-variant/30">
+        {/* Background Effects */}
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-tertiary/10" />
+        <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3" />
+        <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-tertiary/5 rounded-full blur-3xl translate-y-1/2 -translate-x-1/3" />
+        
+        <div className="relative px-8 pt-8 pb-6">
+          {/* Top Section */}
+          <div className="flex items-start justify-between mb-8">
+            <div>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 via-secondary/20 to-tertiary/20 flex items-center justify-center border border-outline-variant/30">
+                  <Icon name="archive" className="w-6 h-6 text-primary" />
+                </div>
+                <div>
+                  <h1 className="text-3xl font-brand font-bold text-on-surface tracking-tight">
+                    Detection Packs
+                  </h1>
+                  <p className="text-sm text-on-surface-variant">
+                    Curated collections of detection rules for comprehensive threat coverage
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {/* View Toggle */}
+              <div className="flex gap-1 bg-surface-container rounded-xl p-1 border border-outline-variant/20">
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={`p-2.5 rounded-lg transition-all ${
+                    viewMode === 'grid'
+                      ? 'bg-primary text-on-primary shadow-sm'
+                      : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high'
+                  }`}
+                  title="Grid View"
+                >
+                  <Icon name="grid" className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`p-2.5 rounded-lg transition-all ${
+                    viewMode === 'list'
+                      ? 'bg-primary text-on-primary shadow-sm'
+                      : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high'
+                  }`}
+                  title="List View"
+                >
+                  <Icon name="list" className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Create Pack Button */}
+              {canManagePacks && (
+                <button
+                  onClick={() => setIsCreateModalOpen(true)}
+                  className="flex items-center gap-2 px-6 py-3 bg-tertiary text-on-tertiary font-bold rounded-xl hover:brightness-110 transition-all shadow-lg shadow-tertiary/20"
+                >
+                  <Icon name="plus" className="w-5 h-5" />
+                  Create Pack
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Stats Row */}
+          <div className="grid grid-cols-4 gap-4 mb-6">
+            <div className="bg-surface-container/60 backdrop-blur-sm rounded-xl p-4 border border-outline-variant/20">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Icon name="archive" className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <p className="text-2xl font-mono font-black text-on-surface">{stats.totalPacks}</p>
+                  <p className="text-[10px] text-on-surface-variant uppercase tracking-widest font-bold">Total Packs</p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-surface-container/60 backdrop-blur-sm rounded-xl p-4 border border-outline-variant/20">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-tertiary/10 flex items-center justify-center">
+                  <Icon name="library" className="w-5 h-5 text-tertiary" />
+                </div>
+                <div>
+                  <p className="text-2xl font-mono font-black text-on-surface">{stats.totalRules}</p>
+                  <p className="text-[10px] text-on-surface-variant uppercase tracking-widest font-bold">Total Rules</p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-surface-container/60 backdrop-blur-sm rounded-xl p-4 border border-outline-variant/20">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-secondary/10 flex items-center justify-center">
+                  <Icon name="matrix" className="w-5 h-5 text-secondary" />
+                </div>
+                <div>
+                  <p className="text-2xl font-mono font-black text-on-surface">{stats.totalTechniques}</p>
+                  <p className="text-[10px] text-on-surface-variant uppercase tracking-widest font-bold">Unique TTPs</p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-surface-container/60 backdrop-blur-sm rounded-xl p-4 border border-outline-variant/20">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-warning/10 flex items-center justify-center">
+                  <Icon name="code" className="w-5 h-5 text-warning" />
+                </div>
+                <div>
+                  <p className="text-2xl font-mono font-black text-on-surface">{stats.totalPlatforms}</p>
+                  <p className="text-[10px] text-on-surface-variant uppercase tracking-widest font-bold">Platforms</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Search and Filters */}
+          <div className="flex gap-3 flex-wrap">
+            {/* Search Input */}
+            <div className="flex-1 min-w-[300px] relative">
+              <Icon
+                name="search"
+                className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-on-surface-variant pointer-events-none"
+              />
+              <input
+                type="text"
+                placeholder="Search packs by name, description, or tags..."
+                value={filters.search}
+                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                className="w-full pl-12 pr-4 py-3.5 bg-surface-container border border-outline-variant/30 
+                         rounded-xl text-on-surface placeholder-on-surface-variant/70
+                         focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all text-sm"
+              />
+            </div>
+
+            {/* Source Filter */}
+            <select
+              value={filters.source}
+              onChange={(e) => setFilters({ ...filters, source: e.target.value })}
+              className="px-4 py-3.5 bg-surface-container border border-outline-variant/30 rounded-xl 
+                       text-on-surface focus:outline-none focus:border-primary transition-colors text-sm cursor-pointer min-w-[140px]"
+            >
+              <option value="">All Sources</option>
+              {sourceOptions.map(source => (
+                <option key={source} value={source}>{source.charAt(0).toUpperCase() + source.slice(1)}</option>
+              ))}
+            </select>
+
+            {/* Platform Filter */}
+            <select
+              value={filters.platform}
+              onChange={(e) => setFilters({ ...filters, platform: e.target.value })}
+              className="px-4 py-3.5 bg-surface-container border border-outline-variant/30 rounded-xl 
+                       text-on-surface focus:outline-none focus:border-primary transition-colors text-sm cursor-pointer min-w-[160px]"
+            >
+              <option value="">All Platforms</option>
+              {platformOptions.map(platform => (
+                <option key={platform} value={platform}>{platform}</option>
+              ))}
+            </select>
+
+            {/* Sort By */}
+            <select
+              value={filters.sortBy}
+              onChange={(e) => setFilters({ ...filters, sortBy: e.target.value as any })}
+              className="px-4 py-3.5 bg-surface-container border border-outline-variant/30 rounded-xl 
+                       text-on-surface focus:outline-none focus:border-primary transition-colors text-sm cursor-pointer min-w-[160px]"
+            >
+              <option value="name">Sort by Name</option>
+              <option value="rule_count">Sort by Rule Count</option>
+              <option value="created_at">Sort by Created</option>
+              <option value="updated_at">Sort by Updated</option>
+            </select>
+
+            {/* Sort Order Toggle */}
+            <button
+              onClick={() => setFilters({ ...filters, sortOrder: filters.sortOrder === 'asc' ? 'desc' : 'asc' })}
+              className="px-4 py-3.5 bg-surface-container border border-outline-variant/30 rounded-xl 
+                       text-on-surface hover:border-primary transition-colors"
+              title={filters.sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+            >
+              <Icon
+                name={filters.sortOrder === 'asc' ? 'arrow-up' : 'arrow-down'}
+                className="w-5 h-5"
+              />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Packs Display Area */}
+      <div className="flex-1 overflow-auto p-6 custom-scrollbar">
+        {packs.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-center py-20">
+            <div className="relative mb-6">
+              <div className="absolute inset-0 bg-primary/10 blur-2xl rounded-full" />
+              <div className="relative w-24 h-24 rounded-2xl bg-surface-container flex items-center justify-center border border-outline-variant/30">
+                <Icon name="archive" className="w-12 h-12 text-on-surface-variant/40" />
+              </div>
+            </div>
+            <h2 className="text-2xl font-bold text-on-surface mb-3">No Detection Packs</h2>
+            <p className="text-on-surface-variant mb-8 max-w-md">
+              {filters.search || filters.source || filters.platform 
+                ? 'No packs match your current filters. Try adjusting your search criteria.'
+                : 'Create your first detection pack to organize and group related detection rules for comprehensive threat coverage.'}
+            </p>
+            {canManagePacks && !filters.search && !filters.source && !filters.platform && (
+              <button
+                onClick={() => setIsCreateModalOpen(true)}
+                className="flex items-center gap-2 px-8 py-4 bg-tertiary text-on-tertiary font-bold rounded-xl hover:brightness-110 transition-all shadow-lg shadow-tertiary/20"
+              >
+                <Icon name="plus" className="w-5 h-5" />
+                Create Your First Pack
+              </button>
+            )}
+            {(filters.search || filters.source || filters.platform) && (
+              <button
+                onClick={() => setFilters({ ...filters, search: '', source: '', platform: '' })}
+                className="text-primary hover:underline font-semibold"
+              >
+                Clear all filters
+              </button>
+            )}
+          </div>
+        ) : viewMode === 'grid' ? (
+          /* Grid View */
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
+            {packs.map(pack => (
+              <DetectionPackCard
+                key={pack.id}
+                pack={pack}
+                to={routeHelpers.packDetail(pack.id)}
+                onClick={() => onSelectPack(pack.id)}
+              />
+            ))}
+          </div>
+        ) : (
+          /* List View */
+          <div className="bg-surface-container rounded-2xl border border-outline-variant/30 overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-surface-container-high/50 border-b border-outline-variant/30">
+                <tr>
+                  <th className="px-6 py-4 text-left text-[10px] font-black text-on-surface-variant uppercase tracking-widest">
+                    Pack
+                  </th>
+                  <th className="px-6 py-4 text-center text-[10px] font-black text-on-surface-variant uppercase tracking-widest">
+                    Rules
+                  </th>
+                  <th className="px-6 py-4 text-center text-[10px] font-black text-on-surface-variant uppercase tracking-widest">
+                    TTPs
+                  </th>
+                  <th className="px-6 py-4 text-left text-[10px] font-black text-on-surface-variant uppercase tracking-widest">
+                    Platforms
+                  </th>
+                  <th className="px-6 py-4 text-left text-[10px] font-black text-on-surface-variant uppercase tracking-widest">
+                    Source
+                  </th>
+                  <th className="px-6 py-4 text-left text-[10px] font-black text-on-surface-variant uppercase tracking-widest">
+                    Updated
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {packs.map((pack, idx) => (
+                  <tr
+                    key={pack.id}
+                    onClick={() => onSelectPack(pack.id)}
+                    className={`cursor-pointer transition-colors hover:bg-surface-container-high/50 group
+                              ${idx !== packs.length - 1 ? 'border-b border-outline-variant/10' : ''}`}
+                  >
+                    <td className="px-6 py-5">
+                      <div className="flex items-center gap-4">
+                        <PackIcon 
+                          packId={pack.id}
+                          packName={pack.name}
+                          source={pack.source}
+                          size="md"
+                          className="group-hover:scale-105 transition-transform"
+                        />
+                        <div>
+                          <div className="text-on-surface font-bold group-hover:text-primary transition-colors">{pack.name}</div>
+                          {pack.description && (
+                            <div className="text-xs text-on-surface-variant/60 line-clamp-1 max-w-md">
+                              {pack.description}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-5 text-center">
+                      <span className="text-xl font-mono font-black text-primary">{pack.rule_count}</span>
+                    </td>
+                    <td className="px-6 py-5 text-center">
+                      <span className="text-xl font-mono font-black text-tertiary">
+                        {pack.mitre_technique_ids?.length || 0}
+                      </span>
+                    </td>
+                    <td className="px-6 py-5">
+                      <div className="flex flex-wrap gap-1">
+                        {(pack.platforms || []).slice(0, 3).map(p => (
+                          <span key={p} className="px-2 py-0.5 text-[10px] bg-surface-container-high text-on-surface-variant rounded font-medium">
+                            {p}
+                          </span>
+                        ))}
+                        {(pack.platforms || []).length > 3 && (
+                          <span className="text-[10px] text-on-surface-variant/50 self-center">
+                            +{(pack.platforms || []).length - 3}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-5">
+                      <span className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-lg ${
+                        pack.source === 'community' ? 'bg-primary/10 text-primary' :
+                        pack.source === 'official' ? 'bg-secondary/10 text-secondary' :
+                        'bg-tertiary/10 text-tertiary'
+                      }`}>
+                        {pack.source}
+                      </span>
+                    </td>
+                    <td className="px-6 py-5 text-sm text-on-surface-variant font-mono">
+                      {new Date(pack.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Create Pack Modal */}
+      <CreatePackModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSubmit={handleCreatePack}
+      />
+    </div>
+  );
+};
+
+export default DetectionPacksPage;
