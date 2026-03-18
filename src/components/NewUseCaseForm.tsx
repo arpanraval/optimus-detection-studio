@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useRegisterNavigationBlocker, useNavigationBlocker } from '../context/NavigationBlockerContext';
-import { Detection, Status, Severity, DetectionType, Maturity, Confidence, DetectionQuery, LinkedMitreEntity } from '../types';
+import { Detection, Status, Severity, DetectionType, Maturity, Confidence, DetectionQuery, LinkedMitreEntity, LIBRARY_LABELS } from '../types';
 import { Icon } from './Icon';
 import { 
   getMitreDataById, 
@@ -1288,7 +1288,7 @@ Output JSON only, no markdown.`;
                     : 'bg-primary/15 text-primary border border-primary/30'
                 }`}>
                   <Icon name={isUniversalTarget ? 'globe' : 'user'} className="w-3.5 h-3.5" />
-                  {isUniversalTarget ? 'Universal Library' : 'My Library'}
+                  {LIBRARY_LABELS[isUniversalTarget ? 'universal' : 'user']}
                 </span>
               )}
             </div>
