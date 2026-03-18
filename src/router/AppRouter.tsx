@@ -17,6 +17,7 @@ import { ThreatIntelProvider } from '../context/ThreatIntelContext';
 import { ScoringProvider } from '../context/ScoringContext';
 import { GlobalImportProvider } from '../context/GlobalImportContext';
 import { NavigationBlockerProvider } from '../context/NavigationBlockerContext';
+import { RealtimeProvider } from '../context/RealtimeContext';
 import { logAuditEvent } from '../lib/audit';
 import { AppErrorBoundary } from '../components/ErrorBoundary';
 import { AppLoader } from '../components/AppLoader';
@@ -102,27 +103,29 @@ const ProtectedLayout: React.FC<{ user: User; profile: Profile }> = ({ user, pro
 
   return (
     <NavigationBlockerProvider>
-      <GlobalImportProvider userId={user.id}>
-        <PermissionsProvider userId={user.id}>
-          <TeamProvider userId={user.id}>
-            <WorkspaceProvider userId={user.id}>
-              <ScoringProvider>
-                <LibraryProvider userId={user.id} userRole={profile.role} refreshTrigger={libraryRefreshTrigger}>
-                  <ThreatIntelProvider userId={user.id} refreshTrigger={libraryRefreshTrigger}>
-                    <AppLayout
-                      user={user}
-                      profile={profile}
-                      detections={detections}
-                      isLoading={isLoading}
-                      onSignOut={handleSignOut}
-                    />
-                  </ThreatIntelProvider>
-                </LibraryProvider>
-              </ScoringProvider>
-            </WorkspaceProvider>
-          </TeamProvider>
-        </PermissionsProvider>
-      </GlobalImportProvider>
+      <RealtimeProvider userId={user.id}>
+        <GlobalImportProvider userId={user.id}>
+          <PermissionsProvider userId={user.id}>
+            <TeamProvider userId={user.id}>
+              <WorkspaceProvider userId={user.id}>
+                <ScoringProvider>
+                  <LibraryProvider userId={user.id} userRole={profile.role} refreshTrigger={libraryRefreshTrigger}>
+                    <ThreatIntelProvider userId={user.id} refreshTrigger={libraryRefreshTrigger}>
+                      <AppLayout
+                        user={user}
+                        profile={profile}
+                        detections={detections}
+                        isLoading={isLoading}
+                        onSignOut={handleSignOut}
+                      />
+                    </ThreatIntelProvider>
+                  </LibraryProvider>
+                </ScoringProvider>
+              </WorkspaceProvider>
+            </TeamProvider>
+          </PermissionsProvider>
+        </GlobalImportProvider>
+      </RealtimeProvider>
     </NavigationBlockerProvider>
   );
 };
