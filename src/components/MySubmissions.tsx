@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Icon } from './Icon';
 import { supabase } from '../lib/supabaseClient';
 import { useToast } from '../hooks/useToast';
-import { PublishRequest, Detection } from '../types';
+import { PublishRequest, Detection, LIBRARY_LABELS } from '../types';
 
 interface MySubmissionsProps {
   userId: string;
@@ -167,7 +167,7 @@ export const MySubmissions: React.FC<MySubmissionsProps> = ({
             )}
             <div>
               <h1 className="text-xl font-semibold text-on-surface">My Submissions</h1>
-              <p className="text-xs text-on-surface-variant mt-0.5">Track your Universal Library submissions</p>
+              <p className="text-xs text-on-surface-variant mt-0.5">Track your {LIBRARY_LABELS['universal']} submissions</p>
             </div>
           </div>
           
@@ -244,7 +244,7 @@ export const MySubmissions: React.FC<MySubmissionsProps> = ({
             <h3 className="text-lg font-medium text-on-surface mb-1">No Submissions</h3>
             <p className="text-sm text-on-surface-variant max-w-sm">
               {statusFilter === 'all' 
-                ? "You haven't submitted any detections to the Universal Library yet."
+                ? `You haven't submitted any detections to the ${LIBRARY_LABELS['universal']} yet.`
                 : `No ${statusFilter} submissions found.`
               }
             </p>
@@ -391,7 +391,7 @@ export const MySubmissions: React.FC<MySubmissionsProps> = ({
                             className="px-3 py-1.5 text-xs font-medium text-tertiary bg-tertiary/10 hover:bg-tertiary/20 rounded-lg transition-colors flex items-center gap-1.5"
                           >
                             <Icon name="external-link" className="w-3.5 h-3.5" />
-                            View in Universal Library
+                            View in {LIBRARY_LABELS['universal']}
                           </button>
                         )}
                       </div>
