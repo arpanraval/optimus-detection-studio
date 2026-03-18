@@ -523,14 +523,6 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
       activeClass: 'bg-[#3a1a1a] text-red-200',
     },
     {
-      id: 'workspaces',
-      label: 'Workspaces',
-      icon: 'grid',
-      singleAction: 'workspaces' as View,
-      items: [],
-      activeClass: 'bg-[#2a2a4a] text-indigo-200',
-    },
-    {
       id: 'mitre',
       label: 'Intelligence',
       icon: 'crosshairs',
