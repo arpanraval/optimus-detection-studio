@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { Detection } from '../types';
+import { Detection, LIBRARY_LABELS, LIBRARY_LABELS_SHORT } from '../types';
 import { UseCaseCard } from './UseCaseCard';
 import { UseCaseListItem } from './UseCaseListItem';
 import { Icon } from './Icon';
@@ -970,7 +970,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
             }
           >
             <Icon name="user" className="w-4 h-4" />
-            <span>My Library</span>
+            <span>{LIBRARY_LABELS['user']}</span>
             <span
               className="text-xs font-bold px-2 py-0.5 rounded-lg"
               style={currentLibrary === 'user'
@@ -990,7 +990,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
             }
           >
             <Icon name="globe" className="w-4 h-4" />
-            <span>Universal</span>
+            <span>{LIBRARY_LABELS_SHORT['universal']}</span>
             <span
               className="text-xs font-bold px-2 py-0.5 rounded-lg"
               style={currentLibrary === 'universal'

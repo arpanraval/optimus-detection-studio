@@ -16,6 +16,9 @@ export type ReviewRequestStatus = 'pending' | 'in_progress' | 'approved' | 'reje
 
 export type LibraryType = 'universal' | 'user';
 
+export const LIBRARY_LABELS: Record<LibraryType, string> = { 'user': 'Detection Lab', 'universal': 'Production Library' };
+export const LIBRARY_LABELS_SHORT: Record<LibraryType, string> = { 'user': 'Lab', 'universal': 'Production' };
+
 /** Extended library type for future team library */
 export type ExtendedLibraryType = 'personal' | 'team' | 'universal';
 
