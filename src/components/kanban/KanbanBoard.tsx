@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -12,8 +12,10 @@ import {
 import { Status } from '../../types';
 import { STATUSES } from '../../constants';
 import { useLibrary } from '../../context/LibraryContext';
+import { useRealtime } from '../../context/RealtimeContext';
 import { usePermissions } from '../../context/PermissionsContext';
 import { useToast } from '../../hooks/useToast';
+import { supabase } from '../../lib/supabaseClient';
 import { KanbanColumn } from './KanbanColumn';
 import { KanbanCard } from './KanbanCard';
 import { Icon } from '../Icon';
@@ -24,9 +26,22 @@ const DEFAULT_VISIBLE: Status[] = [
 ];
 
 export const KanbanBoard: React.FC = () => {
-  const { userDetections, isLoading, bulkUpdateStatus, userId } = useLibrary();
+  const { userDetections, isLoading, bulkUpdateStatus, userId, refreshAll } = useLibrary();
+  const { subscribe } = useRealtime();
   const { can, hasRoleOrHigher } = usePermissions();
   const { showToast } = useToast();
+
+  useEffect(() => {
+    const unsub = subscribe('detections', '*', (payload) => {
+      if (payload.eventType === 'UPDATE') {
+        const updated = payload.new as any;
+        if (updated.status !== (payload.old as any)?.status || updated.assigned_to !== (payload.old as any)?.assigned_to) {
+          refreshAll();
+        }
+      }
+    });
+    return unsub;
+  }, [subscribe, refreshAll]);
 
   const [showArchived, setShowArchived] = useState(false);
   const [myWorkOnly, setMyWorkOnly] = useState(false);
@@ -100,8 +115,32 @@ export const KanbanBoard: React.FC = () => {
     }
 
     const result = await bulkUpdateStatus(detectionsToMove, targetStatus);
-    if (result.success) setSelectedIds(new Set());
-  }, [selectedIds, userDetections, can, hasRoleOrHigher, bulkUpdateStatus, showToast]);
+    if (result.success) {
+      setSelectedIds(new Set());
+
+      // Notify assignees of status change
+      const movedDetections = detectionsToMove.map(id => userDetections.find(d => d.id === id)).filter(Boolean);
+      for (const detection of movedDetections) {
+        if (detection && detection.assigned_to && detection.assigned_to !== userId) {
+          supabase.from('user_notifications').insert({
+            user_id: detection.assigned_to,
+            type: 'status_change',
+            title: `${detection.name} moved to ${targetStatus}`,
+            message: `Detection status changed to ${targetStatus}`,
+            detection_id: detection.id,
+            action_url: `/library/detections/${detection.id}`,
+            category: 'status_change',
+            source_user_id: userId,
+          }).then(({ error }) => { if (error) console.warn('Failed to notify:', error); });
+        }
+      }
+
+      // Prompt reviewer assignment when moving to Review
+      if (targetStatus === Status.Review) {
+        showToast('info', 'Detection moved to Review', 'Consider assigning a reviewer');
+      }
+    }
+  }, [selectedIds, userDetections, can, hasRoleOrHigher, bulkUpdateStatus, showToast, userId]);
 
   if (isLoading) {
     return (
