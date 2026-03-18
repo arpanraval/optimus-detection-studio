@@ -1509,10 +1509,10 @@ AS $function$
     AND array_length(d."mitreAttackIds", 1) > 0
     AND (
       CASE p_scope
-        WHEN 'production' THEN d.library_type = 'universal'
-        WHEN 'lab' THEN d.library_type = 'user' AND d.user_id = p_user_id
-        WHEN 'all' THEN d.library_type = 'universal' OR (d.library_type = 'user' AND d.user_id = p_user_id)
-        ELSE d.library_type = 'universal'
+        WHEN 'production' THEN d.library_type = 'user' AND d.user_id = p_user_id
+        WHEN 'lab' THEN d.library_type = 'universal'
+        WHEN 'all' THEN d.library_type = 'user' AND d.user_id = p_user_id OR d.library_type = 'universal'
+        ELSE d.library_type = 'user' AND d.user_id = p_user_id
       END
     )
   ),
@@ -1528,10 +1528,10 @@ AS $function$
     WHERE d."mitreAttackIds" IS NOT NULL
     AND (
       CASE p_scope
-        WHEN 'production' THEN d.library_type = 'universal'
-        WHEN 'lab' THEN d.library_type = 'user' AND d.user_id = p_user_id
-        WHEN 'all' THEN d.library_type = 'universal' OR (d.library_type = 'user' AND d.user_id = p_user_id)
-        ELSE d.library_type = 'universal'
+        WHEN 'production' THEN d.library_type = 'user' AND d.user_id = p_user_id
+        WHEN 'lab' THEN d.library_type = 'universal'
+        WHEN 'all' THEN d.library_type = 'user' AND d.user_id = p_user_id OR d.library_type = 'universal'
+        ELSE d.library_type = 'user' AND d.user_id = p_user_id
       END
     )
   ),

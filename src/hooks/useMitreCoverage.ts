@@ -36,9 +36,10 @@ export function useMitreCoverage(scope: 'production' | 'all' = 'production') {
         .select('id, name, status, severity, qualityScore, mitreAttackIds');
 
       if (scope === 'production') {
-        query = query.eq('library_type', 'universal');
+        // Production Library = library_type 'user' (semantic flip)
+        query = query.eq('library_type', 'user');
       }
-      // 'all' = no filter (existing behavior, RLS handles visibility)
+      // 'all' = no filter (includes both Production + Lab)
 
       const { data: detections, error } = await query;
 

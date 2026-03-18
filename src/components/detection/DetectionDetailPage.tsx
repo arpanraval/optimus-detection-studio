@@ -443,15 +443,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                {/* Deploy to SIEM — permission gated */}
                {detection.detectionQuery && hasPermission(userRole, 'integrations:sync') && (
                  isUserRule ? (
-                   <button
-                     onClick={() => setShowDeployPreview(true)}
-                     className="h-9 px-3 flex items-center gap-2 rounded-full text-sm font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20 hover:bg-amber-500/20 transition-all"
-                     title="Preview how this rule would deploy"
-                   >
-                     <Icon name="eye" className="w-4 h-4" />
-                     <span className="hidden sm:inline">Preview Deploy</span>
-                   </button>
-                 ) : (
+                   /* Production Library (library_type='user') → full Deploy */
                    <button
                      onClick={() => setIsDeployModalOpen(true)}
                      className="h-9 px-3 flex items-center gap-2 rounded-full text-sm font-medium bg-surface-container-highest text-on-surface border border-outline-variant/30 hover:bg-surface-container-high transition-all"
@@ -459,6 +451,16 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                    >
                      <Icon name="upload" className="w-4 h-4" />
                      <span className="hidden sm:inline">Deploy</span>
+                   </button>
+                 ) : (
+                   /* Detection Lab (library_type='universal') → Preview only */
+                   <button
+                     onClick={() => setShowDeployPreview(true)}
+                     className="h-9 px-3 flex items-center gap-2 rounded-full text-sm font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20 hover:bg-amber-500/20 transition-all"
+                     title="Preview how this rule would deploy"
+                   >
+                     <Icon name="eye" className="w-4 h-4" />
+                     <span className="hidden sm:inline">Preview Deploy</span>
                    </button>
                  )
                )}

@@ -40,7 +40,8 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
   const { detections: allDetections, user } = useAppData();
   const libraryDetections = useMemo(() => {
     if (scope === 'all') return allDetections;
-    return allDetections.filter(d => d.library_type === 'universal');
+    // Production Library = library_type 'user' (semantic flip)
+    return allDetections.filter(d => d.library_type === 'user');
   }, [allDetections, scope]);
 
   // Dismissed gap items (persisted in localStorage)

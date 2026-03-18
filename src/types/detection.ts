@@ -19,25 +19,31 @@ export type LibraryType = 'universal' | 'user';
 /** Extended library type for future team library */
 export type ExtendedLibraryType = 'personal' | 'team' | 'universal';
 
-/** Display names for library types — single source of truth for all UI labels */
+/**
+ * Display names for library types — single source of truth for all UI labels.
+ *
+ * SEMANTIC FLIP from original naming:
+ * - 'user' (was "My Library") → NOW "Production Library" — curated, quality-controlled, SIEM deployment
+ * - 'universal' (was "Universal Library") → NOW "Detection Lab" — sandbox for imported vendor rules, experimentation
+ */
 export const LIBRARY_LABELS: Record<LibraryType, string> = {
-  'user': 'Detection Lab',
-  'universal': 'Production Library',
+  'user': 'Production Library',
+  'universal': 'Detection Lab',
 };
 
 export const LIBRARY_LABELS_SHORT: Record<LibraryType, string> = {
-  'user': 'Lab',
-  'universal': 'Production',
+  'user': 'Production',
+  'universal': 'Lab',
 };
 
 export const LIBRARY_DESCRIPTIONS: Record<LibraryType, string> = {
-  'user': 'Your personal workspace for importing, creating, and testing detection rules',
-  'universal': 'Quality-controlled production rules deployed to your SIEMs',
+  'user': 'Quality-controlled production rules deployed to your SIEMs',
+  'universal': 'Sandbox for importing vendor rules, creating drafts, and experimenting',
 };
 
 export const LIBRARY_ICONS: Record<LibraryType, string> = {
-  'user': 'flask',
-  'universal': 'shield',
+  'user': 'shield',
+  'universal': 'flask',
 };
 
 export type PublishStatus = 'unpublished' | 'pending' | 'published' | 'rejected';
