@@ -134,7 +134,11 @@ export type NotificationType =
   | 'review_request'
   | 'review_complete'
   | 'comment_mention'
-  | 'comment_reply';
+  | 'comment_reply'
+  | 'status_change'
+  | 'deploy'
+  | 'feed'
+  | 'system';
 
 export interface UserNotification {
   id: string;
@@ -150,4 +154,6 @@ export interface UserNotification {
   // New fields
   team_id?: string;
   action_url?: string;
+  category?: string;
+  source_user_id?: string;
 }
