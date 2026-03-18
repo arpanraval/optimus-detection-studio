@@ -252,6 +252,7 @@ interface DeployDetectionModalProps {
   onDeployed?: (record: DeploymentRecord) => void;
   userRole?: string;
   permissionOverrides?: { granted?: string[]; revoked?: string[] };
+  previewOnly?: boolean;
 }
 
 interface DeployResultState {
@@ -270,6 +271,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
   onDeployed,
   userRole = 'analyst',
   permissionOverrides,
+  previewOnly = false,
 }) => {
   const [step, setStep] = useState<StepId>('select');
   const [integrations, setIntegrations] = useState<Integration[]>([]);
@@ -424,7 +426,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
   };
 
   const handleDeploy = async () => {
-    if (!selectedIntegration) return;
+    if (!selectedIntegration || previewOnly) return;
     setDeploying(true);
     setDeployResult(null);
     setStep('deploying');
@@ -802,12 +804,17 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
               {/* Step 3: Configure */}
               {step === 'configure' && selectedIntegration && (
                 <div className="space-y-4">
+                  {previewOnly && (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                      <p className="text-xs font-medium text-amber-300 text-center">Preview Mode — Configuration is read-only</p>
+                    </div>
+                  )}
                   <div className="flex items-center gap-2 mb-1">
                     <button onClick={() => setStep('validate')} className="p-1 rounded hover:bg-surface-container-high">
                       <Icon name="arrow-left" className="w-4 h-4 text-on-surface-variant" />
                     </button>
                     <span className="text-sm font-medium text-on-surface">
-                      {deployAction === 'update' ? 'Update on' : 'Deploy to'} {selectedIntegration.name}
+                      {previewOnly ? 'Preview for' : deployAction === 'update' ? 'Update on' : 'Deploy to'} {selectedIntegration.name}
                     </span>
                   </div>
 
@@ -818,7 +825,8 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                       type="text"
                       value={ruleName}
                       onChange={e => setRuleName(e.target.value)}
-                      className="w-full px-3 py-2 bg-surface-container-high border border-outline-variant/20 rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
+                      readOnly={previewOnly}
+                      className={`w-full px-3 py-2 bg-surface-container-high border border-outline-variant/20 rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10${previewOnly ? ' opacity-70 cursor-default' : ''}`}
                     />
                   </div>
 
@@ -828,8 +836,9 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                     <textarea
                       value={ruleDescription}
                       onChange={e => setRuleDescription(e.target.value)}
+                      readOnly={previewOnly}
                       rows={2}
-                      className="w-full px-3 py-2 bg-surface-container-high border border-outline-variant/20 rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10 resize-none"
+                      className={`w-full px-3 py-2 bg-surface-container-high border border-outline-variant/20 rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10 resize-none${previewOnly ? ' opacity-70 cursor-default' : ''}`}
                     />
                   </div>
 
@@ -1248,14 +1257,33 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                     </div>
                   )}
 
-                  <button
-                    onClick={handleDeploy}
-                    disabled={!deployQuery}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-colors disabled:opacity-50 mt-2 text-on-surface border-outline-variant/30 hover:bg-surface-container-high"
-                  >
-                    <Icon name="upload" className="w-4 h-4" />
-                    {deployAction === 'update' ? 'Update' : 'Deploy'}
-                  </button>
+                  {previewOnly ? (
+                    <div className="space-y-4 mt-2">
+                      <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-center">
+                        <p className="text-sm font-medium text-amber-300 mb-1">Preview Only</p>
+                        <p className="text-xs text-on-surface-variant">
+                          This is a Detection Lab rule. Promote to Production to deploy.
+                        </p>
+                      </div>
+                      <div className="flex justify-center gap-3">
+                        <button
+                          onClick={onClose}
+                          className="px-4 py-2 text-sm font-medium bg-primary text-on-primary rounded-lg hover:bg-primary/90"
+                        >
+                          Close Preview
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleDeploy}
+                      disabled={!deployQuery}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-colors disabled:opacity-50 mt-2 text-on-surface border-outline-variant/30 hover:bg-surface-container-high"
+                    >
+                      <Icon name="upload" className="w-4 h-4" />
+                      {deployAction === 'update' ? 'Update' : 'Deploy'}
+                    </button>
+                  )}
                 </div>
               )}
 

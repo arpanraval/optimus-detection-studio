@@ -67,6 +67,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
   const [isResolvingMitre, setIsResolvingMitre] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
+  const [showDeployPreview, setShowDeployPreview] = useState(false);
   const [sourceRule, setSourceRule] = useState<Detection | null>(null);
   const [rejectionReason, setRejectionReason] = useState<string | null>(null);
   const { showToast } = useToast();
@@ -441,14 +442,25 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
 
                {/* Deploy to SIEM — permission gated */}
                {detection.detectionQuery && hasPermission(userRole, 'integrations:sync') && (
-                 <button
-                   onClick={() => setIsDeployModalOpen(true)}
-                   className="h-9 px-3 flex items-center gap-2 rounded-full text-sm font-medium bg-surface-container-highest text-on-surface border border-outline-variant/30 hover:bg-surface-container-high transition-all"
-                   title="Deploy to SIEM"
-                 >
-                   <Icon name="upload" className="w-4 h-4" />
-                   <span className="hidden sm:inline">Deploy</span>
-                 </button>
+                 isUserRule ? (
+                   <button
+                     onClick={() => setShowDeployPreview(true)}
+                     className="h-9 px-3 flex items-center gap-2 rounded-full text-sm font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20 hover:bg-amber-500/20 transition-all"
+                     title="Preview how this rule would deploy"
+                   >
+                     <Icon name="eye" className="w-4 h-4" />
+                     <span className="hidden sm:inline">Preview Deploy</span>
+                   </button>
+                 ) : (
+                   <button
+                     onClick={() => setIsDeployModalOpen(true)}
+                     className="h-9 px-3 flex items-center gap-2 rounded-full text-sm font-medium bg-surface-container-highest text-on-surface border border-outline-variant/30 hover:bg-surface-container-high transition-all"
+                     title="Deploy to SIEM"
+                   >
+                     <Icon name="upload" className="w-4 h-4" />
+                     <span className="hidden sm:inline">Deploy</span>
+                   </button>
+                 )
                )}
 
                {/* PDF Export */}
@@ -630,6 +642,16 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
             setIsDeployModalOpen(false);
             setActiveTab('deployments');
           }}
+          userRole={userRole}
+        />
+      )}
+
+      {/* Deploy Preview Modal (Lab rules) */}
+      {showDeployPreview && (
+        <DeployDetectionModal
+          detection={detection}
+          onClose={() => setShowDeployPreview(false)}
+          previewOnly={true}
           userRole={userRole}
         />
       )}
