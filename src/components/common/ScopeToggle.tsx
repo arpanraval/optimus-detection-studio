@@ -27,7 +27,7 @@ export function ScopeToggle({ includeMyLab, onChange, className = '' }: ScopeTog
             : 'text-on-surface-variant hover:text-on-surface'
         }`}
       >
-        + My Lab
+        + Detection Lab
       </button>
     </div>
   );
