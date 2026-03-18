@@ -71,6 +71,7 @@ const PipelinePage = lazy(() => import('./pages/PipelinePage').then(m => ({ defa
 const DetectionActionPlanPage = lazy(() => import('./pages/DetectionActionPlanPage').then(m => ({ default: m.DetectionActionPlanPage })));
 const StateSponsoredReportPage = lazy(() => import('./pages/StateSponsoredReportPage').then(m => ({ default: m.StateSponsoredReportPage })));
 const ThreatIntelFeedsPage = lazy(() => import('./pages/ThreatIntelFeedsPage').then(m => ({ default: m.ThreatIntelFeedsPage })));
+const SiemHealthPage = lazy(() => import('./pages/SiemHealthPage').then(m => ({ default: m.SiemHealthPage })));
 
 // Design System Pages
 const DesignOverviewPage = lazy(() => import('../components/design-system/pages/OverviewPage').then(m => ({ default: m.OverviewPage })));
@@ -196,6 +197,9 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       { path: 'settings/mitre-sync', element: <MitreSyncPage /> },
       { path: 'settings/audit-log', element: <AuditLogPage /> },
       { path: 'settings/environment', element: <EnvironmentProfilePage /> },
+
+      // SIEM Health
+      { path: 'siem', element: <SiemHealthPage /> },
 
       // Search
       { path: 'search', element: <SearchResultsPage /> },
