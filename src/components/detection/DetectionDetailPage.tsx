@@ -20,6 +20,7 @@ import { DeploymentHistoryTab } from '../integrations/DeploymentHistoryTab';
 import { batchResolveTechniques } from '../../mitre';
 import { supabase } from '../../lib/supabaseClient';
 import { SimilarDetectionsPanel } from './SimilarDetectionsPanel';
+import { LIBRARY_LABELS } from '../../types/detection';
 
 interface DetectionDetailPageProps {
   detection: Detection;
@@ -145,9 +146,9 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
     setIsDeleting(true);
     try {
       await onDelete(detection.id);
-      showToast('success', 'Detection Deleted', 
-        isUniversalRule 
-          ? 'The rule has been removed from Universal Library.' 
+      showToast('success', 'Detection Deleted',
+        isUniversalRule
+          ? `The rule has been removed from ${LIBRARY_LABELS['universal']}.`
           : 'The detection has been permanently removed.'
       );
       // Refresh the appropriate library
@@ -313,7 +314,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
               >
                 {sourceRule.name}
               </button>
-              {' '}in Universal Library
+              {' '}in {LIBRARY_LABELS['universal']}
             </p>
             {/* E6: View in Universal button */}
             <button
@@ -369,7 +370,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                     ) : (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-white border border-white/20" style={{ backgroundColor: '#783264' }}>
                         <Icon name="user" className="w-3 h-3" />
-                        My Library
+                        {LIBRARY_LABELS['user']}
                       </span>
                     )}
                     
@@ -469,7 +470,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                        ? 'text-on-surface-variant/50 cursor-wait' 
                        : 'text-on-surface-variant hover:text-error hover:bg-error-container/20'
                    }`}
-                   title={isUniversalRule ? "Delete from Universal Library (Admin)" : "Delete Detection"}
+                   title={isUniversalRule ? `Delete from ${LIBRARY_LABELS['universal']} (Admin)` : "Delete Detection"}
                  >
                    <Icon name={isDeleting ? "loader" : "trash"} className={`w-5 h-5 ${isDeleting ? 'animate-spin' : ''}`} />
                  </button>
@@ -497,7 +498,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                    ) : (
                      <>
                        <Icon name="copy" className="w-4 h-4" />
-                       <span>Duplicate to My Library</span>
+                       <span>Fork to Lab</span>
                      </>
                    )}
                  </button>
@@ -511,12 +512,12 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                      <button
                        onClick={() => setIsPublishModalOpen(true)}
                        className="h-9 px-4 flex items-center gap-2 rounded-full text-sm font-medium bg-surface-container-highest text-on-surface border border-outline-variant/30 hover:bg-surface-container-high hover:border-outline-variant transition-all active:scale-95"
-                       title={detection.publish_status === 'published' ? 'Submit update to Universal Library' : 'Publish to Universal Library'}
+                       title={detection.publish_status === 'published' ? `Submit update to ${LIBRARY_LABELS['universal']}` : `Promote to ${LIBRARY_LABELS['universal']}`}
                      >
                        <Icon name="globe" className="w-4 h-4" />
                        <span className="hidden sm:inline">
-                         {detection.publish_status === 'published' ? 'Update' : 
-                          detection.publish_status === 'rejected' ? 'Re-submit' : 'Publish'}
+                         {detection.publish_status === 'published' ? 'Update' :
+                          detection.publish_status === 'rejected' ? 'Re-submit' : 'Promote'}
                        </span>
                      </button>
                    )}
@@ -663,7 +664,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                 Are you sure you want to delete <span className="font-medium text-on-surface">"{detection.name}"</span>?
                 {isUniversalRule && (
                   <span className="block mt-2 text-warning font-medium">
-                    ⚠️ This is a Universal Library rule. Deleting it will affect all users.
+                    ⚠️ This is a {LIBRARY_LABELS['universal']} rule. Deleting it will affect all users.
                   </span>
                 )}
               </p>

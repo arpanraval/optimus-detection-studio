@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Detection, AuditEvent } from '../../../types';
+import { LIBRARY_LABELS } from '../../../types/detection';
 import { Icon } from '../../Icon';
 import { useDetectionAudit } from '../../../hooks/useDetectionAudit';
 import { supabase } from '../../../lib/supabaseClient';
@@ -96,7 +97,7 @@ function formatAuditEventAction(action: string): string {
     'detection.updated': 'Updated detection',
     'detection.deleted': 'Deleted detection',
     'detection.status_changed': 'Changed status',
-    'detection.published': 'Published to Universal Library',
+    'detection.published': `Promoted to ${LIBRARY_LABELS['universal']}`,
     'detection.publish_requested': 'Publish requested',
     'detection.deployed': 'Deployed to SIEM',
     'review.requested': 'Review requested',
@@ -328,7 +329,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ detection }) => {
                     : 'bg-primary/10 text-primary border border-primary/20'
                 }`}>
                   <Icon name={detection.library_type === 'universal' ? 'globe' : 'user'} className="w-3.5 h-3.5" />
-                  {detection.library_type === 'universal' ? 'Universal' : 'My Library'}
+                  {detection.library_type === 'universal' ? LIBRARY_LABELS['universal'] : LIBRARY_LABELS['user']}
                 </span>
               </div>
               
