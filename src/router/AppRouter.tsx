@@ -14,6 +14,7 @@ import { PermissionsProvider } from '../context/PermissionsContext';
 import { TeamProvider } from '../context/TeamContext';
 import { WorkspaceProvider } from '../context/WorkspaceContext';
 import { ThreatIntelProvider } from '../context/ThreatIntelContext';
+import { NotificationProvider } from '../context/NotificationContext';
 import { ScoringProvider } from '../context/ScoringContext';
 import { GlobalImportProvider } from '../context/GlobalImportContext';
 import { NavigationBlockerProvider } from '../context/NavigationBlockerContext';
@@ -111,13 +112,15 @@ const ProtectedLayout: React.FC<{ user: User; profile: Profile }> = ({ user, pro
                 <ScoringProvider>
                   <LibraryProvider userId={user.id} userRole={profile.role} refreshTrigger={libraryRefreshTrigger}>
                     <ThreatIntelProvider userId={user.id} refreshTrigger={libraryRefreshTrigger}>
-                      <AppLayout
-                        user={user}
-                        profile={profile}
-                        detections={detections}
-                        isLoading={isLoading}
-                        onSignOut={handleSignOut}
-                      />
+                      <NotificationProvider userId={user.id}>
+                        <AppLayout
+                          user={user}
+                          profile={profile}
+                          detections={detections}
+                          isLoading={isLoading}
+                          onSignOut={handleSignOut}
+                        />
+                      </NotificationProvider>
                     </ThreatIntelProvider>
                   </LibraryProvider>
                 </ScoringProvider>

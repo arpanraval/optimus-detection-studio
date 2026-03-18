@@ -4,7 +4,6 @@ import {
   Detection,
   LibraryType,
   PublishRequest,
-  UserNotification,
   DetectionPack,
   PublishEligibility,
   Role
@@ -308,12 +307,6 @@ interface LibraryContextType {
   approveRequestSilent: (requestId: string, action: 'approve' | 'reject' | 'approve_as_new', notes?: string) => Promise<boolean>;
   bulkApproveRequests: (requestIds: string[], action: 'approve' | 'reject' | 'approve_as_new', notes?: string) => Promise<{ successCount: number; failureCount: number }>;
 
-  // Notifications
-  notifications: UserNotification[];
-  unreadCount: number;
-  refreshNotifications: () => Promise<void>;
-  markNotificationsRead: (notificationIds?: string[]) => Promise<void>;
-
   // Detection Packs
   detectionPacks: DetectionPack[];
   refreshDetectionPacks: () => Promise<void>;
@@ -374,8 +367,6 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   const [universalDetections, setUniversalDetections] = useState<Detection[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [pendingRequests, setPendingRequests] = useState<PublishRequest[]>([]);
-  const [notifications, setNotifications] = useState<UserNotification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [detectionPacks, setDetectionPacks] = useState<DetectionPack[]>([]);
 
   // H2: User submissions state
@@ -630,36 +621,6 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     }
   }, [userId]);
 
-  const refreshNotifications = useCallback(async () => {
-    // Guard against undefined userId
-    if (!userId) {
-      return;
-    }
-    
-    try {
-      // Get notifications
-      const { data, error } = await supabase
-        .from('user_notifications')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(50);
-
-      if (error) throw error;
-      setNotifications(data || []);
-
-      // Get unread count
-      const { data: countData, error: countError } = await supabase
-        .rpc('get_unread_notification_count', { p_user_id: userId });
-
-      if (!countError && countData !== null) {
-        setUnreadCount(countData);
-      }
-    } catch (err) {
-      logger.error('Error fetching notifications:', err);
-    }
-  }, [userId]);
-
   const refreshDetectionPacks = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -682,13 +643,12 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   // Initial load
   useEffect(() => {
     refreshAll();
-    refreshNotifications();
     refreshDetectionPacks();
     refreshUserSubmissions(); // H2: Load user submissions on init
     if (userRole === 'admin') {
       refreshPendingRequests();
     }
-  }, [refreshAll, refreshNotifications, refreshDetectionPacks, refreshUserSubmissions, refreshPendingRequests, userRole]);
+  }, [refreshAll, refreshDetectionPacks, refreshUserSubmissions, refreshPendingRequests, userRole]);
 
   // Refresh when trigger changes (after save from App.tsx)
   useEffect(() => {
@@ -917,24 +877,6 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
 
     return { successCount, failureCount };
   }, [approveRequestSilent, refreshPendingRequests, refreshUniversalLibrary, showToast]);
-
-  // ============================================
-  // NOTIFICATION OPERATIONS
-  // ============================================
-
-  const markNotificationsRead = useCallback(async (notificationIds?: string[]) => {
-    try {
-      const { error } = await supabase.rpc('mark_notifications_read', {
-        p_user_id: userId,
-        p_notification_ids: notificationIds || null
-      });
-
-      if (error) throw error;
-      await refreshNotifications();
-    } catch (err) {
-      logger.error('Error marking notifications read:', err);
-    }
-  }, [userId, refreshNotifications]);
 
   // Refresh pending requests when switching to universal library (for admins)
   useEffect(() => {
@@ -1464,10 +1406,6 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     approveRequest,
     approveRequestSilent,
     bulkApproveRequests,
-    notifications,
-    unreadCount,
-    refreshNotifications,
-    markNotificationsRead,
     detectionPacks,
     refreshDetectionPacks,
     // H2: User submissions
@@ -1499,7 +1437,6 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     sortConfig, setSort, serverFilters,
     refreshAll, copyToUserLibrary, submitForPublish, submitForPublishSilent, checkPublishEligibility,
     pendingRequests, refreshPendingRequests, approveRequest, approveRequestSilent, bulkApproveRequests,
-    notifications, unreadCount, refreshNotifications, markNotificationsRead,
     detectionPacks, refreshDetectionPacks, userSubmissions, refreshUserSubmissions, getDetectionById,
     selectedDetectionIds, toggleSelection, selectAll, clearSelection, isSelected,
     bulkDelete, bulkUpdateStatus, bulkUpdateSeverity, bulkAddTags, bulkRemoveTags, bulkCopyToUserLibrary,
