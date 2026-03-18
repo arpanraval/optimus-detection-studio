@@ -45,8 +45,6 @@ export function usePlaybookRunner() {
         throw new Error('Not authenticated');
       }
 
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-
       // Mark steps as running
       const runningRun = { ...initialRun };
       for (const step of playbook.steps) {
@@ -55,24 +53,12 @@ export function usePlaybookRunner() {
       setRun({ ...runningRun });
 
       // Call the run-playbook edge function
-      const response = await fetch(`${supabaseUrl}/functions/v1/run-playbook`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          playbookId: playbook.id,
-          inputs,
-        }),
+      const { data: responseData, error: invokeError } = await supabase.functions.invoke('run-playbook', {
+        body: { playbookId: playbook.id, inputs },
       });
+      if (invokeError) throw invokeError;
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Playbook execution failed: ${errorText}`);
-      }
-
-      const result = await response.json();
+      const result = responseData;
 
       // Map results back to run state
       // 'partial' means some steps succeeded - still show the report
