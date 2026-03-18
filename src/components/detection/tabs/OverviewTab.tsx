@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { Detection, LinkedMitreEntity } from '../../../types';
+import { LIBRARY_LABELS } from '../../../types/detection';
 import { Icon } from '../../Icon';
 import { getMitreDataById } from '../../../mitre';
 import { StatusBadge } from '../../StatusBadge';
@@ -177,7 +178,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       {isCopiedFromUniversal && sourceRule && (
         <DetailCard 
           title="Forked From" 
-          description="This detection was copied from the Universal Library"
+          description={`This detection was forked from ${LIBRARY_LABELS['universal']}`}
           className="border-teal-500/30 bg-teal-500/5"
         >
           <div className="flex items-center justify-between">
