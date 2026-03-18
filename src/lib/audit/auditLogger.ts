@@ -25,22 +25,7 @@ export interface AuditEventInput {
  */
 export async function logAuditEvent(event: AuditEventInput): Promise<void> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) return;
-
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-    if (!supabaseUrl || !anonKey) return;
-
-    fetch(`${supabaseUrl}/functions/v1/audit-log`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-        'apikey': anonKey,
-      },
-      body: JSON.stringify(event),
-    }).catch(err => {
+    supabase.functions.invoke('audit-log', { body: event }).catch(err => {
       console.warn('[AuditLog] Failed to log event:', err);
     });
   } catch (err) {
@@ -54,22 +39,7 @@ export async function logAuditEvent(event: AuditEventInput): Promise<void> {
 export async function logAuditEvents(events: AuditEventInput[]): Promise<void> {
   if (events.length === 0) return;
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) return;
-
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-    if (!supabaseUrl || !anonKey) return;
-
-    fetch(`${supabaseUrl}/functions/v1/audit-log`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-        'apikey': anonKey,
-      },
-      body: JSON.stringify({ events }),
-    }).catch(err => {
+    supabase.functions.invoke('audit-log', { body: { events } }).catch(err => {
       console.warn('[AuditLog] Failed to log batch events:', err);
     });
   } catch (err) {
