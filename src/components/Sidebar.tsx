@@ -7,7 +7,7 @@ import { useTheme } from '../context/ThemeContext';
 import { viewToRoute, ROUTES } from '../router/routes';
 import { readDashboardSummaries } from './dashboard/enterprise/dashboardPersistence';
 
-type View = 'dashboard' | 'command-center' | 'dashboard-classic' | 'intel-globe' | 'library' | 'detail' | 'form' | 'mitre' | 'coverage' | 'groups' | 'group-detail' | 'software' | 'software-detail' | 'campaigns' | 'campaign-detail' | 'mitigations' | 'mitigation-detail' | 'detection-strategies' | 'strategy-detail' | 'users' | 'add_selection' | 'sigma_converter' | 'ai_query_gen' | 'ai_agent' | 'bulk_import' | 'integrations' | 'approval_queue' | 'my_submissions' | 'account_settings' | 'mitre_data_sync' | 'packs' | 'pack-detail' | 'workspaces' | 'workspace-detail' | 'defensive-posture' | 'scoring_settings' | 'threat-intel' | 'design-system' | 'design-system-buttons' | 'design-system-inputs' | 'design-system-badges' | 'design-system-cards' | 'design-system-navigation' | 'design-system-modals' | 'design-system-dropdowns' | 'design-system-loading' | 'design-system-misc' | 'design-system-colors' | 'design-system-bulk-import' | 'design-system-logo' | 'design-system-ai-chat-cards' | 'audit_log' | 'environment_profile' | 'pipeline' | 'onboarding' | 'action_plan' | 'exercises-state-sponsored';
+type View = 'dashboard' | 'command-center' | 'dashboard-classic' | 'intel-globe' | 'library' | 'detail' | 'form' | 'mitre' | 'coverage' | 'groups' | 'group-detail' | 'software' | 'software-detail' | 'campaigns' | 'campaign-detail' | 'mitigations' | 'mitigation-detail' | 'detection-strategies' | 'strategy-detail' | 'users' | 'add_selection' | 'sigma_converter' | 'ai_query_gen' | 'ai_agent' | 'bulk_import' | 'integrations' | 'approval_queue' | 'my_submissions' | 'account_settings' | 'mitre_data_sync' | 'packs' | 'pack-detail' | 'workspaces' | 'workspace-detail' | 'defensive-posture' | 'scoring_settings' | 'threat-intel' | 'threat-intel-feeds' | 'design-system' | 'design-system-buttons' | 'design-system-inputs' | 'design-system-badges' | 'design-system-cards' | 'design-system-navigation' | 'design-system-modals' | 'design-system-dropdowns' | 'design-system-loading' | 'design-system-misc' | 'design-system-colors' | 'design-system-bulk-import' | 'design-system-logo' | 'design-system-ai-chat-cards' | 'audit_log' | 'environment_profile' | 'pipeline' | 'onboarding' | 'action_plan' | 'exercises-state-sponsored';
 
 // Avatar colors
 const AVATAR_COLORS = [
@@ -536,6 +536,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
         { id: 'software' as View, label: 'Software' },
         { id: 'mitigations' as View, label: 'Mitigations' },
         { id: 'threat-intel' as View, label: 'Intelligence Reports' },
+        { id: 'threat-intel-feeds' as View, label: 'Feeds' },
       ],
       activeClass: 'bg-[#1a3a3a] text-teal-200',
     },
