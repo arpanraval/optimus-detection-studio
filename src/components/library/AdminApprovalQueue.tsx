@@ -533,7 +533,7 @@ const PublishQueue: React.FC<PublishQueueProps> = ({ requests, onApprove, onBulk
               }`}
               style={typeFilter === f ? { backgroundColor: SOLID_TERTIARY } : {}}
             >
-              {f === 'all' ? 'All' : f === 'new' ? 'New' : 'Update'}
+              {f === 'all' ? 'All' : f === 'new' ? 'New to Production' : 'Production Update'}
             </button>
           ))}
         </div>
@@ -651,7 +651,7 @@ const PublishQueue: React.FC<PublishQueueProps> = ({ requests, onApprove, onBulk
                           ? 'bg-blue-500/10 text-blue-400'
                           : 'bg-emerald-500/10 text-emerald-400'
                       }`}>
-                        {isUpdate ? 'Update' : 'New'}
+                        {isUpdate ? 'Production Update' : 'New to Production'}
                       </span>
                     </td>
                     <td className="px-4 py-3">

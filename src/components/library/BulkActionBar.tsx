@@ -353,7 +353,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
                 className="h-8 px-2.5 text-sm font-medium rounded-lg text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface transition-all inline-flex items-center gap-1.5"
               >
                 <Icon name="copy" className="w-3.5 h-3.5" />
-                <span>Add to My Library</span>
+                <span>Fork to Lab</span>
               </button>
             )}
 
