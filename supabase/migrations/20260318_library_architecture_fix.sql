@@ -548,7 +548,7 @@ BEGIN
     RAISE EXCEPTION 'Detection not found or not in Production Library';
   END IF;
 
-  -- Check if user already has a lab fork
+  -- Check if user already has a lab fork (via source_rule_id)
   SELECT id INTO v_existing_id
   FROM detections
   WHERE source_rule_id = p_detection_id
@@ -557,6 +557,18 @@ BEGIN
 
   IF v_existing_id IS NOT NULL THEN
     RAISE EXCEPTION 'You already have a lab copy of this detection (ID: %)', v_existing_id;
+  END IF;
+
+  -- Check if user already has the ORIGINAL lab detection that was promoted to this Production rule
+  -- (the original Lab detection has published_to_id pointing to the Production detection)
+  SELECT id INTO v_existing_id
+  FROM detections
+  WHERE published_to_id = p_detection_id
+    AND user_id = p_user_id
+    AND library_type = 'universal';
+
+  IF v_existing_id IS NOT NULL THEN
+    RAISE EXCEPTION 'You already have the original lab detection that was promoted to this rule (ID: %)', v_existing_id;
   END IF;
 
   v_new_id := gen_random_uuid()::text;
