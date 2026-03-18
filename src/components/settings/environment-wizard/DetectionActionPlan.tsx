@@ -1,10 +1,11 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useProfileIntelligence, SIEM_TO_QUERY_LANGUAGES } from '../../../hooks/useProfileIntelligence';
 import { useFeasibilityLive } from './useFeasibilityLive';
 import { scoreToGrade } from '../../../lib/quality/scoringEngine';
 import { supabase } from '../../../lib/supabaseClient';
 import { useToast } from '../../../hooks/useToast';
+import { useAppData } from '../../../router/AppDataContext';
 import { ROUTES } from '../../../router/routes';
 import { DetectionActionQueue } from './DetectionActionQueue';
 import { ThreatGroupCards } from './ThreatGroupCards';
@@ -31,6 +32,65 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
 }) => {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { detections: libraryDetections, user } = useAppData();
+
+  // Dismissed gap items (persisted in localStorage)
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => {
+    const stored = localStorage.getItem('optimus:action-plan:dismissed');
+    return new Set(stored ? JSON.parse(stored) : []);
+  });
+  const [showDismissed, setShowDismissed] = useState(false);
+
+  // Batch selection for gap items
+  const [selectedGapIds, setSelectedGapIds] = useState<Set<string>>(new Set());
+
+  const handleDismissGap = useCallback((techniqueId: string) => {
+    const dismissed = JSON.parse(localStorage.getItem('optimus:action-plan:dismissed') || '[]');
+    if (!dismissed.includes(techniqueId)) {
+      dismissed.push(techniqueId);
+      localStorage.setItem('optimus:action-plan:dismissed', JSON.stringify(dismissed));
+      setDismissedIds(new Set(dismissed));
+    }
+  }, []);
+
+  const handleRestoreGap = useCallback((techniqueId: string) => {
+    const dismissed: string[] = JSON.parse(localStorage.getItem('optimus:action-plan:dismissed') || '[]');
+    const updated = dismissed.filter(id => id !== techniqueId);
+    localStorage.setItem('optimus:action-plan:dismissed', JSON.stringify(updated));
+    setDismissedIds(new Set(updated));
+  }, []);
+
+  const handleBatchCreateDrafts = useCallback(async (techniqueIds: Set<string>, gapTechniques: Array<{ mitreId: string; name: string }>) => {
+    if (techniqueIds.size === 0) return;
+    if (!window.confirm(`Create ${techniqueIds.size} draft detections?`)) return;
+    try {
+      const inserts = [];
+      for (const techId of techniqueIds) {
+        const gap = gapTechniques.find(g => g.mitreId === techId);
+        if (!gap) continue;
+        inserts.push({
+          id: crypto.randomUUID(),
+          name: `Detection for ${gap.name} (${techId})`,
+          status: 'Draft',
+          mitreTechniques: [gap.name],
+          mitreAttackIds: [techId],
+          createdBy: user?.id || '',
+          createdDate: new Date().toISOString(),
+          updatedDate: new Date().toISOString(),
+          library: 'user',
+        });
+      }
+      if (inserts.length > 0) {
+        const { error } = await supabase.from('detections').insert(inserts);
+        if (error) throw error;
+      }
+      showToast('success', 'Drafts Created', `Created ${inserts.length} draft detections`);
+      setSelectedGapIds(new Set());
+    } catch (err) {
+      showToast('error', 'Failed', err instanceof Error ? err.message : 'Could not create drafts');
+    }
+  }, [user, showToast]);
+
   const feasibility = useFeasibilityLive(
     profile.log_sources,
     profile.custom_log_sources || [],
@@ -154,6 +214,28 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
 
   const actionableGapCount = intel.gapTechniques.filter(g => g.siemDetectable).length;
 
+  // Build set of technique IDs that have at least one detection in progress (Development+)
+  const coveredTechniqueIds = useMemo(() => {
+    const covered = new Set<string>();
+    for (const d of libraryDetections) {
+      const status = (d.status || '').toLowerCase();
+      if (['development', 'review', 'testing', 'production'].includes(status)) {
+        const techIds = d.mitreAttackIds || d.mitreTechniques || [];
+        for (const id of techIds) {
+          if (id) covered.add(id);
+        }
+      }
+    }
+    return covered;
+  }, [libraryDetections]);
+
+  // Progress: how many gap techniques are already addressed
+  const addressedCount = useMemo(() => {
+    return intel.gapTechniques.filter(g => coveredTechniqueIds.has(g.mitreId)).length;
+  }, [intel.gapTechniques, coveredTechniqueIds]);
+
+  const totalGapItems = intel.gapTechniques.length;
+
   if (isLoading) {
     return (
       <div className="h-full overflow-y-auto bg-background scrollbar-page">
@@ -213,6 +295,25 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
               Edit
             </button>
           </div>
+        </div>
+
+        {/* ═══════════════════════════════════════════
+            PROGRESS TRACKING
+            ═══════════════════════════════════════════ */}
+        <div className="flex items-center gap-4 mb-6 px-1">
+          <div className="flex-1 bg-surface-container rounded-full h-2 overflow-hidden">
+            <div
+              className="bg-primary rounded-full h-2 transition-all duration-500"
+              style={{ width: `${totalGapItems > 0 ? (addressedCount / totalGapItems) * 100 : 0}%` }}
+            />
+          </div>
+          <span className="text-sm text-on-surface-variant whitespace-nowrap">
+            {addressedCount}/{totalGapItems} addressed
+          </span>
+          <label className="flex items-center gap-2 text-xs text-on-surface-variant cursor-pointer">
+            <input type="checkbox" checked={showDismissed} onChange={e => setShowDismissed(e.target.checked)} className="rounded" />
+            Show dismissed ({dismissedIds.size})
+          </label>
         </div>
 
         {/* ═══════════════════════════════════════════
@@ -442,6 +543,14 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
                 gaps={intel.gapTechniques}
                 crownJewels={profile.crown_jewels || []}
                 loading={isLoading}
+                coveredTechniqueIds={coveredTechniqueIds}
+                dismissedIds={dismissedIds}
+                showDismissed={showDismissed}
+                onDismiss={handleDismissGap}
+                onRestore={handleRestoreGap}
+                selectedIds={selectedGapIds}
+                onSelectionChange={setSelectedGapIds}
+                onBatchCreateDrafts={handleBatchCreateDrafts}
               />
             </div>
           </div>
