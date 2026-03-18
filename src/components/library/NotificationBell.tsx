@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { Icon } from '../Icon';
-import { useLibrary } from '../../context/LibraryContext';
+import { useNotifications } from '../../context/NotificationContext';
 import { UserNotification } from '../../types';
 
 interface NotificationBellProps {
@@ -36,13 +36,31 @@ const getNotificationConfig = (type: string): { icon: string; color: string; bgC
       return { icon: 'clock', color: 'text-sky-400', bgColor: 'bg-sky-500/15' };
     case 'rule_updated':
       return { icon: 'refresh-cw', color: 'text-amber-400', bgColor: 'bg-amber-500/15' };
+    case 'assignment':
+      return { icon: 'user-plus', color: 'text-cyan-400', bgColor: 'bg-cyan-500/15' };
+    case 'review_request':
+      return { icon: 'eye', color: 'text-violet-400', bgColor: 'bg-violet-500/15' };
+    case 'review_complete':
+      return { icon: 'check-circle', color: 'text-emerald-400', bgColor: 'bg-emerald-500/15' };
+    case 'status_change':
+      return { icon: 'arrow-right', color: 'text-blue-400', bgColor: 'bg-blue-500/15' };
+    case 'deploy':
+      return { icon: 'upload-cloud', color: 'text-green-400', bgColor: 'bg-green-500/15' };
+    case 'feed':
+      return { icon: 'rss', color: 'text-orange-400', bgColor: 'bg-orange-500/15' };
+    case 'system':
+      return { icon: 'alert-triangle', color: 'text-amber-400', bgColor: 'bg-amber-500/15' };
     default:
       return { icon: 'bell', color: 'text-on-surface-variant', bgColor: 'bg-surface-container-highest' };
   }
 };
 
 // G1: Get navigation target from notification
-const getNotificationTarget = (notification: UserNotification): { type: 'detection' | 'none'; id?: string } => {
+const getNotificationTarget = (notification: UserNotification): { type: 'detection' | 'url' | 'none'; id?: string; url?: string } => {
+  // If notification has an action_url, use it
+  if (notification.action_url) {
+    return { type: 'url', url: notification.action_url };
+  }
   // If notification has a detection_id, we can navigate to it
   if (notification.detection_id) {
     return { type: 'detection', id: notification.detection_id };
@@ -55,7 +73,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   onNavigateToDetection,
   onNavigateToNotifications
 }) => {
-  const { notifications, unreadCount, markNotificationsRead } = useLibrary();
+  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
   const [isOpen, setIsOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -88,21 +106,24 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   }, []);
 
   const handleMarkAllRead = async () => {
-    await markNotificationsRead();
+    await markAllAsRead();
   };
 
   // G1: Handle notification click with navigation
   const handleNotificationClick = async (notification: UserNotification) => {
     // Mark as read if unread
     if (!notification.is_read) {
-      await markNotificationsRead([notification.id]);
+      await markAsRead(notification.id);
     }
     
     // Get navigation target
     const target = getNotificationTarget(notification);
     
     // Navigate based on target type
-    if (target.type === 'detection' && target.id && onNavigateToDetection) {
+    if (target.type === 'url' && target.url) {
+      setIsOpen(false);
+      window.location.href = target.url;
+    } else if (target.type === 'detection' && target.id && onNavigateToDetection) {
       setIsOpen(false);
       onNavigateToDetection(target.id);
     } else {
@@ -169,7 +190,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
             {notifications.slice(0, 10).map((notification) => {
               const config = getNotificationConfig(notification.type);
               const target = getNotificationTarget(notification);
-              const isClickable = target.type !== 'none' && onNavigateToDetection;
+              const isClickable = target.type === 'url' || (target.type === 'detection' && !!onNavigateToDetection);
               
               return (
                 <button
