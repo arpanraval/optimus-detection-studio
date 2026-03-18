@@ -9,6 +9,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useBulkImportContext } from '../../../context/BulkImportContext';
 import { ImportSourceType, ImportJobConfig, DuplicateStrategy, VendorFormat } from '../../../services/bulk-import/types';
 import { LibraryType } from '../../../types';
+import { LIBRARY_LABELS } from '../../../types/detection';
 import { Icon } from '../../Icon';
 
 // Brand color for wizard
@@ -577,7 +578,7 @@ export function SourceSelectionStep({ preSelectedSource }: SourceSelectionStepPr
                 style={{ color: targetLibrary === 'user' ? BRAND_COLOR : undefined }}
               />
               <div className="text-left">
-                <p className="font-medium text-on-surface">My Library</p>
+                <p className="font-medium text-on-surface">{LIBRARY_LABELS.user}</p>
                 <p className="text-xs text-on-surface-variant">Private to your account</p>
               </div>
             </div>
@@ -598,21 +599,21 @@ export function SourceSelectionStep({ preSelectedSource }: SourceSelectionStepPr
                 }`}
               />
               <div className="text-left">
-                <p className="font-medium text-on-surface">Universal Library</p>
+                <p className="font-medium text-on-surface">{LIBRARY_LABELS.universal}</p>
                 <p className="text-xs text-on-surface-variant">Shared with organization</p>
               </div>
             </div>
           </button>
         </div>
 
-        {/* Universal Library warning */}
+        {/* Production Library warning */}
         {targetLibrary === 'universal' && (
           <div className="mt-3 p-3 bg-tertiary-container/20 border border-tertiary/30 rounded-[12px]">
             <div className="flex items-start gap-2">
               <Icon name="alert-triangle" className="w-4 h-4 text-tertiary flex-shrink-0 mt-0.5" />
               <p className="text-xs text-on-surface-variant">
                 <span className="font-medium text-tertiary">Organization-wide impact:</span>{' '}
-                Rules imported to the Universal Library will be visible to all members.
+                Rules imported to the Production Library will be visible to all members.
                 Only owners and admins can import to this library.
               </p>
             </div>
