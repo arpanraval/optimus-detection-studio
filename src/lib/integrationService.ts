@@ -2309,6 +2309,22 @@ export const integrationService = {
     ruleConfig?: Partial<VendorRuleConfig> & { name?: string; description?: string; action?: string };
     vendorRuleId?: string;
   }): Promise<DeploymentRecord> {
+    // Guard: only Production Library detections can be deployed
+    const { data: detectionCheck } = await supabase
+      .from('detections')
+      .select('library_type')
+      .eq('id', params.detectionId)
+      .single();
+
+    if (detectionCheck?.library_type !== 'universal') {
+      throw new DeployError(
+        'LAB_DETECTION',
+        'Only Production Library detections can be deployed to SIEMs.',
+        'Promote this detection from Detection Lab first.',
+        false
+      );
+    }
+
     if (IS_DEV) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
