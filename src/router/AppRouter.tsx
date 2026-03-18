@@ -12,7 +12,6 @@ import { ThemeProvider } from '../context/ThemeContext';
 import { LibraryProvider } from '../context/LibraryContext';
 import { PermissionsProvider } from '../context/PermissionsContext';
 import { TeamProvider } from '../context/TeamContext';
-import { WorkspaceProvider } from '../context/WorkspaceContext';
 import { ThreatIntelProvider } from '../context/ThreatIntelContext';
 import { NotificationProvider } from '../context/NotificationContext';
 import { ScoringProvider } from '../context/ScoringContext';
@@ -44,8 +43,6 @@ const StrategiesPage = lazy(() => import('./pages/StrategiesPage').then(m => ({ 
 const StrategyDetailPage = lazy(() => import('./pages/StrategyDetailPage').then(m => ({ default: m.StrategyDetailPage })));
 const PacksPage = lazy(() => import('./pages/PacksPage').then(m => ({ default: m.PacksPage })));
 const PackDetailPage = lazy(() => import('./pages/PackDetailPage').then(m => ({ default: m.PackDetailPage })));
-const WorkspacesPage = lazy(() => import('./pages/WorkspacesPage').then(m => ({ default: m.WorkspacesPage })));
-const WorkspaceDetailPage = lazy(() => import('./pages/WorkspaceDetailPage').then(m => ({ default: m.WorkspaceDetailPage })));
 const MitreMatrixPage = lazy(() => import('./pages/MitreMatrixPage').then(m => ({ default: m.MitreMatrixPage })));
 const CoveragePage = lazy(() => import('./pages/CoveragePage').then(m => ({ default: m.CoveragePage })));
 const DefensivePosturePage = lazy(() => import('./pages/DefensivePosturePage').then(m => ({ default: m.DefensivePosturePage })));
@@ -108,23 +105,21 @@ const ProtectedLayout: React.FC<{ user: User; profile: Profile }> = ({ user, pro
         <GlobalImportProvider userId={user.id}>
           <PermissionsProvider userId={user.id}>
             <TeamProvider userId={user.id}>
-              <WorkspaceProvider userId={user.id}>
-                <ScoringProvider>
-                  <LibraryProvider userId={user.id} userRole={profile.role} refreshTrigger={libraryRefreshTrigger}>
-                    <ThreatIntelProvider userId={user.id} refreshTrigger={libraryRefreshTrigger}>
-                      <NotificationProvider userId={user.id}>
-                        <AppLayout
-                          user={user}
-                          profile={profile}
-                          detections={detections}
-                          isLoading={isLoading}
-                          onSignOut={handleSignOut}
-                        />
-                      </NotificationProvider>
-                    </ThreatIntelProvider>
-                  </LibraryProvider>
-                </ScoringProvider>
-              </WorkspaceProvider>
+              <ScoringProvider>
+                <LibraryProvider userId={user.id} userRole={profile.role} refreshTrigger={libraryRefreshTrigger}>
+                  <ThreatIntelProvider userId={user.id} refreshTrigger={libraryRefreshTrigger}>
+                    <NotificationProvider userId={user.id}>
+                      <AppLayout
+                        user={user}
+                        profile={profile}
+                        detections={detections}
+                        isLoading={isLoading}
+                        onSignOut={handleSignOut}
+                      />
+                    </NotificationProvider>
+                  </ThreatIntelProvider>
+                </LibraryProvider>
+              </ScoringProvider>
             </TeamProvider>
           </PermissionsProvider>
         </GlobalImportProvider>
@@ -165,10 +160,6 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       // Packs
       { path: 'packs', element: <PacksPage /> },
       { path: 'packs/:id', element: <PackDetailPage /> },
-
-      // Workspaces
-      { path: 'workspaces', element: <WorkspacesPage /> },
-      { path: 'workspaces/:id', element: <WorkspaceDetailPage /> },
 
       // Intelligence
       { path: 'intelligence/mitre', element: <MitreMatrixPage /> },
