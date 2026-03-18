@@ -71,12 +71,14 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
   const [sourceRule, setSourceRule] = useState<Detection | null>(null);
   const [rejectionReason, setRejectionReason] = useState<string | null>(null);
   const { showToast } = useToast();
-  const { 
-    copyToUserLibrary, 
-    refreshUserLibrary, 
-    refreshUniversalLibrary, 
+  const {
+    copyToUserLibrary,
+    forkToLab,
+    refreshUserLibrary,
+    refreshUniversalLibrary,
     universalDetections,
-    submitForPublish 
+    userDetections,
+    submitForPublish
   } = useLibrary();
 
   // Determine library type and permissions
@@ -94,10 +96,11 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
   // E2: Fetch source rule info for forked detections
   useEffect(() => {
     if (isCopiedFromUniversal && detection.source_rule_id) {
-      const source = universalDetections.find(d => d.id === detection.source_rule_id);
+      const source = universalDetections.find(d => d.id === detection.source_rule_id)
+        || userDetections.find(d => d.id === detection.source_rule_id);
       setSourceRule(source || null);
     }
-  }, [detection.source_rule_id, isCopiedFromUniversal, universalDetections]);
+  }, [detection.source_rule_id, isCopiedFromUniversal, universalDetections, userDetections]);
 
   const [localDetection, setLocalDetection] = useState<Detection>(detection);
 
@@ -175,7 +178,24 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
     setIsPDFExportModalOpen(true);
   };
 
-  // E1: Copy/Duplicate to My Library
+  // E1: Fork to Lab (Production → Lab) or Promote to Production (Lab → Production)
+  const handleForkToLab = async () => {
+    setIsCopying(true);
+    try {
+      const newId = await forkToLab(detection.id);
+      if (newId) {
+        await refreshUniversalLibrary();
+        showToast('success', 'Forked to Lab', 'Detection forked to Lab. You can now experiment with it safely.');
+        onBack();
+      }
+    } catch (error: any) {
+      showToast('error', 'Fork Failed', error.message || 'Could not fork detection.');
+    } finally {
+      setIsCopying(false);
+    }
+  };
+
+  // Copy from Lab to Production (legacy promote path via copy)
   const handleCopyToLibrary = async () => {
     setIsCopying(true);
     try {
@@ -273,8 +293,8 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
   return (
     <div className="min-h-screen bg-background text-on-surface">
       
-      {/* E3: Rejection Banner */}
-      {isUserRule && detection.publish_status === 'rejected' && (
+      {/* E3: Rejection Banner — shows on Lab rules that were rejected for promotion */}
+      {isUniversalRule && detection.publish_status === 'rejected' && (
         <div className="bg-error/10 border-b border-error/20">
           <div className="px-6 lg:px-8 py-3 max-w-[1600px] mx-auto flex items-start gap-3">
             <Icon name="alert-triangle" className="w-5 h-5 text-error flex-shrink-0 mt-0.5" />
@@ -387,8 +407,8 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                         {detection.severity}
                     </span>
                     
-                    {/* Publish Status - only for user rules */}
-                    {isUserRule && detection.publish_status && detection.publish_status !== 'unpublished' && (
+                    {/* Publish Status - only for Lab rules (they get promoted to Production) */}
+                    {isUniversalRule && detection.publish_status && detection.publish_status !== 'unpublished' && (
                       <PublishStatusBadge status={detection.publish_status} size="sm" />
                     )}
                     
@@ -491,23 +511,23 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                )}
 
                {/* === LIBRARY-SPECIFIC ACTIONS === */}
-               
-               {/* E1: For Universal Rules: "Add to My Library" / "Duplicate" button */}
-               {isUniversalRule && (
+
+               {/* For Production Rules: "Fork to Lab" button */}
+               {isUserRule && (
                  <button
-                   onClick={handleCopyToLibrary}
+                   onClick={handleForkToLab}
                    disabled={isCopying}
                    className={`h-9 px-4 flex items-center gap-2 rounded-full text-sm font-medium transition-all active:scale-95 ${
-                     isCopying 
+                     isCopying
                        ? 'bg-surface-container-highest text-on-surface-variant cursor-wait'
                        : 'bg-secondary text-on-secondary hover:shadow-lg hover:brightness-110'
                    }`}
-                   title="Copy this rule to your library"
+                   title="Fork this rule to the Lab for experimentation"
                  >
                    {isCopying ? (
                      <>
                        <Icon name="loader" className="w-4 h-4 animate-spin" />
-                       <span>Adding...</span>
+                       <span>Forking...</span>
                      </>
                    ) : (
                      <>
@@ -518,34 +538,31 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                  </button>
                )}
 
-               {/* For User Rules: Publish + Edit buttons */}
+               {/* For Lab Rules: Promote button — only show if not already pending */}
+               {isUniversalRule && canEdit && detection.publish_status !== 'pending' && (
+                 <button
+                   onClick={() => setIsPublishModalOpen(true)}
+                   className="h-9 px-4 flex items-center gap-2 rounded-full text-sm font-medium bg-surface-container-highest text-on-surface border border-outline-variant/30 hover:bg-surface-container-high hover:border-outline-variant transition-all active:scale-95"
+                   title={detection.publish_status === 'published' ? `Submit update to ${LIBRARY_LABELS['user']}` : `Promote to ${LIBRARY_LABELS['user']}`}
+                 >
+                   <Icon name="globe" className="w-4 h-4" />
+                   <span className="hidden sm:inline">
+                     {detection.publish_status === 'published' ? 'Update' :
+                      detection.publish_status === 'rejected' ? 'Re-submit' : 'Promote'}
+                   </span>
+                 </button>
+               )}
+
+               {/* Edit button — Lab rules editable by owner, Production rules by admin/lead/owner */}
                {canEdit && (
-                 <>
-                   {/* Publish button - only show if not already pending */}
-                   {detection.publish_status !== 'pending' && (
-                     <button
-                       onClick={() => setIsPublishModalOpen(true)}
-                       className="h-9 px-4 flex items-center gap-2 rounded-full text-sm font-medium bg-surface-container-highest text-on-surface border border-outline-variant/30 hover:bg-surface-container-high hover:border-outline-variant transition-all active:scale-95"
-                       title={detection.publish_status === 'published' ? `Submit update to ${LIBRARY_LABELS['universal']}` : `Promote to ${LIBRARY_LABELS['universal']}`}
-                     >
-                       <Icon name="globe" className="w-4 h-4" />
-                       <span className="hidden sm:inline">
-                         {detection.publish_status === 'published' ? 'Update' :
-                          detection.publish_status === 'rejected' ? 'Re-submit' : 'Promote'}
-                       </span>
-                     </button>
-                   )}
-                   
-                   {/* Edit button */}
-                   <button
-                     type="button"
-                     onClick={() => onEdit(detection)}
-                     className="h-9 px-5 flex items-center gap-2 rounded-full text-sm font-medium bg-primary text-on-primary hover:shadow-lg hover:brightness-110 transition-all active:scale-95 shadow-sm"
-                   >
-                     <Icon name="edit" className="w-4 h-4" />
-                     <span>Edit</span>
-                   </button>
-                 </>
+                 <button
+                   type="button"
+                   onClick={() => onEdit(detection)}
+                   className="h-9 px-5 flex items-center gap-2 rounded-full text-sm font-medium bg-primary text-on-primary hover:shadow-lg hover:brightness-110 transition-all active:scale-95 shadow-sm"
+                 >
+                   <Icon name="edit" className="w-4 h-4" />
+                   <span>Edit</span>
+                 </button>
                )}
             </div>
           </div>

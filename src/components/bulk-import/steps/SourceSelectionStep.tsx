@@ -133,7 +133,7 @@ export function SourceSelectionStep({ preSelectedSource }: SourceSelectionStepPr
   const { createJob, setCurrentStep, githubToken, setGithubToken, saveGithubToken, clearSavedGithubToken } = useBulkImportContext();
   const [selectedSource, setSelectedSource] = useState<ImportSourceType>(preSelectedSource || 'zip');
   const [selectedVendor, setSelectedVendor] = useState<'auto' | VendorFormat>('auto');
-  const [targetLibrary, setTargetLibrary] = useState<LibraryType>('user');
+  const [targetLibrary, setTargetLibrary] = useState<LibraryType>('universal');
   const [duplicateStrategy, setDuplicateStrategy] = useState<DuplicateStrategy>('skip');
   const [files, setFiles] = useState<File[]>([]);
   const [zipFile, setZipFile] = useState<File | null>(null);
@@ -579,7 +579,7 @@ export function SourceSelectionStep({ preSelectedSource }: SourceSelectionStepPr
               />
               <div className="text-left">
                 <p className="font-medium text-on-surface">{LIBRARY_LABELS.user}</p>
-                <p className="text-xs text-on-surface-variant">Private to your account</p>
+                <p className="text-xs text-on-surface-variant">Curated rules for SIEM deployment</p>
               </div>
             </div>
           </button>
@@ -600,20 +600,20 @@ export function SourceSelectionStep({ preSelectedSource }: SourceSelectionStepPr
               />
               <div className="text-left">
                 <p className="font-medium text-on-surface">{LIBRARY_LABELS.universal}</p>
-                <p className="text-xs text-on-surface-variant">Shared with organization</p>
+                <p className="text-xs text-on-surface-variant">Sandbox for vendor rules and experimentation</p>
               </div>
             </div>
           </button>
         </div>
 
         {/* Production Library warning */}
-        {targetLibrary === 'universal' && (
+        {targetLibrary === 'user' && (
           <div className="mt-3 p-3 bg-tertiary-container/20 border border-tertiary/30 rounded-[12px]">
             <div className="flex items-start gap-2">
               <Icon name="alert-triangle" className="w-4 h-4 text-tertiary flex-shrink-0 mt-0.5" />
               <p className="text-xs text-on-surface-variant">
                 <span className="font-medium text-tertiary">Organization-wide impact:</span>{' '}
-                Rules imported to the Production Library will be visible to all members.
+                Rules imported to the Production Library will be visible to all members and are intended for SIEM deployment.
                 Only owners and admins can import to this library.
               </p>
             </div>

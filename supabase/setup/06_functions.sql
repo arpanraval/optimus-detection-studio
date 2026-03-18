@@ -658,6 +658,69 @@ BEGIN
 END;
 $function$;
 
+-- Fork a Production Library detection to the Lab for experimentation
+CREATE OR REPLACE FUNCTION public.fork_to_lab(p_detection_id text, p_user_id uuid)
+RETURNS text AS $$
+DECLARE
+  v_source_rule RECORD;
+  v_new_id text;
+  v_existing_id text;
+BEGIN
+  -- Source must be a Production Library rule (library_type = 'user')
+  SELECT * INTO v_source_rule
+  FROM detections
+  WHERE id = p_detection_id AND library_type = 'user';
+
+  IF v_source_rule IS NULL THEN
+    RAISE EXCEPTION 'Detection not found or not in Production Library';
+  END IF;
+
+  -- Check if user already has a lab fork
+  SELECT id INTO v_existing_id
+  FROM detections
+  WHERE source_rule_id = p_detection_id
+    AND user_id = p_user_id
+    AND library_type = 'universal';
+
+  IF v_existing_id IS NOT NULL THEN
+    RAISE EXCEPTION 'You already have a lab copy of this detection (ID: %)', v_existing_id;
+  END IF;
+
+  v_new_id := gen_random_uuid()::text;
+
+  INSERT INTO detections (
+    id, user_id, version, library_type, source_rule_id, publish_status,
+    name, description, author, status, severity, "detectionType",
+    "logSource", "logSources", technology, "queryLanguage", "detectionQuery",
+    queries, "queryExplanation", "mitreAttackIds", "mitreTactics", "mitreTechniques",
+    "linkedGroups", "linkedSoftware", "linkedCampaigns",
+    "threatActors", campaigns, software, "associatedCVEs",
+    "dataSources", "dataComponents", platforms,
+    "investigationSteps", "responseActions", "falsePositiveGuidance",
+    prerequisites, caveats, "fineTuning",
+    "testedAndValidated", "testCases", "qualityScore",
+    "references", tags, maturity, confidence,
+    "createdDate", "updatedDate"
+  )
+  SELECT
+    v_new_id, p_user_id, 1, 'universal', p_detection_id, 'unpublished',
+    name, description, author, 'Draft', severity, "detectionType",
+    "logSource", "logSources", technology, "queryLanguage", "detectionQuery",
+    queries, "queryExplanation", "mitreAttackIds", "mitreTactics", "mitreTechniques",
+    "linkedGroups", "linkedSoftware", "linkedCampaigns",
+    "threatActors", campaigns, software, "associatedCVEs",
+    "dataSources", "dataComponents", platforms,
+    "investigationSteps", "responseActions", "falsePositiveGuidance",
+    prerequisites, caveats, "fineTuning",
+    "testedAndValidated", "testCases", "qualityScore",
+    "references", tags, maturity, confidence,
+    now(), now()
+  FROM detections WHERE id = p_detection_id;
+
+  RETURN v_new_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- Get dynamic filter options for detections based on library type
 CREATE OR REPLACE FUNCTION public.get_filter_options(p_library_type text)
  RETURNS json
@@ -811,11 +874,11 @@ DECLARE
   v_request_id UUID;
   v_target_rule_id TEXT;
 BEGIN
-  -- Get the detection
+  -- Get the detection — must be in Lab (universal) and owned by user
   SELECT * INTO v_detection
   FROM detections
   WHERE id = p_detection_id
-    AND library_type = 'user'
+    AND library_type = 'universal'
     AND user_id = p_user_id;
 
   IF NOT FOUND THEN
@@ -878,11 +941,11 @@ DECLARE
   v_request_id UUID;
   v_target_rule_id TEXT;
 BEGIN
-  -- Get the detection
+  -- Get the detection — must be in Lab (universal) and owned by user
   SELECT * INTO v_detection
   FROM detections
   WHERE id = p_detection_id
-    AND library_type = 'user'
+    AND library_type = 'universal'
     AND user_id = p_user_id;
 
   IF NOT FOUND THEN
@@ -987,7 +1050,7 @@ BEGIN
       v_target_detection_id := v_detection.published_to_id;
       v_is_update := true;
 
-      IF NOT EXISTS (SELECT 1 FROM detections WHERE id = v_target_detection_id AND library_type = 'universal') THEN
+      IF NOT EXISTS (SELECT 1 FROM detections WHERE id = v_target_detection_id AND library_type = 'user') THEN
         v_target_detection_id := gen_random_uuid()::text;
         v_is_update := false;
       END IF;
@@ -996,7 +1059,7 @@ BEGIN
       v_target_detection_id := v_detection.source_rule_id;
       v_is_update := true;
 
-      IF NOT EXISTS (SELECT 1 FROM detections WHERE id = v_target_detection_id AND library_type = 'universal') THEN
+      IF NOT EXISTS (SELECT 1 FROM detections WHERE id = v_target_detection_id AND library_type = 'user') THEN
         v_target_detection_id := gen_random_uuid()::text;
         v_is_update := false;
       END IF;
@@ -1117,9 +1180,9 @@ BEGIN
         v_detection.tags,
         v_detection.maturity,
         v_detection.confidence,
-        'universal',
+        'user',
         'community',
-        NULL
+        v_request.submitted_by
       );
 
       v_notification_message := 'Your detection "' || v_detection.name || '" has been approved and promoted to the Production Library.';
@@ -1209,9 +1272,9 @@ BEGIN
       v_detection.tags,
       v_detection.maturity,
       v_detection.confidence,
-      'universal',
+      'user',
       'community',
-      NULL
+      v_request.submitted_by
     );
 
     -- Update original detection

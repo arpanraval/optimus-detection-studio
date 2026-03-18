@@ -296,6 +296,7 @@ interface LibraryContextType {
 
   // Library operations
   copyToUserLibrary: (detectionId: string) => Promise<string | null>;
+  forkToLab: (detectionId: string) => Promise<string | null>;
   submitForPublish: (detectionId: string) => Promise<{ success: boolean; error?: string; requestId?: string }>;
   submitForPublishSilent: (detectionId: string) => Promise<{ success: boolean; error?: string; requestId?: string }>;
   checkPublishEligibility: (detectionId: string) => Promise<PublishEligibility | null>;
@@ -704,6 +705,34 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       return null;
     }
   }, [userId, refreshUserLibrary, showToast]);
+
+  const forkToLab = useCallback(async (detectionId: string): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase.rpc('fork_to_lab', {
+        p_detection_id: detectionId,
+        p_user_id: userId
+      });
+
+      if (error) {
+        if (error.message.includes('already have a lab copy')) {
+          showToast('warning', 'Already Forked', 'You already have a Lab copy of this detection');
+        } else if (error.message.includes('not found') || error.message.includes('not in Production')) {
+          showToast('error', 'Not Found', 'The detection could not be found in Production Library');
+        } else {
+          showToast('error', 'Fork Failed', error.message);
+        }
+        return null;
+      }
+
+      showToast('success', 'Forked to Lab', 'Detection forked to Lab. You can now experiment with it safely.');
+      await refreshUniversalLibrary();
+      return data;
+    } catch (err: unknown) {
+      logger.error('Error forking to lab:', err);
+      showToast('error', 'Error', err instanceof Error ? err.message : 'Failed to fork detection');
+      return null;
+    }
+  }, [userId, refreshUniversalLibrary, showToast]);
 
   const checkPublishEligibility = useCallback(async (detectionId: string): Promise<PublishEligibility | null> => {
     try {
@@ -1398,6 +1427,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     refreshUniversalLibrary: () => refreshUniversalLibrary(),
     refreshAll,
     copyToUserLibrary,
+    forkToLab,
     submitForPublish,
     submitForPublishSilent,
     checkPublishEligibility,
@@ -1435,7 +1465,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     currentLibrary, userRole, userId, userDetections, universalDetections, isLoading,
     userPagination, universalPagination, currentPagination, setPage, setPageSize,
     sortConfig, setSort, serverFilters,
-    refreshAll, copyToUserLibrary, submitForPublish, submitForPublishSilent, checkPublishEligibility,
+    refreshAll, copyToUserLibrary, forkToLab, submitForPublish, submitForPublishSilent, checkPublishEligibility,
     pendingRequests, refreshPendingRequests, approveRequest, approveRequestSilent, bulkApproveRequests,
     detectionPacks, refreshDetectionPacks, userSubmissions, refreshUserSubmissions, getDetectionById,
     selectedDetectionIds, toggleSelection, selectAll, clearSelection, isSelected,
