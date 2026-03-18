@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import ReactDOM from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { Icon } from '../Icon';
 import { useNotifications } from '../../context/NotificationContext';
 import { UserNotification } from '../../types';
@@ -74,6 +75,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   onNavigateToNotifications
 }) => {
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -122,7 +124,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
     // Navigate based on target type
     if (target.type === 'url' && target.url) {
       setIsOpen(false);
-      window.location.href = target.url;
+      navigate(target.url);
     } else if (target.type === 'detection' && target.id && onNavigateToDetection) {
       setIsOpen(false);
       onNavigateToDetection(target.id);
@@ -187,7 +189,13 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
           </div>
         ) : (
           <div className="py-1">
-            {notifications.slice(0, 10).map((notification) => {
+            {(() => {
+              const todayMidnight = new Date();
+              todayMidnight.setHours(0, 0, 0, 0);
+              const todayNotifs = notifications.filter(n => new Date(n.created_at) >= todayMidnight);
+              const earlierNotifs = notifications.filter(n => new Date(n.created_at) < todayMidnight);
+
+              const renderItem = (notification: UserNotification) => {
               const config = getNotificationConfig(notification.type);
               const target = getNotificationTarget(notification);
               const isClickable = target.type === 'url' || (target.type === 'detection' && !!onNavigateToDetection);
@@ -242,16 +250,25 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
                   )}
                 </button>
               );
-            })}
-            
-            {/* Show more indicator if there are more notifications */}
-            {notifications.length > 10 && (
-              <div className="px-4 py-2 text-center">
-                <span className="text-xs text-on-surface-variant/50">
-                  +{notifications.length - 10} more notifications
-                </span>
-              </div>
-            )}
+            };
+
+              return (
+                <>
+                  {todayNotifs.length > 0 && (
+                    <>
+                      <div className="px-4 py-1.5 text-[10px] font-semibold text-on-surface-variant/50 uppercase tracking-wider">Today</div>
+                      {todayNotifs.map(renderItem)}
+                    </>
+                  )}
+                  {earlierNotifs.length > 0 && (
+                    <>
+                      <div className="px-4 py-1.5 text-[10px] font-semibold text-on-surface-variant/50 uppercase tracking-wider">Earlier</div>
+                      {earlierNotifs.slice(0, 20).map(renderItem)}
+                    </>
+                  )}
+                </>
+              );
+            })()}
           </div>
         )}
       </div>
