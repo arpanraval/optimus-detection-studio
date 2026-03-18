@@ -313,7 +313,7 @@ export function useStrategyImpactDetail(strategyStixId: string | null) {
 /**
  * Hook to fetch user's defensive posture
  */
-export function useDefensivePosture(userId: string | null) {
+export function useDefensivePosture(userId: string | null, scope: 'production' | 'all' = 'production') {
   const [posture, setPosture] = useState<DefensivePosture | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -324,17 +324,17 @@ export function useDefensivePosture(userId: string | null) {
     } else {
       setPosture(null);
     }
-  }, [userId]);
+  }, [userId, scope]);
 
   async function loadPosture() {
     if (!userId) return;
-    
+
     setLoading(true);
     setError(null);
 
     try {
       const { data, error: fetchError } = await supabase
-        .rpc('get_defensive_posture', { p_user_id: userId });
+        .rpc('get_defensive_posture', { p_user_id: userId, p_scope: scope });
 
       if (fetchError) throw fetchError;
       

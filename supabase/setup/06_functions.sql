@@ -1496,7 +1496,7 @@ end;
 $function$;
 
 -- Calculate user defensive posture based on detection coverage
-CREATE OR REPLACE FUNCTION public.get_defensive_posture(p_user_id uuid)
+CREATE OR REPLACE FUNCTION public.get_defensive_posture(p_user_id uuid, p_scope text DEFAULT 'production')
  RETURNS TABLE(total_detections bigint, techniques_covered bigint, total_techniques bigint, technique_coverage_pct numeric, groups_defended bigint, total_groups bigint, group_coverage_pct numeric, campaigns_defended bigint, total_campaigns bigint, campaign_coverage_pct numeric, avg_taw_covered numeric, top_gaps jsonb)
  LANGUAGE sql
  STABLE
@@ -1505,9 +1505,16 @@ AS $function$
     -- Get all unique MITRE technique IDs from user's detections
     SELECT DISTINCT unnest(d."mitreAttackIds") AS technique_id
     FROM detections d
-    WHERE d.user_id = p_user_id
-    AND d."mitreAttackIds" IS NOT NULL
+    WHERE d."mitreAttackIds" IS NOT NULL
     AND array_length(d."mitreAttackIds", 1) > 0
+    AND (
+      CASE p_scope
+        WHEN 'production' THEN d.library_type = 'universal'
+        WHEN 'lab' THEN d.library_type = 'user' AND d.user_id = p_user_id
+        WHEN 'all' THEN d.library_type = 'universal' OR (d.library_type = 'user' AND d.user_id = p_user_id)
+        ELSE d.library_type = 'universal'
+      END
+    )
   ),
   covered_techniques AS (
     -- Map technique IDs to stix_ids
@@ -1518,7 +1525,15 @@ AS $function$
   detection_count AS (
     SELECT COUNT(*) AS cnt
     FROM detections d
-    WHERE d.user_id = p_user_id
+    WHERE d."mitreAttackIds" IS NOT NULL
+    AND (
+      CASE p_scope
+        WHEN 'production' THEN d.library_type = 'universal'
+        WHEN 'lab' THEN d.library_type = 'user' AND d.user_id = p_user_id
+        WHEN 'all' THEN d.library_type = 'universal' OR (d.library_type = 'user' AND d.user_id = p_user_id)
+        ELSE d.library_type = 'universal'
+      END
+    )
   ),
   snapshot AS (
     SELECT * FROM mitre_scoring_snapshot WHERE is_active = true LIMIT 1
