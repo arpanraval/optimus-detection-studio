@@ -249,7 +249,7 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.EXERCISES_STATE_SPONSORED]: { title: 'State Sponsored Attack Report', description: 'Defense exercise: state-sponsored threat posture analysis' },
   [ROUTES.ACCOUNT]: { title: 'Account Settings', description: 'Manage your profile and preferences' },
   [ROUTES.SUBMISSIONS]: { title: 'My Submissions', description: 'Track your publication requests' },
-  [ROUTES.APPROVAL_QUEUE]: { title: 'Approval Queue', description: 'Review publish requests for Universal Library' },
+  [ROUTES.APPROVAL_QUEUE]: { title: 'Approval Queue', description: 'Review promotion requests for Production Library' },
   [ROUTES.SEARCH]: { title: 'Search Results' },
   [ROUTES.COMPONENT_SHOWCASE]: { title: 'Design System', description: 'M3 Design System Components' },
   [ROUTES.DESIGN_SYSTEM_BUTTONS]: { title: 'Buttons', description: 'Button components and variants' },

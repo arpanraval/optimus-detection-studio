@@ -16,12 +16,6 @@ export type ReviewRequestStatus = 'pending' | 'in_progress' | 'approved' | 'reje
 
 export type LibraryType = 'universal' | 'user';
 
-/** Display labels for library types */
-export const LIBRARY_LABELS: Record<LibraryType, string> = {
-  universal: 'Production Library',
-  user: 'My Library',
-};
-
 /** Extended library type for future team library */
 export type ExtendedLibraryType = 'personal' | 'team' | 'universal';
 

@@ -13,6 +13,7 @@ import { BulkImportJobRecord, ImportJobStatus, RollbackResult, VendorFormat } fr
 import { batchInserter } from '../../services/bulk-import/persistence/BatchInserter';
 import { useLibrary } from '../../context/LibraryContext';
 import { ROUTES } from '../../router/routes';
+import { LIBRARY_LABELS_SHORT } from '../../types/detection';
 
 // Colors matching app design system
 const COLORS = {
@@ -305,7 +306,7 @@ function JobCard({
                 backgroundColor: job.target_library === 'universal' ? `${COLORS.blue}15` : `${COLORS.brand}15`,
                 color: job.target_library === 'universal' ? COLORS.blue : COLORS.brand
               }}>
-                {job.target_library === 'universal' ? 'Universal' : 'My Library'}
+                {LIBRARY_LABELS_SHORT[job.target_library as 'universal' | 'user'] ?? job.target_library}
               </span>
             </div>
 
