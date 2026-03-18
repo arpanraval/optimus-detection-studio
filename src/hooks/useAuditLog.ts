@@ -57,17 +57,9 @@ export function useAuditLog() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) return;
 
-      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/audit-log`;
-
       // Fire-and-forget — don't await in the calling code if you don't want to block
-      fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify(event),
+      supabase.functions.invoke('audit-log', {
+        body: event,
       }).catch(err => {
         console.warn('[AuditLog] Failed to log event:', err);
       });
@@ -85,16 +77,8 @@ export function useAuditLog() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) return;
 
-      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/audit-log`;
-
-      fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({ events }),
+      supabase.functions.invoke('audit-log', {
+        body: { events },
       }).catch(err => {
         console.warn('[AuditLog] Failed to log batch events:', err);
       });
