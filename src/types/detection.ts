@@ -19,6 +19,27 @@ export type LibraryType = 'universal' | 'user';
 /** Extended library type for future team library */
 export type ExtendedLibraryType = 'personal' | 'team' | 'universal';
 
+/** Display names for library types — single source of truth for all UI labels */
+export const LIBRARY_LABELS: Record<LibraryType, string> = {
+  'user': 'Detection Lab',
+  'universal': 'Production Library',
+};
+
+export const LIBRARY_LABELS_SHORT: Record<LibraryType, string> = {
+  'user': 'Lab',
+  'universal': 'Production',
+};
+
+export const LIBRARY_DESCRIPTIONS: Record<LibraryType, string> = {
+  'user': 'Your personal workspace for importing, creating, and testing detection rules',
+  'universal': 'Quality-controlled production rules deployed to your SIEMs',
+};
+
+export const LIBRARY_ICONS: Record<LibraryType, string> = {
+  'user': 'flask',
+  'universal': 'shield',
+};
+
 export type PublishStatus = 'unpublished' | 'pending' | 'published' | 'rejected';
 export type DetectionSource = 'custom' | 'sigmahq' | 'splunk_escu' | 'elastic' | 'microsoft_sentinel' | 'crowdstrike' | 'chronicle' | 'community';
 
