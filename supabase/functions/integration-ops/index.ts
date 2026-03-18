@@ -1,7 +1,8 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
-import { getCorsHeaders, handleCorsPreflight } from '../_shared/cors.ts'
+import { getCorsHeaders, handleCorsPreflight, corsErrorResponse } from '../_shared/cors.ts'
 import { validateUrl } from '../_shared/url-validator.ts'
+import { checkRateLimit } from '../_shared/rate-limiter.ts'
 
 // =============================================================================
 // Types
@@ -2342,6 +2343,17 @@ serve(async (req: Request) => {
         JSON.stringify({ error: 'Unauthorized' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
+    }
+
+    // Rate limiting
+    const { allowed } = await checkRateLimit(
+      getServiceClient(),
+      `user:${user.id}:fn:integration-ops`,
+      30,
+      60
+    )
+    if (!allowed) {
+      return corsErrorResponse('Rate limit exceeded. Try again shortly.', req, 429)
     }
 
     // Parse body

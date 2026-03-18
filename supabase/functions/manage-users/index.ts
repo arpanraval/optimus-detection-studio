@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { getCorsHeaders, handleCorsPreflight } from '../_shared/cors.ts';
+import { getCorsHeaders, handleCorsPreflight, corsErrorResponse } from '../_shared/cors.ts';
+import { checkRateLimit } from '../_shared/rate-limiter.ts';
 
 declare const Deno: {
   env: {
@@ -63,6 +64,17 @@ Deno.serve(async (req: Request) => {
     const { data: { user }, error: userError } = await userClient.auth.getUser();
     if (userError || !user) {
       throw new Error('Authentication failed.');
+    }
+
+    // Rate limiting
+    const { allowed } = await checkRateLimit(
+      supabaseAdmin,
+      `user:${user.id}:fn:manage-users`,
+      20,
+      60
+    );
+    if (!allowed) {
+      return corsErrorResponse('Rate limit exceeded. Try again shortly.', req, 429);
     }
 
     // Get current user's GLOBAL role from profiles
