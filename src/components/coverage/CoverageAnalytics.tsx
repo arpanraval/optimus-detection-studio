@@ -3,6 +3,7 @@ import { Detection, Status } from '../../types';
 import { supabase } from '../../lib/supabaseClient';
 import { Icon } from '../Icon';
 import { Skeleton } from '../ui';
+import { ScopeToggle } from '../common/ScopeToggle';
 import { StrategyGapAnalysis, DetectionPrefill } from './StrategyGapAnalysis';
 
 // ============================================================================
@@ -61,6 +62,8 @@ interface SoftwareData {
 
 interface CoverageAnalyticsProps {
   detections?: Detection[];
+  scope?: 'production' | 'all';
+  onScopeChange?: (includeMyLab: boolean) => void;
   onNavigate?: (view: string, filter?: any) => void;
   onNavigateToLibrary?: (techniqueId: string) => void;  // Navigate to library with technique filter
   onNavigateToStrategy?: (strategyStixId: string) => void;  // Navigate to strategy detail
@@ -516,8 +519,10 @@ const TabSelector: React.FC<{
 // MAIN COMPONENT
 // ============================================================================
 
-export const CoverageAnalytics: React.FC<CoverageAnalyticsProps> = ({ 
-  detections = [], 
+export const CoverageAnalytics: React.FC<CoverageAnalyticsProps> = ({
+  detections = [],
+  scope = 'production',
+  onScopeChange,
   onNavigate,
   onNavigateToLibrary,
   onNavigateToStrategy,
@@ -540,13 +545,18 @@ export const CoverageAnalytics: React.FC<CoverageAnalyticsProps> = ({
     dataSources: 0,
   });
 
+  const scopedDetections = useMemo(() => {
+    if (scope === 'all') return detections;
+    return detections.filter(d => d.library_type === 'universal');
+  }, [detections, scope]);
+
   const coveredTechniques = useMemo(() => {
     const covered = new Set<string>();
-    detections.forEach(d => {
+    scopedDetections.forEach(d => {
       (d.mitreAttackIds || []).forEach(id => covered.add(id.toUpperCase()));
     });
     return covered;
-  }, [detections]);
+  }, [scopedDetections]);
 
   // Helper for status replay
   const getStatusAtDate = (detection: Detection, date: Date): string => {
@@ -616,7 +626,7 @@ export const CoverageAnalytics: React.FC<CoverageAnalyticsProps> = ({
             : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
         // Filter detections created on or before this point in time
-        const relevantDetections = detections.filter(d => new Date(d.createdDate) <= date);
+        const relevantDetections = scopedDetections.filter(d => new Date(d.createdDate) <= date);
         
         // Calculate metrics for this snapshot
         const uniqueTechniques = new Set<string>();
@@ -645,7 +655,7 @@ export const CoverageAnalytics: React.FC<CoverageAnalyticsProps> = ({
             "Total Rules": relevantDetections.length
         };
     });
-  }, [detections, timeRange]);
+  }, [scopedDetections, timeRange]);
 
   const growthMetrics = useMemo(() => {
       if (trendData.length < 2) return { growth: 0, newCoverage: 0 };
@@ -739,7 +749,7 @@ export const CoverageAnalytics: React.FC<CoverageAnalyticsProps> = ({
             softwareCount,
             campaignCount: 0,
             isCovered,
-            detectionCount: detections.filter(d => d.mitreAttackIds?.includes(t.mitre_id)).length,
+            detectionCount: scopedDetections.filter(d => d.mitreAttackIds?.includes(t.mitre_id)).length,
             priorityScore,
             priorityTier
           };
@@ -807,7 +817,7 @@ export const CoverageAnalytics: React.FC<CoverageAnalyticsProps> = ({
     };
 
     fetchMitreData();
-  }, [coveredTechniques, detections]);
+  }, [coveredTechniques, scopedDetections]);
 
   const overallCoverage = useMemo(() => {
     const total = techniques.length || 648;
@@ -867,9 +877,14 @@ export const CoverageAnalytics: React.FC<CoverageAnalyticsProps> = ({
         
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-on-surface">Coverage Analytics</h1>
-            <p className="text-on-surface-variant mt-1">MITRE ATT&CK coverage analysis and gap prioritization</p>
+          <div className="flex items-center gap-4">
+            <div>
+              <h1 className="text-3xl font-bold text-on-surface">Coverage Analytics</h1>
+              <p className="text-on-surface-variant mt-1">MITRE ATT&CK coverage analysis and gap prioritization</p>
+            </div>
+            {onScopeChange && (
+              <ScopeToggle includeMyLab={scope === 'all'} onChange={onScopeChange} />
+            )}
           </div>
           <TabSelector 
             tabs={[
@@ -911,7 +926,7 @@ export const CoverageAnalytics: React.FC<CoverageAnalyticsProps> = ({
                 <div className="bg-surface-container-low rounded-2xl p-6 border border-outline-variant/30 flex items-center justify-between">
                     <div>
                         <p className="text-sm font-bold text-on-surface-variant uppercase tracking-widest mb-1">Total Rules</p>
-                        <span className="text-4xl font-mono font-bold text-on-surface">{detections.length}</span>
+                        <span className="text-4xl font-mono font-bold text-on-surface">{scopedDetections.length}</span>
                     </div>
                     <div className="text-right">
                         <span className={`text-sm font-bold ${growthMetrics.growth >= 0 ? 'text-green-500' : 'text-red-500'} flex items-center justify-end gap-1`}>
@@ -941,7 +956,7 @@ export const CoverageAnalytics: React.FC<CoverageAnalyticsProps> = ({
                     <div>
                          <p className="text-sm font-bold text-on-surface-variant uppercase tracking-widest mb-1">Production Ratio</p>
                         <span className="text-4xl font-mono font-bold text-on-surface">
-                            {detections.length > 0 ? Math.round((detections.filter(d => d.status === 'Production').length / detections.length) * 100) : 0}%
+                            {scopedDetections.length > 0 ? Math.round((scopedDetections.filter(d => d.status === 'Production').length / scopedDetections.length) * 100) : 0}%
                         </span>
                     </div>
                     <div className="w-16 h-16 rounded-full border-4 border-secondary/20 border-t-secondary flex items-center justify-center">
@@ -1340,7 +1355,7 @@ export const CoverageAnalytics: React.FC<CoverageAnalyticsProps> = ({
         {activeSection === 'strategy-gaps' && (
           <div className="animate-fade-in">
             <StrategyGapAnalysis
-              detections={detections}
+              detections={scopedDetections}
               onCreateDetection={onCreateDetection}
               onNavigateToTechnique={(id) => onNavigate?.('mitre', { technique: id })}
               onNavigateToStrategy={onNavigateToStrategy}

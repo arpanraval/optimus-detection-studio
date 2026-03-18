@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CommandCenter } from '../../components/dashboard/CommandCenter';
 import { PageErrorBoundary } from '../../components/ErrorBoundary';
@@ -8,6 +8,8 @@ import { ROUTES } from '../routes';
 export const CommandCenterPage: React.FC = () => {
   const navigate = useNavigate();
   const { detections } = useAppData();
+  const [includeMyLab, setIncludeMyLab] = useState(false);
+  const scope = includeMyLab ? 'all' as const : 'production' as const;
 
   const handleNavigate = (targetView: string, filter?: any) => {
     if (targetView === 'library') {
@@ -61,6 +63,8 @@ export const CommandCenterPage: React.FC = () => {
     <PageErrorBoundary pageName="Command Center" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
       <CommandCenter
         detections={detections}
+        scope={scope}
+        onScopeChange={setIncludeMyLab}
         onNavigate={handleNavigate}
       />
     </PageErrorBoundary>

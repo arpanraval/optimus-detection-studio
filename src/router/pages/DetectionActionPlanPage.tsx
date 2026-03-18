@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { ROUTES } from '../routes';
 import { PageErrorBoundary } from '../../components/ErrorBoundary';
@@ -8,6 +8,8 @@ import { DetectionActionPlan } from '../../components/settings/environment-wizar
 export const DetectionActionPlanPage: React.FC = () => {
   const navigate = useNavigate();
   const { profile, isLoading } = useEnvironmentProfile();
+  const [includeMyLab, setIncludeMyLab] = useState(false);
+  const scope = includeMyLab ? 'all' as const : 'production' as const;
 
   if (isLoading) {
     return (
@@ -25,6 +27,8 @@ export const DetectionActionPlanPage: React.FC = () => {
     <PageErrorBoundary pageName="Detection Action Plan" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
       <DetectionActionPlan
         profile={profile}
+        scope={scope}
+        onScopeChange={setIncludeMyLab}
         onEditProfile={() => navigate(ROUTES.ENVIRONMENT_PROFILE)}
       />
     </PageErrorBoundary>

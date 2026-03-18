@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DefensivePostureDashboard } from '../../components/impact/DefensivePostureDashboard';
 import { PageErrorBoundary } from '../../components/ErrorBoundary';
@@ -8,6 +8,8 @@ import { ROUTES, routeHelpers } from '../routes';
 export const DefensivePosturePage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAppData();
+  const [includeMyLab, setIncludeMyLab] = useState(false);
+  const scope = includeMyLab ? 'all' as const : 'production' as const;
 
   const handleTechniqueClick = (mitreId: string) => {
     navigate(`${ROUTES.LIBRARY}?filter=${encodeURIComponent(mitreId)}`);
@@ -31,6 +33,8 @@ export const DefensivePosturePage: React.FC = () => {
     <PageErrorBoundary pageName="Defensive Posture" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
       <DefensivePostureDashboard
         userId={user?.id || ''}
+        scope={scope}
+        onScopeChange={setIncludeMyLab}
         onTechniqueClick={handleTechniqueClick}
         onGroupClick={handleGroupClick}
         onViewAllGaps={handleViewAllGaps}

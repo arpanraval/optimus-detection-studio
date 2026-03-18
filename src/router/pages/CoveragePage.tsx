@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CoverageAnalytics } from '../../components/coverage/CoverageAnalytics';
 import { PageErrorBoundary } from '../../components/ErrorBoundary';
@@ -9,6 +9,8 @@ import { Status, Maturity, DetectionType, Severity, Confidence } from '../../typ
 export const CoveragePage: React.FC = () => {
   const navigate = useNavigate();
   const { detections } = useAppData();
+  const [includeMyLab, setIncludeMyLab] = useState(false);
+  const scope = includeMyLab ? 'all' as const : 'production' as const;
 
   // General navigation handler for CoverageAnalytics component
   const handleNavigate = (view: string, filter?: any) => {
@@ -97,6 +99,8 @@ export const CoveragePage: React.FC = () => {
     <PageErrorBoundary pageName="Coverage Analytics" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
       <CoverageAnalytics
         detections={detections}
+        scope={scope}
+        onScopeChange={setIncludeMyLab}
         onNavigate={handleNavigate}
         onNavigateToLibrary={handleNavigateToLibrary}
         onNavigateToStrategy={handleNavigateToStrategy}
