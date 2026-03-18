@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
-import { getCorsHeaders, handleCorsPreflight } from '../_shared/cors.ts'
+import { getCorsHeaders, handleCorsPreflight, corsErrorResponse } from '../_shared/cors.ts'
+import { checkRateLimit } from '../_shared/rate-limiter.ts'
 
 // Provider detection from model name
 type Provider = 'google' | 'openai' | 'anthropic'
@@ -468,6 +469,21 @@ serve(async (req: Request) => {
         JSON.stringify({ error: 'Unauthorized' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
+    }
+
+    // Rate limiting
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    )
+    const { allowed } = await checkRateLimit(
+      supabaseAdmin,
+      `user:${user.id}:fn:ai-generate`,
+      20,
+      60
+    )
+    if (!allowed) {
+      return corsErrorResponse('Rate limit exceeded. Try again shortly.', req, 429)
     }
 
     // Parse request body
