@@ -71,7 +71,7 @@ export const PublishModal: React.FC<PublishModalProps> = ({
               <Icon name="globe" className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <h2 className="font-semibold text-text-primary">Publish to Universal Library</h2>
+              <h2 className="font-semibold text-text-primary">Promote to Production</h2>
               <p className="text-xs text-text-tertiary">
                 {isUpdate ? 'Update existing rule' : 'Create new rule'}
               </p>
@@ -109,7 +109,7 @@ export const PublishModal: React.FC<PublishModalProps> = ({
                       This will update an existing rule
                     </p>
                     <p className="text-xs text-text-secondary mt-1">
-                      Your changes will be merged into the original Universal Library rule after admin approval.
+                      Your changes will be merged into the original Production Library rule after admin approval.
                     </p>
                   </div>
                 </div>

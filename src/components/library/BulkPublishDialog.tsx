@@ -155,7 +155,7 @@ export const BulkPublishDialog: React.FC<BulkPublishDialogProps> = ({
         <div className="px-5 py-4 border-b border-outline-variant/10 flex items-center justify-between">
           <div>
             <h3 className="text-base font-semibold text-on-surface">
-              Publish to Universal Library
+              Promote to Production
             </h3>
             <p className="text-xs text-on-surface-variant mt-0.5">
               {detectionIds.length} detection{detectionIds.length !== 1 ? 's' : ''} selected
