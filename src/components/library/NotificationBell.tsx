@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { Icon } from '../Icon';
 import { useLibrary } from '../../context/LibraryContext';
 import { UserNotification } from '../../types';
@@ -56,6 +57,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   onNavigateToNotifications
 }) => {
   const { notifications, unreadCount, markNotificationsRead } = useLibrary();
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -98,9 +100,16 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
       await markNotificationsRead([notification.id]);
     }
     
+    // Navigate to action_url if present
+    if (notification.action_url) {
+      setIsOpen(false);
+      navigate(notification.action_url);
+      return;
+    }
+
     // Get navigation target
     const target = getNotificationTarget(notification);
-    
+
     // Navigate based on target type
     if (target.type === 'detection' && target.id && onNavigateToDetection) {
       setIsOpen(false);
@@ -164,75 +173,86 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
             <p className="text-sm font-medium">No notifications</p>
             <p className="text-xs text-on-surface-variant/50 mt-1">You're all caught up!</p>
           </div>
-        ) : (
-          <div className="py-1">
-            {notifications.slice(0, 10).map((notification) => {
-              const config = getNotificationConfig(notification.type);
-              const target = getNotificationTarget(notification);
-              const isClickable = target.type !== 'none' && onNavigateToDetection;
-              
-              return (
-                <button
-                  key={notification.id}
-                  onClick={() => handleNotificationClick(notification)}
-                  className={`
-                    w-full flex items-start gap-3 px-4 py-3 text-left 
-                    transition-all duration-150
-                    ${!notification.is_read ? 'bg-primary/[0.04]' : ''}
-                    ${isClickable 
-                      ? 'hover:bg-surface-container-highest/70 cursor-pointer' 
-                      : 'hover:bg-surface-container-highest/30 cursor-default'
-                    }
-                  `}
-                >
-                  {/* Icon */}
-                  <div className={`flex-shrink-0 w-9 h-9 rounded-full ${config.bgColor} flex items-center justify-center`}>
-                    <Icon name={config.icon} className={`w-4 h-4 ${config.color}`} />
-                  </div>
+        ) : (() => {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const todayNotifications = notifications.filter(n => new Date(n.created_at) >= today);
+          const earlierNotifications = notifications.filter(n => new Date(n.created_at) < today);
 
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <span className={`text-sm leading-tight ${!notification.is_read ? 'font-semibold text-on-surface' : 'font-medium text-on-surface/80'}`}>
-                        {notification.title}
-                      </span>
-                      <span className="text-[10px] text-on-surface-variant/50 flex-shrink-0 mt-0.5">
-                        {formatTimeAgo(notification.created_at)}
-                      </span>
-                    </div>
-                    {notification.message && (
-                      <p className="text-xs text-on-surface-variant/70 mt-1 line-clamp-2 leading-relaxed">
-                        {notification.message}
-                      </p>
-                    )}
-                    
-                    {/* G1: Show clickable hint if navigable */}
-                    {isClickable && (
-                      <div className="flex items-center gap-1 mt-2 text-[10px] text-primary/70">
-                        <Icon name="external-link" className="w-3 h-3" />
-                        <span>Click to view detection</span>
-                      </div>
-                    )}
-                  </div>
+          const renderNotificationItem = (notification: UserNotification) => {
+            const config = getNotificationConfig(notification.type);
+            const target = getNotificationTarget(notification);
+            const isClickable = (notification.action_url) || (target.type !== 'none' && onNavigateToDetection);
 
-                  {/* Unread indicator */}
-                  {!notification.is_read && (
-                    <div className="flex-shrink-0 w-2 h-2 rounded-full bg-primary mt-1.5" />
+            return (
+              <button
+                key={notification.id}
+                onClick={() => handleNotificationClick(notification)}
+                className={`
+                  w-full flex items-start gap-3 px-4 py-3 text-left
+                  transition-all duration-150
+                  ${!notification.is_read ? 'bg-primary/[0.04]' : ''}
+                  ${isClickable
+                    ? 'hover:bg-surface-container-highest/70 cursor-pointer'
+                    : 'hover:bg-surface-container-highest/30 cursor-default'
+                  }
+                `}
+              >
+                {/* Icon */}
+                <div className={`flex-shrink-0 w-9 h-9 rounded-full ${config.bgColor} flex items-center justify-center`}>
+                  <Icon name={config.icon} className={`w-4 h-4 ${config.color}`} />
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className={`text-sm leading-tight ${!notification.is_read ? 'font-semibold text-on-surface' : 'font-medium text-on-surface/80'}`}>
+                      {notification.title}
+                    </span>
+                    <span className="text-[10px] text-on-surface-variant/50 flex-shrink-0 mt-0.5">
+                      {formatTimeAgo(notification.created_at)}
+                    </span>
+                  </div>
+                  {notification.message && (
+                    <p className="text-xs text-on-surface-variant/70 mt-1 line-clamp-2 leading-relaxed">
+                      {notification.message}
+                    </p>
                   )}
-                </button>
-              );
-            })}
-            
-            {/* Show more indicator if there are more notifications */}
-            {notifications.length > 10 && (
-              <div className="px-4 py-2 text-center">
-                <span className="text-xs text-on-surface-variant/50">
-                  +{notifications.length - 10} more notifications
-                </span>
-              </div>
-            )}
-          </div>
-        )}
+
+                  {/* G1: Show clickable hint if navigable */}
+                  {isClickable && (
+                    <div className="flex items-center gap-1 mt-2 text-[10px] text-primary/70">
+                      <Icon name="external-link" className="w-3 h-3" />
+                      <span>Click to view detection</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Unread indicator */}
+                {!notification.is_read && (
+                  <div className="flex-shrink-0 w-2 h-2 rounded-full bg-primary mt-1.5" />
+                )}
+              </button>
+            );
+          };
+
+          return (
+            <div className="py-1">
+              {todayNotifications.length > 0 && (
+                <>
+                  <div className="px-3 py-1.5 text-xs font-medium text-on-surface-variant/60 uppercase tracking-wider">Today</div>
+                  {todayNotifications.map(n => renderNotificationItem(n))}
+                </>
+              )}
+              {earlierNotifications.length > 0 && (
+                <>
+                  <div className="px-3 py-1.5 text-xs font-medium text-on-surface-variant/60 uppercase tracking-wider">Earlier</div>
+                  {earlierNotifications.map(n => renderNotificationItem(n))}
+                </>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* G2: Footer with View All button */}
