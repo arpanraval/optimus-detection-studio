@@ -72,6 +72,9 @@ export const ROUTES = {
   AUDIT_LOG: '/settings/audit-log',
   ENVIRONMENT_PROFILE: '/settings/environment',
 
+  // SIEM Health
+  SIEM_HEALTH: '/siem',
+
   // Account
   ACCOUNT: '/account',
   SUBMISSIONS: '/submissions',
@@ -164,6 +167,7 @@ export const viewToRoute: Record<string, string> = {
   'integrations': ROUTES.INTEGRATIONS,
   'scoring_settings': ROUTES.SCORING,
   'environment_profile': ROUTES.ENVIRONMENT_PROFILE,
+  'siem-health': ROUTES.SIEM_HEALTH,
   'action_plan': ROUTES.ACTION_PLAN,
   'exercises-state-sponsored': '/exercises/state-sponsored',
   'audit_log': ROUTES.AUDIT_LOG,
@@ -237,6 +241,7 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.MITRE_SYNC]: { title: 'Data Sync', description: 'Sync MITRE ATT&CK data and vector embeddings' },
   [ROUTES.AUDIT_LOG]: { title: 'Audit Log', description: 'Enterprise audit trail for compliance and accountability' },
   [ROUTES.ENVIRONMENT_PROFILE]: { title: 'Environment Profile', description: 'Configure your security environment for personalized intelligence' },
+  [ROUTES.SIEM_HEALTH]: { title: 'SIEM Health', description: 'Monitor SIEM deployment health, drift detection, and deploy queue' },
   [ROUTES.ACTION_PLAN]: { title: 'Detection Action Plan', description: 'Prioritized detection deployment roadmap' },
   [ROUTES.EXERCISES_STATE_SPONSORED]: { title: 'State Sponsored Attack Report', description: 'Defense exercise: state-sponsored threat posture analysis' },
   [ROUTES.ACCOUNT]: { title: 'Account Settings', description: 'Manage your profile and preferences' },
