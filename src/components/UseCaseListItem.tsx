@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Detection, LibraryType } from '../types';
+import { Detection, LibraryType, LIBRARY_LABELS } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { SeverityBadge } from './SeverityBadge';
 import { Icon } from './Icon';
@@ -172,7 +172,7 @@ export const UseCaseListItem: React.FC<UseCaseListItemProps> = ({
         return (
           <div
             className={`flex items-center justify-center ${isUniversal ? 'text-[#0284C7]' : 'text-[#783264]'}`}
-            title={isUniversal ? 'Universal Library' : 'My Library'}
+            title={isUniversal ? LIBRARY_LABELS['universal'] : LIBRARY_LABELS['user']}
           >
             <Icon name={isUniversal ? 'globe' : 'user'} className="w-4 h-4" />
           </div>
@@ -210,7 +210,7 @@ export const UseCaseListItem: React.FC<UseCaseListItemProps> = ({
         return (
           <div
             className="flex items-center justify-center text-[#783264]"
-            title="Forked from Universal Library"
+            title={`Forked from ${LIBRARY_LABELS['universal']}`}
           >
             <Icon name="git-fork" className="w-4 h-4" />
           </div>
