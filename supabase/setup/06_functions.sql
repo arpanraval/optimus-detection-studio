@@ -536,7 +536,7 @@ BEGIN
     IF v_profile.role NOT IN ('owner', 'admin') THEN
       RETURN jsonb_build_object(
         'allowed', false,
-        'error', 'Only owners and admins can import to Universal Library',
+        'error', 'Only owners and admins can import to Production Library',
         'required_role', 'admin',
         'current_role', v_profile.role
       );
@@ -800,7 +800,7 @@ BEGIN
 END;
 $function$;
 
--- Submit a detection for publish to the Universal Library (text id variant)
+-- Submit a detection for publish to the Production Library (text id variant)
 CREATE OR REPLACE FUNCTION public.submit_for_publish(p_detection_id text, p_user_id uuid)
  RETURNS json
  LANGUAGE plpgsql
@@ -867,7 +867,7 @@ BEGIN
 END;
 $function$;
 
--- Submit a detection for publish to the Universal Library (uuid id variant)
+-- Submit a detection for publish to the Production Library (uuid id variant)
 CREATE OR REPLACE FUNCTION public.submit_for_publish(p_detection_id uuid, p_user_id uuid)
  RETURNS json
  LANGUAGE plpgsql
@@ -1057,7 +1057,7 @@ BEGIN
         version = v_current_version + 1
       WHERE id = v_target_detection_id;
 
-      v_notification_message := 'Your update to "' || v_detection.name || '" has been approved and the Universal Library rule has been updated.';
+      v_notification_message := 'Your update to "' || v_detection.name || '" has been approved and the Production Library rule has been updated.';
     ELSE
       -- CREATE new universal rule
       INSERT INTO detections (
@@ -1122,7 +1122,7 @@ BEGIN
         NULL
       );
 
-      v_notification_message := 'Your detection "' || v_detection.name || '" has been approved and published to the Universal Library.';
+      v_notification_message := 'Your detection "' || v_detection.name || '" has been approved and promoted to the Production Library.';
     END IF;
 
     -- Update original user detection to link to universal
@@ -1147,7 +1147,7 @@ BEGIN
     WHERE id = p_request_id;
 
     v_notification_type := 'publish_approved';
-    v_notification_title := CASE WHEN v_is_update THEN 'Update Published' ELSE 'Detection Published' END;
+    v_notification_title := CASE WHEN v_is_update THEN 'Production Update Approved' ELSE 'Promoted to Production' END;
 
   ELSIF p_action = 'approve_as_new' THEN
     v_target_detection_id := gen_random_uuid()::text;
@@ -1236,8 +1236,8 @@ BEGIN
     WHERE id = p_request_id;
 
     v_notification_type := 'publish_approved_as_new';
-    v_notification_title := 'Published as New Rule';
-    v_notification_message := 'Your detection "' || v_detection.name || '" has been approved and added as a NEW rule in the Universal Library.';
+    v_notification_title := 'Promoted as New Rule';
+    v_notification_message := 'Your detection "' || v_detection.name || '" has been approved and added as a NEW rule in the Production Library.';
 
   ELSIF p_action = 'reject' THEN
     -- Update detection status
@@ -2590,7 +2590,7 @@ BEGIN
   END IF;
 
   IF v_detection.library_type != 'universal' THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Only Universal Library detections can be added to workspaces');
+    RETURN jsonb_build_object('success', false, 'error', 'Only Production Library detections can be added to workspaces');
   END IF;
 
   IF EXISTS (SELECT 1 FROM workspace_detections WHERE workspace_id = p_workspace_id AND detection_id = p_detection_id) THEN
@@ -2629,7 +2629,7 @@ BEGIN
     BEGIN
       IF NOT EXISTS (SELECT 1 FROM detections WHERE id = v_detection_id AND library_type = 'universal') THEN
         v_skipped := v_skipped + 1;
-        v_errors := array_append(v_errors, format('%s: not in Universal Library', v_detection_id));
+        v_errors := array_append(v_errors, format('%s: not in Production Library', v_detection_id));
         CONTINUE;
       END IF;
 
