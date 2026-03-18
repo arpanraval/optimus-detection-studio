@@ -1,9 +1,12 @@
 import React from 'react';
 import { Icon } from '../Icon';
+import { ScopeToggle } from '../common/ScopeToggle';
 import { useDefensivePosture, TechniqueGap } from '../../hooks/useImpactScores';
 
 interface DefensivePostureDashboardProps {
   userId: string;
+  scope?: 'production' | 'all';
+  onScopeChange?: (includeMyLab: boolean) => void;
   onTechniqueClick?: (mitreId: string) => void;
   onGroupClick?: (groupMitreId: string) => void;
   onViewAllGaps?: () => void;
@@ -13,13 +16,15 @@ interface DefensivePostureDashboardProps {
 
 export function DefensivePostureDashboard({
   userId,
+  scope = 'production',
+  onScopeChange,
   onTechniqueClick,
   onGroupClick,
   onViewAllGaps,
   onBuildDetection,
   className = ''
 }: DefensivePostureDashboardProps) {
-  const { posture, loading, error } = useDefensivePosture(userId);
+  const { posture, loading, error } = useDefensivePosture(userId, scope);
 
   if (loading) {
     return <PostureLoadingSkeleton />;
@@ -73,14 +78,19 @@ export function DefensivePostureDashboard({
                 </p>
               </div>
             </div>
-            {onViewAllGaps && (
-              <button
-                onClick={onViewAllGaps}
-                className="px-4 py-2 text-sm font-medium text-primary bg-primary/10 hover:bg-primary/20 rounded-xl transition-colors"
-              >
-                View All Gaps
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              {onScopeChange && (
+                <ScopeToggle includeMyLab={scope === 'all'} onChange={onScopeChange} />
+              )}
+              {onViewAllGaps && (
+                <button
+                  onClick={onViewAllGaps}
+                  className="px-4 py-2 text-sm font-medium text-primary bg-primary/10 hover:bg-primary/20 rounded-xl transition-colors"
+                >
+                  View All Gaps
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

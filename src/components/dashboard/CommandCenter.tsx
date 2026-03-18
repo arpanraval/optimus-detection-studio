@@ -7,6 +7,7 @@ import { useCommandCenterData, ThreatLandscapeEntry, CampaignReadiness as Campai
 import { useMitreMatrix } from '../../hooks/useMitreMatrix';
 import { useActivityLog } from '../../hooks/useActivityLog';
 import { AnimatedNumber } from '../optimus/AnimatedNumber';
+import { ScopeToggle } from '../common/ScopeToggle';
 import { EmptyState } from '../ui';
 
 const TACTICS = [
@@ -28,13 +29,15 @@ const TACTICS = [
 
 interface CommandCenterProps {
   detections: Detection[];
+  scope?: 'production' | 'all';
+  onScopeChange?: (includeMyLab: boolean) => void;
   onNavigate: (view: string, filter?: any) => void;
 }
 
-export const CommandCenter: React.FC<CommandCenterProps> = ({ detections, onNavigate }) => {
+export const CommandCenter: React.FC<CommandCenterProps> = ({ detections, scope = 'production', onScopeChange, onNavigate }) => {
   const { isLoading, userId } = useLibrary();
   const location = useLocation();
-  const { posture, loading: postureLoading } = useDefensivePosture(userId);
+  const { posture, loading: postureLoading } = useDefensivePosture(userId, scope);
   const { actors, loading: actorsLoading } = useThreatActorWeights();
   const { campaignReadiness, threatLandscape, sectorCoverage, originCoverage, coverageTrend, error: dataError } = useCommandCenterData(actors, detections, posture?.total_techniques);
   const { techniques: mitreTechniques, loading: mitreLoading } = useMitreMatrix();
@@ -162,7 +165,10 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ detections, onNavi
     <div className="h-full overflow-y-auto bg-background scrollbar-page animate-page-enter">
       <div className="px-4 lg:px-6 py-4">
 
-        <div className="flex justify-end mb-3">
+        <div className="flex justify-between items-center mb-3">
+          {onScopeChange && (
+            <ScopeToggle includeMyLab={scope === 'all'} onChange={onScopeChange} />
+          )}
           <TabSwitcher currentPath={location.pathname} />
         </div>
 

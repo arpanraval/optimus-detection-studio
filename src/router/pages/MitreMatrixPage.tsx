@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MitreDashboard } from '../../components/MitreDashboard';
 import { PageErrorBoundary } from '../../components/ErrorBoundary';
@@ -9,6 +9,8 @@ import { Detection, Status, Maturity, DetectionType, Severity, Confidence } from
 export const MitreMatrixPage: React.FC = () => {
   const navigate = useNavigate();
   const { detections } = useAppData();
+  const [includeMyLab, setIncludeMyLab] = useState(false);
+  const scope = includeMyLab ? 'all' as const : 'production' as const;
 
   const handleNavigateToTechnique = (techniqueId: string) => {
     navigate(`${ROUTES.LIBRARY}?filter=${encodeURIComponent(techniqueId)}`);
@@ -51,6 +53,8 @@ export const MitreMatrixPage: React.FC = () => {
     <PageErrorBoundary pageName="MITRE Dashboard" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
       <MitreDashboard
         detections={detections}
+        scope={scope}
+        onScopeChange={setIncludeMyLab}
         onNavigateToLibrary={handleNavigateToTechnique}
         onNavigateToTechnique={handleNavigateToTechnique}
         onNavigateToDetection={handleNavigateToDetection}

@@ -7,6 +7,7 @@ import { ThreatActorCommandFilter } from './mitre/ThreatActorCommandFilter';
 import { ThreatActorFilterBanner } from './mitre/ThreatActorFilterBanner';
 import { MatrixCell } from './mitre/MatrixCell';
 import { TechniqueDetailPanel } from './mitre/TechniqueDetailPanel';
+import { ScopeToggle } from './common/ScopeToggle';
 import { Icon } from './Icon';
 import { Button } from './ui/Button';
 import { NavigatorService, NavigatorLayer, MatrixExportData } from '@/lib/mitre/NavigatorService';
@@ -15,6 +16,8 @@ import { Detection } from '../types';
 
 interface MitreDashboardProps {
     detections?: Detection[];
+    scope?: 'production' | 'all';
+    onScopeChange?: (includeMyLab: boolean) => void;
     onTechniqueSelect?: (techniqueId: string) => void;
     onNavigateToLibrary?: (techniqueId: string) => void;  // Navigate to library with technique filter
     onNavigateToTechnique?: (techniqueId: string) => void;  // Navigate to technique detail
@@ -27,6 +30,8 @@ interface MitreDashboardProps {
 
 export const MitreDashboard: React.FC<MitreDashboardProps> = ({
     detections,
+    scope = 'production',
+    onScopeChange,
     onTechniqueSelect,
     onNavigateToLibrary,
     onNavigateToTechnique,
@@ -49,7 +54,7 @@ export const MitreDashboard: React.FC<MitreDashboardProps> = ({
   const exportMenuRef = useRef<HTMLDivElement>(null);
   
   const { tactics, techniques, loading: loadingMatrix } = useMitreMatrix();
-  const { coverage, getCoverageColor, loading: loadingCoverage } = useMitreCoverage();
+  const { coverage, getCoverageColor, loading: loadingCoverage } = useMitreCoverage(scope);
   const threatActorFilter = useThreatActorFilter();
   const { showToast } = useToast();
 
@@ -303,6 +308,9 @@ export const MitreDashboard: React.FC<MitreDashboardProps> = ({
             <div className="h-6 w-px bg-outline-variant/30 hidden md:block"></div>
             <PlatformFilter value={platformFilter} onChange={setPlatformFilter} />
             <ThreatActorCommandFilter filter={threatActorFilter} />
+            {onScopeChange && (
+              <ScopeToggle includeMyLab={scope === 'all'} onChange={onScopeChange} />
+            )}
         </div>
 
         <div className="flex items-center gap-3">

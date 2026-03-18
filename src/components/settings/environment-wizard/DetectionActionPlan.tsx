@@ -14,11 +14,14 @@ import { TacticCoverageHeatmap } from './TacticCoverageHeatmap';
 import { MiniMitreMatrix } from './MiniMitreMatrix';
 import { SiemReadinessBar } from './SiemReadinessBar';
 import { Icon } from '../../Icon';
+import { ScopeToggle } from '../../common/ScopeToggle';
 import { computeMissingLogSourceSuggestions } from '../../../services/logSourceDiscovery';
 import type { EnvironmentProfile } from '../../../types/environment';
 
 interface DetectionActionPlanProps {
   profile: EnvironmentProfile;
+  scope?: 'production' | 'all';
+  onScopeChange?: (includeMyLab: boolean) => void;
   onEditProfile: () => void;
 }
 
@@ -28,11 +31,17 @@ const RING_C = 2 * Math.PI * RING_R; // ~326.7
 
 export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
   profile,
+  scope = 'production',
+  onScopeChange,
   onEditProfile,
 }) => {
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const { detections: libraryDetections, user } = useAppData();
+  const { detections: allDetections, user } = useAppData();
+  const libraryDetections = useMemo(() => {
+    if (scope === 'all') return allDetections;
+    return allDetections.filter(d => d.library_type === 'universal');
+  }, [allDetections, scope]);
 
   // Dismissed gap items (persisted in localStorage)
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => {
@@ -281,6 +290,9 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
             </h1>
           </div>
           <div className="flex items-center gap-3">
+            {onScopeChange && (
+              <ScopeToggle includeMyLab={scope === 'all'} onChange={onScopeChange} />
+            )}
             <div className="flex items-center gap-1.5 flex-wrap justify-end">
               {profileTags.map((tag, i) => (
                 <span key={i} className="px-2 py-0.5 rounded text-[10px] text-on-surface-variant bg-surface-container">
