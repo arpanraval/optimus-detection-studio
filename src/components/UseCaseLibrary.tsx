@@ -19,6 +19,7 @@ import { supabase } from '../lib/supabaseClient';
 import { useToast } from '../hooks/useToast';
 import { BulkActionBar } from './library/BulkActionBar';
 import { BulkPublishDialog } from './library/BulkPublishDialog';
+import { BulkDeployModal } from './integrations/BulkDeployModal';
 import { FilterPanel, ActiveFilterChips } from './library';
 import { useFilterOptions } from '../hooks/useFilterOptions';
 import { routeHelpers } from '../router/routes';
@@ -703,6 +704,8 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
   const [selectAllMatchingMode, setSelectAllMatchingMode] = useState(false);
   const [showBulkPublishDialog, setShowBulkPublishDialog] = useState(false);
   const [bulkPublishIds, setBulkPublishIds] = useState<string[]>([]);
+  const [showBulkDeploy, setShowBulkDeploy] = useState(false);
+  const [bulkDeployIds, setBulkDeployIds] = useState<string[]>([]);
 
   // Apply initial filters from props (e.g. from Dashboard click)
   useEffect(() => {
@@ -1382,6 +1385,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
           onChangeSeverity={currentLibrary === 'user' ? handleBulkSeverityChange : undefined}
           onCopyToLibrary={currentLibrary === 'universal' ? handleBulkCopyToLibrary : undefined}
           onPublishToUniversal={currentLibrary === 'user' ? handleBulkPublish : undefined}
+          onDeploy={(ids) => { setBulkDeployIds(ids); setShowBulkDeploy(true); }}
           // Server-side bulk actions (by filter)
           onDeleteByFilter={currentLibrary === 'user' ? bulkDeleteByFilter : undefined}
           onChangeStatusByFilter={currentLibrary === 'user' ? bulkUpdateStatusByFilter : undefined}
@@ -1398,6 +1402,13 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
           detections={detections}
           onClose={() => { setShowBulkPublishDialog(false); setBulkPublishIds([]); }}
           onComplete={() => { clearSelection(); setSelectionMode(false); }}
+        />
+      )}
+      {showBulkDeploy && (
+        <BulkDeployModal
+          detections={detections.filter(d => bulkDeployIds.includes(d.id))}
+          onClose={() => { setShowBulkDeploy(false); setBulkDeployIds([]); }}
+          onComplete={() => { setShowBulkDeploy(false); setBulkDeployIds([]); clearSelection(); setSelectionMode(false); }}
         />
       )}
     </div>
