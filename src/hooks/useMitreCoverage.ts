@@ -18,22 +18,29 @@ export interface CoverageMap {
   };
 }
 
-export function useMitreCoverage() {
+export function useMitreCoverage(scope: 'production' | 'all' = 'production') {
   const [coverage, setCoverage] = useState<CoverageMap>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadCoverage();
-  }, []);
+  }, [scope]);
 
   async function loadCoverage() {
     setLoading(true);
 
     try {
-      // Get all user's detections with metadata needed for exports
-      const { data: detections, error } = await supabase
+      // Get detections with metadata needed for exports
+      let query = supabase
         .from('detections')
         .select('id, name, status, severity, qualityScore, mitreAttackIds');
+
+      if (scope === 'production') {
+        query = query.eq('library_type', 'universal');
+      }
+      // 'all' = no filter (existing behavior, RLS handles visibility)
+
+      const { data: detections, error } = await query;
 
       if (error) throw error;
 
