@@ -686,6 +686,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
     bulkUpdateStatus,
     bulkUpdateSeverity,
     bulkCopyToUserLibrary,
+    forkToLab,
     // Server-side bulk actions
     bulkDeleteByFilter,
     bulkUpdateStatusByFilter,
@@ -942,7 +943,16 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
   };
 
   const handleBulkCopyToLibrary = async (ids: string[]) => {
-    await bulkCopyToUserLibrary(ids);
+    if (currentLibrary === 'user') {
+      // Production view → Fork to Lab (one by one since no bulk fork yet)
+      for (const id of ids) {
+        await forkToLab(id);
+      }
+      clearSelection();
+    } else {
+      // Lab view → Copy to Production
+      await bulkCopyToUserLibrary(ids);
+    }
     setSelectionMode(false);
   };
 
@@ -1383,8 +1393,8 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
           onExport={handleBulkExport}
           onChangeStatus={currentLibrary === 'user' ? handleBulkStatusChange : undefined}
           onChangeSeverity={currentLibrary === 'user' ? handleBulkSeverityChange : undefined}
-          onCopyToLibrary={currentLibrary === 'universal' ? handleBulkCopyToLibrary : undefined}
-          onPublishToUniversal={currentLibrary === 'user' ? handleBulkPublish : undefined}
+          onCopyToLibrary={currentLibrary === 'user' ? handleBulkCopyToLibrary : undefined}
+          onPublishToUniversal={currentLibrary === 'universal' ? handleBulkPublish : undefined}
           onDeploy={(ids) => { setBulkDeployIds(ids); setShowBulkDeploy(true); }}
           // Server-side bulk actions (by filter)
           onDeleteByFilter={currentLibrary === 'user' ? bulkDeleteByFilter : undefined}

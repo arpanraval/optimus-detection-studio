@@ -336,20 +336,20 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
               />
             )}
 
-            {/* Publish to Universal - only for user library, not in select-all-matching mode */}
-            {isUserLibrary && onPublishToUniversal && !selectAllMatchingMode && (
+            {/* Promote to Production - only for Lab (universal) library, not in select-all-matching mode */}
+            {!isUserLibrary && onPublishToUniversal && !selectAllMatchingMode && (
               <button
                 onClick={handlePublishToUniversal}
                 className="h-8 px-2.5 text-sm font-medium rounded-lg transition-all inline-flex items-center gap-1.5 hover:brightness-110 text-white"
                 style={{ backgroundColor: SOLID_BLUE }}
               >
                 <Icon name="publish" className="w-3.5 h-3.5" />
-                <span>Publish</span>
+                <span>Promote</span>
               </button>
             )}
 
-            {/* Copy to library - only for universal library, not available in select-all-matching mode */}
-            {!isUserLibrary && onCopyToLibrary && !selectAllMatchingMode && (
+            {/* Fork to Lab - only for Production (user) library, not available in select-all-matching mode */}
+            {isUserLibrary && onCopyToLibrary && !selectAllMatchingMode && (
               <button
                 onClick={handleCopyToLibrary}
                 className="h-8 px-2.5 text-sm font-medium rounded-lg text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface transition-all inline-flex items-center gap-1.5"

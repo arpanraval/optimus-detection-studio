@@ -381,6 +381,12 @@ CREATE POLICY "Universal library readable by authenticated users" ON public.dete
   TO public
   USING (((library_type = 'universal'::text) AND (auth.uid() IS NOT NULL)));
 
+CREATE POLICY "Production library readable by authenticated users" ON public.detections
+  AS PERMISSIVE
+  FOR SELECT
+  TO authenticated
+  USING (library_type = 'user');
+
 CREATE POLICY "Users can create detections" ON public.detections
   AS PERMISSIVE
   FOR INSERT
