@@ -44,6 +44,7 @@ export const ROUTES = {
   MITIGATION_DETAIL: '/intelligence/mitigations/:id',
   THREAT_INTEL: '/intelligence/threat-digest',
   THREAT_INTEL_DETAIL: '/intelligence/threat-digest/:id',
+  THREAT_INTEL_FEEDS: '/intelligence/feeds',
 
   // Arsenal
   SIGMA_CONVERTER: '/arsenal/sigma',
@@ -150,6 +151,7 @@ export const viewToRoute: Record<string, string> = {
   'mitigations': ROUTES.MITIGATIONS,
   'mitigation-detail': ROUTES.MITIGATION_DETAIL,
   'threat-intel': ROUTES.THREAT_INTEL,
+  'threat-intel-feeds': ROUTES.THREAT_INTEL_FEEDS,
   'packs': ROUTES.PACKS,
   'pack-detail': ROUTES.PACK_DETAIL,
   'workspaces': ROUTES.WORKSPACES,
@@ -222,6 +224,7 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.MITIGATION_DETAIL]: { title: 'Mitigation Details', description: undefined },
   [ROUTES.THREAT_INTEL]: { title: 'Intelligence Reports', description: 'AI-powered threat intelligence extraction' },
   [ROUTES.THREAT_INTEL_DETAIL]: { title: 'Report Analysis', description: undefined },
+  [ROUTES.THREAT_INTEL_FEEDS]: { title: 'Threat Intel Feeds', description: 'Subscribe to RSS and TAXII threat intelligence feeds' },
   [ROUTES.SIGMA_CONVERTER]: { title: 'Sigma Converter', description: 'Convert Sigma rules to SIEM query languages' },
   [ROUTES.AI_QUERY]: { title: 'AI Query Generator', description: 'Generate detection queries with AI assistance' },
   [ROUTES.OPTIMUS]: { title: 'Optimus Prime', description: 'Your intelligent detection engineering assistant' },

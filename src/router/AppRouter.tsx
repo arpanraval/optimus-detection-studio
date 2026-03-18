@@ -71,6 +71,7 @@ const PlaybooksPage = lazy(() => import('./pages/PlaybooksPage').then(m => ({ de
 const PipelinePage = lazy(() => import('./pages/PipelinePage').then(m => ({ default: m.PipelinePage })));
 const DetectionActionPlanPage = lazy(() => import('./pages/DetectionActionPlanPage').then(m => ({ default: m.DetectionActionPlanPage })));
 const StateSponsoredReportPage = lazy(() => import('./pages/StateSponsoredReportPage').then(m => ({ default: m.StateSponsoredReportPage })));
+const ThreatIntelFeedsPage = lazy(() => import('./pages/ThreatIntelFeedsPage').then(m => ({ default: m.ThreatIntelFeedsPage })));
 
 // Design System Pages
 const DesignOverviewPage = lazy(() => import('../components/design-system/pages/OverviewPage').then(m => ({ default: m.OverviewPage })));
@@ -180,6 +181,7 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       { path: 'intelligence/mitigations/:id', element: <MitigationDetailPage /> },
       { path: 'intelligence/threat-digest', element: <ThreatIntelPage /> },
       { path: 'intelligence/threat-digest/:id', element: <ThreatIntelDetailPage /> },
+      { path: 'intelligence/feeds', element: <ThreatIntelFeedsPage /> },
 
       // Arsenal
       { path: 'arsenal/sigma', element: <SigmaConverterPage /> },
