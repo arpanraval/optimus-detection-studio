@@ -22,9 +22,22 @@ export async function bulkDeploy(
 ): Promise<BulkDeployResult> {
   const result: BulkDeployResult = { succeeded: [], failed: [] };
 
-  for (let i = 0; i < detections.length; i++) {
-    const detection = detections[i];
-    onProgress(i, detections.length, detection.name || detection.id);
+  // Pre-filter: only Production Library detections can be deployed
+  const productionDetections = detections.filter(d => d.library_type === 'universal');
+  const labDetections = detections.filter(d => d.library_type !== 'universal');
+
+  for (const d of labDetections) {
+    result.failed.push({
+      id: d.id,
+      name: d.name || d.id,
+      error: 'Detection Lab rules cannot be deployed — promote to Production first',
+      retryable: false,
+    });
+  }
+
+  for (let i = 0; i < productionDetections.length; i++) {
+    const detection = productionDetections[i];
+    onProgress(i + labDetections.length, detections.length, detection.name || detection.id);
 
     try {
       // Prefer multi-query array; fall back to legacy single-query fields

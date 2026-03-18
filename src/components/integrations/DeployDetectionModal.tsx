@@ -854,7 +854,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
 
                   {/* Provider-specific config: Splunk */}
                   {selectedIntegration.provider === 'splunk' && (
-                    <div className="space-y-3">
+                    <div className={`space-y-3 ${previewOnly ? 'opacity-60 pointer-events-none' : ''}`}>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-on-surface-variant mb-1">Cron Schedule</label>
@@ -862,7 +862,8 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                             type="text"
                             value={String(ruleConfig.cronSchedule || '')}
                             onChange={e => setRuleConfig(p => ({ ...p, cronSchedule: e.target.value }))}
-                            className="w-full px-3 py-2 bg-surface-container-high border border-outline-variant/20 rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary/40"
+                            disabled={previewOnly}
+                            className="w-full px-3 py-2 bg-surface-container-high border border-outline-variant/20 rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary/40 disabled:opacity-50"
                           />
                         </div>
                         <div>
@@ -871,7 +872,8 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                             type="text"
                             value={String(ruleConfig.earliestTime || '')}
                             onChange={e => setRuleConfig(p => ({ ...p, earliestTime: e.target.value }))}
-                            className="w-full px-3 py-2 bg-surface-container-high border border-outline-variant/20 rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary/40"
+                            disabled={previewOnly}
+                            className="w-full px-3 py-2 bg-surface-container-high border border-outline-variant/20 rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary/40 disabled:opacity-50"
                           />
                         </div>
                       </div>
@@ -944,7 +946,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
 
                   {/* Provider-specific config: Sentinel */}
                   {selectedIntegration.provider === 'sentinel' && (
-                    <div className="space-y-3">
+                    <div className={`space-y-3 ${previewOnly ? 'opacity-60 pointer-events-none' : ''}`}>
                       {/* Rule Type (Scheduled vs NRT) */}
                       <div>
                         <label className="block text-xs font-medium text-on-surface-variant mb-1">Rule Type</label>
@@ -1084,7 +1086,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
 
                   {/* Provider-specific config: Defender XDR */}
                   {selectedIntegration.provider === 'defender_xdr' && (
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className={`grid grid-cols-2 gap-3 ${previewOnly ? 'opacity-60 pointer-events-none' : ''}`}>
                       <div>
                         <label className="block text-xs font-medium text-on-surface-variant mb-1">Frequency</label>
                         <select
@@ -1141,7 +1143,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
 
                   {/* Provider-specific config: Elastic */}
                   {selectedIntegration.provider === 'elastic' && (
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className={`grid grid-cols-2 gap-3 ${previewOnly ? 'opacity-60 pointer-events-none' : ''}`}>
                       <div>
                         <label className="block text-xs font-medium text-on-surface-variant mb-1">Rule Type</label>
                         <select
@@ -1170,7 +1172,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
 
                   {/* Provider-specific config: CrowdStrike */}
                   {selectedIntegration.provider === 'crowdstrike' && (
-                    <div className="space-y-3">
+                    <div className={`space-y-3 ${previewOnly ? 'opacity-60 pointer-events-none' : ''}`}>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-on-surface-variant mb-1">Severity</label>
