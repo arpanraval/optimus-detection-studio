@@ -50,8 +50,8 @@ export function useDetectionAudit(): UseDetectionAuditResult {
       'deployed': 'Deployed to production',
       'linked_entity_added': 'Linked entity',
       'linked_entity_removed': 'Unlinked entity',
-      'published': 'Published to Universal Library',
-      'copied_from_universal': 'Copied from Universal Library',
+      'published': 'Promoted to Production Library',
+      'copied_from_universal': 'Forked from Production Library',
       // RBAC audit actions
       'assigned': 'Assigned to user',
       'unassigned': 'Unassigned from user',
