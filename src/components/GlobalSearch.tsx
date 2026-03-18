@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Icon } from './Icon';
 import { Detection } from '../types';
+import { LIBRARY_LABELS_SHORT } from '../types/detection';
 import { MITREQueryService } from '@/lib/mitre/services';
 import { supabase } from '../lib/supabaseClient';
 import { ROUTES, routeHelpers } from '../router/routes';
@@ -119,7 +120,7 @@ export const GlobalSearch: React.FC<GlobalSearchProps> = ({ detections, onNaviga
     const isUniversal = detection.library_type === 'universal';
     return {
       icon: isUniversal ? 'globe' : 'user',
-      label: isUniversal ? 'Universal' : 'My Library',
+      label: LIBRARY_LABELS_SHORT[detection.library_type as 'universal' | 'user'] ?? (isUniversal ? 'Production' : 'Detection Lab'),
       className: isUniversal 
         ? 'text-blue-500 dark:text-blue-400' 
         : 'text-tertiary'

@@ -19,6 +19,18 @@ export type LibraryType = 'universal' | 'user';
 /** Extended library type for future team library */
 export type ExtendedLibraryType = 'personal' | 'team' | 'universal';
 
+/** Display labels for library types */
+export const LIBRARY_LABELS: Record<LibraryType, string> = {
+  universal: 'Production Library',
+  user: 'Detection Lab',
+};
+
+/** Short display labels for library types */
+export const LIBRARY_LABELS_SHORT: Record<LibraryType, string> = {
+  universal: 'Production',
+  user: 'Detection Lab',
+};
+
 export type PublishStatus = 'unpublished' | 'pending' | 'published' | 'rejected';
 export type DetectionSource = 'custom' | 'sigmahq' | 'splunk_escu' | 'elastic' | 'microsoft_sentinel' | 'crowdstrike' | 'chronicle' | 'community';
 

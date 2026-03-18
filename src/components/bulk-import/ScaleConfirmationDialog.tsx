@@ -8,6 +8,7 @@
 
 import React from 'react';
 import { Icon } from '../Icon';
+import { LIBRARY_LABELS } from '../../types/detection';
 
 /** Threshold for triggering the scale confirmation dialog */
 export const LARGE_IMPORT_THRESHOLD = 500;
@@ -102,7 +103,7 @@ export function ScaleConfirmationDialog({
                   isUniversal ? 'text-tertiary' : 'text-primary'
                 }`}
               >
-                {isUniversal ? 'Universal Library' : 'My Library'}
+                {LIBRARY_LABELS[targetLibrary]}
               </span>
             </div>
             {mitreCount !== undefined && mitreCount > 0 && (
