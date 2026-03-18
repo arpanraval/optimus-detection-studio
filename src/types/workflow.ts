@@ -290,6 +290,8 @@ export interface PublishRequest {
 // DETECTION PACK TYPES
 // ============================================
 
+export type PackType = 'tactic' | 'technology' | 'threat_actor' | 'campaign' | 'ransomware';
+
 export interface DetectionPack {
   id: string;
   name: string;
@@ -304,6 +306,11 @@ export interface DetectionPack {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  // Dynamic pack generation fields
+  pack_type?: PackType | null;
+  auto_generated?: boolean;
+  generation_criteria?: Record<string, unknown> | null;
+  coverage_percent?: number | null;
   // Joined fields (computed)
   detections?: Detection[];
   creator?: Profile;
