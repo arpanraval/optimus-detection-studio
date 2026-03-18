@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Detection, Severity, LibraryType, DetectionType } from '../types';
+import { Detection, Severity, LibraryType, DetectionType, LIBRARY_LABELS_SHORT } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { SeverityBadge } from './SeverityBadge';
 import { Icon } from './Icon';
@@ -372,7 +372,7 @@ export const UseCaseCard: React.FC<UseCaseCardProps> = ({
                 <Badge key={lang}>{lang}</Badge>
               ))}
               <Badge icon={libraryType === 'universal' ? 'globe' : 'library'}>
-                {libraryType === 'universal' ? 'Universal' : 'My Library'}
+                {LIBRARY_LABELS_SHORT[libraryType]}
               </Badge>
               {isUser && isForked && (
                 <Badge icon="git-fork">Forked</Badge>

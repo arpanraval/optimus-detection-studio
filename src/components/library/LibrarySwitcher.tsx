@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Icon } from '../Icon';
-import { LibraryType } from '../../types';
+import { LibraryType, LIBRARY_LABELS } from '../../types';
 import { useLibrary } from '../../context/LibraryContext';
 
 interface LibrarySwitcherProps {
@@ -22,7 +22,7 @@ export const LibrarySwitcher: React.FC<LibrarySwitcherProps> = ({ className = ''
         }`}
       >
         <Icon name="user" className="w-4 h-4" />
-        <span>My Library</span>
+        <span>{LIBRARY_LABELS['user']}</span>
         <span className={`text-xs px-2 py-0.5 rounded-full ${
           currentLibrary === 'user'
             ? 'bg-on-primary/20 text-on-primary'
@@ -41,7 +41,7 @@ export const LibrarySwitcher: React.FC<LibrarySwitcherProps> = ({ className = ''
         }`}
       >
         <Icon name="globe" className="w-4 h-4" />
-        <span>Universal Library</span>
+        <span>{LIBRARY_LABELS['universal']}</span>
         <span className={`text-xs px-2 py-0.5 rounded-full ${
           currentLibrary === 'universal'
             ? 'bg-on-secondary/20 text-on-secondary'
