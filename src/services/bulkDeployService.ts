@@ -23,8 +23,8 @@ export async function bulkDeploy(
   const result: BulkDeployResult = { succeeded: [], failed: [] };
 
   // Pre-filter: only Production Library detections can be deployed
-  const productionDetections = detections.filter(d => d.library_type === 'universal');
-  const labDetections = detections.filter(d => d.library_type !== 'universal');
+  const productionDetections = detections.filter(d => d.library_type === 'user');
+  const labDetections = detections.filter(d => d.library_type !== 'user');
 
   for (const d of labDetections) {
     result.failed.push({

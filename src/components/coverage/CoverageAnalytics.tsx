@@ -547,7 +547,8 @@ export const CoverageAnalytics: React.FC<CoverageAnalyticsProps> = ({
 
   const scopedDetections = useMemo(() => {
     if (scope === 'all') return detections;
-    return detections.filter(d => d.library_type === 'universal');
+    // Production Library = library_type 'user' (semantic flip)
+    return detections.filter(d => d.library_type === 'user');
   }, [detections, scope]);
 
   const coveredTechniques = useMemo(() => {
