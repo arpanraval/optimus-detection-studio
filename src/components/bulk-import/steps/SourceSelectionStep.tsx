@@ -10,6 +10,7 @@ import { useBulkImportContext } from '../../../context/BulkImportContext';
 import { ImportSourceType, ImportJobConfig, DuplicateStrategy, VendorFormat } from '../../../services/bulk-import/types';
 import { LibraryType } from '../../../types';
 import { LIBRARY_LABELS } from '../../../types/detection';
+import { useAppData } from '../../../router/AppDataContext';
 import { Icon } from '../../Icon';
 
 // Brand color for wizard
@@ -131,6 +132,8 @@ const SOURCE_OPTIONS: SourceOption[] = [
 
 export function SourceSelectionStep({ preSelectedSource }: SourceSelectionStepProps = {}) {
   const { createJob, setCurrentStep, githubToken, setGithubToken, saveGithubToken, clearSavedGithubToken } = useBulkImportContext();
+  const { profile } = useAppData();
+  const isOwnerOrAdmin = profile?.role === 'owner' || profile?.role === 'admin';
   const [selectedSource, setSelectedSource] = useState<ImportSourceType>(preSelectedSource || 'zip');
   const [selectedVendor, setSelectedVendor] = useState<'auto' | VendorFormat>('auto');
   const [targetLibrary, setTargetLibrary] = useState<LibraryType>('universal');
@@ -564,7 +567,9 @@ export function SourceSelectionStep({ preSelectedSource }: SourceSelectionStepPr
         <div className="flex gap-4">
           <button
             onClick={() => setTargetLibrary('user')}
+            disabled={!isOwnerOrAdmin}
             className={`flex-1 p-4 rounded-[12px] border-2 transition-all ${
+              !isOwnerOrAdmin ? 'opacity-50 cursor-not-allowed' :
               targetLibrary === 'user'
                 ? ''
                 : 'border-outline-variant/30 hover:border-outline-variant/50'
@@ -573,12 +578,12 @@ export function SourceSelectionStep({ preSelectedSource }: SourceSelectionStepPr
           >
             <div className="flex items-center gap-3">
               <Icon
-                name="user"
+                name="shield"
                 className="w-5 h-5"
                 style={{ color: targetLibrary === 'user' ? BRAND_COLOR : undefined }}
               />
               <div className="text-left">
-                <p className="font-medium text-on-surface">{LIBRARY_LABELS.user}</p>
+                <p className="font-medium text-on-surface">{LIBRARY_LABELS.user} {!isOwnerOrAdmin && <span className="text-xs text-on-surface-variant">(Admin only)</span>}</p>
                 <p className="text-xs text-on-surface-variant">Curated rules for SIEM deployment</p>
               </div>
             </div>

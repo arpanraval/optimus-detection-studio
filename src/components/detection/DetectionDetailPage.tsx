@@ -78,7 +78,8 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
     refreshUniversalLibrary,
     universalDetections,
     userDetections,
-    submitForPublish
+    submitForPublish,
+    userId,
   } = useLibrary();
 
   // Determine library type and permissions
@@ -88,10 +89,11 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
   const isAdmin = userRole === 'admin';
   
   const isOwnerOrAdmin = userRole === 'owner' || userRole === 'admin';
-  // Can delete: own user rules OR owner/admin can delete universal rules
-  const canDelete = isUserRule || (isUniversalRule && isOwnerOrAdmin);
-  // Can edit: user rules always, or universal rules if owner/admin
-  const canEdit = isUserRule || (isUniversalRule && isOwnerOrAdmin);
+  const isOwner = detection.user_id === userId;
+  // FIX 2: Lab detections (universal) editable by their owner OR admin
+  // Production detections (user) editable by admin/lead/owner roles
+  const canDelete = isOwner || isOwnerOrAdmin;
+  const canEdit = isOwner || isOwnerOrAdmin;
 
   // E2: Fetch source rule info for forked detections
   useEffect(() => {
@@ -538,8 +540,8 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                  </button>
                )}
 
-               {/* For Lab Rules: Promote button — only show if not already pending */}
-               {isUniversalRule && canEdit && detection.publish_status !== 'pending' && (
+               {/* For Lab Rules: Promote button — only show if owned by user and not pending */}
+               {isUniversalRule && isOwner && detection.publish_status !== 'pending' && (
                  <button
                    onClick={() => setIsPublishModalOpen(true)}
                    className="h-9 px-4 flex items-center gap-2 rounded-full text-sm font-medium bg-surface-container-highest text-on-surface border border-outline-variant/30 hover:bg-surface-container-high hover:border-outline-variant transition-all active:scale-95"
