@@ -43,8 +43,8 @@ Five interconnected capabilities, built incrementally:
 ```sql
 CREATE TABLE analysis_reports (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL,
-  team_id uuid,
+  user_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  team_id uuid REFERENCES teams(id) ON DELETE SET NULL,
 
   -- What generated this report
   report_type text NOT NULL,
@@ -62,7 +62,7 @@ CREATE TABLE analysis_reports (
   score_breakdown jsonb,
 
   -- Trend comparison
-  previous_report_id uuid REFERENCES analysis_reports(id),
+  previous_report_id uuid REFERENCES analysis_reports(id) ON DELETE SET NULL,
   score_delta numeric,
 
   -- Environment context snapshot at report time
@@ -82,6 +82,7 @@ CREATE INDEX idx_reports_user ON analysis_reports(user_id);
 CREATE INDEX idx_reports_type ON analysis_reports(report_type);
 CREATE INDEX idx_reports_playbook ON analysis_reports(playbook_id);
 CREATE INDEX idx_reports_created ON analysis_reports(created_at DESC);
+CREATE INDEX idx_reports_trend ON analysis_reports(user_id, playbook_id, created_at DESC);
 ```
 
 **Design decisions:**
@@ -95,7 +96,7 @@ CREATE INDEX idx_reports_created ON analysis_reports(created_at DESC);
 ```sql
 CREATE TABLE detection_decisions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL,
+  user_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
 
   -- What this decision is about
   detection_id text REFERENCES detections(id) ON DELETE CASCADE,
@@ -103,7 +104,7 @@ CREATE TABLE detection_decisions (
 
   -- The decision
   decision_type text NOT NULL,
-  context text NOT NULL,
+  decision_context text NOT NULL,
   reasoning text NOT NULL,
 
   -- Structured data
@@ -111,7 +112,12 @@ CREATE TABLE detection_decisions (
   new_value text,
   related_entity_ids text[],
 
-  created_at timestamptz DEFAULT now()
+  created_at timestamptz DEFAULT now(),
+
+  CONSTRAINT detection_decisions_type_check CHECK (
+    decision_type IN ('status_change', 'query_tuning', 'gap_accepted', 'gap_rejected',
+                      'review_decision', 'deprecation', 'priority_change', 'deployment')
+  )
 );
 
 CREATE INDEX idx_decisions_detection ON detection_decisions(detection_id);
@@ -124,7 +130,9 @@ CREATE INDEX idx_decisions_created ON detection_decisions(created_at DESC);
 **Design decisions:**
 - `detection_id` is nullable — gap acceptance decisions reference `technique_id` instead.
 - `reasoning` is NOT NULL — the whole point is capturing why. No empty decisions.
-- `decision_type` values: `status_change`, `query_tuning`, `gap_accepted`, `gap_rejected`, `review_decision`, `deprecation`, `priority_change`, `deployment`.
+- `decision_type` has a CHECK constraint with 8 valid values. Follows existing codebase convention (e.g., `deployment_history_action_check`).
+- Column named `decision_context` (not `context`) to avoid naming collision with `analysis_reports.context` and `PlaybookRun.context`.
+- Decisions are **append-only** (immutable). No UPDATE RLS policy. If reasoning needs correction, add a new decision.
 - No knowledge graph (entities, relations, observations) — that's over-engineered for this use case. We need "why did you do X" attached to concrete actions.
 - No confidence scores — a decision was either made or it wasn't.
 
@@ -133,7 +141,7 @@ CREATE INDEX idx_decisions_created ON detection_decisions(created_at DESC);
 ```sql
 CREATE TABLE detection_patterns (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL,
+  user_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   detection_id text NOT NULL REFERENCES detections(id) ON DELETE CASCADE,
 
   -- Dimensions (all queryable, none is "the" primary key)
@@ -153,8 +161,15 @@ CREATE TABLE detection_patterns (
   detection_category text,
 
   extracted_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
 
-  CONSTRAINT detection_patterns_unique UNIQUE (user_id, detection_id)
+  CONSTRAINT detection_patterns_unique UNIQUE (user_id, detection_id),
+  CONSTRAINT detection_patterns_category_check CHECK (
+    detection_category IN ('process_execution', 'file_operation', 'network_connection',
+                           'registry_modification', 'authentication', 'cloud_api',
+                           'dns_query', 'email', 'scheduled_task', 'service_creation',
+                           'driver_load', 'wmi', 'powershell', 'script_execution', 'other')
+  )
 );
 
 CREATE INDEX idx_patterns_user ON detection_patterns(user_id);
@@ -178,12 +193,14 @@ CREATE INDEX idx_patterns_language ON detection_patterns(query_language);
 
 ### 2.1 Edge function changes (`run-playbook`)
 
+**Scope of change:** The current `run-playbook` edge function creates a Supabase client with `serviceRoleKey` but only uses it for auth verification and rate limiting — it does no database writes. This feature adds write logic (INSERT into `analysis_reports`, SELECT from `environment_profiles`). The response shape is extended with `analysis_report_id`. This is a non-trivial change to the function.
+
 After playbook execution completes, before returning the response:
 
-1. Look up the most recent `analysis_reports` row with same `playbook_id` + `user_id` → set as `previous_report_id`.
+1. Look up the most recent `analysis_reports` row with same `playbook_id` + `user_id` → set as `previous_report_id`. Use the composite index `idx_reports_trend`.
 2. Calculate `coverage_score` from step results (extract from `get_coverage_summary` result if that tool was called).
-3. Snapshot `environment_profiles` row for this user → store as `environment_snapshot`.
-4. Compute `score_delta` = current score - previous score.
+3. Snapshot `environment_profiles` row for this user (LIMIT 1, ordered by `updated_at DESC`) → store as `environment_snapshot`. If no profile exists, set to `null`.
+4. Compute `score_delta` = current score - previous score. If no previous report, `score_delta` is `null`.
 5. Insert into `analysis_reports`.
 6. Return the same response shape plus `analysis_report_id`.
 
@@ -222,7 +239,13 @@ This runs once in the edge function as shared logic, not per-playbook.
 - Steps: `identify_coverage_gaps` (for focus area) → score by impact (TIS + TAW + feasibility) → `search_library` (find similar as reference)
 - Report: prioritized backlog of N detections with references and complexity
 
-All follow existing `Playbook` type — steps call existing Optimus tools. No new tool implementations required.
+All follow the existing `Playbook` type with these implementation notes:
+
+**Category assignments:** `cve-response` → `threat-assessment`, `data-source-gaps` → `reporting`, `sprint-planning` → `quality`. No new category values needed — the existing union type covers these.
+
+**Server-side registration required:** The `run-playbook` edge function has a hardcoded `PLAYBOOK_DEFINITIONS` map (line ~38). All 3 new playbooks must be added there AND in the client-side `PLAYBOOKS` array in `src/lib/playbooks/index.ts`.
+
+**`web_search` tool allowlist:** The CVE Response playbook uses `web_search` as its first step. The edge function's `ALLOWED_TOOLS` set (line ~29 of `run-playbook`) must be extended to include `web_search`. The tool implementation already exists in the `optimus-tools` edge function.
 
 ### 2.5 New UI: Report History
 
@@ -251,7 +274,7 @@ All follow existing `Playbook` type — steps call existing Optimus tools. No ne
 - Required for: → Production, → Deprecated, Review rejection
 - Optional (prompt shown, skippable) for: all other transitions
 - On Kanban: drag-drop triggers modal before status change commits
-- Stored as `decision_type: 'status_change'`, `previous_value`, `new_value`
+- Stored as `decision_type: 'status_change'`, `decision_context: 'Moving from Review → Production'`, `previous_value`, `new_value`
 
 **Review workflow (Approve/Reject):**
 - On approve/reject: auto-creates a decision from review notes
@@ -379,17 +402,19 @@ Each gap report distinguishes coverage gaps (no detection exists) from deploymen
 
 ```sql
 SELECT d.id, d.name, d."queryLanguage",
-  array_agg(DISTINCT dh.provider) FILTER (WHERE dh.id IS NOT NULL) as deployed_to,
+  array_agg(DISTINCT i.provider) FILTER (WHERE i.id IS NOT NULL) as deployed_to,
   ep.siem_platforms as user_siems
 FROM detections d
-CROSS JOIN environment_profiles ep
+CROSS JOIN (SELECT * FROM environment_profiles WHERE user_id = $1 LIMIT 1) ep
 LEFT JOIN deployment_history dh ON dh.detection_id = d.id AND dh.status = 'success'
-WHERE d.user_id = $1 AND ep.user_id = $1 AND d.status = 'Production'
+LEFT JOIN integrations i ON i.id = dh.integration_id
+WHERE d.user_id = $1 AND d.status = 'Production'
 GROUP BY d.id, d.name, d."queryLanguage", ep.siem_platforms
-HAVING NOT ep.siem_platforms <@ array_agg(DISTINCT dh.provider) FILTER (WHERE dh.id IS NOT NULL)
+HAVING ep.siem_platforms IS NOT NULL
+  AND NOT (ep.siem_platforms <@ array_agg(DISTINCT i.provider) FILTER (WHERE i.id IS NOT NULL))
 ```
 
-Finds Production detections not deployed to all user's SIEMs.
+Finds Production detections not deployed to all user's SIEMs. Note: `deployment_history` has `integration_id` (FK to `integrations`), not `provider` directly — the JOIN through `integrations` is required. The `LIMIT 1` on `environment_profiles` handles the case where multiple profiles exist for a user (the table has no unique constraint on `user_id`).
 
 ---
 
@@ -423,13 +448,81 @@ Add:
 
 ## 7. RLS Policies
 
-All three new tables follow the same pattern as existing tables:
+All three tables get RLS enabled. Policies follow existing codebase conventions (see `08_rls_policies.sql`).
 
-- Users can read/write their own rows (`user_id = auth.uid()`)
-- Team members can read team-scoped rows (for `analysis_reports` with `team_id`)
-- Admins/Owners can read all rows within their team
+### `analysis_reports`
 
-Standard policies, no special cases.
+```sql
+ALTER TABLE analysis_reports ENABLE ROW LEVEL SECURITY;
+
+-- Users can read their own reports
+CREATE POLICY analysis_reports_select_own ON analysis_reports
+  FOR SELECT USING (user_id = auth.uid());
+
+-- Team members can read team-scoped reports
+CREATE POLICY analysis_reports_select_team ON analysis_reports
+  FOR SELECT USING (
+    team_id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
+  );
+
+-- Users can insert their own reports
+CREATE POLICY analysis_reports_insert ON analysis_reports
+  FOR INSERT WITH CHECK (user_id = auth.uid());
+
+-- Users can update their own reports (status changes during execution)
+CREATE POLICY analysis_reports_update ON analysis_reports
+  FOR UPDATE USING (user_id = auth.uid());
+
+-- Users can delete their own reports
+CREATE POLICY analysis_reports_delete ON analysis_reports
+  FOR DELETE USING (user_id = auth.uid());
+```
+
+### `detection_decisions`
+
+```sql
+ALTER TABLE detection_decisions ENABLE ROW LEVEL SECURITY;
+
+-- Users can read decisions on detections they can see
+CREATE POLICY detection_decisions_select ON detection_decisions
+  FOR SELECT USING (
+    user_id = auth.uid()
+    OR detection_id IN (SELECT id FROM detections WHERE user_id = auth.uid())
+    OR detection_id IN (
+      SELECT d.id FROM detections d
+      JOIN team_members tm ON tm.team_id = d.team_id
+      WHERE tm.user_id = auth.uid()
+    )
+  );
+
+-- Users can insert their own decisions
+CREATE POLICY detection_decisions_insert ON detection_decisions
+  FOR INSERT WITH CHECK (user_id = auth.uid());
+
+-- No UPDATE policy — decisions are append-only (immutable)
+-- No DELETE policy — decisions form an audit trail
+```
+
+### `detection_patterns`
+
+```sql
+ALTER TABLE detection_patterns ENABLE ROW LEVEL SECURITY;
+
+-- Users can read their own patterns
+CREATE POLICY detection_patterns_select ON detection_patterns
+  FOR SELECT USING (user_id = auth.uid());
+
+-- Users can insert/update their own patterns (upsert on extraction)
+CREATE POLICY detection_patterns_insert ON detection_patterns
+  FOR INSERT WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY detection_patterns_update ON detection_patterns
+  FOR UPDATE USING (user_id = auth.uid());
+
+-- Users can delete their own patterns (re-extraction replaces)
+CREATE POLICY detection_patterns_delete ON detection_patterns
+  FOR DELETE USING (user_id = auth.uid());
+```
 
 ---
 
