@@ -18,16 +18,24 @@ DECLARE
   v_invitation RECORD;
   v_default_team_id uuid;
   v_full_name text;
+  v_role text;
 BEGIN
   -- Extract display name from email
   v_full_name := split_part(NEW.email, '@', 1);
+
+  -- Extract role from invite metadata, default to 'analyst' (safe default for invited users)
+  v_role := COALESCE(NEW.raw_user_meta_data->>'role', 'analyst');
+  -- Validate role against allowed values
+  IF v_role NOT IN ('owner', 'admin', 'lead', 'analyst', 'viewer') THEN
+    v_role := 'analyst';
+  END IF;
 
   -- Create the profile
   INSERT INTO public.profiles (id, email, role, full_name, status, password_set, created_at, updated_at)
   VALUES (
     NEW.id,
     NEW.email,
-    'user',
+    v_role,
     v_full_name,
     'active',
     CASE WHEN NEW.raw_app_meta_data->>'provider' = 'email' THEN false ELSE true END,
