@@ -59,6 +59,7 @@ export function usePlaybookRunner() {
       if (invokeError) throw invokeError;
 
       const result = responseData;
+      const reportId = result.reportId || null;
 
       // Map results back to run state
       // 'partial' means some steps succeeded - still show the report
@@ -66,6 +67,7 @@ export function usePlaybookRunner() {
       const completedRun: PlaybookRun = {
         ...runningRun,
         status: runStatus,
+        reportId,
         stepResults: {},
         context: result.context || {},
         generatedSections: result.generatedSections || {},
