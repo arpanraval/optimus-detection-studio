@@ -59,6 +59,22 @@ const PLAYBOOK_DEFINITIONS: Record<string, PlaybookStep[]> = {
     { id: 'apt-gaps', name: 'APT Risk Assessment', description: 'Check coverage against advanced persistent threats', tool: 'identify_coverage_gaps', params: { profile: 'apt' }, contextKey: 'aptGaps' },
     { id: 'initial-access-gaps', name: 'Initial Access Risk Assessment', description: 'Check coverage against initial access techniques', tool: 'identify_coverage_gaps', params: { profile: 'initial_access' }, contextKey: 'initialAccessGaps' },
   ],
+  'cve-response': [
+    { id: 'web-research', name: 'Research CVE/Threat', description: 'Search for CVE details', tool: 'web_search', params: {}, paramMapping: { query: 'cveOrThreat' }, contextKey: 'cveResearch' },
+    { id: 'coverage-gaps', name: 'Identify Coverage Gaps', description: 'Check coverage', tool: 'identify_coverage_gaps', params: { profile: 'initial_access' }, contextKey: 'coverageGaps' },
+    { id: 'existing-detections', name: 'Find Existing Detections', description: 'Search library', tool: 'search_library', params: { limit: 15 }, paramMapping: { query: 'cveOrThreat' }, contextKey: 'existingDetections' },
+    { id: 'coverage-summary', name: 'Overall Coverage', description: 'Get metrics', tool: 'get_coverage_summary', params: { scope: 'overall' }, contextKey: 'coverageSummary' },
+  ],
+  'data-source-gaps': [
+    { id: 'coverage-by-platform', name: 'Coverage by Platform', description: 'Get platform coverage', tool: 'get_coverage_summary', params: { scope: 'by_platform' }, contextKey: 'platformCoverage' },
+    { id: 'coverage-gaps-primary', name: 'Primary Gap Analysis', description: 'Identify gaps', tool: 'identify_coverage_gaps', params: {}, paramMapping: { profile: 'targetFocus' }, contextKey: 'primaryGaps' },
+    { id: 'coverage-summary', name: 'Overall Coverage', description: 'Get metrics', tool: 'get_coverage_summary', params: { scope: 'overall' }, contextKey: 'coverageSummary' },
+  ],
+  'sprint-planning': [
+    { id: 'coverage-gaps', name: 'Identify Priority Gaps', description: 'Find gaps', tool: 'identify_coverage_gaps', params: {}, paramMapping: { profile: 'threatFocus' }, contextKey: 'priorityGaps' },
+    { id: 'coverage-summary', name: 'Current Coverage Baseline', description: 'Get metrics', tool: 'get_coverage_summary', params: { scope: 'overall' }, contextKey: 'coverageSummary' },
+    { id: 'similar-detections', name: 'Find Reference Detections', description: 'Search library', tool: 'search_library', params: { limit: 10 }, paramMapping: { query: 'threatFocus' }, contextKey: 'referenceDetections' },
+  ],
 }
 
 interface StepResult {
@@ -379,6 +395,9 @@ serve(async (req: Request) => {
       'threat-actor-coverage': 'Threat Actor Coverage Report',
       'detection-quality-sprint': 'Detection Quality Sprint Report',
       'executive-security-posture': 'Executive Security Posture Report',
+      'cve-response': 'CVE Response Assessment',
+      'data-source-gaps': 'Data Source Gap Analysis',
+      'sprint-planning': 'Detection Sprint Planning',
     }
 
     const reportId = await persistReport(
