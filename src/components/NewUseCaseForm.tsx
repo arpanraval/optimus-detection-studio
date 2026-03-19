@@ -25,6 +25,7 @@ import { useToast } from '../hooks/useToast';
 import { CircularProgress } from './CircularProgress';
 import { attackRuleMapService } from '@/services/attack-rule-map/AttackRuleMapService';
 import { supabase } from '../lib/supabaseClient';
+import { ConventionHintsPanel } from './patterns/ConventionHintsPanel';
 
 interface NewDetectionFormProps {
   onBack?: () => void;
@@ -1462,6 +1463,13 @@ Output JSON only, no markdown.`;
                   </div>
                 )}
               </div>
+
+              {/* Convention Hints Panel */}
+              <ConventionHintsPanel
+                techniqueId={formData.mitreAttackIds?.[0]}
+                logSource={formData.logSources?.[0]}
+                queryLanguage={(formData.queries?.find((q: any) => q.isPrimary) || formData.queries?.[0])?.language}
+              />
 
               {/* Threat Intel Section */}
               <div className="space-y-4">
