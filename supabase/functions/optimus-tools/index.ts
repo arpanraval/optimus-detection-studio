@@ -186,6 +186,22 @@ async function handleSearchLibrary(supabase: any, params: any) {
     .sort((a, b) => b.similarity - a.similarity)
     .slice(0, limit)
 
+  // Enrich each result with recent decisions (last 2 with actual reasoning)
+  for (const result of results) {
+    try {
+      const { data: decisions } = await supabase
+        .from('detection_decisions')
+        .select('decision_type, reasoning, quick_reason, created_at')
+        .eq('detection_id', result.id)
+        .not('reasoning', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(2)
+      result.recent_decisions = decisions || []
+    } catch {
+      result.recent_decisions = []
+    }
+  }
+
   // Extract related techniques
   const relatedTechniques = [...new Set(results.flatMap(r => r.mitreIds || []))]
 
@@ -245,7 +261,7 @@ async function handleGetCoverageSummary(supabase: any, params: any) {
   const gapsCount = total - productionCount - inLibraryCount
   const gapsPercent = total > 0 ? Math.round((gapsCount / total) * 100) : 0
 
-  return {
+  const result: any = {
     title: 'Overall Detection Coverage',
     total,
     production: {
@@ -281,6 +297,19 @@ async function handleGetCoverageSummary(supabase: any, params: any) {
     topCovered: data?.top_covered || [],
     criticalGaps: data?.gaps || data?.critical_gaps || []
   }
+
+  // Add intelligence counts
+  try {
+    const { count: acceptedGaps } = await supabase
+      .from('detection_decisions')
+      .select('*', { count: 'exact', head: true })
+      .eq('decision_type', 'gap_accepted')
+    result.accepted_gaps_count = acceptedGaps || 0
+  } catch {
+    result.accepted_gaps_count = 0
+  }
+
+  return result
 }
 
 /**
@@ -441,7 +470,37 @@ async function handleIdentifyGaps(supabase: any, params: any) {
     throw new Error('Failed to identify coverage gaps')
   }
 
-  return data
+  // Enrich gaps with acceptance status from detection_decisions
+  const gaps: any[] = Array.isArray(data) ? data : (data?.gaps || [])
+  try {
+    const { data: acceptedDecisions } = await supabase
+      .from('detection_decisions')
+      .select('technique_id, reasoning, created_at, review_by')
+      .eq('decision_type', 'gap_accepted')
+      .not('technique_id', 'is', null)
+
+    const acceptedMap = new Map()
+    for (const d of (acceptedDecisions || [])) {
+      acceptedMap.set(d.technique_id, d)
+    }
+
+    for (const gap of gaps) {
+      const accepted = acceptedMap.get(gap.technique_id || gap.id)
+      gap.accepted_risk = !!accepted
+      if (accepted) {
+        gap.acceptance_reasoning = accepted.reasoning
+        gap.acceptance_stale = accepted.review_by && new Date(accepted.review_by) < new Date()
+      }
+    }
+  } catch {
+    // Don't break if table doesn't exist
+  }
+
+  // Return in the same shape as the original data
+  if (Array.isArray(data)) {
+    return gaps
+  }
+  return { ...data, gaps }
 }
 
 /**
