@@ -23,6 +23,7 @@ export interface Profile {
   status?: UserStatus;
   onboarding_completed?: boolean;
   onboarding_step?: number;
+  password_set?: boolean;
   created_at?: string;
   updated_at?: string;
 }

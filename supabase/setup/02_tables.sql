@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   status text DEFAULT 'active'::text,
   onboarding_completed boolean DEFAULT true,
   onboarding_step integer DEFAULT 0,
+  password_set boolean DEFAULT true,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
 

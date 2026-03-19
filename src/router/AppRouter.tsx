@@ -5,6 +5,7 @@ import { Session, User } from '@supabase/supabase-js';
 import { Profile } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { AuthPage } from '../components/AuthPage';
+import { SetPasswordPage } from '../components/SetPasswordPage';
 import { AppLayout } from './AppLayout';
 import { AppDataProvider, useAppData } from './AppDataContext';
 import { ToastProvider } from '../context/ToastContext';
@@ -21,6 +22,40 @@ import { RealtimeProvider } from '../context/RealtimeContext';
 import { logAuditEvent } from '../lib/audit';
 import { AppErrorBoundary } from '../components/ErrorBoundary';
 import { AppLoader } from '../components/AppLoader';
+
+// ============================================================================
+// Capture auth action from URL hash BEFORE Supabase SDK consumes it.
+// Supabase invite links: ...#access_token=xxx&type=invite
+// Password recovery:     ...#access_token=xxx&type=recovery
+// This runs at module-import time (before React renders) so the hash is intact.
+// ============================================================================
+type PendingAuthAction = 'set-password' | 'reset-password' | null;
+
+function detectPendingAuthAction(): PendingAuthAction {
+  // Check sessionStorage first (persists across Supabase's hash cleanup)
+  const stored = sessionStorage.getItem('ds_pending_auth_action');
+  if (stored === 'set-password' || stored === 'reset-password') return stored;
+
+  // Parse the URL hash for Supabase auth type
+  const hash = window.location.hash;
+  if (!hash) return null;
+
+  const params = new URLSearchParams(hash.substring(1));
+  const type = params.get('type');
+
+  if (type === 'invite' || type === 'magiclink') {
+    sessionStorage.setItem('ds_pending_auth_action', 'set-password');
+    return 'set-password';
+  }
+  if (type === 'recovery') {
+    sessionStorage.setItem('ds_pending_auth_action', 'reset-password');
+    return 'reset-password';
+  }
+
+  return null;
+}
+
+const initialPendingAction = detectPendingAuthAction();
 
 // Eager-load only the landing page (CommandCenterPage)
 import { CommandCenterPage } from './pages';
@@ -252,9 +287,15 @@ export const AppRouter: React.FC = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [userProfile, setUserProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pendingAuthAction, setPendingAuthAction] = useState<PendingAuthAction>(initialPendingAction);
 
   const dismissLoader = useCallback(() => {
     setLoading(false);
+  }, []);
+
+  const clearPendingAction = useCallback(() => {
+    sessionStorage.removeItem('ds_pending_auth_action');
+    setPendingAuthAction(null);
   }, []);
 
   useEffect(() => {
@@ -270,6 +311,12 @@ export const AppRouter: React.FC = () => {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
+      // Detect PASSWORD_RECOVERY event (from Supabase dashboard reset)
+      if (event === 'PASSWORD_RECOVERY') {
+        sessionStorage.setItem('ds_pending_auth_action', 'reset-password');
+        setPendingAuthAction('reset-password');
+      }
+
       // Login audit is logged in AuthPage at the actual sign-in call,
       // NOT here — onAuthStateChange fires SIGNED_IN on every page
       // refresh and token refresh, not just real logins.
@@ -279,6 +326,8 @@ export const AppRouter: React.FC = () => {
       } else {
         if (event === 'SIGNED_OUT') {
           logAuditEvent({ action: 'user.logout', entity_type: 'user' });
+          // Clear any pending action on sign-out
+          clearPendingAction();
         }
         setUserProfile(null);
         dismissLoader();
@@ -306,6 +355,10 @@ export const AppRouter: React.FC = () => {
           setUserProfile(null);
           return;
         }
+        // DB-backed password gate: force setup for invited users
+        if (data.password_set === false) {
+          setPendingAuthAction('set-password');
+        }
         setUserProfile(data as Profile);
       }
     } catch (error) {
@@ -314,6 +367,13 @@ export const AppRouter: React.FC = () => {
       dismissLoader();
     }
   };
+
+  // Re-fetch profile and clear pending action after password is set
+  const handlePasswordSetComplete = useCallback(async () => {
+    sessionStorage.removeItem('ds_pending_auth_action');
+    setPendingAuthAction(null);
+    if (session) await fetchProfile(session.user.id);
+  }, [session]);
 
   // Memoize router to avoid recreating on unrelated state changes.
   // Must be called before early returns to satisfy Rules of Hooks.
@@ -327,8 +387,23 @@ export const AppRouter: React.FC = () => {
     return <AppLoader />;
   }
 
+  // Invite or password-recovery flow: user has a session but needs to set a password
+  if (pendingAuthAction && session) {
+    return (
+      <ThemeProvider>
+        <ToastProvider>
+          <SetPasswordPage
+            mode={pendingAuthAction === 'set-password' ? 'invite' : 'recovery'}
+            email={session.user.email}
+            userId={session.user.id}
+            onComplete={handlePasswordSetComplete}
+          />
+        </ToastProvider>
+      </ThemeProvider>
+    );
+  }
+
   if (!router) {
-    // Beta mode: password reset disabled — admin manages passwords via Supabase dashboard
     return (
       <ThemeProvider>
         <ToastProvider>

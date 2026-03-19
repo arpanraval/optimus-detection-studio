@@ -23,13 +23,14 @@ BEGIN
   v_full_name := split_part(NEW.email, '@', 1);
 
   -- Create the profile
-  INSERT INTO public.profiles (id, email, role, full_name, status, created_at, updated_at)
+  INSERT INTO public.profiles (id, email, role, full_name, status, password_set, created_at, updated_at)
   VALUES (
     NEW.id,
     NEW.email,
     'user',
     v_full_name,
     'active',
+    CASE WHEN NEW.raw_app_meta_data->>'provider' = 'email' THEN false ELSE true END,
     now(),
     now()
   );
