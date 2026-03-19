@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Icon } from './Icon';
+import { MfaEnrollmentWizard } from './MfaEnrollmentWizard';
 import { useTheme } from '../context/ThemeContext';
 
 // ============================================================================
@@ -306,8 +307,11 @@ export const SetPasswordPage: React.FC<SetPasswordPageProps> = ({ mode, email, o
       )}
 
       {step === 'mfa-enroll' && (
-        // Placeholder — MfaEnrollmentWizard will be wired in Task 5
-        <div />
+        <MfaEnrollmentWizard
+          isOpen={true}
+          onClose={() => setStep('mfa-prompt')}
+          onEnrolled={onComplete}
+        />
       )}
     </div>
   );
