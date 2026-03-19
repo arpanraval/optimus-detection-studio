@@ -19,6 +19,9 @@ import { supabase } from '../../lib/supabaseClient';
 import { KanbanColumn } from './KanbanColumn';
 import { KanbanCard } from './KanbanCard';
 import { Icon } from '../Icon';
+import { DecisionModal } from '../decisions/DecisionModal';
+import { useDetectionDecisions } from '../../hooks/useDetectionDecisions';
+import type { QuickReason } from '../../types/intelligence';
 
 const DEFAULT_VISIBLE: Status[] = [
   Status.Backlog, Status.Draft, Status.Development,
@@ -47,6 +50,13 @@ export const KanbanBoard: React.FC = () => {
   const [myWorkOnly, setMyWorkOnly] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [pendingStatusChange, setPendingStatusChange] = useState<{
+    detectionIds: string[];
+    targetStatus: Status;
+    previousStatuses: string[];
+  } | null>(null);
+
+  const { createDecision } = useDetectionDecisions();
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -114,12 +124,53 @@ export const KanbanBoard: React.FC = () => {
       return;
     }
 
-    const result = await bulkUpdateStatus(detectionsToMove, targetStatus);
+    // Derive previous statuses for all detections being moved
+    const previousStatuses = [...new Set(
+      detectionsToMove
+        .map(id => userDetections.find(d => d.id === id)?.status)
+        .filter(Boolean)
+    )] as string[];
+
+    // Set pending instead of executing immediately
+    setPendingStatusChange({ detectionIds: detectionsToMove, targetStatus, previousStatuses });
+  }, [selectedIds, userDetections, can, hasRoleOrHigher, showToast]);
+
+  const isBlockingTransition = useCallback((targetStatus: Status) => {
+    return targetStatus === Status.Production || targetStatus === Status.Deprecated;
+  }, []);
+
+  const executePendingStatusChange = useCallback(async (
+    reasoning: string | null,
+    quickReason: string | null
+  ) => {
+    if (!pendingStatusChange) return;
+    const { detectionIds, targetStatus } = pendingStatusChange;
+
+    const result = await bulkUpdateStatus(detectionIds, targetStatus);
     if (result.success) {
+      // Log decisions per detection with individual previous status
+      for (const id of detectionIds) {
+        const prevStatus = userDetections.find(d => d.id === id)?.status || 'unknown';
+        try {
+          await createDecision({
+            detection_id: id,
+            decision_type: 'status_change',
+            decision_context: `Moving from ${prevStatus} to ${targetStatus}`,
+            reasoning,
+            quick_reason: quickReason as QuickReason | null,
+            previous_value: prevStatus,
+            new_value: targetStatus,
+            related_entity_ids: detectionIds.filter(x => x !== id),
+          });
+        } catch (err) {
+          console.warn('Failed to log decision for', id, err);
+        }
+      }
+
       setSelectedIds(new Set());
 
-      // Notify assignees of status change
-      const movedDetections = detectionsToMove.map(id => userDetections.find(d => d.id === id)).filter(Boolean);
+      // Notify assignees (keep existing notification logic)
+      const movedDetections = detectionIds.map(id => userDetections.find(d => d.id === id)).filter(Boolean);
       for (const detection of movedDetections) {
         if (detection && detection.assigned_to && detection.assigned_to !== userId) {
           supabase.from('user_notifications').insert({
@@ -135,12 +186,21 @@ export const KanbanBoard: React.FC = () => {
         }
       }
 
-      // Prompt reviewer assignment when moving to Review
       if (targetStatus === Status.Review) {
         showToast('info', 'Detection moved to Review', 'Consider assigning a reviewer');
       }
     }
-  }, [selectedIds, userDetections, can, hasRoleOrHigher, bulkUpdateStatus, showToast, userId]);
+
+    setPendingStatusChange(null);
+  }, [pendingStatusChange, bulkUpdateStatus, createDecision, userDetections, selectedIds, showToast, userId]);
+
+  const skipPendingStatusChange = useCallback(async () => {
+    if (!pendingStatusChange) return;
+    const { detectionIds, targetStatus } = pendingStatusChange;
+    await bulkUpdateStatus(detectionIds, targetStatus);
+    setSelectedIds(new Set());
+    setPendingStatusChange(null);
+  }, [pendingStatusChange, bulkUpdateStatus]);
 
   if (isLoading) {
     return (
@@ -212,6 +272,27 @@ export const KanbanBoard: React.FC = () => {
           </DragOverlay>
         </DndContext>
       </div>
+
+      {pendingStatusChange && (
+        <DecisionModal
+          isOpen={true}
+          onClose={() => {
+            if (!isBlockingTransition(pendingStatusChange.targetStatus)) {
+              skipPendingStatusChange();
+            }
+          }}
+          onConfirm={executePendingStatusChange}
+          onSkip={isBlockingTransition(pendingStatusChange.targetStatus) ? undefined : skipPendingStatusChange}
+          decisionType="status_change"
+          title={`Moving to ${pendingStatusChange.targetStatus}`}
+          description={
+            pendingStatusChange.detectionIds.length === 1
+              ? `Moving detection to ${pendingStatusChange.targetStatus}`
+              : `Moving ${pendingStatusChange.detectionIds.length} detections (from ${pendingStatusChange.previousStatuses.join(', ')}) to ${pendingStatusChange.targetStatus}`
+          }
+          isBlocking={isBlockingTransition(pendingStatusChange.targetStatus)}
+        />
+      )}
     </div>
   );
 };
