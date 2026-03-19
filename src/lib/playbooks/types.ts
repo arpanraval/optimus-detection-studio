@@ -82,4 +82,6 @@ export interface PlaybookRun {
   startedAt?: string;
   completedAt?: string;
   error?: string;
+  /** ID of the persisted analysis_reports row */
+  reportId?: string;
 }
