@@ -41,6 +41,8 @@ export { ImportHistoryPage } from './ImportHistoryPage';
 export { SearchResultsPage } from './SearchResultsPage';
 export { AuditLogPage } from './AuditLogPage';
 export { StateSponsoredReportPage } from './StateSponsoredReportPage';
+export { ReportHistoryPage } from './ReportHistoryPage';
+export { ReportDetailPage } from './ReportDetailPage';
 
 // Design System Pages
 export {

@@ -45,6 +45,8 @@ export const ROUTES = {
   THREAT_INTEL: '/intelligence/threat-digest',
   THREAT_INTEL_DETAIL: '/intelligence/threat-digest/:id',
   THREAT_INTEL_FEEDS: '/intelligence/feeds',
+  REPORTS: '/intelligence/reports',
+  REPORT_DETAIL: '/intelligence/reports/:id',
 
   // Arsenal
   SIGMA_CONVERTER: '/arsenal/sigma',
@@ -121,6 +123,7 @@ export const routeHelpers = {
   campaignDetail: (id: string) => `/intelligence/campaigns/${id}`,
   mitigationDetail: (id: string) => `/intelligence/mitigations/${id}`,
   threatIntelDetail: (id: string) => `/intelligence/threat-digest/${id}`,
+  reportDetail: (id: string) => `/intelligence/reports/${id}`,
   integrationDetail: (id: string) => `/settings/integrations/${id}`,
   enterpriseDashboard: (id: string) => `/dashboard/enterprise/${id}`,
   stateSponsoredReport: () => `/exercises/state-sponsored`,
@@ -155,6 +158,7 @@ export const viewToRoute: Record<string, string> = {
   'mitigation-detail': ROUTES.MITIGATION_DETAIL,
   'threat-intel': ROUTES.THREAT_INTEL,
   'threat-intel-feeds': ROUTES.THREAT_INTEL_FEEDS,
+  'analysis-reports': ROUTES.REPORTS,
   'packs': ROUTES.PACKS,
   'pack-detail': ROUTES.PACK_DETAIL,
   'workspaces': ROUTES.WORKSPACES,
@@ -229,6 +233,8 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.THREAT_INTEL]: { title: 'Intelligence Reports', description: 'AI-powered threat intelligence extraction' },
   [ROUTES.THREAT_INTEL_DETAIL]: { title: 'Report Analysis', description: undefined },
   [ROUTES.THREAT_INTEL_FEEDS]: { title: 'Threat Intel Feeds', description: 'Subscribe to RSS and TAXII threat intelligence feeds' },
+  [ROUTES.REPORTS]: { title: 'Analysis Reports', description: 'Historical analysis reports with trend tracking' },
+  [ROUTES.REPORT_DETAIL]: { title: 'Report Detail' },
   [ROUTES.SIGMA_CONVERTER]: { title: 'Sigma Converter', description: 'Convert Sigma rules to SIEM query languages' },
   [ROUTES.AI_QUERY]: { title: 'AI Query Generator', description: 'Generate detection queries with AI assistance' },
   [ROUTES.OPTIMUS]: { title: 'Optimus Prime', description: 'Your intelligent detection engineering assistant' },
