@@ -1,7 +1,8 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useMitreMatrix, ExtendedMitreObject } from '../hooks/useMitreMatrix';
 import { useMitreCoverage } from '../hooks/useMitreCoverage';
 import { useThreatActorFilter } from '../hooks/useThreatActorFilter';
+import { supabase } from '../lib/supabaseClient';
 import { PlatformFilter } from './mitre/PlatformFilter';
 import { ThreatActorCommandFilter } from './mitre/ThreatActorCommandFilter';
 import { ThreatActorFilterBanner } from './mitre/ThreatActorFilterBanner';
@@ -48,6 +49,9 @@ export const MitreDashboard: React.FC<MitreDashboardProps> = ({
   const [selectedTechnique, setSelectedTechnique] = useState<string | null>(null);
   const [importedLayer, setImportedLayer] = useState<NavigatorLayer | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [netCoverageMode, setNetCoverageMode] = useState(false);
+  // Set of technique IDs whose most-recent gap decision is 'gap_accepted'
+  const [acceptedGapIds, setAcceptedGapIds] = useState<Set<string>>(new Set());
   
   const captureRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -69,6 +73,43 @@ export const MitreDashboard: React.FC<MitreDashboardProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Fetch accepted gap technique IDs whenever Net Coverage mode is activated
+  useEffect(() => {
+    if (!netCoverageMode) {
+      setAcceptedGapIds(new Set());
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('detection_decisions')
+        .select('technique_id, decision_type, created_at')
+        .in('decision_type', ['gap_accepted', 'gap_rejected'])
+        .not('technique_id', 'is', null)
+        .order('created_at', { ascending: false });
+
+      if (cancelled || error || !data) return;
+
+      // For each technique_id, keep only the most-recent decision.
+      // If that decision is gap_accepted, treat the gap as accepted.
+      const latestByTechnique = new Map<string, string>();
+      for (const row of data as { technique_id: string; decision_type: string; created_at: string }[]) {
+        if (!latestByTechnique.has(row.technique_id)) {
+          latestByTechnique.set(row.technique_id, row.decision_type);
+        }
+      }
+
+      const accepted = new Set<string>();
+      latestByTechnique.forEach((decisionType, techniqueId) => {
+        if (decisionType === 'gap_accepted') accepted.add(techniqueId);
+      });
+      setAcceptedGapIds(accepted);
+    })();
+
+    return () => { cancelled = true; };
+  }, [netCoverageMode]);
 
   const { filteredTechniquesByTactic, stats } = useMemo(() => {
     const map = new Map<string, ExtendedMitreObject[]>();
@@ -227,7 +268,14 @@ export const MitreDashboard: React.FC<MitreDashboardProps> = ({
     showToast('success', 'Draft Created', `Detection draft created for ${technique.mitre_id}`);
   };
 
+  const NEUTRAL_CELL_COLOR = 'bg-surface-container-lowest text-on-surface-variant/40 border border-outline-variant/10';
+
   const getCellProps = (mitreId: string) => {
+      // Net Coverage: treat accepted gaps as neutral (white/no-gap appearance)
+      if (netCoverageMode && acceptedGapIds.has(mitreId)) {
+          return { color: NEUTRAL_CELL_COLOR, count: -1, detections: [] };
+      }
+
       if (importedLayer) {
           const techData = importedLayer.techniques.find(t => t.techniqueID.toUpperCase() === mitreId.toUpperCase());
           if (!techData) return { color: 'bg-surface-container-lowest text-on-surface-variant/50', count: 0, detections: [] };
@@ -243,8 +291,8 @@ export const MitreDashboard: React.FC<MitreDashboardProps> = ({
       }
 
       const techCoverage = coverage[mitreId];
-      return { 
-          color: getCoverageColor(mitreId), 
+      return {
+          color: getCoverageColor(mitreId),
           count: techCoverage?.detectionCount || 0,
           detections: techCoverage?.detections || []
       };
@@ -342,6 +390,17 @@ export const MitreDashboard: React.FC<MitreDashboardProps> = ({
                 {showUncoveredOnly ? 'Show All' : 'Coverage Gaps'}
             </Button>
 
+            {/* Net Coverage toggle — hides accepted gaps from the heatmap */}
+            <Button
+                color="secondary"
+                variant={netCoverageMode ? 'tonal' : 'outlined'}
+                size="sm"
+                onClick={() => setNetCoverageMode(prev => !prev)}
+                title={netCoverageMode ? 'Showing net coverage (accepted gaps hidden)' : 'Show net coverage (hide accepted gaps)'}
+            >
+                {netCoverageMode ? 'Net Coverage' : 'Full View'}
+            </Button>
+
             <div className="h-6 w-px bg-outline-variant/30 mx-1"></div>
 
             <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleFileChange} />
@@ -406,6 +465,13 @@ export const MitreDashboard: React.FC<MitreDashboardProps> = ({
           <div className="bg-error/10 border-b border-error/20 px-6 py-2 flex items-center justify-center gap-2 text-xs font-medium text-error">
               <Icon name="alert-triangle" className="w-4 h-4" />
               Showing techniques with no detection coverage - click a technique to create a detection
+          </div>
+      )}
+
+      {netCoverageMode && acceptedGapIds.size > 0 && (
+          <div className="bg-secondary/10 border-b border-secondary/20 px-6 py-2 flex items-center justify-center gap-2 text-xs font-medium text-secondary">
+              <Icon name="shield-check" className="w-4 h-4" />
+              Net Coverage view — {acceptedGapIds.size} accepted {acceptedGapIds.size === 1 ? 'gap' : 'gaps'} hidden from the matrix
           </div>
       )}
 
