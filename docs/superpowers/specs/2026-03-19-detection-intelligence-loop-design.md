@@ -355,7 +355,11 @@ All follow the existing `Playbook` type with these implementation notes:
 
 **Optimus Agent** — `search_library` results include `recent_decisions` (last 2 per detection).
 
-**Coverage Matrix** — Accepted gaps render as grey/striped with hover tooltip showing reasoning.
+**Coverage Matrix** — Accepted gaps render as grey/striped with hover tooltip showing reasoning. Additionally, a **"Net Coverage" toggle** at the top of the matrix switches between two views:
+- **Full View** (default): shows all cells — red gaps, grey/striped accepted gaps, green covered
+- **Net Coverage View**: hides accepted gaps entirely (treated as white/neutral), showing only true gaps (red) that need attention
+
+This prevents the "checkerboard" problem — when 40% of gaps are accepted, the matrix becomes a stripe soup that masks the real work. Net Coverage view is the "what do I need to do?" lens.
 
 ---
 
@@ -417,6 +421,11 @@ Languages: SPL (8) · Sigma (4)
 ```
 
 Context narrows as user fills more fields — selecting SPL + Sysmon filters to only matching patterns.
+
+**Interaction behavior (anti-distraction):**
+- The panel does NOT update in real-time as the user types in the query editor. It updates only when the user changes a structured field (technique selector, log source picker, language dropdown).
+- Individual query snippets can be **pinned** — a pinned snippet stays visible even when the panel re-filters due to field changes. This prevents the "I was looking at that example and it vanished" problem.
+- The panel starts **collapsed** by default. It's a reference tool the user opts into, not an always-on distraction.
 
 ### 4.5 AI Query Generator — Library-aware prompting
 
@@ -639,7 +648,10 @@ The `threat-intel-digest-v2` edge function already produces coverage analysis vi
 
 ## 9. Report History UX Details
 
-**Search:** The report list includes a search field that filters by `title` and `inputs` JSONB (which contains CVE IDs, actor names, etc.) via `ILIKE`. After 6 months of weekly playbooks, a user may have 100+ reports — scrolling isn't sufficient.
+**Search and filtering:** The report list includes:
+- A **keyword search bar** that filters by `title` and `inputs` JSONB (which contains CVE IDs, actor names, etc.) via `ILIKE`. After 6 months of weekly playbooks, a user may have 100+ reports — scrolling isn't sufficient.
+- **Filter by report type** (dropdown: all playbook types + threat digest coverage + manual)
+- **Tags derived from inputs** — when a report's `inputs` contains an actor name or CVE ID, those render as clickable tag chips on the list row (e.g., `APT29`, `CVE-2026-1234`). Clicking a tag filters the list to all reports mentioning that entity. This makes cross-referencing trivial: "show me every analysis that involved Volt Typhoon."
 
 **Empty state:** On first visit (no reports exist), show: "No analysis reports yet. Run your first assessment from the Playbooks page." with CTA buttons for each playbook category.
 
