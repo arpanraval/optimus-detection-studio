@@ -5,6 +5,7 @@ import { Icon } from './Icon';
 import { useToast } from '../hooks/useToast';
 import { useTheme } from '../context/ThemeContext';
 import { logAuditEvent } from '../lib/audit';
+import { MfaChallengeForm } from './MfaChallengeForm';
 
 // ============================================================================
 // CONSTANTS & TYPES
@@ -454,6 +455,12 @@ export const AuthPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
+  const [mfaState, setMfaState] = useState<{
+    active: boolean;
+    factorId: string;
+    error: string;
+    isVerifying: boolean;
+  } | null>(null);
 
   const { showToast } = useToast();
   const { theme, setTheme } = useTheme();
@@ -474,8 +481,17 @@ export const AuthPage: React.FC = () => {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      // Log audit event at the actual point of login, not in onAuthStateChange
-      // (which fires on every page refresh/token refresh too)
+
+      // Check if user has verified TOTP factor — gate before session propagates
+      const factors = data.user?.factors || [];
+      const verifiedTotp = factors.find(f => f.factor_type === 'totp' && f.status === 'verified');
+      if (verifiedTotp) {
+        setMfaState({ active: true, factorId: verifiedTotp.id, error: '', isVerifying: false });
+        setLoading(false);
+        return; // Don't proceed — wait for MFA verification
+      }
+
+      // No MFA — normal login continues
       if (data.session) {
         logAuditEvent({ action: 'user.login', entity_type: 'user', entity_id: data.session.user.id });
       }
@@ -484,6 +500,34 @@ export const AuthPage: React.FC = () => {
       showToast('error', 'Login Failed', message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleMfaVerify = async (code: string) => {
+    if (!mfaState) return;
+    setMfaState(prev => prev ? { ...prev, isVerifying: true, error: '' } : null);
+    try {
+      const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({
+        factorId: mfaState.factorId,
+      });
+      if (challengeError) throw challengeError;
+      const { error: verifyError } = await supabase.auth.mfa.verify({
+        factorId: mfaState.factorId,
+        challengeId: challengeData.id,
+        code,
+      });
+      if (verifyError) throw verifyError;
+      // MFA verified — session is now aal2
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        logAuditEvent({ action: 'user.login', entity_type: 'user', entity_id: session.user.id });
+      }
+      setMfaState(null);
+    } catch (err: unknown) {
+      setMfaState(prev => prev ? {
+        ...prev, isVerifying: false,
+        error: err instanceof Error ? err.message : 'Invalid code. Please try again.',
+      } : null);
     }
   };
 
@@ -537,32 +581,57 @@ export const AuthPage: React.FC = () => {
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#783264] via-[#005091] to-[#783264]" />
             <form onSubmit={handleSubmit} className="pt-2">
 
-              {/* ── LOGIN (only view in beta mode) ── */}
-              <div className="text-center mb-8">
-                <h2 className={`text-2xl font-bold mb-1.5 ${headingColor}`}>Welcome Back</h2>
-                <p className={`text-sm ${subtextColor}`}>Sign in to access Detection Studio</p>
-              </div>
+              {mfaState?.active ? (
+                <>
+                  <div className="text-center mb-8">
+                    <h2 className={`text-2xl font-bold mb-1.5 ${headingColor}`}>Two-Factor Verification</h2>
+                    <p className={`text-sm ${subtextColor}`}>Enter the code from your authenticator app</p>
+                  </div>
+                  <MfaChallengeForm
+                    onVerify={handleMfaVerify}
+                    error={mfaState.error}
+                    isVerifying={mfaState.isVerifying}
+                    title=""
+                    subtitle=""
+                  />
+                  <button
+                    type="button"
+                    onClick={() => { setMfaState(null); supabase.auth.signOut(); }}
+                    className={`w-full text-center text-xs mt-6 ${subtextColor} hover:text-on-surface-variant/70 transition-colors`}
+                  >
+                    Sign out and return to login
+                  </button>
+                </>
+              ) : (
+                <>
+                  {/* ── LOGIN (only view in beta mode) ── */}
+                  <div className="text-center mb-8">
+                    <h2 className={`text-2xl font-bold mb-1.5 ${headingColor}`}>Welcome Back</h2>
+                    <p className={`text-sm ${subtextColor}`}>Sign in to access Detection Studio</p>
+                  </div>
 
-              <div className="space-y-5">
-                <LabeledInput id="login-email" type="email" label="Email" placeholder="Email address" value={email} onChange={setEmail} focusedField={focusedField} setFocusedField={setFocusedField} variant={v} />
-                <LabeledInput id="login-pass" type="password" label="Password" placeholder="Password" value={password} onChange={setPassword} focusedField={focusedField} setFocusedField={setFocusedField} isPassword showPassword={showPassword} setShowPassword={setShowPassword} variant={v} />
-              </div>
+                  <div className="space-y-5">
+                    <LabeledInput id="login-email" type="email" label="Email" placeholder="Email address" value={email} onChange={setEmail} focusedField={focusedField} setFocusedField={setFocusedField} variant={v} />
+                    <LabeledInput id="login-pass" type="password" label="Password" placeholder="Password" value={password} onChange={setPassword} focusedField={focusedField} setFocusedField={setFocusedField} isPassword showPassword={showPassword} setShowPassword={setShowPassword} variant={v} />
+                  </div>
 
-              <div className="mt-3 mb-6" />
+                  <div className="mt-3 mb-6" />
 
-              <button type="submit" disabled={loading} className="w-full py-3.5 rounded-xl text-white text-sm font-brand font-bold transition-all duration-200 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2.5 relative overflow-hidden group/btn" style={{ backgroundColor: ACCENT, boxShadow: btnShadow }}>
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-100%] group-hover/btn:translate-x-[100%] transition-transform duration-700 ease-in-out" />
-                {loading ? <Icon name="spinner" className="w-5 h-5 animate-spin" /> : (
-                  <>
-                    <span>ENTER STUDIO</span>
-                    <Icon name="arrowRight" className="w-4 h-4 group-hover/btn:translate-x-0.5 transition-transform" />
-                  </>
-                )}
-              </button>
+                  <button type="submit" disabled={loading} className="w-full py-3.5 rounded-xl text-white text-sm font-brand font-bold transition-all duration-200 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2.5 relative overflow-hidden group/btn" style={{ backgroundColor: ACCENT, boxShadow: btnShadow }}>
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-100%] group-hover/btn:translate-x-[100%] transition-transform duration-700 ease-in-out" />
+                    {loading ? <Icon name="spinner" className="w-5 h-5 animate-spin" /> : (
+                      <>
+                        <span>ENTER STUDIO</span>
+                        <Icon name="arrowRight" className="w-4 h-4 group-hover/btn:translate-x-0.5 transition-transform" />
+                      </>
+                    )}
+                  </button>
 
-              <div className="text-center mt-6">
-                <p className={`text-xs ${subtextColor}`}>Beta access is invite-only. Contact your admin for access.</p>
-              </div>
+                  <div className="text-center mt-6">
+                    <p className={`text-xs ${subtextColor}`}>Beta access is invite-only. Contact your admin for access.</p>
+                  </div>
+                </>
+              )}
 
             </form>
           </div>
