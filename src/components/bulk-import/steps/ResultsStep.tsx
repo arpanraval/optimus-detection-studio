@@ -3,12 +3,14 @@
  * Features categorized errors, copy error report, and duration timeline
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useBulkImportContext } from '../../../context/BulkImportContext';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from '../../Icon';
 import { ROUTES } from '../../../router/routes';
 import { Link } from 'react-router-dom';
+import { supabase } from '../../../lib/supabaseClient';
+import { useDetectionPatterns } from '../../../hooks/useDetectionPatterns';
 import { CategorizedError, ImportErrorCategory } from '../../../services/bulk-import/types';
 import {
   categorizeError,
@@ -29,6 +31,36 @@ export function ResultsStep() {
   const navigate = useNavigate();
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
+  const { extractAndStore } = useDetectionPatterns();
+
+  // Trigger pattern extraction after successful import — non-blocking, non-fatal
+  useEffect(() => {
+    if (!result || result.importedDetectionIds.length === 0) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user || cancelled) return;
+
+        const { data: detections } = await supabase
+          .from('detections')
+          .select('id, "mitreAttackIds", "mitreTactics", "logSources", platforms, queries, "queryLanguage", "detectionQuery", source, severity')
+          .in('id', result.importedDetectionIds);
+
+        if (!detections || detections.length === 0 || cancelled) return;
+
+        const count = await extractAndStore(detections, user.id);
+        console.log(`[BulkImport] Extracted patterns for ${count} detections`);
+      } catch (err) {
+        console.warn('[BulkImport] Pattern extraction failed (non-fatal):', err);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result?.importedDetectionIds]);
 
   if (!result) {
     return (
