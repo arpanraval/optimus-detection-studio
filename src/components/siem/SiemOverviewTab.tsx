@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { useAppData } from '../../router/AppDataContext';
 import type { Integration, DeploymentRecord } from '../../types';
 import { Status } from '../../types';
+import { ConversionOpportunities } from './ConversionOpportunities';
 
 interface IntegrationHealth {
   integration: Integration;
@@ -139,6 +140,9 @@ export function SiemOverviewTab() {
           />
         </div>
       </div>
+
+      {/* Conversion Opportunities */}
+      <ConversionOpportunities />
 
       {/* Integration Cards */}
       {healthCards.length === 0 ? (
