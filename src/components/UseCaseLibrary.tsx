@@ -23,6 +23,7 @@ import { BulkDeployModal } from './integrations/BulkDeployModal';
 import { FilterPanel, ActiveFilterChips } from './library';
 import { useFilterOptions } from '../hooks/useFilterOptions';
 import { routeHelpers } from '../router/routes';
+import { useDetectionPatterns } from '../hooks/useDetectionPatterns';
 
 // ============================================================================
 // TYPES
@@ -700,6 +701,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
     currentLibrary === 'universal' ? 'universal' : 'user'
   );
   const { showToast } = useToast();
+  const { extractAndStore, loading: extractingPatterns } = useDetectionPatterns();
   const [isResolvingMitre, setIsResolvingMitre] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectAllMatchingMode, setSelectAllMatchingMode] = useState(false);
@@ -1104,6 +1106,34 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
                 <span>Resolve MITRE ({detectionsNeedingMitreResolution.length})</span>
               </>
             )}
+          </button>
+        )}
+
+        {currentLibrary === 'user' && (
+          <button
+            onClick={async () => {
+              try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user) return;
+                const { data: allDetections } = await supabase
+                  .from('detections')
+                  .select('id, "mitreAttackIds", "mitreTactics", "logSources", platforms, queries, "queryLanguage", "detectionQuery", source, severity')
+                  .eq('library_type', 'user');
+                if (allDetections && allDetections.length > 0) {
+                  const count = await extractAndStore(allDetections, user.id);
+                  showToast('success', 'Patterns Analyzed', `Extracted patterns from ${count} detections`);
+                }
+              } catch (err) {
+                console.warn('[Library] Pattern extraction failed:', err);
+                showToast('error', 'Analysis Failed', 'Could not extract patterns. Try again.');
+              }
+            }}
+            disabled={extractingPatterns}
+            className="h-8 px-3 text-sm font-medium rounded-xl text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface transition-all inline-flex items-center gap-1.5 disabled:opacity-50"
+            title="Analyze detection patterns across your library"
+          >
+            <Icon name={extractingPatterns ? 'spinner' : 'cpu'} className={`w-4 h-4${extractingPatterns ? ' animate-spin' : ''}`} />
+            <span>{extractingPatterns ? 'Analyzing...' : 'Analyze Patterns'}</span>
           </button>
         )}
 
