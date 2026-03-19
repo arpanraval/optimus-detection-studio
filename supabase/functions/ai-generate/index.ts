@@ -42,6 +42,9 @@ interface AIRequest {
   tools?: any[] // Normalized tool format (Gemini style)
   history?: Array<{ role: string; parts: Array<{ text: string }> }> // Gemini history format
   functionResponses?: Array<{ id: string; name: string; response: any }>
+  // Detection Intelligence Loop — optional context enrichment fields
+  technique_id?: string
+  detection_category?: string
 }
 
 interface AIResponse {
@@ -521,6 +524,68 @@ serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: `Invalid model: ${model}` }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
 
+    // Library-aware pattern injection (Detection Intelligence Loop)
+    let patternContext = '';
+    const techniqueId = body.technique_id;
+    const detectionCategory = body.detection_category;
+
+    if (techniqueId || detectionCategory) {
+      try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const patternClient = createClient(supabaseUrl, serviceRoleKey);
+
+        let patternQuery = patternClient
+          .from('detection_patterns')
+          .select('fields_used, query_languages, log_sources, severity, query_snippet, detection_categories')
+          .limit(10);
+
+        if (techniqueId) patternQuery = patternQuery.contains('technique_ids', [techniqueId]);
+        if (detectionCategory) patternQuery = patternQuery.contains('detection_categories', [detectionCategory]);
+
+        const { data: patterns } = await patternQuery;
+
+        if (patterns && patterns.length > 0) {
+          // Aggregate patterns into context
+          const fieldCounts = new Map<string, number>();
+          const logSourceCounts = new Map<string, number>();
+          const categoryCounts = new Map<string, number>();
+          const languages = new Set<string>();
+          const snippets: string[] = [];
+
+          for (const p of patterns) {
+            for (const f of (p.fields_used || [])) fieldCounts.set(f, (fieldCounts.get(f) || 0) + 1);
+            for (const ls of (p.log_sources || [])) logSourceCounts.set(ls, (logSourceCounts.get(ls) || 0) + 1);
+            for (const cat of (p.detection_categories || [])) categoryCounts.set(cat, (categoryCounts.get(cat) || 0) + 1);
+            for (const lang of (p.query_languages || [])) languages.add(lang);
+            if (p.query_snippet && snippets.length < 3) snippets.push(p.query_snippet);
+          }
+
+          const topFields = [...fieldCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([f]) => f);
+          const topLogSources = [...logSourceCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([ls, c]) => `${ls} (${c})`);
+          const categoryBreakdown = [...categoryCounts.entries()].sort((a, b) => b[1] - a[1]).map(([cat, c]) => `${cat} (${c})`);
+
+          patternContext = [
+            `[Library Context] The user's library has ${patterns.length} existing detections${techniqueId ? ` for ${techniqueId}` : ''}.`,
+            `Categories: ${categoryBreakdown.join(', ')}.`,
+            `Common log sources: ${topLogSources.join(', ')}.`,
+            `Common fields: ${topFields.join(', ')}.`,
+            `Languages used: ${[...languages].join(', ')}.`,
+            snippets.length > 0 ? `\nRepresentative query snippets:\n${snippets.map((s, i) => `${i + 1}. ${s}`).join('\n')}` : '',
+            `\nGenerate a detection following these conventions unless the user asks for a different approach.`,
+          ].filter(Boolean).join('\n');
+        }
+      } catch (err) {
+        console.warn('[ai-generate] Pattern context injection failed:', err);
+        // Continue without pattern context
+      }
+    }
+
+    // Build full system instruction with optional pattern context prepended
+    const fullSystemInstruction = patternContext
+      ? `${patternContext}\n\n${systemInstruction || ''}`
+      : systemInstruction;
+
     // Determine provider from model name or explicit provider
     const provider = body.provider || getProvider(model)
 
@@ -552,19 +617,19 @@ serve(async (req: Request) => {
       case 'google':
         result = await callGeminiAPI(
           apiKey, model, prompt, responseFormat,
-          systemInstruction, tools, history, functionResponses
+          fullSystemInstruction, tools, history, functionResponses
         )
         break
       case 'openai':
         result = await callOpenAIAPI(
           apiKey, model, prompt, responseFormat,
-          systemInstruction, tools, history, functionResponses
+          fullSystemInstruction, tools, history, functionResponses
         )
         break
       case 'anthropic':
         result = await callAnthropicAPI(
           apiKey, model, prompt, responseFormat,
-          systemInstruction, tools, history, functionResponses
+          fullSystemInstruction, tools, history, functionResponses
         )
         break
       default:
