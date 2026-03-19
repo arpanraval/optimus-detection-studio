@@ -21,6 +21,7 @@ import { batchResolveTechniques } from '../../mitre';
 import { supabase } from '../../lib/supabaseClient';
 import { SimilarDetectionsPanel } from './SimilarDetectionsPanel';
 import { LIBRARY_LABELS } from '../../types/detection';
+import { DecisionTimeline } from '../decisions/DecisionTimeline';
 
 interface DetectionDetailPageProps {
   detection: Detection;
@@ -35,7 +36,7 @@ interface DetectionDetailPageProps {
   onNavigateToDetection?: (detectionId: string) => void; // NEW: For viewing source rule
 }
 
-type TabId = 'overview' | 'logic' | 'investigation' | 'tuning' | 'collaboration' | 'history' | 'deployments';
+type TabId = 'overview' | 'logic' | 'investigation' | 'tuning' | 'collaboration' | 'history' | 'deployments' | 'decisions';
 
 const TABS: { id: TabId; label: string; icon?: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -44,6 +45,7 @@ const TABS: { id: TabId; label: string; icon?: string }[] = [
   { id: 'tuning', label: 'Validation & Tuning' },
   { id: 'collaboration', label: 'Collaboration' },
   { id: 'deployments', label: 'Deployments' },
+  { id: 'decisions', label: 'Decisions' },
   { id: 'history', label: 'History' }
 ];
 
@@ -620,6 +622,9 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
         )}
         {activeTab === 'deployments' && (
           <DeploymentHistoryTab detection={detection} />
+        )}
+        {activeTab === 'decisions' && (
+          <DecisionTimeline detectionId={detection.id} />
         )}
         {activeTab === 'history' && (
           <HistoryTab detection={detection} />
