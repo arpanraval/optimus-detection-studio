@@ -33,6 +33,7 @@ const ALLOWED_TOOLS = new Set([
   'get_threat_actor_coverage',
   'find_threat_actor',
   'query_mitre',
+  'web_search',
 ])
 
 const PLAYBOOK_DEFINITIONS: Record<string, PlaybookStep[]> = {
@@ -177,6 +178,89 @@ Return ONLY valid JSON, no markdown code blocks.`
 }
 
 // =============================================================================
+// REPORT PERSISTENCE
+// =============================================================================
+
+async function persistReport(
+  supabaseClient: any,
+  userId: string,
+  teamId: string | null,
+  playbookId: string,
+  playbookTitle: string,
+  reportTemplateDef: any,
+  inputs: Record<string, string>,
+  stepResults: StepResult[],
+  context: Record<string, any>,
+  generatedSections: Record<string, string>,
+  status: string
+): Promise<string | null> {
+  try {
+    // 1. Find previous report for trend linking
+    const { data: prevReport } = await supabaseClient
+      .from('analysis_reports')
+      .select('id, coverage_score')
+      .eq('user_id', userId)
+      .eq('playbook_id', playbookId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    // 2. Extract coverage_score from context
+    const coverageScore = context?.coverageSummary?.overall?.percent
+      ?? context?.coverageSummary?.production?.percent
+      ?? null
+
+    // 3. Snapshot environment profile
+    const { data: envProfile } = await supabaseClient
+      .from('environment_profiles')
+      .select('log_sources, siem_platforms, edr_tools, cloud_platforms, industry')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    // 4. Calculate delta
+    const scoreDelta = (coverageScore != null && prevReport?.coverage_score != null)
+      ? coverageScore - prevReport.coverage_score
+      : null
+
+    // 5. Insert report
+    const { data: report, error } = await supabaseClient
+      .from('analysis_reports')
+      .insert({
+        user_id: userId,
+        team_id: teamId,
+        report_type: 'playbook',
+        playbook_id: playbookId,
+        title: playbookTitle,
+        inputs,
+        step_results: stepResults,
+        context,
+        generated_sections: generatedSections,
+        report_template: reportTemplateDef || null,
+        coverage_score: coverageScore,
+        score_breakdown: null,
+        previous_report_id: prevReport?.id || null,
+        score_delta: scoreDelta,
+        environment_snapshot: envProfile || null,
+        status: status === 'partial' ? 'completed' : status,
+        completed_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single()
+
+    if (error) {
+      console.error('[run-playbook] Failed to persist report:', error)
+      return null
+    }
+    return report.id
+  } catch (err) {
+    console.error('[run-playbook] Error persisting report:', err)
+    return null
+  }
+}
+
+// =============================================================================
 // MAIN HANDLER
 // =============================================================================
 
@@ -279,14 +363,47 @@ serve(async (req: Request) => {
     // Generate AI report sections from aggregated context
     const generatedSections = await generateReportSections(playbookId, context)
 
+    // Persist report to analysis_reports table
+    const runStatus = stepResults.every(s => s.status === 'completed') ? 'completed' : 'partial'
+
+    // Get user's team_id (if any)
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('team_id')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    // Get playbook title from a PLAYBOOK_TITLES map or default
+    const PLAYBOOK_TITLES: Record<string, string> = {
+      'ransomware-readiness': 'Ransomware Readiness Assessment',
+      'threat-actor-coverage': 'Threat Actor Coverage Report',
+      'detection-quality-sprint': 'Detection Quality Sprint Report',
+      'executive-security-posture': 'Executive Security Posture Report',
+    }
+
+    const reportId = await persistReport(
+      supabase,
+      user.id,
+      profile?.team_id || null,
+      playbookId,
+      PLAYBOOK_TITLES[playbookId] || playbookId,
+      null, // reportTemplate - will be passed by client-side playbook defs later
+      inputs,
+      stepResults,
+      context,
+      generatedSections,
+      runStatus
+    )
+
     return new Response(
       JSON.stringify({
         playbookId,
-        status: stepResults.every(s => s.status === 'completed') ? 'completed' : 'partial',
+        status: runStatus,
         stepResults,
         context,
         generatedSections,
         completedAt: new Date().toISOString(),
+        reportId,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
