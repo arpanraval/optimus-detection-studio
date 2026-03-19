@@ -682,11 +682,10 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     try {
       const { data, error } = await supabase.rpc('copy_to_user_library', {
         p_detection_id: detectionId,
-        p_user_id: userId
       });
 
       if (error) {
-        if (error.message.includes('already have a copy')) {
+        if (error.message.includes('already have a copy') || error.message.includes('already promoted')) {
           showToast('warning', 'Already Copied', 'You already have a copy of this rule in your library');
         } else if (error.message.includes('not found')) {
           showToast('error', 'Not Found', 'The rule could not be found');
@@ -710,7 +709,6 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     try {
       const { data, error } = await supabase.rpc('fork_to_lab', {
         p_detection_id: detectionId,
-        p_user_id: userId
       });
 
       if (error) {
@@ -759,7 +757,6 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     try {
       const { data, error } = await supabase.rpc('submit_for_publish', {
         p_detection_id: detectionId,
-        p_user_id: userId
       });
 
       if (error) throw error;
@@ -790,7 +787,6 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     try {
       const { data, error } = await supabase.rpc('submit_for_publish', {
         p_detection_id: detectionId,
-        p_user_id: userId
       });
 
       if (error) throw error;
@@ -817,7 +813,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     action: 'approve' | 'reject' | 'approve_as_new', 
     notes?: string
   ): Promise<boolean> => {
-    if (userRole !== 'admin') {
+    if (!['owner', 'admin'].includes(userRole)) {
       showToast('error', 'Unauthorized', 'Admin access required');
       return false;
     }
@@ -825,7 +821,6 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     try {
       const { data, error } = await supabase.rpc('approve_publish_request', {
         p_request_id: requestId,
-        p_admin_id: userId,
         p_action: action,
         p_notes: notes || null
       });
@@ -864,7 +859,6 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     try {
       const { data, error } = await supabase.rpc('approve_publish_request', {
         p_request_id: requestId,
-        p_admin_id: userId,
         p_action: action,
         p_notes: notes || null
       });
@@ -1171,7 +1165,6 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       try {
         const { data, error } = await supabase.rpc('copy_to_user_library', {
           p_detection_id: id,
-          p_user_id: userId
         });
 
         if (error) {
