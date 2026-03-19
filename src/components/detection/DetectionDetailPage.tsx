@@ -387,8 +387,8 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                     {/* Library Type Badge */}
                     {isUniversalRule ? (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white border border-blue-500/30">
-                        <Icon name="globe" className="w-3 h-3" />
-                        Universal
+                        <Icon name="flask" className="w-3 h-3" />
+                        {LIBRARY_LABELS['universal']}
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-white border border-white/20" style={{ backgroundColor: '#783264' }}>
