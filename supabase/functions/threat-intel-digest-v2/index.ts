@@ -431,6 +431,56 @@ serve(async (req: Request) => {
       }
     }
 
+    // Persist coverage analysis to analysis_reports for trend tracking
+    if (libraryMatches.length > 0) {
+      try {
+        // Find previous threat_digest_coverage report for trend linking
+        const { data: prevReport } = await supabaseClient
+          .from('analysis_reports')
+          .select('id, coverage_score')
+          .eq('user_id', user.id)
+          .eq('report_type', 'threat_digest_coverage')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        // Compute aggregate coverage score: % of TTPs covered by at least one detection
+        const totalTTPs = ttps.length
+        const coveredTTPs = ttps.filter(t => t.hasExistingDetection).length
+        const coverageScore = totalTTPs > 0 ? Math.round((coveredTTPs / totalTTPs) * 100) : 0
+
+        const scoreDelta = (coverageScore != null && prevReport?.coverage_score != null)
+          ? coverageScore - prevReport.coverage_score
+          : null;
+
+        // Snapshot environment profile
+        const { data: envProfile } = await supabaseClient
+          .from('environment_profiles')
+          .select('log_sources, siem_platforms, edr_tools, cloud_platforms, industry')
+          .eq('user_id', user.id)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        await supabaseClient.from('analysis_reports').insert({
+          user_id: user.id,
+          report_type: 'threat_digest_coverage',
+          title: `Coverage: ${summary?.title || 'Threat Intel Report'}`,
+          inputs: { threat_report_id: reportId, source_url: url || null },
+          context: { libraryMatches, coverageScore },
+          coverage_score: coverageScore,
+          previous_report_id: prevReport?.id || null,
+          score_delta: scoreDelta,
+          environment_snapshot: envProfile || null,
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+        });
+      } catch (err) {
+        console.warn('[threat-intel-digest-v2] Failed to persist coverage report:', err);
+        // Don't fail the digest — this is supplementary
+      }
+    }
+
     // Assemble report
     const report: ThreatReport = {
       id: reportId,
