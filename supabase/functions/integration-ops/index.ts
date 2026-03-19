@@ -58,6 +58,7 @@ interface ConnectionTestResult {
 
 type DeployValidationErrorCode =
   | 'DETECTION_NOT_FOUND'
+  | 'LAB_DETECTION'
   | 'DETECTION_NOT_DEPLOYABLE_STATUS'
   | 'DETECTION_NO_QUERY'
   | 'QUERY_LANGUAGE_MISMATCH'
@@ -164,12 +165,18 @@ async function validateDeploymentEligibility(
   // 1. Detection exists and is owned by the user
   const { data: detection, error: detError } = await serviceClient
     .from('detections')
-    .select('id, user_id, name, description, status, detectionQuery, queryLanguage, queries, qualityScore, mitreTactics, mitreTechniques, version')
+    .select('id, user_id, library_type, name, description, status, detectionQuery, queryLanguage, queries, qualityScore, mitreTactics, mitreTechniques, version')
     .eq('id', detectionId)
     .single()
 
   if (detError || !detection) {
     errors.push({ code: 'DETECTION_NOT_FOUND', message: 'Detection not found' })
+    return { eligible: false, errors, warnings }
+  }
+
+  // Security: Only Production Library (library_type='user') detections can be deployed
+  if (detection.library_type !== 'user') {
+    errors.push({ code: 'LAB_DETECTION', message: 'Only Production Library detections can be deployed to SIEMs. Promote this detection from Detection Lab first.' })
     return { eligible: false, errors, warnings }
   }
 
@@ -1564,7 +1571,7 @@ async function handleSaveCredentials(
 
     if (intError) {
       return new Response(
-        JSON.stringify({ error: 'Failed to create integration', details: intError.message }),
+        JSON.stringify({ error: 'Failed to create integration' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
@@ -1574,7 +1581,19 @@ async function handleSaveCredentials(
     // Update existing integration config
     if (body.config || body.name) {
       const updates: Record<string, unknown> = {}
-      if (body.config) updates.config = body.config
+      if (body.config) {
+        // Allowlist config fields to prevent mass assignment (same as create path)
+        const ALLOWED_CONFIG_KEYS = [
+          'host', 'port', 'ssl', 'spaceId', 'baseUrl', 'region',
+          'index', 'workspace', 'tenant', 'apiUrl', 'environment',
+        ]
+        const rawConfig = body.config as Record<string, unknown>
+        const sanitizedConfig: Record<string, unknown> = {}
+        for (const key of ALLOWED_CONFIG_KEYS) {
+          if (key in rawConfig) sanitizedConfig[key] = rawConfig[key]
+        }
+        updates.config = sanitizedConfig
+      }
       if (body.name) updates.name = body.name
 
       const { error: updateError } = await serviceClient
@@ -1585,7 +1604,7 @@ async function handleSaveCredentials(
 
       if (updateError) {
         return new Response(
-          JSON.stringify({ error: 'Failed to update integration', details: updateError.message }),
+          JSON.stringify({ error: 'Failed to update integration' }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
       }
