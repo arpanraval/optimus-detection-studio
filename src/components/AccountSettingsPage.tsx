@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Icon } from './Icon';
+import { MfaEnrollmentWizard } from './MfaEnrollmentWizard';
 import { supabase } from '../lib/supabaseClient';
 import { useToast } from '../hooks/useToast';
 import { useBeforeUnload } from '../hooks/useBeforeUnload';
@@ -54,6 +55,13 @@ export const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+    // MFA state
+    const [mfaFactors, setMfaFactors] = useState<Array<{ id: string; status: string; friendly_name?: string; created_at?: string }>>([]);
+    const [mfaLoading, setMfaLoading] = useState(false);
+    const [showMfaWizard, setShowMfaWizard] = useState(false);
+    const [showMfaDisableConfirm, setShowMfaDisableConfirm] = useState(false);
+    const [mfaDisabling, setMfaDisabling] = useState(false);
 
     const { showToast } = useToast();
 
@@ -193,6 +201,35 @@ export const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({
     };
 
     // ==========================================================================
+    // MFA
+    // ==========================================================================
+
+    const fetchMfaFactors = async () => {
+        setMfaLoading(true);
+        try {
+            const { data } = await supabase.auth.mfa.listFactors();
+            setMfaFactors(data?.totp?.filter(f => f.status === 'verified') || []);
+        } catch { /* silent */ } finally { setMfaLoading(false); }
+    };
+
+    useEffect(() => {
+        if (activeSection === 'security') fetchMfaFactors();
+    }, [activeSection]);
+
+    const handleDisableMfa = async () => {
+        if (!mfaFactors[0]) return;
+        setMfaDisabling(true);
+        try {
+            const { error } = await supabase.auth.mfa.unenroll({ factorId: mfaFactors[0].id });
+            if (error) throw error;
+            showToast('success', 'Disabled', 'Two-factor authentication has been disabled');
+            await fetchMfaFactors();
+        } catch (err: unknown) {
+            showToast('error', 'Error', err instanceof Error ? err.message : 'Failed to disable MFA');
+        } finally { setMfaDisabling(false); setShowMfaDisableConfirm(false); }
+    };
+
+    // ==========================================================================
     // NAVIGATION
     // ==========================================================================
 
@@ -280,6 +317,10 @@ export const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({
                                         setConfirmPassword={setConfirmPassword}
                                         isChangingPassword={isChangingPassword}
                                         onChangePassword={handleChangePassword}
+                                        mfaFactors={mfaFactors}
+                                        mfaLoading={mfaLoading}
+                                        onEnableMfa={() => setShowMfaWizard(true)}
+                                        onDisableMfa={() => setShowMfaDisableConfirm(true)}
                                     />
                                 )}
 
@@ -295,6 +336,55 @@ export const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({
                     </div>
                 </div>
             </div>
+
+            {/* MFA Enrollment Wizard */}
+            <MfaEnrollmentWizard
+                isOpen={showMfaWizard}
+                onClose={() => setShowMfaWizard(false)}
+                onEnrolled={() => {
+                    fetchMfaFactors();
+                    showToast('success', 'Enabled', 'Two-factor authentication is now active');
+                }}
+            />
+
+            {/* MFA Disable Confirmation */}
+            {showMfaDisableConfirm && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                    <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6 max-w-sm w-full mx-4 shadow-2xl">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="w-10 h-10 rounded-xl bg-error/10 flex items-center justify-center">
+                                <Icon name="shield-off" className="w-5 h-5 text-error" />
+                            </div>
+                            <h3 className="text-base font-semibold text-on-surface">Disable Two-Factor?</h3>
+                        </div>
+                        <p className="text-sm text-on-surface-variant/70 mb-6">
+                            This will remove the authenticator app from your account. Your account will only be protected by your password.
+                        </p>
+                        <div className="flex gap-3 justify-end">
+                            <button
+                                onClick={() => setShowMfaDisableConfirm(false)}
+                                className="px-4 py-2 text-sm font-medium text-on-surface-variant rounded-xl hover:bg-surface-container-highest transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleDisableMfa}
+                                disabled={mfaDisabling}
+                                className="px-4 py-2 text-sm font-medium text-white bg-error rounded-xl hover:brightness-110 transition-all disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {mfaDisabling ? (
+                                    <>
+                                        <Icon name="spinner" className="w-4 h-4 animate-spin" />
+                                        Disabling...
+                                    </>
+                                ) : (
+                                    'Disable'
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -444,7 +534,18 @@ interface SecuritySectionProps {
     setConfirmPassword: (v: string) => void;
     isChangingPassword: boolean;
     onChangePassword: () => void;
+    mfaFactors: Array<{ id: string; status: string; friendly_name?: string; created_at?: string }>;
+    mfaLoading: boolean;
+    onEnableMfa: () => void;
+    onDisableMfa: () => void;
 }
+
+const REQUIREMENTS = [
+    { test: (p: string) => p.length >= 12, label: '12+ characters' },
+    { test: (p: string) => /[A-Z]/.test(p), label: 'Uppercase' },
+    { test: (p: string) => /[a-z]/.test(p), label: 'Lowercase' },
+    { test: (p: string) => /[0-9]/.test(p), label: 'Number' },
+];
 
 const SecuritySection: React.FC<SecuritySectionProps> = ({
     currentPassword,
@@ -455,8 +556,13 @@ const SecuritySection: React.FC<SecuritySectionProps> = ({
     setConfirmPassword,
     isChangingPassword,
     onChangePassword,
+    mfaFactors,
+    mfaLoading,
+    onEnableMfa,
+    onDisableMfa,
 }) => {
     const [showPasswords, setShowPasswords] = useState(false);
+    const hasMfa = mfaFactors.length > 0;
 
     return (
         <div className="space-y-8">
@@ -468,7 +574,34 @@ const SecuritySection: React.FC<SecuritySectionProps> = ({
                 </p>
             </div>
 
-            {/* Password Change */}
+            {/* Security Status Banner */}
+            <div
+                className="rounded-2xl border border-outline-variant/10 p-5"
+                style={{ background: 'linear-gradient(135deg, rgba(120,50,100,0.08), rgba(0,80,145,0.05))' }}
+            >
+                <div className="flex items-center gap-4">
+                    <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${hasMfa ? 'bg-emerald-500/15' : 'bg-amber-500/15'}`}>
+                        <Icon name="shield-check" className={`w-6 h-6 ${hasMfa ? 'text-emerald-500' : 'text-amber-500'}`} />
+                    </div>
+                    <div className="flex-1">
+                        <p className="text-sm font-semibold text-on-surface">
+                            Protection: {hasMfa ? 'Enhanced' : 'Standard'}
+                        </p>
+                        <p className="text-xs text-on-surface-variant/60 mt-0.5">
+                            {hasMfa
+                                ? 'Password and two-factor authentication active'
+                                : 'Enable 2FA for enhanced protection'}
+                        </p>
+                    </div>
+                    {/* Two-segment bar indicator */}
+                    <div className="flex gap-1.5">
+                        <div className="w-10 h-2 rounded-full bg-emerald-500" />
+                        <div className={`w-10 h-2 rounded-full ${hasMfa ? 'bg-emerald-500' : 'bg-surface-container-highest'}`} />
+                    </div>
+                </div>
+            </div>
+
+            {/* Password Card */}
             <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6">
                 <h3 className="text-base font-medium text-on-surface mb-4">Change Password</h3>
 
@@ -499,7 +632,21 @@ const SecuritySection: React.FC<SecuritySectionProps> = ({
                             placeholder="Enter new password"
                             className="w-full px-4 py-3 bg-surface-container-highest border border-outline-variant/10 rounded-xl text-on-surface placeholder-on-surface-variant/40 focus:outline-none focus:border-tertiary/30 transition-colors"
                         />
-                        <p className="text-xs text-on-surface-variant/40 mt-1">Minimum 8 characters</p>
+
+                        {/* Requirements checklist */}
+                        {newPassword.length > 0 && (
+                            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                                {REQUIREMENTS.map((req) => {
+                                    const met = req.test(newPassword);
+                                    return (
+                                        <span key={req.label} className={`text-xs flex items-center gap-1 ${met ? 'text-emerald-500' : 'text-on-surface-variant/40'}`}>
+                                            <Icon name={met ? 'check-circle' : 'circle'} className="w-3.5 h-3.5" />
+                                            {req.label}
+                                        </span>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
 
                     {/* Confirm Password */}
@@ -531,7 +678,8 @@ const SecuritySection: React.FC<SecuritySectionProps> = ({
                     <button
                         onClick={onChangePassword}
                         disabled={isChangingPassword || !newPassword || !confirmPassword}
-                        className="px-6 py-2.5 bg-tertiary text-on-tertiary font-medium rounded-xl hover:brightness-110 transition-all disabled:opacity-50 flex items-center gap-2"
+                        className="px-6 py-2.5 text-white font-medium rounded-xl hover:brightness-110 transition-all disabled:opacity-50 flex items-center gap-2"
+                        style={{ backgroundColor: '#783264' }}
                     >
                         {isChangingPassword ? (
                             <>
@@ -545,27 +693,46 @@ const SecuritySection: React.FC<SecuritySectionProps> = ({
                 </div>
             </div>
 
-            {/* MFA Section (Placeholder) */}
+            {/* MFA Card */}
             <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6">
-                <div className="flex items-start justify-between">
-                    <div>
-                        <h3 className="text-base font-medium text-on-surface">Two-Factor Authentication</h3>
-                        <p className="text-sm text-on-surface-variant/60 mt-1">
-                            Add an extra layer of security to your account
-                        </p>
-                    </div>
-                    <span className="px-3 py-1 text-xs font-medium rounded-full bg-amber-500/10 text-amber-500">
-                        Coming Soon
-                    </span>
+                <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-base font-medium text-on-surface">Two-Factor Authentication</h3>
+                    {mfaLoading ? (
+                        <Icon name="spinner" className="w-4 h-4 animate-spin text-on-surface-variant/40" />
+                    ) : (
+                        <span className={`px-3 py-1 text-xs font-medium rounded-full ${
+                            hasMfa
+                                ? 'bg-emerald-500/10 text-emerald-500'
+                                : 'bg-on-surface-variant/5 text-on-surface-variant/50'
+                        }`}>
+                            {hasMfa ? 'Enabled' : 'Not enabled'}
+                        </span>
+                    )}
                 </div>
 
-                <div className="mt-4 p-4 rounded-xl bg-surface-container-highest/50 border border-outline-variant/10">
-                    <div className="flex items-center gap-3">
-                        <Icon name="smartphone" className="w-5 h-5 text-on-surface-variant/40" />
-                        <span className="text-sm text-on-surface-variant/60">
-                            Authenticator app support will be available in a future update
-                        </span>
+                <div className="flex items-center gap-4 p-4 rounded-xl bg-surface-container-highest/50 border border-outline-variant/10">
+                    <div className="w-10 h-10 rounded-xl bg-tertiary/10 flex items-center justify-center flex-shrink-0">
+                        <Icon name="shield-check" className="w-5 h-5 text-tertiary" />
                     </div>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-on-surface">Authenticator App</p>
+                        <p className="text-xs text-on-surface-variant/50 mt-0.5">
+                            {hasMfa && mfaFactors[0].created_at
+                                ? `Enrolled ${new Date(mfaFactors[0].created_at).toLocaleDateString()}`
+                                : 'Google Authenticator, Authy, 1Password'}
+                        </p>
+                    </div>
+                    <button
+                        onClick={hasMfa ? onDisableMfa : onEnableMfa}
+                        className={`px-4 py-2 text-sm font-medium rounded-xl transition-all flex-shrink-0 ${
+                            hasMfa
+                                ? 'text-error bg-error/10 hover:bg-error/15'
+                                : 'text-white hover:brightness-110'
+                        }`}
+                        style={hasMfa ? undefined : { backgroundColor: '#783264' }}
+                    >
+                        {hasMfa ? 'Disable' : 'Enable'}
+                    </button>
                 </div>
             </div>
         </div>
