@@ -41,7 +41,7 @@ const statusConfig: Record<PublishStatus, {
   },
   published: {
     icon: 'check-circle',
-    label: 'Published',
+    label: 'Promoted',
     className: 'bg-[#4D7C6F]/15 text-[#4D7C6F] border border-[#4D7C6F]/20',
     iconClassName: 'text-[#4D7C6F]'
   },

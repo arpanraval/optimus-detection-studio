@@ -391,7 +391,7 @@ export const MySubmissions: React.FC<MySubmissionsProps> = ({
                             className="px-3 py-1.5 text-xs font-medium text-tertiary bg-tertiary/10 hover:bg-tertiary/20 rounded-lg transition-colors flex items-center gap-1.5"
                           >
                             <Icon name="external-link" className="w-3.5 h-3.5" />
-                            View in {LIBRARY_LABELS['universal']}
+                            View in {LIBRARY_LABELS['user']}
                           </button>
                         )}
                       </div>
