@@ -441,10 +441,10 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
 
     try {
       // Count query WITH filters (select minimal column for count-only)
+      // Production Library is shared — all users see all 'user' library detections
       let countQ = supabase
         .from('detections')
         .select('id', { count: 'exact', head: true })
-        .eq('user_id', userId)
         .or('library_type.eq.user,library_type.is.null');
       countQ = applyServerFilters(countQ, activeFilters);
 
@@ -458,7 +458,6 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       let dataQ = supabase
         .from('detections')
         .select(LIBRARY_COLUMNS)
-        .eq('user_id', userId)
         .or('library_type.eq.user,library_type.is.null');
       dataQ = applyServerFilters(dataQ, activeFilters);
       dataQ = dataQ.order(sortColumn, { ascending: sortAscending }).range(from, to);
