@@ -83,15 +83,12 @@ export const SetPasswordPage: React.FC<SetPasswordPageProps> = ({ mode, email, o
       sessionStorage.removeItem('ds_pending_auth_action');
 
       if (mode === 'invite') {
-        // Update profile with password_set flag and display name
-        if (userId) {
-          await supabase
-            .from('profiles')
-            .update({
-              password_set: true,
-              full_name: displayName.trim() || null,
-            })
-            .eq('id', userId);
+        // Update profile via RPC (SECURITY DEFINER bypasses RLS)
+        const { error: rpcError } = await supabase.rpc('complete_password_setup', {
+          p_full_name: displayName.trim() || null,
+        });
+        if (rpcError) {
+          console.error('Failed to update profile:', rpcError);
         }
         setStep('mfa-prompt');
       } else {

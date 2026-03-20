@@ -126,6 +126,22 @@ BEGIN
 END;
 $function$;
 
+-- Complete password setup after invite (SECURITY DEFINER bypasses RLS)
+CREATE OR REPLACE FUNCTION public.complete_password_setup(p_full_name text DEFAULT NULL)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+BEGIN
+  UPDATE profiles
+  SET password_set = true,
+      full_name = COALESCE(p_full_name, full_name),
+      updated_at = now()
+  WHERE id = auth.uid();
+END;
+$$;
+
 -- Check if user is a global admin (owner or admin role in profiles)
 CREATE OR REPLACE FUNCTION public.is_global_admin(p_user_id uuid DEFAULT auth.uid())
  RETURNS boolean
