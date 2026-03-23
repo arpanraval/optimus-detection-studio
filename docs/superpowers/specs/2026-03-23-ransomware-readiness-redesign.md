@@ -45,7 +45,8 @@ The assessment asks: "If ransomware hits your environment, at which stages would
 | PowerShell download cradle | `powershell.*(downloadstring\|invoke-webrequest\|iwr\|wget\|iex.*net\.webclient)`, `encoded.*command.*powershell` |
 | WMI/WMIC remote execution | `wmic.*process.*call.*create`, `wmi.*remote`, `wmiprvse.*spawn` |
 | Macro/script execution from Office | `winword.*spawn`, `excel.*child.*process`, `wscript\|cscript.*execution` |
-| LOLBin proxy execution | `mshta.*http`, `rundll32.*javascript`, `regsvr32.*scrobj`, `certutil.*download` |
+| LOLBin proxy execution | `mshta.*http`, `rundll32.*javascript`, `regsvr32.*scrobj`, `certutil.*download`, `bitsadmin.*transfer`, `cmstp.*inf`, `msiexec.*http` |
+| DLL sideloading | `dll.*sideload`, `dll.*hijack`, `suspicious.*dll.*load.*path` |
 | Scheduled task for payload | `schtasks.*/create.*cmd\|powershell`, `scheduled.*task.*suspicious` |
 
 ### Phase 3: Persistence
@@ -88,6 +89,7 @@ The assessment asks: "If ransomware hits your environment, at which stages would
 | Domain/AD reconnaissance | `domain.*recon`, `bloodhound`, `sharphound`, `ldap.*enum`, `ad.*recon` |
 | System/network info gathering | `systeminfo`, `ipconfig.*\/all`, `whoami.*\/all`, `nltest.*domain` |
 | Process/service enumeration | `tasklist`, `sc.*query`, `get-process.*remote`, `wmic.*process.*list` |
+| Backup infrastructure reconnaissance | `veeam.*enum`, `backup.*discover`, `wbadmin.*get.*versions`, `get-wbsummary` |
 
 ### Phase 8: Lateral Movement
 | Behavior | Keywords/Patterns |
@@ -96,6 +98,7 @@ The assessment asks: "If ransomware hits your environment, at which stages would
 | SMB/admin share access | `smb.*lateral`, `admin\$.*access`, `c\$.*remote`, `psexec` |
 | Remote service creation | `sc.*\\\\.*create`, `remote.*service.*creat`, `psexec.*service` |
 | WinRM exploitation | `winrm.*lateral`, `invoke-command.*remote`, `evil-winrm`, `wsman` |
+| GPO abuse for mass deployment | `gpo.*abuse`, `group.*policy.*malicious`, `gpo.*scheduled.*task`, `sysvol.*script` |
 | Pass-the-hash/ticket | `pass.*the.*hash`, `overpass.*the.*hash`, `pass.*the.*ticket`, `pth\|ptt` |
 
 ### Phase 9: Collection & Staging
@@ -119,6 +122,7 @@ The assessment asks: "If ransomware hits your environment, at which stages would
 | Recovery mode disabling | `bcdedit.*/set.*recoveryenabled.*no`, `bcdedit.*safeboot`, `recovery.*disabl` |
 | Mass file encryption | `encrypt.*mass\|bulk\|ransom`, `file.*extension.*changed.*mass`, `ransom.*encrypt` |
 | Ransom note deployment | `ransom.*note`, `readme.*ransom\|decrypt`, `how.*to.*decrypt` |
+| Backup destruction (beyond shadow copies) | `wbadmin.*delete`, `veeam.*delet`, `delete.*backup.*catalog`, `bcdedit.*safeboot` |
 | Service/process stopping before encryption | `net.*stop.*sql\|exchange\|backup`, `taskkill.*sql\|oracle\|veeam`, `stop.*service.*before.*encrypt` |
 
 ---
@@ -144,8 +148,50 @@ Match against:
 ### Layer 2: AI Evaluation (for ambiguous detections)
 
 After keyword matching, identify detections that:
-- Have MITRE mappings to ransomware-adjacent techniques (T1486, T1490, T1003, T1021, T1059, T1562, etc.) AND
+- Have MITRE mappings to any of these ransomware-adjacent techniques AND
 - Did NOT match any keyword patterns
+
+**Ransomware-adjacent MITRE techniques for Layer 2 filter** (exhaustive list — detections must map to at least one of these to be sent to AI):
+```
+T1566, T1566.001, T1566.002  (Phishing)
+T1190                         (Exploit Public-Facing App)
+T1133                         (External Remote Services)
+T1078                         (Valid Accounts)
+T1059, T1059.001, T1059.003  (Command/Scripting)
+T1204, T1204.001, T1204.002  (User Execution)
+T1047                         (WMI)
+T1547, T1547.001              (Boot/Logon Autostart)
+T1543, T1543.003              (Create/Modify System Process)
+T1053, T1053.005              (Scheduled Task)
+T1548, T1548.002              (Abuse Elevation)
+T1055                         (Process Injection)
+T1134                         (Access Token Manipulation)
+T1562, T1562.001              (Impair Defenses)
+T1070, T1070.001              (Indicator Removal)
+T1027                         (Obfuscated Files)
+T1036, T1036.005              (Masquerading)
+T1218, T1218.011              (System Binary Proxy)
+T1003, T1003.001, T1003.002, T1003.003 (OS Credential Dumping)
+T1555                         (Credentials from Password Stores)
+T1558, T1558.003              (Steal/Forge Kerberos)
+T1082, T1083                  (System/File Discovery)
+T1018, T1016, T1049           (Remote/Network Discovery)
+T1135                         (Network Share Discovery)
+T1021, T1021.001, T1021.002, T1021.006 (Remote Services)
+T1570                         (Lateral Tool Transfer)
+T1080                         (Taint Shared Content)
+T1560                         (Archive Collected Data)
+T1567, T1567.002              (Exfil to Cloud)
+T1048                         (Exfil Over Alternative Protocol)
+T1041                         (Exfil Over C2)
+T1486                         (Data Encrypted for Impact)
+T1490                         (Inhibit System Recovery)
+T1489                         (Service Stop)
+T1485                         (Data Destruction)
+T1529                         (System Shutdown)
+```
+
+Detections with MITRE mappings outside this list are NOT sent to AI (they're not ransomware-adjacent).
 
 Send these to Gemini in a single batch call:
 
@@ -232,18 +278,27 @@ Order by impact — early kill chain gaps first.
 
 ### Files to create/modify:
 
-**New:**
-- `src/lib/playbooks/ransomware-killchain.ts` — Kill chain phase definitions, behavioral patterns
-- `src/lib/playbooks/behavioral-matcher.ts` — Layer 1 keyword matching + Layer 2 AI evaluation orchestration
+**New (edge function side — Deno runtime):**
+- `supabase/functions/optimus-tools/ransomware-killchain.ts` — Kill chain phase definitions, behavioral patterns (lives next to optimus-tools, NOT in src/lib/)
+- `supabase/functions/optimus-tools/behavioral-matcher.ts` — Layer 1 keyword matching + Layer 2 AI evaluation orchestration (Deno runtime, calls Gemini directly)
+
+**New (frontend side):**
+- `src/components/playbooks/PhaseAssessmentSection.tsx` — Renderer for per-phase assessment data (replaces raw JSON fallback)
 
 **Modify:**
-- `supabase/functions/run-playbook/index.ts` — Replace the 4-step ransomware playbook with a single `ransomware_readiness` tool call
-- `supabase/functions/optimus-tools/index.ts` — New `ransomware_readiness` handler that uses behavioral matching
+- `supabase/functions/run-playbook/index.ts` — Add `'ransomware_readiness'` to `ALLOWED_TOOLS` set. Replace the 4-step ransomware playbook definition with a single `ransomware_readiness` tool call.
+- `supabase/functions/optimus-tools/index.ts` — New `ransomware_readiness` handler in the tool switch, imports from the two new files above
 - `src/lib/playbooks/index.ts` — Update ransomware playbook definition, disable other 6 playbooks
-- `src/components/playbooks/PlaybookReport.tsx` — Add proper rendering for per-phase assessment (not raw JSON)
+- `src/lib/playbooks/types.ts` — Add `disabled?: boolean` and `disabledReason?: string` to `Playbook` interface
+- `src/components/playbooks/PlaybooksPage.tsx` — Render disabled playbooks greyed out with "Coming soon" label
+- `src/components/playbooks/PlaybookReport.tsx` — Import and use `PhaseAssessmentSection` for the new data shape
 
 **Do NOT modify:**
 - `06_functions.sql` — The old `identify_coverage_gaps` SQL function stays for backward compatibility with the Optimus Agent chat tool. We just stop using it for the playbook.
+
+### Important: client/server boundary
+
+The behavioral matching logic (keyword patterns, AI evaluation, detection fetching) runs **entirely in the edge function** (Deno/server-side). The frontend only receives the assembled results and renders them. The kill chain definitions and matcher live in `supabase/functions/optimus-tools/`, NOT in `src/lib/`.
 
 ### What gets disabled:
 
@@ -299,6 +354,85 @@ steps: [
   },
 ],
 ```
+
+---
+
+## Report Data Shape (Edge Function Response)
+
+The `ransomware_readiness` tool returns this JSON structure. The `PlaybookReport.tsx` renderer must handle this shape via a new `PhaseAssessmentSection` component.
+
+```typescript
+interface RansomwareAssessment {
+  phases: PhaseResult[];
+  executive_summary: string | null;  // AI-generated, null if AI fails
+  recommendations: string | null;    // AI-generated, null if AI fails
+  metadata: {
+    total_detections_scanned: number;
+    total_matched: number;
+    keyword_matches: number;
+    ai_matches: number;
+    phases_with_coverage: number;
+    phases_blind: number;
+  };
+}
+
+interface PhaseResult {
+  phase_id: string;           // 'initial_access', 'execution', etc.
+  phase_name: string;         // 'Initial Access', 'Execution', etc.
+  phase_number: number;       // 1-11
+  status: 'covered' | 'partially_covered' | 'blind_spot';
+  detections: MatchedDetection[];
+  gaps: string[];             // behavior labels with no matching detection
+  phase_context: string;      // brief explanation of why this phase matters
+}
+
+interface MatchedDetection {
+  detection_id: string;
+  name: string;
+  status: string;             // 'Production', 'Testing', etc.
+  quality_score: number;
+  query_language: string;
+  behavior_matched: string;   // which behavior this matched
+  match_source: 'keyword' | 'ai';
+  additional_count: number;   // how many other detections also match this behavior (depth)
+}
+```
+
+## AI Failure Fallback
+
+If Gemini calls fail (Layer 2 evaluation, executive summary, or recommendations):
+
+- **Layer 2 AI evaluation fails:** Skip it entirely. The assessment proceeds with keyword matches only. Add a note to metadata: `ai_evaluation_skipped: true, ai_error: "..."`.
+- **Executive summary AI fails:** Set `executive_summary` to `null`. The frontend shows the per-phase data without a summary. No fake "AI unavailable" text — just skip the section.
+- **Recommendations AI fails:** Same — `null`, section not rendered.
+
+The assessment is useful even with zero AI. Keywords catch the obvious patterns; the per-phase breakdown is the core value.
+
+## Detection Query Field Compatibility
+
+Older detections may only have `detectionQuery` (text) populated, not `queries` (JSONB array). The matcher must check both:
+
+```typescript
+const queryTexts: string[] = [];
+// New multi-query field
+if (detection.queries && Array.isArray(detection.queries)) {
+  for (const q of detection.queries) {
+    if (q.query) queryTexts.push(q.query);
+  }
+}
+// Legacy single query field
+if (detection.detectionQuery && queryTexts.length === 0) {
+  queryTexts.push(detection.detectionQuery);
+}
+```
+
+## Pattern Accuracy Expectations
+
+The keyword patterns will have false positives (generic `systeminfo` execution isn't ransomware-specific) and false negatives (novel detection names that use different phrasing). This is acceptable for v1:
+
+- False positives are bounded by the 2-field check (name/description + query). A detection named "System Information Discovery" whose query runs `systeminfo` will match Phase 7, which is correct — it detects that behavior even if it's not ransomware-exclusive.
+- False negatives are caught by Layer 2 AI for detections with relevant MITRE mappings.
+- The patterns should be treated as a living document — iterate based on real user feedback.
 
 ---
 
