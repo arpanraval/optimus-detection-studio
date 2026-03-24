@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon } from '../Icon';
 import type { Playbook, PlaybookRun } from '../../lib/playbooks/types';
+import { PhaseAssessmentSection } from './PhaseAssessmentSection';
 
 interface PlaybookReportProps {
   playbook: Playbook;
@@ -11,6 +12,11 @@ interface PlaybookReportProps {
 /** Render a data section from tool results */
 function DataSection({ data }: { data: any }) {
   if (!data) return <p className="text-sm text-on-surface-variant">No data available.</p>;
+
+  // Phase assessment (ransomware readiness)
+  if (data.phases && Array.isArray(data.phases)) {
+    return <PhaseAssessmentSection data={data} />;
+  }
 
   // Coverage summary
   if (data.overall || data.production) {
@@ -152,6 +158,31 @@ export const PlaybookReport: React.FC<PlaybookReportProps> = ({ playbook, run, o
       {/* Report sections */}
       <div className="px-6 py-5 space-y-6">
         {template.sections.map((section) => {
+          // For ransomware assessment, AI sections are embedded in the assessment data
+          const assessmentData = run.context?.['assessment'];
+          if (section.type === 'ai-generated' && section.key === 'executive-summary' && assessmentData?.executive_summary) {
+            return (
+              <div key={section.key}>
+                <h3 className="text-sm font-semibold text-on-surface mb-3 flex items-center gap-2">
+                  {section.title}
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-normal">AI Generated</span>
+                </h3>
+                <AISection content={assessmentData.executive_summary} />
+              </div>
+            );
+          }
+          if (section.type === 'ai-generated' && section.key === 'recommendations' && assessmentData?.recommendations) {
+            return (
+              <div key={section.key}>
+                <h3 className="text-sm font-semibold text-on-surface mb-3 flex items-center gap-2">
+                  {section.title}
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-normal">AI Generated</span>
+                </h3>
+                <AISection content={assessmentData.recommendations} />
+              </div>
+            );
+          }
+
           const hasData = section.type === 'data' && section.contextKey && run.context[section.contextKey];
           const hasAI = section.type === 'ai-generated' && run.generatedSections[section.key];
 
