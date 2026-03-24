@@ -179,7 +179,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       {isCopiedFromUniversal && sourceRule && (
         <DetailCard 
           title="Forked From" 
-          description={`This detection was forked from ${LIBRARY_LABELS['universal']}`}
+          description={`This detection was forked from ${LIBRARY_LABELS[LIBRARY_DEVELOPMENT]}`}
           className="border-teal-500/30 bg-teal-500/5"
         >
           <div className="flex items-center justify-between">

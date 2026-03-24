@@ -3,6 +3,7 @@ import { Icon } from '../Icon';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { supabase } from '../../lib/supabaseClient';
 import { Detection } from '../../types';
+import { LIBRARY_DEVELOPMENT } from '../../constants/library';
 
 interface AddDetectionsToWorkspaceModalProps {
   isOpen: boolean;
@@ -33,7 +34,7 @@ export const AddDetectionsToWorkspaceModal: React.FC<AddDetectionsToWorkspaceMod
         const { data, error } = await supabase
           .from('detections')
           .select('*')
-          .eq('library_type', 'universal')
+          .eq('library_type', LIBRARY_DEVELOPMENT)
           .order('name');
         
         if (!error && data) {

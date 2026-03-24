@@ -2309,15 +2309,14 @@ export const integrationService = {
     ruleConfig?: Partial<VendorRuleConfig> & { name?: string; description?: string; action?: string };
     vendorRuleId?: string;
   }): Promise<DeploymentRecord> {
-    // Guard: only Production Library (library_type='user') detections can be deployed
-    // Note: 'user' = Production Library, 'universal' = Detection Lab (semantic flip)
+    // Guard: only Production Library detections can be deployed
     const { data: detectionCheck } = await supabase
       .from('detections')
       .select('library_type')
       .eq('id', params.detectionId)
       .single();
 
-    if (detectionCheck?.library_type !== 'user') {
+    if (detectionCheck?.library_type !== 'production') {
       throw new DeployError(
         'LAB_DETECTION',
         'Only Production Library detections can be deployed to SIEMs.',
@@ -2755,14 +2754,14 @@ export const integrationService = {
           action: 'created',
           details: `Imported from ${rule.integrationName} (vendor rule: ${rule.vendorRuleId})`,
         }],
-        library_type: 'user',
+        library_type: 'production',
         source: sourceMap[rule.provider] || 'custom',
         source_rule_id: null,
         source_url: null,
         external_id: rule.vendorRuleId,
-        publish_status: 'unpublished',
-        published_to_id: null,
-        published_at: null,
+        promotion_status: 'none',
+        promoted_to_id: null,
+        promoted_at: null,
         createdDate: now,
         updatedDate: now,
       })

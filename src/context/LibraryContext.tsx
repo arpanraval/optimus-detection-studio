@@ -642,7 +642,11 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
 
   // Initial load
   useEffect(() => {
-    refreshAll();
+    const doInitialLoad = async () => {
+      await refreshAll();
+      initialLoadDone.current = true;
+    };
+    doInitialLoad();
     refreshDetectionPacks();
     refreshUserSubmissions(); // H2: Load user submissions on init
     if (userRole === 'admin') {
@@ -938,129 +942,63 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   // ============================================
 
   const bulkDelete = useCallback(async (detectionIds: string[]): Promise<BulkActionResult> => {
-    let successCount = 0;
-    let failureCount = 0;
-    const errors: string[] = [];
-    const deletedIds: string[] = [];
+    try {
+      const { error } = await supabase.from('detections').delete().in('id', detectionIds);
+      if (error) throw error;
 
-    for (const id of detectionIds) {
-      try {
-        const { error } = await supabase
-          .from('detections')
-          .delete()
-          .eq('id', id);
-
-        if (error) {
-          failureCount++;
-          errors.push(`Failed to delete ${id}: ${error.message}`);
-        } else {
-          successCount++;
-          deletedIds.push(id);
-        }
-      } catch (err: unknown) {
-        failureCount++;
-        errors.push(`Error deleting ${id}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
-    if (successCount > 0) {
-      showToast('success', 'Deleted', `Successfully deleted ${successCount} detection${successCount > 1 ? 's' : ''}`);
-      // Audit: log bulk delete
-      logAuditEvents(deletedIds.map(id => ({
+      showToast('success', 'Deleted', `Successfully deleted ${detectionIds.length} detection${detectionIds.length > 1 ? 's' : ''}`);
+      logAuditEvents(detectionIds.map(id => ({
         action: 'detection.deleted' as const,
         entity_type: 'detection',
         entity_id: id,
       })));
       await refreshAll();
       clearSelection();
-    }
 
-    if (failureCount > 0) {
-      showToast('error', 'Some Deletions Failed', `Failed to delete ${failureCount} detection${failureCount > 1 ? 's' : ''}`);
+      return { success: true, successCount: detectionIds.length, failureCount: 0 };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      showToast('error', 'Delete Failed', message);
+      return { success: false, successCount: 0, failureCount: detectionIds.length, errors: [message] };
     }
-
-    return { success: failureCount === 0, successCount, failureCount, errors };
   }, [refreshAll, clearSelection, showToast]);
 
-  const bulkUpdateStatus = useCallback(async (detectionIds: string[], status: string): Promise<BulkActionResult> => {
-    let successCount = 0;
-    let failureCount = 0;
-    const errors: string[] = [];
-    const updatedIds: string[] = [];
+  const bulkUpdateStatus = useCallback(async (detectionIds: string[], newStatus: string): Promise<BulkActionResult> => {
+    try {
+      const { error } = await supabase.from('detections').update({ status: newStatus, updatedDate: new Date().toISOString() }).in('id', detectionIds);
+      if (error) throw error;
 
-    for (const id of detectionIds) {
-      try {
-        const { error } = await supabase
-          .from('detections')
-          .update({ status, updatedDate: new Date().toISOString() })
-          .eq('id', id);
-
-        if (error) {
-          failureCount++;
-          errors.push(`Failed to update ${id}: ${error.message}`);
-        } else {
-          successCount++;
-          updatedIds.push(id);
-        }
-      } catch (err: unknown) {
-        failureCount++;
-        errors.push(`Error updating ${id}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
-    if (successCount > 0) {
-      showToast('success', 'Status Updated', `Updated status for ${successCount} detection${successCount > 1 ? 's' : ''}`);
-      // Audit: log status changes
-      logAuditEvents(updatedIds.map(id => ({
+      showToast('success', 'Status Updated', `Updated status for ${detectionIds.length} detection${detectionIds.length > 1 ? 's' : ''}`);
+      logAuditEvents(detectionIds.map(id => ({
         action: 'detection.status_changed' as const,
         entity_type: 'detection',
         entity_id: id,
-        new_values: { status },
+        new_values: { status: newStatus },
       })));
       await refreshAll();
-    }
 
-    if (failureCount > 0) {
-      showToast('error', 'Some Updates Failed', `Failed to update ${failureCount} detection${failureCount > 1 ? 's' : ''}`);
+      return { success: true, successCount: detectionIds.length, failureCount: 0 };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      showToast('error', 'Update Failed', message);
+      return { success: false, successCount: 0, failureCount: detectionIds.length, errors: [message] };
     }
-
-    return { success: failureCount === 0, successCount, failureCount, errors };
   }, [refreshAll, showToast]);
 
-  const bulkUpdateSeverity = useCallback(async (detectionIds: string[], severity: string): Promise<BulkActionResult> => {
-    let successCount = 0;
-    let failureCount = 0;
-    const errors: string[] = [];
+  const bulkUpdateSeverity = useCallback(async (detectionIds: string[], newSeverity: string): Promise<BulkActionResult> => {
+    try {
+      const { error } = await supabase.from('detections').update({ severity: newSeverity, updatedDate: new Date().toISOString() }).in('id', detectionIds);
+      if (error) throw error;
 
-    for (const id of detectionIds) {
-      try {
-        const { error } = await supabase
-          .from('detections')
-          .update({ severity, updatedDate: new Date().toISOString() })
-          .eq('id', id);
-
-        if (error) {
-          failureCount++;
-          errors.push(`Failed to update ${id}: ${error.message}`);
-        } else {
-          successCount++;
-        }
-      } catch (err: unknown) {
-        failureCount++;
-        errors.push(`Error updating ${id}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
-    if (successCount > 0) {
-      showToast('success', 'Severity Updated', `Updated severity for ${successCount} detection${successCount > 1 ? 's' : ''}`);
+      showToast('success', 'Severity Updated', `Updated severity for ${detectionIds.length} detection${detectionIds.length > 1 ? 's' : ''}`);
       await refreshAll();
-    }
 
-    if (failureCount > 0) {
-      showToast('error', 'Some Updates Failed', `Failed to update ${failureCount} detection${failureCount > 1 ? 's' : ''}`);
+      return { success: true, successCount: detectionIds.length, failureCount: 0 };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      showToast('error', 'Update Failed', message);
+      return { success: false, successCount: 0, failureCount: detectionIds.length, errors: [message] };
     }
-
-    return { success: failureCount === 0, successCount, failureCount, errors };
   }, [refreshAll, showToast]);
 
   const bulkAddTags = useCallback(async (detectionIds: string[], newTags: string[]): Promise<BulkActionResult> => {
@@ -1216,10 +1154,11 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     let query = baseQuery;
 
     // Apply library filter
-    if (currentLibrary === LIBRARY_DEVELOPMENT) {
-      query = query.eq('library_type', LIBRARY_DEVELOPMENT);
+    // Production Library is shared — no user_id filter needed
+    if (currentLibrary === LIBRARY_PRODUCTION) {
+      query = query.or(`library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null`);
     } else {
-      query = query.eq('user_id', userId).or(`library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null`);
+      query = query.eq('user_id', userId).eq('library_type', LIBRARY_DEVELOPMENT);
     }
 
     // Apply additional filters

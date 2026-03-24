@@ -10,6 +10,7 @@ import { useBeforeUnload } from '../hooks/useBeforeUnload';
 import { Detection } from '../types';
 import { generateAIContent } from '../lib/aiService';
 import { supabase } from '../lib/supabaseClient';
+import { LIBRARY_DEVELOPMENT } from '../constants/library';
 
 // =============================================================================
 // TYPES & PROPS
@@ -285,7 +286,7 @@ const LoadRuleModal: React.FC<{
                                             <div className="font-medium text-sm text-on-surface truncate">{rule.name}</div>
                                             <div className="text-xs text-on-surface-variant truncate">{rule.description || 'No description'}</div>
                                         </div>
-                                        {rule.library_type === 'universal' && (
+                                        {rule.library_type === LIBRARY_DEVELOPMENT && (
                                             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-tertiary/10 text-tertiary">
                                                 UNIVERSAL
                                             </span>

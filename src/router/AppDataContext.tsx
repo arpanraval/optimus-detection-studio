@@ -146,7 +146,7 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({ children, user
       const { data: first, error, count } = await supabase
         .from('detections')
         .select(LIGHTWEIGHT_COLUMNS, { count: 'exact' })
-        .or(`and(user_id.eq.${user.id},or(library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null)),library_type.eq.${LIBRARY_DEVELOPMENT}`)
+        .or(`or(library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null),and(user_id.eq.${user.id},library_type.eq.${LIBRARY_DEVELOPMENT})`)
         .order('updatedDate', { ascending: false })
         .range(0, PAGE_SIZE - 1);
 
@@ -163,7 +163,7 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({ children, user
           Promise.resolve(supabase
             .from('detections')
             .select(LIGHTWEIGHT_COLUMNS)
-            .or(`and(user_id.eq.${user.id},or(library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null)),library_type.eq.${LIBRARY_DEVELOPMENT}`)
+            .or(`or(library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null),and(user_id.eq.${user.id},library_type.eq.${LIBRARY_DEVELOPMENT})`)
             .order('updatedDate', { ascending: false })
             .range(offset, offset + PAGE_SIZE - 1)
             .then(({ data, error }) => {

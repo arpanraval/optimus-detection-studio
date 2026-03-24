@@ -1,6 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { LIBRARY_PRODUCTION } from '../constants/library';
 
 export interface CoveredDetectionInfo {
   id: string;
@@ -36,8 +37,7 @@ export function useMitreCoverage(scope: 'production' | 'all' = 'production') {
         .select('id, name, status, severity, qualityScore, mitreAttackIds');
 
       if (scope === 'production') {
-        // Production Library = library_type 'user' (semantic flip)
-        query = query.eq('library_type', 'user');
+        query = query.eq('library_type', LIBRARY_PRODUCTION);
       }
       // 'all' = no filter (includes both Production + Lab)
 
