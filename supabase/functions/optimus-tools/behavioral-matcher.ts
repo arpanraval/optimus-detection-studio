@@ -251,7 +251,7 @@ export async function runRansomwareAssessment(
   const { data: detections, error } = await supabaseClient
     .from('detections')
     .select('id, name, description, status, "qualityScore", "queryLanguage", "detectionQuery", queries, "mitreAttackIds"')
-    .eq('library_type', 'user');
+    .eq('library_type', 'production');
 
   if (error) throw new Error(`Failed to fetch detections: ${error.message}`);
   const allDetections: DetectionRow[] = (detections || []).map((d: any) => ({
@@ -266,8 +266,18 @@ export async function runRansomwareAssessment(
     mitreAttackIds: d.mitreAttackIds || [],
   }));
 
-  // 2. Layer 1: keyword matching
-  const keywordMatches = runKeywordMatching(allDetections);
+  // 2. Pre-filter: only run keyword matching against detections with
+  // ransomware-adjacent MITRE mappings OR no MITRE mappings at all (custom rules
+  // that might match on behavioral keywords but weren't MITRE-tagged).
+  // This cuts 10K libraries down to ~500-1000 candidates before regex.
+  const candidates = allDetections.filter(d => {
+    const ids = d.mitreAttackIds || [];
+    if (ids.length === 0) return true; // untagged — might match on keywords
+    return ids.some(id => RANSOMWARE_ADJACENT_TECHNIQUES.has(id));
+  });
+
+  // Layer 1: keyword matching (against filtered candidates only)
+  const keywordMatches = runKeywordMatching(candidates);
   const matchedDetectionIds = new Set(keywordMatches.map(m => m.detection_id));
 
   // 3. Layer 2: AI evaluation (if API key available)
@@ -276,7 +286,8 @@ export async function runRansomwareAssessment(
   let aiError: string | undefined;
 
   if (geminiApiKey) {
-    const unmatched = allDetections.filter(d => !matchedDetectionIds.has(d.id));
+    // Layer 2 uses candidates (already MITRE-filtered), minus those already matched by keywords
+    const unmatched = candidates.filter(d => !matchedDetectionIds.has(d.id));
     const aiResult = await runAIEvaluation(unmatched, geminiApiKey);
     aiMatches = aiResult.matches;
     aiSkipped = aiResult.skipped;

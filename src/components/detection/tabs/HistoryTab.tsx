@@ -329,7 +329,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ detection }) => {
                     ? 'bg-secondary/10 text-secondary border border-secondary/20'
                     : 'bg-primary/10 text-primary border border-primary/20'
                 }`}>
-                  <Icon name={detection.library_type === LIBRARY_DEVELOPMENT ? 'globe' : 'user'} className="w-3.5 h-3.5" />
+                  <Icon name={detection.library_type === LIBRARY_DEVELOPMENT ? 'flask' : 'shield'} className="w-3.5 h-3.5" />
                   {detection.library_type === LIBRARY_DEVELOPMENT ? LIBRARY_LABELS[LIBRARY_DEVELOPMENT] : LIBRARY_LABELS[LIBRARY_PRODUCTION]}
                 </span>
               </div>
