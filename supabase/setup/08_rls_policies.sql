@@ -36,7 +36,7 @@ ALTER TABLE public.mitre_technique_platforms ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mitre_technique_tactics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.pack_detections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.publish_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.promotion_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.scoring_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.team_invitations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.team_members ENABLE ROW LEVEL SECURITY;
@@ -237,7 +237,7 @@ CREATE POLICY "Team members can view comments" ON public.detection_comments
   TO public
   USING ((EXISTS ( SELECT 1
    FROM detections d
-  WHERE ((d.id = detection_comments.detection_id) AND ((d.user_id = auth.uid()) OR is_team_member(d.team_id) OR (d.library_type = 'universal'::text))))));
+  WHERE ((d.id = detection_comments.detection_id) AND ((d.user_id = auth.uid()) OR is_team_member(d.team_id) OR (d.library_type = 'development'::text))))));
 
 CREATE POLICY "Users can delete own comments" ON public.detection_comments
   AS PERMISSIVE
@@ -317,141 +317,88 @@ CREATE POLICY "Team members can view reviews" ON public.detection_reviews
 -- Table: detections
 -- --------------------------------------------------------
 
-CREATE POLICY "Admins can delete all detections" ON public.detections
+-- Production Library: readable by all authenticated users
+CREATE POLICY "production_select" ON public.detections
   AS PERMISSIVE
-  FOR DELETE
-  TO public
-  USING ((EXISTS ( SELECT 1
-   FROM profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
+  FOR SELECT
+  TO authenticated
+  USING ((library_type = 'production'::text));
 
-CREATE POLICY "Admins can delete detections" ON public.detections
+-- Production Library: only admins/leads can insert
+CREATE POLICY "production_insert" ON public.detections
+  AS PERMISSIVE
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (((library_type = 'production'::text) AND is_global_admin_or_lead(auth.uid())));
+
+-- Production Library: only admins/leads can update
+CREATE POLICY "production_update" ON public.detections
+  AS PERMISSIVE
+  FOR UPDATE
+  TO authenticated
+  USING (((library_type = 'production'::text) AND is_global_admin_or_lead(auth.uid())))
+  WITH CHECK (((library_type = 'production'::text) AND is_global_admin_or_lead(auth.uid())));
+
+-- Production Library: only admins/leads can delete
+CREATE POLICY "production_delete" ON public.detections
   AS PERMISSIVE
   FOR DELETE
   TO authenticated
-  USING (((auth.uid() = user_id) OR (EXISTS ( SELECT 1
-   FROM profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text])))))));
+  USING (((library_type = 'production'::text) AND is_global_admin_or_lead(auth.uid())));
 
-CREATE POLICY "Admins can delete universal detections" ON public.detections
-  AS PERMISSIVE
-  FOR DELETE
-  TO public
-  USING (((library_type = 'universal'::text) AND (EXISTS ( SELECT 1
-   FROM profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text))))));
-
-CREATE POLICY "Admins can update all detections" ON public.detections
-  AS PERMISSIVE
-  FOR UPDATE
-  TO public
-  USING ((EXISTS ( SELECT 1
-   FROM profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
-
-CREATE POLICY "Admins can update universal detections" ON public.detections
-  AS PERMISSIVE
-  FOR UPDATE
-  TO public
-  USING (((library_type = 'universal'::text) AND (EXISTS ( SELECT 1
-   FROM profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text))))))
-  WITH CHECK (((library_type = 'universal'::text) AND (EXISTS ( SELECT 1
-   FROM profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text))))));
-
-CREATE POLICY "Admins can view all detections" ON public.detections
+-- Development Library: users can see own, assigned, shared, or team detections; admins/leads see all
+CREATE POLICY "development_select" ON public.detections
   AS PERMISSIVE
   FOR SELECT
-  TO public
-  USING ((EXISTS ( SELECT 1
-   FROM profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
+  TO authenticated
+  USING (((library_type = 'development'::text) AND (
+    (auth.uid() = user_id) OR
+    (auth.uid() = assigned_to) OR
+    (visibility = 'shared'::text) OR
+    ((team_id IS NOT NULL) AND is_team_member(team_id)) OR
+    is_global_admin_or_lead(auth.uid())
+  )));
 
-CREATE POLICY "Service role can manage detections" ON public.detections
+-- Development Library: authenticated users can insert (own detections)
+CREATE POLICY "development_insert" ON public.detections
+  AS PERMISSIVE
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (((library_type = 'development'::text) AND ((auth.uid() = user_id) OR (user_id IS NULL))));
+
+-- Development Library: users can update own/assigned; admins/leads can update any
+CREATE POLICY "development_update" ON public.detections
+  AS PERMISSIVE
+  FOR UPDATE
+  TO authenticated
+  USING (((library_type = 'development'::text) AND (
+    (auth.uid() = user_id) OR
+    (auth.uid() = assigned_to) OR
+    is_global_admin_or_lead(auth.uid())
+  )))
+  WITH CHECK (((library_type = 'development'::text) AND (
+    (auth.uid() = user_id) OR
+    (auth.uid() = assigned_to) OR
+    is_global_admin_or_lead(auth.uid())
+  )));
+
+-- Development Library: users can delete own; admins/leads can delete any
+CREATE POLICY "development_delete" ON public.detections
+  AS PERMISSIVE
+  FOR DELETE
+  TO authenticated
+  USING (((library_type = 'development'::text) AND (
+    (auth.uid() = user_id) OR
+    is_global_admin_or_lead(auth.uid())
+  )));
+
+-- Service role bypasses all RLS
+CREATE POLICY "service_role_all" ON public.detections
   AS PERMISSIVE
   FOR ALL
   TO service_role
   USING (true)
   WITH CHECK (true);
-
-CREATE POLICY "Universal library readable by authenticated users" ON public.detections
-  AS PERMISSIVE
-  FOR SELECT
-  TO public
-  USING (((library_type = 'universal'::text) AND (auth.uid() IS NOT NULL)));
-
-CREATE POLICY "Production library readable by authenticated users" ON public.detections
-  AS PERMISSIVE
-  FOR SELECT
-  TO authenticated
-  USING (library_type = 'user');
-
-CREATE POLICY "Users can create detections" ON public.detections
-  AS PERMISSIVE
-  FOR INSERT
-  TO authenticated
-  WITH CHECK (((auth.uid() = user_id) OR (user_id IS NULL)));
-
-CREATE POLICY "Users can create their own detections." ON public.detections
-  AS PERMISSIVE
-  FOR INSERT
-  TO public
-  WITH CHECK (((auth.uid() = user_id) OR (EXISTS ( SELECT 1
-   FROM profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text))))));
-
-CREATE POLICY "Users can delete own detections" ON public.detections
-  AS PERMISSIVE
-  FOR DELETE
-  TO public
-  USING ((auth.uid() = user_id));
-
-CREATE POLICY "Users can delete their own detections." ON public.detections
-  AS PERMISSIVE
-  FOR DELETE
-  TO public
-  USING ((auth.uid() = user_id));
-
-CREATE POLICY "Users can read scoped detections" ON public.detections
-  AS PERMISSIVE
-  FOR SELECT
-  TO authenticated
-  USING (((auth.uid() = user_id) OR (auth.uid() = assigned_to) OR (library_type = 'universal'::text) OR ((team_id IS NOT NULL) AND (EXISTS ( SELECT 1
-   FROM team_members
-  WHERE ((team_members.team_id = detections.team_id) AND (team_members.user_id = auth.uid()))))) OR (EXISTS ( SELECT 1
-   FROM profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text, 'lead'::text])))))));
-
-CREATE POLICY "Users can update own detections" ON public.detections
-  AS PERMISSIVE
-  FOR UPDATE
-  TO public
-  USING ((auth.uid() = user_id))
-  WITH CHECK ((auth.uid() = user_id));
-
-CREATE POLICY "Users can update own or assigned detections" ON public.detections
-  AS PERMISSIVE
-  FOR UPDATE
-  TO authenticated
-  USING (((auth.uid() = user_id) OR (auth.uid() = assigned_to) OR (EXISTS ( SELECT 1
-   FROM profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text, 'lead'::text])))))))
-  WITH CHECK (((auth.uid() = user_id) OR (auth.uid() = assigned_to) OR (EXISTS ( SELECT 1
-   FROM profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text, 'lead'::text])))))));
-
-CREATE POLICY "Users can update their own detections." ON public.detections
-  AS PERMISSIVE
-  FOR UPDATE
-  TO public
-  USING ((auth.uid() = user_id));
-
-CREATE POLICY "Users can view their own detections." ON public.detections
-  AS PERMISSIVE
-  FOR SELECT
-  TO public
-  USING ((auth.uid() = user_id));
 
 -- --------------------------------------------------------
 -- Table: enrichment_audit
@@ -746,36 +693,39 @@ CREATE POLICY "Users can view profiles" ON public.profiles
   WHERE ((tm1.user_id = auth.uid()) AND (tm2.user_id = profiles.id) AND (tm1.status = 'active'::text) AND (tm2.status = 'active'::text))))));
 
 -- --------------------------------------------------------
--- Table: publish_requests
+-- Table: promotion_requests
 -- --------------------------------------------------------
 
-CREATE POLICY "Admins see all publish requests" ON public.publish_requests
-  AS PERMISSIVE
-  FOR SELECT
-  TO public
-  USING ((EXISTS ( SELECT 1
-   FROM profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
-
-CREATE POLICY "Admins update publish requests" ON public.publish_requests
-  AS PERMISSIVE
-  FOR UPDATE
-  TO public
-  USING ((EXISTS ( SELECT 1
-   FROM profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
-
-CREATE POLICY "Users create own publish requests" ON public.publish_requests
+CREATE POLICY "promotion_requests_insert" ON public.promotion_requests
   AS PERMISSIVE
   FOR INSERT
-  TO public
+  TO authenticated
   WITH CHECK ((submitted_by = auth.uid()));
 
-CREATE POLICY "Users see own publish requests" ON public.publish_requests
+CREATE POLICY "promotion_requests_select_own" ON public.promotion_requests
   AS PERMISSIVE
   FOR SELECT
-  TO public
+  TO authenticated
   USING ((submitted_by = auth.uid()));
+
+CREATE POLICY "promotion_requests_select_admin" ON public.promotion_requests
+  AS PERMISSIVE
+  FOR SELECT
+  TO authenticated
+  USING (is_global_admin_or_lead(auth.uid()));
+
+CREATE POLICY "promotion_requests_update" ON public.promotion_requests
+  AS PERMISSIVE
+  FOR UPDATE
+  TO authenticated
+  USING (is_global_admin_or_lead(auth.uid()));
+
+CREATE POLICY "promotion_requests_service_role" ON public.promotion_requests
+  AS PERMISSIVE
+  FOR ALL
+  TO service_role
+  USING (true)
+  WITH CHECK (true);
 
 -- --------------------------------------------------------
 -- Table: scoring_profiles
