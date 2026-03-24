@@ -30,7 +30,7 @@ export const DETECTION_FIELDS: FieldDefinition[] = [
 
   // Metadata
   { name: 'tags',               label: 'Tags',                 type: 'array',   groupable: true,  aggregatable: false, filterable: true },
-  { name: 'library_type',       label: 'Library',              type: 'string',  groupable: true,  aggregatable: false, filterable: true,  values: ['personal', 'universal'] },
+  { name: 'library_type',       label: 'Library',              type: 'string',  groupable: true,  aggregatable: false, filterable: true,  values: ['development', 'production'] },
   { name: 'source',             label: 'Source',               type: 'string',  groupable: true,  aggregatable: false, filterable: true },
 
   // Assignment

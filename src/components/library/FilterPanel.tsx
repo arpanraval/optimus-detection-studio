@@ -30,7 +30,7 @@ const MATURITY_OPTIONS = Object.values(Maturity);
 const CONFIDENCE_OPTIONS = Object.values(Confidence);
 const QUALITY_GRADE_OPTIONS = ['A', 'B', 'C', 'D', 'F'];
 const REVIEW_STATUS_OPTIONS = ['none', 'requested', 'in_review', 'approved', 'rejected'];
-const PUBLISH_STATUS_OPTIONS = ['unpublished', 'pending', 'published', 'rejected'];
+const PROMOTION_STATUS_OPTIONS = ['none', 'pending', 'promoted', 'rejected'];
 const VALIDATED_OPTIONS = ['true', 'false'];
 const QUERY_LANGUAGE_OPTIONS = [...QUERY_LANGUAGES];
 const SOURCE_OPTIONS = ['custom', 'sigmahq', 'splunk_escu', 'elastic', 'microsoft_sentinel', 'crowdstrike', 'chronicle', 'community'];
@@ -41,7 +41,7 @@ interface FilterFieldDef {
   label: string;
   options: string[] | 'dynamic';
   dynamicKey?: keyof FilterOptions;
-  librarySpecific?: 'user' | 'universal';
+  librarySpecific?: 'development' | 'production';
 }
 
 const FILTER_FIELDS: FilterFieldDef[] = [
@@ -63,10 +63,10 @@ const FILTER_FIELDS: FilterFieldDef[] = [
   { field: 'associatedCVEs', label: 'CVEs', options: 'dynamic', dynamicKey: 'cves' },
   { field: 'qualityGrade', label: 'Quality Grade', options: QUALITY_GRADE_OPTIONS },
   { field: 'review_status', label: 'Review Status', options: REVIEW_STATUS_OPTIONS },
-  { field: 'publish_status', label: 'Publish Status', options: PUBLISH_STATUS_OPTIONS, librarySpecific: 'user' },
+  { field: 'promotion_status', label: 'Promotion Status', options: PROMOTION_STATUS_OPTIONS, librarySpecific: 'development' },
   { field: 'author', label: 'Author', options: 'dynamic', dynamicKey: 'authors' },
   { field: 'tags', label: 'Tags', options: 'dynamic', dynamicKey: 'tags' },
-  { field: 'source', label: 'Source', options: SOURCE_OPTIONS, librarySpecific: 'universal' },
+  { field: 'source', label: 'Source', options: SOURCE_OPTIONS, librarySpecific: 'development' },
 ];
 
 interface SearchMatch {

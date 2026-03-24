@@ -11,7 +11,8 @@ interface PublishStatusBadgeProps {
 }
 
 /**
- * PublishStatusBadge Component - Detection Studio Design System
+ * PromotionStatusBadge (exported as PublishStatusBadge for backward compatibility)
+ * TODO: Rename export to PromotionStatusBadge once all imports are updated
  *
  * Colors:
  * - none: Surface Gray

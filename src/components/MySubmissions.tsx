@@ -3,6 +3,7 @@ import { Icon } from './Icon';
 import { supabase } from '../lib/supabaseClient';
 import { useToast } from '../hooks/useToast';
 import { PublishRequest, Detection, LIBRARY_LABELS } from '../types';
+import { LIBRARY_PRODUCTION } from '../constants/library';
 
 interface MySubmissionsProps {
   userId: string;
@@ -45,10 +46,10 @@ export const MySubmissions: React.FC<MySubmissionsProps> = ({
     setIsLoading(true);
     try {
       let query = supabase
-        .from('publish_requests')
+        .from('promotion_requests')
         .select(`
           *,
-          detection:detections!publish_requests_detection_id_fkey(
+          detection:detections!promotion_requests_detection_id_fkey(
             id, name, description, severity, "qualityScore"
           )
         `)
@@ -79,7 +80,7 @@ export const MySubmissions: React.FC<MySubmissionsProps> = ({
   const handleCancelSubmission = async (requestId: string) => {
     try {
       const { error } = await supabase
-        .from('publish_requests')
+        .from('promotion_requests')
         .update({ 
           status: 'cancelled',
           reviewed_at: new Date().toISOString()
@@ -167,7 +168,7 @@ export const MySubmissions: React.FC<MySubmissionsProps> = ({
             )}
             <div>
               <h1 className="text-xl font-semibold text-on-surface">My Submissions</h1>
-              <p className="text-xs text-on-surface-variant mt-0.5">Track your {LIBRARY_LABELS['universal']} submissions</p>
+              <p className="text-xs text-on-surface-variant mt-0.5">Track your promotion submissions</p>
             </div>
           </div>
           
@@ -244,7 +245,7 @@ export const MySubmissions: React.FC<MySubmissionsProps> = ({
             <h3 className="text-lg font-medium text-on-surface mb-1">No Submissions</h3>
             <p className="text-sm text-on-surface-variant max-w-sm">
               {statusFilter === 'all' 
-                ? `You haven't submitted any detections to the ${LIBRARY_LABELS['universal']} yet.`
+                ? `You haven't submitted any detections for promotion yet.`
                 : `No ${statusFilter} submissions found.`
               }
             </p>
@@ -391,7 +392,7 @@ export const MySubmissions: React.FC<MySubmissionsProps> = ({
                             className="px-3 py-1.5 text-xs font-medium text-tertiary bg-tertiary/10 hover:bg-tertiary/20 rounded-lg transition-colors flex items-center gap-1.5"
                           >
                             <Icon name="external-link" className="w-3.5 h-3.5" />
-                            View in {LIBRARY_LABELS['user']}
+                            View in {LIBRARY_LABELS[LIBRARY_PRODUCTION]}
                           </button>
                         )}
                       </div>
