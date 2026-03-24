@@ -85,12 +85,23 @@ export const PlaybooksPage: React.FC = () => {
       {/* Playbook grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {PLAYBOOKS.map((playbook) => (
-          <PlaybookCard
-            key={playbook.id}
-            playbook={playbook}
-            onRun={handleRun}
-            isRunning={isRunning && activePlaybook?.id === playbook.id}
-          />
+          playbook.disabled ? (
+            <div key={playbook.id} className="opacity-40 pointer-events-none relative">
+              <PlaybookCard playbook={playbook} onRun={() => {}} isRunning={false} />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="px-3 py-1.5 rounded-lg bg-surface-container-highest/90 text-xs font-medium text-on-surface-variant border border-outline/20">
+                  Coming Soon
+                </span>
+              </div>
+            </div>
+          ) : (
+            <PlaybookCard
+              key={playbook.id}
+              playbook={playbook}
+              onRun={handleRun}
+              isRunning={isRunning && activePlaybook?.id === playbook.id}
+            />
+          )
         ))}
       </div>
 
