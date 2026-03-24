@@ -21,6 +21,7 @@ import React, {
 import { GitHubFetcher } from '../../services/bulk-import/fetchers/GitHubFetcher';
 import { BulkImportJobManager } from '../../services/bulk-import/orchestrator/BulkImportJobManager';
 import type { ImportJobStatus, ImportProgress, ValidatedRule, ImportJobConfig } from '../../services/bulk-import/types';
+import { LIBRARY_PRODUCTION } from '../../constants/library';
 import { supabase } from '../../lib/supabaseClient';
 import { PipelineController } from './pipeline/PipelineController';
 import { useRegisterNavigationBlocker } from '../../context/NavigationBlockerContext';
@@ -793,7 +794,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         sourceUrl,
         vendor: source.vendor,
         vendorFilter: [source.vendor],
-        targetLibrary: 'user',
+        targetLibrary: LIBRARY_PRODUCTION,
         duplicateStrategy: 'skip',
         githubPath: source.basePath,
         includePaths: selectedFolders.map((f) => f.path),
@@ -941,7 +942,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const jobConfig: ImportJobConfig = {
       sourceType: 'github',
       vendor: (combinedVendor as ImportJobConfig['vendor']) ?? 'mixed',
-      targetLibrary: 'user',
+      targetLibrary: LIBRARY_PRODUCTION,
       duplicateStrategy: 'skip',
     };
 

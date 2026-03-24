@@ -15,7 +15,7 @@ interface FilterPanelProps {
   onChange: (field: string, values: string[]) => void;
   filterOptions: FilterOptions;
   filterOptionsLoading: boolean;
-  libraryType: 'user' | 'universal';
+  libraryType: string;
   isOpen: boolean;
   onToggle: () => void;
   presets: FilterPreset[];

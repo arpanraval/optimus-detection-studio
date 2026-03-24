@@ -14,6 +14,7 @@ import { batchInserter } from '../../services/bulk-import/persistence/BatchInser
 import { useLibrary } from '../../context/LibraryContext';
 import { ROUTES } from '../../router/routes';
 import { LIBRARY_LABELS_SHORT } from '../../types/detection';
+import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION, type LibraryType } from '../../constants/library';
 
 // Colors matching app design system
 const COLORS = {
@@ -303,10 +304,10 @@ function JobCard({
                 </span>
               )}
               <span className="text-xs px-2 py-0.5 rounded-full" style={{
-                backgroundColor: job.target_library === 'universal' ? `${COLORS.blue}15` : `${COLORS.brand}15`,
-                color: job.target_library === 'universal' ? COLORS.blue : COLORS.brand
+                backgroundColor: job.target_library === LIBRARY_DEVELOPMENT ? `${COLORS.blue}15` : `${COLORS.brand}15`,
+                color: job.target_library === LIBRARY_DEVELOPMENT ? COLORS.blue : COLORS.brand
               }}>
-                {LIBRARY_LABELS_SHORT[job.target_library as 'universal' | 'user'] ?? job.target_library}
+                {LIBRARY_LABELS_SHORT[job.target_library as LibraryType] ?? job.target_library}
               </span>
             </div>
 

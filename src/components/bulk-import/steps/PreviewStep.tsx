@@ -7,6 +7,7 @@ import React, { useState, useMemo } from 'react';
 import { useBulkImportContext } from '../../../context/BulkImportContext';
 import { useAppData } from '../../../router/AppDataContext';
 import { PreviewFilters, EmbeddingStrategy } from '../../../services/bulk-import/types';
+import { LIBRARY_PRODUCTION } from '../../../constants/library';
 import { PreviewTable } from '../preview/PreviewTable';
 import { ScaleConfirmationDialog, LARGE_IMPORT_THRESHOLD } from '../ScaleConfirmationDialog';
 import { Icon } from '../../Icon';
@@ -141,7 +142,7 @@ export function PreviewStep() {
         onConfirm={performImport}
         onCancel={() => setShowScaleConfirmation(false)}
         ruleCount={summary.selected}
-        targetLibrary={job?.config.targetLibrary || 'user'}
+        targetLibrary={job?.config.targetLibrary || LIBRARY_PRODUCTION}
       />
 
     <div className="space-y-6">

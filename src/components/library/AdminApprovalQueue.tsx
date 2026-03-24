@@ -101,7 +101,7 @@ export const AdminApprovalQueue: React.FC<AdminApprovalQueueProps> = ({
   const [reviewRequests, setReviewRequests] = useState<DetectionReview[]>([]);
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
 
-  const { pendingRequests, approveRequest, bulkApproveRequests, refreshPendingRequests } = useLibrary();
+  const { pendingRequests, approvePromotion: approveRequest, bulkApproveRequests, refreshPendingRequests } = useLibrary();
   const { startReview, getPendingReviews } = useReview();
 
   // Fetch pending reviews

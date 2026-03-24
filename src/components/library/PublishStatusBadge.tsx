@@ -1,11 +1,11 @@
 import React from 'react';
 import { Icon } from '../Icon';
-import { PublishStatus } from '../../types';
+import { PromotionStatus, PROMOTION_NONE, PROMOTION_PENDING, PROMOTION_PROMOTED, PROMOTION_REJECTED } from '../../constants/library';
 
 export type BadgeSize = 'xs' | 'sm' | 'md' | 'lg';
 
 interface PublishStatusBadgeProps {
-  status: PublishStatus;
+  status: PromotionStatus;
   size?: BadgeSize;
   showLabel?: boolean;
 }
@@ -14,38 +14,38 @@ interface PublishStatusBadgeProps {
  * PublishStatusBadge Component - Detection Studio Design System
  *
  * Colors:
- * - unpublished: Surface Gray
+ * - none: Surface Gray
  * - pending: Yellow (warning)
- * - published: #4D7C6F (Sage Green - success)
+ * - promoted: #4D7C6F (Sage Green - success)
  * - rejected: #A63D40 (Brick Red - error)
  *
  * Sizes: xs (16px), sm (20px), md (24px), lg (28px)
  */
-const statusConfig: Record<PublishStatus, {
+const statusConfig: Record<PromotionStatus, {
   icon: string;
   label: string;
   className: string;
   iconClassName: string;
 }> = {
-  unpublished: {
+  [PROMOTION_NONE]: {
     icon: 'circle',
-    label: 'Unpublished',
+    label: 'Not Promoted',
     className: 'bg-surface-container-highest text-on-surface-variant',
     iconClassName: 'text-on-surface-variant'
   },
-  pending: {
+  [PROMOTION_PENDING]: {
     icon: 'clock',
     label: 'Pending Review',
     className: 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border border-yellow-500/20',
     iconClassName: 'text-yellow-500 animate-pulse'
   },
-  published: {
+  [PROMOTION_PROMOTED]: {
     icon: 'check-circle',
     label: 'Promoted',
     className: 'bg-[#4D7C6F]/15 text-[#4D7C6F] border border-[#4D7C6F]/20',
     iconClassName: 'text-[#4D7C6F]'
   },
-  rejected: {
+  [PROMOTION_REJECTED]: {
     icon: 'x-circle',
     label: 'Rejected',
     className: 'bg-[#A63D40]/15 text-[#A63D40] border border-[#A63D40]/20',

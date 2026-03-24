@@ -449,7 +449,11 @@ const LabeledInput: React.FC<{
 // AUTH PAGE — Split-panel login with real Supabase auth
 // ============================================================================
 
-export const AuthPage: React.FC = () => {
+interface AuthPageProps {
+  onBack?: () => void;
+}
+
+export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -544,14 +548,25 @@ export const AuthPage: React.FC = () => {
   return (
     <div className={`min-h-screen relative grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] transition-colors duration-500 ${isDark ? 'bg-[#0a0a0a]' : 'bg-background'}`}>
 
-      {/* Theme toggle — absolute top-right */}
-      <button
-        onClick={toggleTheme}
-        className="absolute top-5 right-5 z-50 p-2.5 rounded-full bg-surface-container-high/50 backdrop-blur-md border border-outline-variant/30 text-on-surface hover:bg-surface-container-highest transition-all shadow-lg"
-        aria-label="Toggle theme"
-      >
-        <Icon name={theme === 'dark' ? 'sun' : 'moon'} className="w-5 h-5" />
-      </button>
+      {/* Top controls */}
+      <div className="absolute top-5 right-5 z-50 flex items-center gap-2">
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="p-2.5 rounded-full bg-surface-container-high/50 backdrop-blur-md border border-outline-variant/30 text-on-surface hover:bg-surface-container-highest transition-all shadow-lg"
+            aria-label="Back to home"
+          >
+            <Icon name="arrow-left" className="w-5 h-5" />
+          </button>
+        )}
+        <button
+          onClick={toggleTheme}
+          className="p-2.5 rounded-full bg-surface-container-high/50 backdrop-blur-md border border-outline-variant/30 text-on-surface hover:bg-surface-container-highest transition-all shadow-lg"
+          aria-label="Toggle theme"
+        >
+          <Icon name={theme === 'dark' ? 'sun' : 'moon'} className="w-5 h-5" />
+        </button>
+      </div>
 
       {/* ── Brand Panel (hidden on mobile) ── */}
       <div

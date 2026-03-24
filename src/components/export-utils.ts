@@ -206,9 +206,9 @@ export const EXPORT_COLUMNS: ExportColumn[] = [
   { key: 'source', header: 'Source', getValue: d => d.source || '', width: 14, category: 'library' },
   { key: 'source_rule_id', header: 'Source Rule ID', getValue: d => d.source_rule_id || '', width: 36, category: 'library' },
   { key: 'source_url', header: 'Source URL', getValue: d => d.source_url || '', width: 45, category: 'library' },
-  { key: 'publish_status', header: 'Publish Status', getValue: d => d.publish_status || '', width: 16, category: 'library' },
-  { key: 'published_to_id', header: 'Published To ID', getValue: d => d.published_to_id || '', width: 36, category: 'library' },
-  { key: 'published_at', header: 'Published At', getValue: d => d.published_at || '', width: 22, category: 'library' },
+  { key: 'promotion_status', header: 'Promotion Status', getValue: d => d.promotion_status || '', width: 16, category: 'library' },
+  { key: 'promoted_to_id', header: 'Promoted To ID', getValue: d => d.promoted_to_id || '', width: 36, category: 'library' },
+  { key: 'promoted_at', header: 'Promoted At', getValue: d => d.promoted_at || '', width: 22, category: 'library' },
   
   // === DATES ===
   { key: 'createdDate', header: 'Created Date', getValue: d => d.createdDate || '', width: 22, category: 'dates' },

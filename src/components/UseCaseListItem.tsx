@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Detection, LibraryType, LIBRARY_LABELS } from '../types';
+import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION } from '../constants/library';
 import { StatusBadge } from './StatusBadge';
 import { SeverityBadge } from './SeverityBadge';
 import { Icon } from './Icon';
@@ -55,8 +56,8 @@ const publishStatusConfig: Record<string, { label: string; className: string }> 
     label: 'Pending',
     className: 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border border-yellow-500/20'
   },
-  published: {
-    label: 'Published',
+  promoted: {
+    label: 'Promoted',
     className: 'bg-[#4D7C6F]/15 text-[#4D7C6F] border border-[#4D7C6F]/20'
   },
   rejected: {
@@ -168,11 +169,11 @@ export const UseCaseListItem: React.FC<UseCaseListItemProps> = ({
       // ========== LIBRARY-AWARE COLUMNS ==========
 
       case 'library':
-        const isUniversal = detection.library_type === 'universal';
+        const isUniversal = detection.library_type === LIBRARY_DEVELOPMENT;
         return (
           <div
             className={`flex items-center justify-center ${isUniversal ? 'text-[#0284C7]' : 'text-[#783264]'}`}
-            title={isUniversal ? LIBRARY_LABELS['universal'] : LIBRARY_LABELS['user']}
+            title={isUniversal ? LIBRARY_LABELS[LIBRARY_DEVELOPMENT] : LIBRARY_LABELS[LIBRARY_PRODUCTION]}
           >
             <Icon name={isUniversal ? 'globe' : 'user'} className="w-4 h-4" />
           </div>
@@ -190,10 +191,10 @@ export const UseCaseListItem: React.FC<UseCaseListItemProps> = ({
         );
 
       case 'publish_status':
-        if (!detection.publish_status) {
+        if (!detection.promotion_status) {
           return <span className="text-sm text-on-surface-variant">-</span>;
         }
-        const pubConfig = publishStatusConfig[detection.publish_status];
+        const pubConfig = publishStatusConfig[detection.promotion_status];
         if (!pubConfig) {
           return <span className="text-sm text-on-surface-variant">-</span>;
         }
@@ -210,7 +211,7 @@ export const UseCaseListItem: React.FC<UseCaseListItemProps> = ({
         return (
           <div
             className="flex items-center justify-center text-[#783264]"
-            title={`Forked from ${LIBRARY_LABELS['universal']}`}
+            title={`Forked from ${LIBRARY_LABELS[LIBRARY_DEVELOPMENT]}`}
           >
             <Icon name="git-fork" className="w-4 h-4" />
           </div>

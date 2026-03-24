@@ -6,6 +6,7 @@ import { scoreToGrade } from '../../../lib/quality/scoringEngine';
 import { supabase } from '../../../lib/supabaseClient';
 import { useToast } from '../../../hooks/useToast';
 import { useAppData } from '../../../router/AppDataContext';
+import { LIBRARY_PRODUCTION } from '../../../constants/library';
 import { ROUTES } from '../../../router/routes';
 import { DetectionActionQueue } from './DetectionActionQueue';
 import { ThreatGroupCards } from './ThreatGroupCards';
@@ -40,8 +41,7 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
   const { detections: allDetections, user } = useAppData();
   const libraryDetections = useMemo(() => {
     if (scope === 'all') return allDetections;
-    // Production Library = library_type 'user' (semantic flip)
-    return allDetections.filter(d => d.library_type === 'user');
+    return allDetections.filter(d => d.library_type === LIBRARY_PRODUCTION);
   }, [allDetections, scope]);
 
   // Dismissed gap items (persisted in localStorage)

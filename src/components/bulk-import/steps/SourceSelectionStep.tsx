@@ -10,6 +10,7 @@ import { useBulkImportContext } from '../../../context/BulkImportContext';
 import { ImportSourceType, ImportJobConfig, DuplicateStrategy, VendorFormat } from '../../../services/bulk-import/types';
 import { LibraryType } from '../../../types';
 import { LIBRARY_LABELS } from '../../../types/detection';
+import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION } from '../../../constants/library';
 import { useAppData } from '../../../router/AppDataContext';
 import { Icon } from '../../Icon';
 
@@ -136,7 +137,7 @@ export function SourceSelectionStep({ preSelectedSource }: SourceSelectionStepPr
   const isOwnerOrAdmin = profile?.role === 'owner' || profile?.role === 'admin';
   const [selectedSource, setSelectedSource] = useState<ImportSourceType>(preSelectedSource || 'zip');
   const [selectedVendor, setSelectedVendor] = useState<'auto' | VendorFormat>('auto');
-  const [targetLibrary, setTargetLibrary] = useState<LibraryType>('universal');
+  const [targetLibrary, setTargetLibrary] = useState<LibraryType>(LIBRARY_DEVELOPMENT);
   const [duplicateStrategy, setDuplicateStrategy] = useState<DuplicateStrategy>('skip');
   const [files, setFiles] = useState<File[]>([]);
   const [zipFile, setZipFile] = useState<File | null>(null);
@@ -566,32 +567,32 @@ export function SourceSelectionStep({ preSelectedSource }: SourceSelectionStepPr
         <h3 className="text-lg font-semibold text-on-surface mb-4">Import To</h3>
         <div className="flex gap-4">
           <button
-            onClick={() => setTargetLibrary('user')}
+            onClick={() => setTargetLibrary(LIBRARY_PRODUCTION)}
             disabled={!isOwnerOrAdmin}
             className={`flex-1 p-4 rounded-[12px] border-2 transition-all ${
               !isOwnerOrAdmin ? 'opacity-50 cursor-not-allowed' :
-              targetLibrary === 'user'
+              targetLibrary === LIBRARY_PRODUCTION
                 ? ''
                 : 'border-outline-variant/30 hover:border-outline-variant/50'
             }`}
-            style={targetLibrary === 'user' ? { borderColor: BRAND_COLOR, backgroundColor: `${BRAND_COLOR}15` } : {}}
+            style={targetLibrary === LIBRARY_PRODUCTION ? { borderColor: BRAND_COLOR, backgroundColor: `${BRAND_COLOR}15` } : {}}
           >
             <div className="flex items-center gap-3">
               <Icon
                 name="shield"
                 className="w-5 h-5"
-                style={{ color: targetLibrary === 'user' ? BRAND_COLOR : undefined }}
+                style={{ color: targetLibrary === LIBRARY_PRODUCTION ? BRAND_COLOR : undefined }}
               />
               <div className="text-left">
-                <p className="font-medium text-on-surface">{LIBRARY_LABELS.user} {!isOwnerOrAdmin && <span className="text-xs text-on-surface-variant">(Admin only)</span>}</p>
+                <p className="font-medium text-on-surface">{LIBRARY_LABELS[LIBRARY_PRODUCTION]} {!isOwnerOrAdmin && <span className="text-xs text-on-surface-variant">(Admin only)</span>}</p>
                 <p className="text-xs text-on-surface-variant">Curated rules for SIEM deployment</p>
               </div>
             </div>
           </button>
           <button
-            onClick={() => setTargetLibrary('universal')}
+            onClick={() => setTargetLibrary(LIBRARY_DEVELOPMENT)}
             className={`flex-1 p-4 rounded-[12px] border-2 transition-all ${
-              targetLibrary === 'universal'
+              targetLibrary === LIBRARY_DEVELOPMENT
                 ? 'border-tertiary bg-tertiary-container/20'
                 : 'border-outline-variant/30 hover:border-outline-variant/50'
             }`}
@@ -600,11 +601,11 @@ export function SourceSelectionStep({ preSelectedSource }: SourceSelectionStepPr
               <Icon
                 name="globe"
                 className={`w-5 h-5 ${
-                  targetLibrary === 'universal' ? 'text-tertiary' : 'text-on-surface-variant'
+                  targetLibrary === LIBRARY_DEVELOPMENT ? 'text-tertiary' : 'text-on-surface-variant'
                 }`}
               />
               <div className="text-left">
-                <p className="font-medium text-on-surface">{LIBRARY_LABELS.universal}</p>
+                <p className="font-medium text-on-surface">{LIBRARY_LABELS[LIBRARY_DEVELOPMENT]}</p>
                 <p className="text-xs text-on-surface-variant">Sandbox for vendor rules and experimentation</p>
               </div>
             </div>
@@ -612,7 +613,7 @@ export function SourceSelectionStep({ preSelectedSource }: SourceSelectionStepPr
         </div>
 
         {/* Production Library warning */}
-        {targetLibrary === 'user' && (
+        {targetLibrary === LIBRARY_PRODUCTION && (
           <div className="mt-3 p-3 bg-tertiary-container/20 border border-tertiary/30 rounded-[12px]">
             <div className="flex items-start gap-2">
               <Icon name="alert-triangle" className="w-4 h-4 text-tertiary flex-shrink-0 mt-0.5" />

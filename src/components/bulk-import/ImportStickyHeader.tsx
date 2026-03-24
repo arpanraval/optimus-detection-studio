@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { LIBRARY_LABELS_SHORT } from '../../types/detection';
+import { LIBRARY_DEVELOPMENT, type LibraryType } from '../../constants/library';
 import { ImportJobStatus } from '../../services/bulk-import/types';
 import { Icon } from '../Icon';
 
@@ -14,7 +15,7 @@ interface ImportStickyHeaderProps {
   totalRules: number;
   validRules: number;
   status: ImportJobStatus;
-  targetLibrary?: 'user' | 'universal';
+  targetLibrary?: LibraryType;
 }
 
 const SOURCE_ICONS: Record<string, string> = {
@@ -67,7 +68,7 @@ export function ImportStickyHeader({
           )}
           {targetLibrary && (
             <div className="flex items-center gap-1 text-xs text-on-surface-variant">
-              <Icon name={targetLibrary === 'universal' ? 'globe' : 'user'} className="w-3 h-3" />
+              <Icon name={targetLibrary === LIBRARY_DEVELOPMENT ? 'globe' : 'user'} className="w-3 h-3" />
               <span>{LIBRARY_LABELS_SHORT[targetLibrary]}</span>
             </div>
           )}

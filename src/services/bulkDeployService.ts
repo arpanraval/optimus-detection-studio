@@ -5,6 +5,7 @@
 
 import { integrationService } from '../lib/integrationService';
 import type { Detection } from '../types';
+import { LIBRARY_PRODUCTION } from '../constants/library';
 
 export interface BulkDeployResult {
   succeeded: { id: string; name: string; vendorRuleId?: string }[];
@@ -23,8 +24,8 @@ export async function bulkDeploy(
   const result: BulkDeployResult = { succeeded: [], failed: [] };
 
   // Pre-filter: only Production Library detections can be deployed
-  const productionDetections = detections.filter(d => d.library_type === 'user');
-  const labDetections = detections.filter(d => d.library_type !== 'user');
+  const productionDetections = detections.filter(d => d.library_type === LIBRARY_PRODUCTION);
+  const labDetections = detections.filter(d => d.library_type !== LIBRARY_PRODUCTION);
 
   for (const d of labDetections) {
     result.failed.push({

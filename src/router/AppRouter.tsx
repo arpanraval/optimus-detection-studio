@@ -5,6 +5,7 @@ import { Session, User } from '@supabase/supabase-js';
 import { Profile } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { AuthPage } from '../components/AuthPage';
+import { LandingPage } from '../components/LandingPage';
 import { SetPasswordPage } from '../components/SetPasswordPage';
 import { AppLayout } from './AppLayout';
 import { AppDataProvider, useAppData } from './AppDataContext';
@@ -292,6 +293,7 @@ export const AppRouter: React.FC = () => {
   const [userProfile, setUserProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingAuthAction, setPendingAuthAction] = useState<PendingAuthAction>(initialPendingAction);
+  const [showAuth, setShowAuth] = useState(false);
 
   const dismissLoader = useCallback(() => {
     setLoading(false);
@@ -411,7 +413,11 @@ export const AppRouter: React.FC = () => {
     return (
       <ThemeProvider>
         <ToastProvider>
-          <AuthPage />
+          {showAuth ? (
+            <AuthPage onBack={() => setShowAuth(false)} />
+          ) : (
+            <LandingPage onSignIn={() => setShowAuth(true)} />
+          )}
         </ToastProvider>
       </ThemeProvider>
     );
