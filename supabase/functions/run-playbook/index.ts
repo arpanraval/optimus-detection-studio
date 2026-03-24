@@ -34,14 +34,19 @@ const ALLOWED_TOOLS = new Set([
   'find_threat_actor',
   'query_mitre',
   'web_search',
+  'ransomware_readiness',
 ])
 
 const PLAYBOOK_DEFINITIONS: Record<string, PlaybookStep[]> = {
   'ransomware-readiness': [
-    { id: 'coverage-gaps', name: 'Ransomware Coverage Gap Analysis', description: 'Identify gaps in ransomware-related MITRE ATT&CK techniques', tool: 'identify_coverage_gaps', params: { profile: 'ransomware' }, contextKey: 'ransomwareGaps' },
-    { id: 'coverage-summary', name: 'Overall Coverage Summary', description: 'Get current detection coverage metrics', tool: 'get_coverage_summary', params: { scope: 'overall' }, contextKey: 'coverageSummary' },
-    { id: 'search-ransomware', name: 'Find Existing Ransomware Detections', description: 'Search library for ransomware-related detections', tool: 'search_library', params: { query: 'ransomware encryption shadow copy volume deletion', limit: 15 }, contextKey: 'existingDetections' },
-    { id: 'search-lateral', name: 'Find Lateral Movement Detections', description: 'Search for lateral movement detections relevant to ransomware', tool: 'search_library', params: { query: 'lateral movement SMB PsExec WMI remote service', limit: 10 }, contextKey: 'lateralDetections' },
+    {
+      id: 'assessment',
+      name: 'Ransomware Kill Chain Assessment',
+      description: 'Analyze detection library against full ransomware kill chain',
+      tool: 'ransomware_readiness',
+      params: {},
+      contextKey: 'assessment',
+    },
   ],
   'threat-actor-coverage': [
     { id: 'find-actor', name: 'Identify Threat Actor', description: 'Look up the threat actor in MITRE ATT&CK', tool: 'find_threat_actor', params: {}, paramMapping: { query: 'actorQuery' }, contextKey: 'actorInfo' },
