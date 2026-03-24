@@ -2,12 +2,13 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { supabase } from '../lib/supabaseClient';
 import {
   Detection,
-  LibraryType,
   PublishRequest,
   DetectionPack,
   PublishEligibility,
   Role
 } from '../types';
+import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION, VISIBILITY_PRIVATE, VISIBILITY_SHARED } from '../constants/library';
+import type { LibraryType } from '../constants/library';
 import { useToast } from '../hooks/useToast';
 import { logger } from '../lib/logger';
 import { logAuditEvent, logAuditEvents } from '../lib/audit';
@@ -96,7 +97,7 @@ export interface ServerFilters {
   maturity?: string[];
   technology?: string[];
   logSource?: string[];
-  publish_status?: string[];
+  promotion_status?: string[];
   source?: string[];
   // Boolean → .eq(field, value)
   testedAndValidated?: boolean | null;
@@ -130,7 +131,7 @@ const applyServerFilters = (query: any, filters: ServerFilters): any => {
   // String fields: .in(field, values)
   const stringFields: (keyof ServerFilters)[] = [
     'status', 'severity', 'queryLanguage', 'author', 'detectionType',
-    'maturity', 'technology', 'logSource', 'publish_status', 'source'
+    'maturity', 'technology', 'logSource', 'promotion_status', 'source'
   ];
   for (const field of stringFields) {
     const vals = filters[field];
@@ -226,7 +227,7 @@ const LIBRARY_COLUMNS = [
   'threatActors', 'campaigns', 'software', 'associatedCVEs',
   'tags', 'source',
   'createdDate', 'updatedDate',
-  'library_type', 'publish_status', 'external_id', 'source_rule_id',
+  'library_type', 'promotion_status', 'external_id', 'source_rule_id',
   'team_id',
   'assigned_to', 'assigned_by', 'assigned_at',
   'review_status', 'reviewer_id', 'review_requested_at', 'reviewed_at',
@@ -245,7 +246,6 @@ export type BulkActionType =
   | 'changeSeverity'
   | 'addTags'
   | 'removeTags'
-  | 'copyToUserLibrary'
   | 'addToPack';
 
 export interface BulkActionResult {
@@ -295,17 +295,18 @@ interface LibraryContextType {
   refreshAll: () => Promise<void>;
 
   // Library operations
-  copyToUserLibrary: (detectionId: string) => Promise<string | null>;
-  forkToLab: (detectionId: string) => Promise<string | null>;
-  submitForPublish: (detectionId: string) => Promise<{ success: boolean; error?: string; requestId?: string }>;
-  submitForPublishSilent: (detectionId: string) => Promise<{ success: boolean; error?: string; requestId?: string }>;
-  checkPublishEligibility: (detectionId: string) => Promise<PublishEligibility | null>;
+  forkToDevelopment: (detectionId: string) => Promise<string | null>;
+  submitForPromotion: (detectionId: string) => Promise<{ success: boolean; error?: string; requestId?: string }>;
+  submitForPromotionSilent: (detectionId: string) => Promise<{ success: boolean; error?: string; requestId?: string }>;
+  checkPromotionEligibility: (detectionId: string) => Promise<PublishEligibility | null>;
+  shareWithTeam: (detectionId: string) => Promise<void>;
+  makePrivate: (detectionId: string) => Promise<void>;
 
   // Admin operations
   pendingRequests: PublishRequest[];
   refreshPendingRequests: () => Promise<void>;
-  approveRequest: (requestId: string, action: 'approve' | 'reject' | 'approve_as_new', notes?: string) => Promise<boolean>;
-  approveRequestSilent: (requestId: string, action: 'approve' | 'reject' | 'approve_as_new', notes?: string) => Promise<boolean>;
+  approvePromotion: (requestId: string, action: 'approve' | 'reject' | 'approve_as_new', notes?: string) => Promise<boolean>;
+  approvePromotionSilent: (requestId: string, action: 'approve' | 'reject' | 'approve_as_new', notes?: string) => Promise<boolean>;
   bulkApproveRequests: (requestIds: string[], action: 'approve' | 'reject' | 'approve_as_new', notes?: string) => Promise<{ successCount: number; failureCount: number }>;
 
   // Detection Packs
@@ -332,7 +333,6 @@ interface LibraryContextType {
   bulkUpdateSeverity: (detectionIds: string[], severity: string) => Promise<BulkActionResult>;
   bulkAddTags: (detectionIds: string[], tags: string[]) => Promise<BulkActionResult>;
   bulkRemoveTags: (detectionIds: string[], tags: string[]) => Promise<BulkActionResult>;
-  bulkCopyToUserLibrary: (detectionIds: string[]) => Promise<BulkActionResult>;
 
   // Server-side bulk actions (for "select all matching filters")
   bulkDeleteByFilter: (filters: Record<string, any>) => Promise<BulkActionResult>;
@@ -363,7 +363,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   const { showToast } = useToast();
   
   // State
-  const [currentLibrary, setCurrentLibraryState] = useState<LibraryType>('user');
+  const [currentLibrary, setCurrentLibraryState] = useState<LibraryType>(LIBRARY_PRODUCTION);
   const [userDetections, setUserDetections] = useState<Detection[]>([]);
   const [universalDetections, setUniversalDetections] = useState<Detection[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -415,7 +415,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   const initialLoadDone = useRef(false);
 
   // Current pagination based on active library
-  const currentPagination = currentLibrary === 'universal' ? universalPagination : userPagination;
+  const currentPagination = currentLibrary === LIBRARY_DEVELOPMENT ? universalPagination : userPagination;
 
   // Set current library with page reset
   const setCurrentLibrary = useCallback((library: LibraryType) => {
@@ -445,7 +445,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       let countQ = supabase
         .from('detections')
         .select('id', { count: 'exact', head: true })
-        .or('library_type.eq.user,library_type.is.null');
+        .or(`library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null`);
       countQ = applyServerFilters(countQ, activeFilters);
 
       const { count, error: countError } = await countQ;
@@ -458,7 +458,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       let dataQ = supabase
         .from('detections')
         .select(LIBRARY_COLUMNS)
-        .or('library_type.eq.user,library_type.is.null');
+        .or(`library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null`);
       dataQ = applyServerFilters(dataQ, activeFilters);
       dataQ = dataQ.order(sortColumn, { ascending: sortAscending }).range(from, to);
 
@@ -495,7 +495,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       let countQ = supabase
         .from('detections')
         .select('id', { count: 'exact', head: true })
-        .eq('library_type', 'universal');
+        .eq('library_type', LIBRARY_DEVELOPMENT);
       countQ = applyServerFilters(countQ, activeFilters);
 
       const { count, error: countError } = await countQ;
@@ -508,7 +508,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       let dataQ = supabase
         .from('detections')
         .select(LIBRARY_COLUMNS)
-        .eq('library_type', 'universal');
+        .eq('library_type', LIBRARY_DEVELOPMENT);
       dataQ = applyServerFilters(dataQ, activeFilters);
       dataQ = dataQ.order(sortColumn, { ascending: sortAscending }).range(from, to);
 
@@ -551,12 +551,12 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     if (userRole !== 'admin') return;
     
     try {
-      // First, get the publish requests with detection info only
+      // First, get the promotion requests with detection info only
       const { data, error } = await supabase
-        .from('publish_requests')
+        .from('promotion_requests')
         .select(`
           *,
-          detection:detections!publish_requests_detection_id_fkey(id, name, description, severity, author, "qualityScore")
+          detection:detections!promotion_requests_detection_id_fkey(id, name, description, severity, author, "qualityScore")
         `)
         .eq('status', 'pending')
         .order('submitted_at', { ascending: true });
@@ -605,10 +605,10 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     
     try {
       const { data, error } = await supabase
-        .from('publish_requests')
+        .from('promotion_requests')
         .select(`
           *,
-          detection:detections!publish_requests_detection_id_fkey(id, name, description, severity, status, "qualityScore")
+          detection:detections!promotion_requests_detection_id_fkey(id, name, description, severity, status, "qualityScore")
         `)
         .eq('submitted_by', userId)
         .order('submitted_at', { ascending: false })
@@ -665,7 +665,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     // Skip if filters haven't actually changed (initial render)
     if (serverFiltersRef.current === serverFilters && Object.keys(serverFilters).length === 0) return;
     serverFiltersRef.current = serverFilters;
-    if (currentLibrary === 'universal') {
+    if (currentLibrary === LIBRARY_DEVELOPMENT) {
       refreshUniversalLibrary(1, universalPagination.pageSize, sortConfig, serverFilters);
     } else {
       refreshUserLibrary(1, userPagination.pageSize, sortConfig, serverFilters);
@@ -677,42 +677,35 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   // USER OPERATIONS
   // ============================================
 
-  const copyToUserLibrary = useCallback(async (detectionId: string): Promise<string | null> => {
+  const shareWithTeam = useCallback(async (detectionId: string) => {
+    const { error } = await supabase
+      .from('detections')
+      .update({ visibility: VISIBILITY_SHARED })
+      .eq('id', detectionId);
+    if (error) throw error;
+    showToast('success', 'Shared', 'Detection is now visible to the team');
+    await refreshAll();
+  }, [refreshAll, showToast]);
+
+  const makePrivate = useCallback(async (detectionId: string) => {
+    const { error } = await supabase
+      .from('detections')
+      .update({ visibility: VISIBILITY_PRIVATE })
+      .eq('id', detectionId);
+    if (error) throw error;
+    showToast('success', 'Private', 'Detection is now private');
+    await refreshAll();
+  }, [refreshAll, showToast]);
+
+  const forkToDevelopment = useCallback(async (detectionId: string): Promise<string | null> => {
     try {
-      const { data, error } = await supabase.rpc('copy_to_user_library', {
+      const { data, error } = await supabase.rpc('fork_to_development', {
         p_detection_id: detectionId,
       });
 
       if (error) {
-        if (error.message.includes('already have a copy') || error.message.includes('already promoted')) {
-          showToast('warning', 'Already Copied', 'You already have a copy of this rule in your library');
-        } else if (error.message.includes('not found')) {
-          showToast('error', 'Not Found', 'The rule could not be found');
-        } else {
-          showToast('error', 'Copy Failed', error.message);
-        }
-        return null;
-      }
-
-      showToast('success', 'Added to Library', 'Rule copied to your library successfully');
-      await refreshUserLibrary();
-      return data;
-    } catch (err: unknown) {
-      logger.error('Error copying to user library:', err);
-      showToast('error', 'Error', err instanceof Error ? err.message : 'Failed to copy rule');
-      return null;
-    }
-  }, [userId, refreshUserLibrary, showToast]);
-
-  const forkToLab = useCallback(async (detectionId: string): Promise<string | null> => {
-    try {
-      const { data, error } = await supabase.rpc('fork_to_lab', {
-        p_detection_id: detectionId,
-      });
-
-      if (error) {
-        if (error.message.includes('already have a lab copy')) {
-          showToast('warning', 'Already Forked', 'You already have a Lab copy of this detection');
+        if (error.message.includes('already have a development copy')) {
+          showToast('warning', 'Already Forked', 'You already have a Development Library copy of this detection');
         } else if (error.message.includes('not found') || error.message.includes('not in Production')) {
           showToast('error', 'Not Found', 'The detection could not be found in Production Library');
         } else {
@@ -721,19 +714,19 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
         return null;
       }
 
-      showToast('success', 'Forked to Lab', 'Detection forked to Lab. You can now experiment with it safely.');
+      showToast('success', 'Forked to Development Library', 'Detection forked to Development Library. You can now experiment with it safely.');
       await refreshUniversalLibrary();
       return data;
     } catch (err: unknown) {
-      logger.error('Error forking to lab:', err);
+      logger.error('Error forking to development:', err);
       showToast('error', 'Error', err instanceof Error ? err.message : 'Failed to fork detection');
       return null;
     }
   }, [userId, refreshUniversalLibrary, showToast]);
 
-  const checkPublishEligibility = useCallback(async (detectionId: string): Promise<PublishEligibility | null> => {
+  const checkPromotionEligibility = useCallback(async (detectionId: string): Promise<PublishEligibility | null> => {
     try {
-      const { data, error } = await supabase.rpc('check_publish_eligibility', {
+      const { data, error } = await supabase.rpc('check_promotion_eligibility', {
         p_detection_id: detectionId
       });
 
@@ -741,20 +734,20 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
 
       // Runtime validation to ensure data matches expected structure
       if (!isValidPublishEligibility(data)) {
-        logger.error('Invalid publish eligibility response format:', data);
+        logger.error('Invalid promotion eligibility response format:', data);
         return null;
       }
 
       return data;
     } catch (err) {
-      logger.error('Error checking eligibility:', err);
+      logger.error('Error checking promotion eligibility:', err);
       return null;
     }
   }, []);
 
-  const submitForPublish = useCallback(async (detectionId: string): Promise<{ success: boolean; error?: string; requestId?: string }> => {
+  const submitForPromotion = useCallback(async (detectionId: string): Promise<{ success: boolean; error?: string; requestId?: string }> => {
     try {
-      const { data, error } = await supabase.rpc('submit_for_publish', {
+      const { data, error } = await supabase.rpc('submit_for_promotion', {
         p_detection_id: detectionId,
       });
 
@@ -774,7 +767,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
         return { success: false, error: result.error };
       }
     } catch (err: unknown) {
-      logger.error('Error submitting for publish:', err);
+      logger.error('Error submitting for promotion:', err);
       const message = err instanceof Error ? err.message : 'Failed to submit';
       showToast('error', 'Error', message);
       return { success: false, error: message };
@@ -782,9 +775,9 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   }, [userId, refreshUserLibrary, refreshUserSubmissions, showToast]);
 
   // Silent variant: no toast, no refresh (for bulk operations)
-  const submitForPublishSilent = useCallback(async (detectionId: string): Promise<{ success: boolean; error?: string; requestId?: string }> => {
+  const submitForPromotionSilent = useCallback(async (detectionId: string): Promise<{ success: boolean; error?: string; requestId?: string }> => {
     try {
-      const { data, error } = await supabase.rpc('submit_for_publish', {
+      const { data, error } = await supabase.rpc('submit_for_promotion', {
         p_detection_id: detectionId,
       });
 
@@ -798,7 +791,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
         return { success: false, error: result.error };
       }
     } catch (err: unknown) {
-      logger.error('Error submitting for publish (silent):', err);
+      logger.error('Error submitting for promotion (silent):', err);
       return { success: false, error: err instanceof Error ? err.message : 'Failed to submit' };
     }
   }, [userId]);
@@ -807,9 +800,9 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   // ADMIN OPERATIONS
   // ============================================
 
-  const approveRequest = useCallback(async (
-    requestId: string, 
-    action: 'approve' | 'reject' | 'approve_as_new', 
+  const approvePromotion = useCallback(async (
+    requestId: string,
+    action: 'approve' | 'reject' | 'approve_as_new',
     notes?: string
   ): Promise<boolean> => {
     if (!['owner', 'admin'].includes(userRole)) {
@@ -818,7 +811,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     }
 
     try {
-      const { data, error } = await supabase.rpc('approve_publish_request', {
+      const { data, error } = await supabase.rpc('approve_promotion', {
         p_request_id: requestId,
         p_action: action,
         p_notes: notes || null
@@ -848,7 +841,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   }, [userId, userRole, refreshPendingRequests, refreshUniversalLibrary, showToast]);
 
   // Silent variant: no toast, no refresh (for bulk operations)
-  const approveRequestSilent = useCallback(async (
+  const approvePromotionSilent = useCallback(async (
     requestId: string,
     action: 'approve' | 'reject' | 'approve_as_new',
     notes?: string
@@ -856,7 +849,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     if (userRole !== 'admin') return false;
 
     try {
-      const { data, error } = await supabase.rpc('approve_publish_request', {
+      const { data, error } = await supabase.rpc('approve_promotion', {
         p_request_id: requestId,
         p_action: action,
         p_notes: notes || null
@@ -866,7 +859,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       const result = data as { success: boolean; error?: string };
       return result.success;
     } catch (err: unknown) {
-      logger.error('Error processing request (silent):', err);
+      logger.error('Error processing promotion request (silent):', err);
       return false;
     }
   }, [userId, userRole]);
@@ -881,7 +874,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     let failureCount = 0;
 
     for (const id of requestIds) {
-      const success = await approveRequestSilent(id, action, notes);
+      const success = await approvePromotionSilent(id, action, notes);
       if (success) successCount++;
       else failureCount++;
     }
@@ -898,7 +891,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     }
 
     return { successCount, failureCount };
-  }, [approveRequestSilent, refreshPendingRequests, refreshUniversalLibrary, showToast]);
+  }, [approvePromotionSilent, refreshPendingRequests, refreshUniversalLibrary, showToast]);
 
   // Refresh pending requests when switching to universal library (for admins)
   useEffect(() => {
@@ -1076,7 +1069,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     const errors: string[] = [];
 
     // Get current tags for each detection
-    const detections = currentLibrary === 'universal' ? universalDetections : userDetections;
+    const detections = currentLibrary === LIBRARY_DEVELOPMENT ? universalDetections : userDetections;
 
     for (const id of detectionIds) {
       try {
@@ -1118,7 +1111,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     let failureCount = 0;
     const errors: string[] = [];
 
-    const detections = currentLibrary === 'universal' ? universalDetections : userDetections;
+    const detections = currentLibrary === LIBRARY_DEVELOPMENT ? universalDetections : userDetections;
 
     for (const id of detectionIds) {
       try {
@@ -1155,53 +1148,12 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     return { success: failureCount === 0, successCount, failureCount, errors };
   }, [currentLibrary, universalDetections, userDetections, refreshAll, showToast]);
 
-  const bulkCopyToUserLibrary = useCallback(async (detectionIds: string[]): Promise<BulkActionResult> => {
-    let successCount = 0;
-    let failureCount = 0;
-    const errors: string[] = [];
-
-    for (const id of detectionIds) {
-      try {
-        const { data, error } = await supabase.rpc('copy_to_user_library', {
-          p_detection_id: id,
-        });
-
-        if (error) {
-          if (error.message.includes('already have a copy')) {
-            // Skip silently if already copied
-            failureCount++;
-          } else {
-            failureCount++;
-            errors.push(`Failed to copy ${id}: ${error.message}`);
-          }
-        } else {
-          successCount++;
-        }
-      } catch (err: unknown) {
-        failureCount++;
-        errors.push(`Error copying ${id}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
-    if (successCount > 0) {
-      showToast('success', 'Copied to Library', `Added ${successCount} detection${successCount > 1 ? 's' : ''} to your library`);
-      await refreshUserLibrary();
-      clearSelection();
-    }
-
-    if (failureCount > 0 && errors.length > 0) {
-      showToast('warning', 'Some Copies Skipped', `${failureCount} detection${failureCount > 1 ? 's were' : ' was'} already in your library or failed`);
-    }
-
-    return { success: failureCount === 0, successCount, failureCount, errors };
-  }, [userId, refreshUserLibrary, clearSelection, showToast]);
-
   // ============================================
   // PAGINATION CONTROLS
   // ============================================
 
   const setPage = useCallback((page: number) => {
-    if (currentLibrary === 'universal') {
+    if (currentLibrary === LIBRARY_DEVELOPMENT) {
       setUniversalPagination(prev => ({ ...prev, page }));
       refreshUniversalLibrary(page, universalPagination.pageSize, sortConfig, serverFilters);
     } else {
@@ -1217,7 +1169,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     } catch {}
 
     // Reset to page 1 when changing page size
-    if (currentLibrary === 'universal') {
+    if (currentLibrary === LIBRARY_DEVELOPMENT) {
       setUniversalPagination(prev => ({ ...prev, page: 1, pageSize: size }));
       refreshUniversalLibrary(1, size, sortConfig, serverFilters);
     } else {
@@ -1238,7 +1190,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     setSortConfigState(config);
 
     // Reset to page 1 when sorting changes (to see top results)
-    if (currentLibrary === 'universal') {
+    if (currentLibrary === LIBRARY_DEVELOPMENT) {
       setUniversalPagination(prev => ({ ...prev, page: 1 }));
       refreshUniversalLibrary(1, universalPagination.pageSize, config, serverFilters);
     } else {
@@ -1264,10 +1216,10 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     let query = baseQuery;
 
     // Apply library filter
-    if (currentLibrary === 'universal') {
-      query = query.eq('library_type', 'universal');
+    if (currentLibrary === LIBRARY_DEVELOPMENT) {
+      query = query.eq('library_type', LIBRARY_DEVELOPMENT);
     } else {
-      query = query.eq('user_id', userId).or('library_type.eq.user,library_type.is.null');
+      query = query.eq('user_id', userId).or(`library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null`);
     }
 
     // Apply additional filters
@@ -1418,15 +1370,16 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     refreshUserLibrary: () => refreshUserLibrary(),
     refreshUniversalLibrary: () => refreshUniversalLibrary(),
     refreshAll,
-    copyToUserLibrary,
-    forkToLab,
-    submitForPublish,
-    submitForPublishSilent,
-    checkPublishEligibility,
+    forkToDevelopment,
+    submitForPromotion,
+    submitForPromotionSilent,
+    checkPromotionEligibility,
+    shareWithTeam,
+    makePrivate,
     pendingRequests,
     refreshPendingRequests,
-    approveRequest,
-    approveRequestSilent,
+    approvePromotion,
+    approvePromotionSilent,
     bulkApproveRequests,
     detectionPacks,
     refreshDetectionPacks,
@@ -1447,7 +1400,6 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     bulkUpdateSeverity,
     bulkAddTags,
     bulkRemoveTags,
-    bulkCopyToUserLibrary,
     // Server-side bulk actions
     bulkDeleteByFilter,
     bulkUpdateStatusByFilter,
@@ -1457,11 +1409,12 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     currentLibrary, userRole, userId, userDetections, universalDetections, isLoading,
     userPagination, universalPagination, currentPagination, setPage, setPageSize,
     sortConfig, setSort, serverFilters,
-    refreshAll, copyToUserLibrary, forkToLab, submitForPublish, submitForPublishSilent, checkPublishEligibility,
-    pendingRequests, refreshPendingRequests, approveRequest, approveRequestSilent, bulkApproveRequests,
+    refreshAll, forkToDevelopment, submitForPromotion, submitForPromotionSilent, checkPromotionEligibility,
+    shareWithTeam, makePrivate,
+    pendingRequests, refreshPendingRequests, approvePromotion, approvePromotionSilent, bulkApproveRequests,
     detectionPacks, refreshDetectionPacks, userSubmissions, refreshUserSubmissions, getDetectionById,
     selectedDetectionIds, toggleSelection, selectAll, clearSelection, isSelected,
-    bulkDelete, bulkUpdateStatus, bulkUpdateSeverity, bulkAddTags, bulkRemoveTags, bulkCopyToUserLibrary,
+    bulkDelete, bulkUpdateStatus, bulkUpdateSeverity, bulkAddTags, bulkRemoveTags,
     bulkDeleteByFilter, bulkUpdateStatusByFilter, bulkUpdateSeverityByFilter, getFilteredCount,
   ]);
 
