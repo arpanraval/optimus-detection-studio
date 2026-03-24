@@ -34,7 +34,7 @@ export const BulkPublishDialog: React.FC<BulkPublishDialogProps> = ({
   onClose,
   onComplete,
 }) => {
-  const { checkPublishEligibility, submitForPublishSilent, refreshUserLibrary, refreshUserSubmissions } = useLibrary();
+  const { checkPromotionEligibility, submitForPromotionSilent, refreshUserLibrary, refreshUserSubmissions } = useLibrary();
 
   const [step, setStep] = useState<DialogStep>('checking');
   const [results, setResults] = useState<EligibilityResult[]>([]);
@@ -64,7 +64,7 @@ export const BulkPublishDialog: React.FC<BulkPublishDialogProps> = ({
         const batchResults = await Promise.allSettled(
           batch.map(async (id) => {
             const detection = detections.find(d => d.id === id);
-            const eligibility = await checkPublishEligibility(id);
+            const eligibility = await checkPromotionEligibility(id);
 
             return {
               detectionId: id,
@@ -103,7 +103,7 @@ export const BulkPublishDialog: React.FC<BulkPublishDialogProps> = ({
 
     checkAll();
     return () => { cancelled = true; };
-  }, [detectionIds, detections, checkPublishEligibility]);
+  }, [detectionIds, detections, checkPromotionEligibility]);
 
   const handlePublish = useCallback(async () => {
     setStep('publishing');
@@ -120,7 +120,7 @@ export const BulkPublishDialog: React.FC<BulkPublishDialogProps> = ({
     for (let i = 0; i < eligibleIds.length; i++) {
       const id = eligibleIds[i];
       const detection = detections.find(d => d.id === id);
-      const result = await submitForPublishSilent(id);
+      const result = await submitForPromotionSilent(id);
 
       if (result.success) {
         successes++;
@@ -138,7 +138,7 @@ export const BulkPublishDialog: React.FC<BulkPublishDialogProps> = ({
     // Refresh once at the end
     await Promise.all([refreshUserLibrary(), refreshUserSubmissions()]);
     setStep('done');
-  }, [eligibleIds, detections, submitForPublishSilent, refreshUserLibrary, refreshUserSubmissions]);
+  }, [eligibleIds, detections, submitForPromotionSilent, refreshUserLibrary, refreshUserSubmissions]);
 
   const handleDone = () => {
     onComplete();
@@ -353,7 +353,7 @@ export const BulkPublishDialog: React.FC<BulkPublishDialogProps> = ({
 function getIneligibleReason(eligibility: PublishEligibility | null): string {
   if (!eligibility) return 'Check failed';
   if (eligibility.is_pending) return 'Already pending approval';
-  if (eligibility.is_published_unchanged) return 'Already published (unchanged)';
+  if (eligibility.is_promoted_unchanged) return 'Already promoted (unchanged)';
 
   const checks = eligibility.checks;
   const failures: string[] = [];

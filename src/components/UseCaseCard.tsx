@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Detection, Severity, LibraryType, DetectionType, LIBRARY_LABELS_SHORT } from '../types';
+import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION, PROMOTION_NONE } from '../constants/library';
 import { StatusBadge } from './StatusBadge';
 import { SeverityBadge } from './SeverityBadge';
 import { Icon } from './Icon';
@@ -189,8 +190,8 @@ export const UseCaseCard: React.FC<UseCaseCardProps> = ({
   };
 
   // Derived state
-  const isUniversal = libraryType === 'universal';
-  const isUser = libraryType === 'user';
+  const isUniversal = libraryType === LIBRARY_DEVELOPMENT;
+  const isUser = libraryType === LIBRARY_PRODUCTION;
   const isForked = detection.source_rule_id !== null;
 
   // MITRE - separate arrays with limits per category
@@ -230,8 +231,8 @@ export const UseCaseCard: React.FC<UseCaseCardProps> = ({
 
   // Publish status label
   const getPublishLabel = () => {
-    switch (detection.publish_status) {
-      case 'published': return 'Published';
+    switch (detection.promotion_status) {
+      case 'promoted': return 'Promoted';
       case 'pending': return 'Pending';
       case 'rejected': return 'Rejected';
       default: return null;
@@ -371,7 +372,7 @@ export const UseCaseCard: React.FC<UseCaseCardProps> = ({
               {queryLanguages.slice(0, 1).map(lang => (
                 <Badge key={lang}>{lang}</Badge>
               ))}
-              <Badge icon={libraryType === 'universal' ? 'globe' : 'library'}>
+              <Badge icon={libraryType === LIBRARY_DEVELOPMENT ? 'globe' : 'library'}>
                 {LIBRARY_LABELS_SHORT[libraryType]}
               </Badge>
               {isUser && isForked && (

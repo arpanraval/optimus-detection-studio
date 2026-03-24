@@ -9,6 +9,7 @@
 import React from 'react';
 import { Icon } from '../Icon';
 import { LIBRARY_LABELS } from '../../types/detection';
+import { LIBRARY_DEVELOPMENT, type LibraryType } from '../../constants/library';
 
 /** Threshold for triggering the scale confirmation dialog */
 export const LARGE_IMPORT_THRESHOLD = 500;
@@ -23,7 +24,7 @@ interface ScaleConfirmationDialogProps {
   /** Number of rules to be imported */
   ruleCount: number;
   /** Target library */
-  targetLibrary: 'user' | 'universal';
+  targetLibrary: LibraryType;
   /** Estimated MITRE techniques to be added (optional) */
   mitreCount?: number;
   /** Whether this is a resumable import */
@@ -41,7 +42,7 @@ export function ScaleConfirmationDialog({
 }: ScaleConfirmationDialogProps) {
   if (!isOpen) return null;
 
-  const isUniversal = targetLibrary === 'universal';
+  const isUniversal = targetLibrary === LIBRARY_DEVELOPMENT;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">

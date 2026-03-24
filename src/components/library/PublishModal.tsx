@@ -18,7 +18,7 @@ export const PublishModal: React.FC<PublishModalProps> = ({
   onClose,
   onSuccess 
 }) => {
-  const { checkPublishEligibility, submitForPublish } = useLibrary();
+  const { checkPromotionEligibility, submitForPromotion } = useLibrary();
   const [eligibility, setEligibility] = useState<PublishEligibility | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -26,21 +26,21 @@ export const PublishModal: React.FC<PublishModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setIsLoading(true);
-      checkPublishEligibility(detection.id).then((result) => {
+      checkPromotionEligibility(detection.id).then((result) => {
         setEligibility(result);
         setIsLoading(false);
       });
     }
-  }, [isOpen, detection.id, checkPublishEligibility]);
+  }, [isOpen, detection.id, checkPromotionEligibility]);
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
-    const result = await submitForPublish(detection.id);
+    const result = await submitForPromotion(detection.id);
     setIsSubmitting(false);
     
     if (result.success) {
       logAuditEvent({
-        action: 'detection.publish_requested',
+        action: 'detection.promotion_requested',
         entity_type: 'detection',
         entity_id: detection.id,
         entity_name: detection.name,
@@ -148,7 +148,7 @@ export const PublishModal: React.FC<PublishModalProps> = ({
               </div>
 
               {/* Already Published Warning */}
-              {eligibility.already_published && (
+              {eligibility.already_promoted && (
                 <div className="flex items-start gap-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
                   <Icon name="alert-triangle" className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
                   <p className="text-sm text-amber-600 dark:text-amber-400">

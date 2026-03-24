@@ -50,8 +50,8 @@ export function useDetectionAudit(): UseDetectionAuditResult {
       'deployed': 'Deployed to production',
       'linked_entity_added': 'Linked entity',
       'linked_entity_removed': 'Unlinked entity',
-      'published': 'Promoted to Production Library',
-      'copied_from_universal': 'Forked from Production Library',
+      'promoted': 'Promoted to Production Library',
+      'forked_from_production': 'Forked from Production Library',
       // RBAC audit actions
       'assigned': 'Assigned to user',
       'unassigned': 'Unassigned from user',
@@ -76,8 +76,8 @@ export function useDetectionAudit(): UseDetectionAuditResult {
       'deployed': 'cloud-upload',
       'linked_entity_added': 'link',
       'linked_entity_removed': 'unlink',
-      'published': 'globe',
-      'copied_from_universal': 'copy',
+      'promoted': 'globe',
+      'forked_from_production': 'copy',
       // RBAC audit actions
       'assigned': 'user-plus',
       'unassigned': 'user-minus',
@@ -102,8 +102,8 @@ export function useDetectionAudit(): UseDetectionAuditResult {
       'deployed': 'text-emerald-400',
       'linked_entity_added': 'text-primary',
       'linked_entity_removed': 'text-orange-400',
-      'published': 'text-green-500',
-      'copied_from_universal': 'text-blue-500',
+      'promoted': 'text-green-500',
+      'forked_from_production': 'text-blue-500',
       // RBAC audit actions
       'assigned': 'text-blue-400',
       'unassigned': 'text-orange-400',

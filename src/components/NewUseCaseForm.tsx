@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useRegisterNavigationBlocker, useNavigationBlocker } from '../context/NavigationBlockerContext';
-import { Detection, Status, Severity, DetectionType, Maturity, Confidence, DetectionQuery, LinkedMitreEntity, LIBRARY_LABELS } from '../types';
+import { Detection, Status, Severity, DetectionType, Maturity, Confidence, DetectionQuery, LinkedMitreEntity, LIBRARY_LABELS, LibraryType } from '../types';
+import { LIBRARY_PRODUCTION, LIBRARY_DEVELOPMENT, PROMOTION_NONE } from '../constants/library';
 import { Icon } from './Icon';
 import { 
   getMitreDataById, 
@@ -35,7 +36,7 @@ interface NewDetectionFormProps {
   userName?: string;
   detectionToEdit?: Detection | null;
   initialDraft?: Partial<Detection> | null;
-  targetLibrary?: 'user' | 'universal';
+  targetLibrary?: LibraryType;
   mitreFramework?: any;  // Optional MITRE framework data
 }
 
@@ -291,14 +292,14 @@ export const NewUseCaseForm: React.FC<NewDetectionFormProps> = ({
   userName = 'Unknown User',
   detectionToEdit,
   initialDraft,
-  targetLibrary = 'user',
+  targetLibrary = LIBRARY_PRODUCTION,
   mitreFramework
 }) => {
   // Use onBack if provided, otherwise use onCancel
   const onBack = onBackProp || onCancel || (() => {});
   
   const isEditMode = !!detectionToEdit;
-  const isUniversalTarget = targetLibrary === 'universal';
+  const isUniversalTarget = targetLibrary === LIBRARY_DEVELOPMENT;
   const { calculateQuality } = useDetectionQuality();
   const { logEvent } = useAuditLog();
   const { showToast } = useToast();
@@ -1127,14 +1128,14 @@ Output JSON only, no markdown.`;
       references: (formData.references || []).filter(Boolean),
       tags: formData.tags || [],
       auditLog: formData.auditLog || [], // Deprecated: no longer appended to
-      library_type: formData.library_type || 'user',
+      library_type: formData.library_type || LIBRARY_PRODUCTION,
       source: formData.source || 'custom',
       source_rule_id: formData.source_rule_id || null,
       source_url: formData.source_url || null,
       external_id: formData.external_id || null,
-      publish_status: formData.publish_status || 'unpublished',
-      published_to_id: formData.published_to_id || null,
-      published_at: formData.published_at || null
+      promotion_status: formData.promotion_status || PROMOTION_NONE,
+      promoted_to_id: formData.promoted_to_id || null,
+      promoted_at: formData.promoted_at || null
     };
   };
 
@@ -1289,7 +1290,7 @@ Output JSON only, no markdown.`;
                     : 'bg-primary/15 text-primary border border-primary/30'
                 }`}>
                   <Icon name={isUniversalTarget ? 'globe' : 'user'} className="w-3.5 h-3.5" />
-                  {LIBRARY_LABELS[isUniversalTarget ? 'universal' : 'user']}
+                  {LIBRARY_LABELS[isUniversalTarget ? LIBRARY_DEVELOPMENT : LIBRARY_PRODUCTION]}
                 </span>
               )}
             </div>
@@ -1615,7 +1616,7 @@ function getDefaultFormData(): Partial<Detection> {
     prerequisites: [], caveats: '', fineTuning: '',
     testedAndValidated: false, testCases: [], qualityScore: 0,
     references: [], tags: [], auditLog: [],
-    library_type: 'user', source: 'custom', source_rule_id: null, source_url: null, external_id: null,
-    publish_status: 'unpublished', published_to_id: null, published_at: null
+    library_type: LIBRARY_PRODUCTION, source: 'custom', source_rule_id: null, source_url: null, external_id: null,
+    promotion_status: PROMOTION_NONE, promoted_to_id: null, promoted_at: null
   };
 }

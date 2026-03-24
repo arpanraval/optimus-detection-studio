@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Detection, AuditEvent } from '../../../types';
 import { LIBRARY_LABELS } from '../../../types/detection';
+import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION, PROMOTION_NONE, PROMOTION_PENDING, PROMOTION_PROMOTED, PROMOTION_REJECTED } from '../../../constants/library';
 import { Icon } from '../../Icon';
 import { useDetectionAudit } from '../../../hooks/useDetectionAudit';
 import { supabase } from '../../../lib/supabaseClient';
@@ -97,7 +98,7 @@ function formatAuditEventAction(action: string): string {
     'detection.updated': 'Updated detection',
     'detection.deleted': 'Deleted detection',
     'detection.status_changed': 'Changed status',
-    'detection.published': `Promoted to ${LIBRARY_LABELS['universal']}`,
+    'detection.promoted': `Promoted to ${LIBRARY_LABELS[LIBRARY_DEVELOPMENT]}`,
     'detection.publish_requested': 'Publish requested',
     'detection.deployed': 'Deployed to SIEM',
     'review.requested': 'Review requested',
@@ -121,7 +122,7 @@ function getAuditEventIcon(action: string): string {
     'detection.updated': 'edit',
     'detection.deleted': 'trash',
     'detection.status_changed': 'refresh-cw',
-    'detection.published': 'globe',
+    'detection.promoted': 'globe',
     'detection.publish_requested': 'send',
     'detection.deployed': 'cloud-upload',
     'review.requested': 'eye',
@@ -142,7 +143,7 @@ function getAuditEventColor(action: string): string {
     'detection.updated': 'text-blue-400',
     'detection.deleted': 'text-red-400',
     'detection.status_changed': 'text-purple-400',
-    'detection.published': 'text-green-500',
+    'detection.promoted': 'text-green-500',
     'detection.publish_requested': 'text-amber-400',
     'detection.deployed': 'text-emerald-400',
     'review.requested': 'text-amber-400',
@@ -324,12 +325,12 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ detection }) => {
               <div>
                 <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider block mb-1">Library</span>
                 <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${
-                  detection.library_type === 'universal' 
+                  detection.library_type === LIBRARY_DEVELOPMENT 
                     ? 'bg-secondary/10 text-secondary border border-secondary/20'
                     : 'bg-primary/10 text-primary border border-primary/20'
                 }`}>
-                  <Icon name={detection.library_type === 'universal' ? 'globe' : 'user'} className="w-3.5 h-3.5" />
-                  {detection.library_type === 'universal' ? LIBRARY_LABELS['universal'] : LIBRARY_LABELS['user']}
+                  <Icon name={detection.library_type === LIBRARY_DEVELOPMENT ? 'globe' : 'user'} className="w-3.5 h-3.5" />
+                  {detection.library_type === LIBRARY_DEVELOPMENT ? LIBRARY_LABELS[LIBRARY_DEVELOPMENT] : LIBRARY_LABELS[LIBRARY_PRODUCTION]}
                 </span>
               </div>
               
@@ -340,25 +341,25 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ detection }) => {
                 </div>
               )}
               
-              {detection.publish_status && detection.publish_status !== 'unpublished' && (
+              {detection.promotion_status && detection.promotion_status !== PROMOTION_NONE && (
                 <div>
-                  <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider block mb-1">Publish Status</span>
+                  <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider block mb-1">Promotion Status</span>
                   <span className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-bold ${
-                    detection.publish_status === 'published' ? 'bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20' :
-                    detection.publish_status === 'pending' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20' :
-                    detection.publish_status === 'rejected' ? 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20' :
+                    detection.promotion_status === PROMOTION_PROMOTED ? 'bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20' :
+                    detection.promotion_status === PROMOTION_PENDING ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20' :
+                    detection.promotion_status === PROMOTION_REJECTED ? 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20' :
                     'bg-surface-container text-on-surface-variant border border-outline-variant/20'
                   }`}>
-                    {detection.publish_status.charAt(0).toUpperCase() + detection.publish_status.slice(1)}
+                    {detection.promotion_status.charAt(0).toUpperCase() + detection.promotion_status.slice(1)}
                   </span>
                 </div>
               )}
-              
-              {detection.published_at && (
+
+              {detection.promoted_at && (
                 <div>
-                  <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider block mb-1">Published At</span>
+                  <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider block mb-1">Promoted At</span>
                   <p className="text-sm text-on-surface font-medium">
-                    {new Date(detection.published_at).toLocaleDateString('en-US', { 
+                    {new Date(detection.promoted_at).toLocaleDateString('en-US', { 
                       month: 'short', day: 'numeric', year: 'numeric' 
                     })}
                   </p>

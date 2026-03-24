@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Detection, LinkedMitreEntity } from '../../../types';
 import { LIBRARY_LABELS } from '../../../types/detection';
+import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION, PROMOTION_NONE, PROMOTION_PENDING, PROMOTION_PROMOTED, PROMOTION_REJECTED } from '../../../constants/library';
 import { Icon } from '../../Icon';
 import { getMitreDataById } from '../../../mitre';
 import { StatusBadge } from '../../StatusBadge';
@@ -110,7 +111,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   }, [detection.mitreAttackIds]);
 
   // Check if this is a Universal Library rule
-  const isUniversalRule = detection.library_type === 'universal';
+  const isUniversalRule = detection.library_type === LIBRARY_DEVELOPMENT;
   const isCopiedFromUniversal = detection.source_rule_id !== null;
 
   // L1: Get source info

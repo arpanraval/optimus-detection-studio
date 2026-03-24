@@ -52,7 +52,7 @@ export class DuplicateDetector {
    * Load all existing external IDs from database
    */
   async loadExistingExternalIds(
-    libraryType?: 'universal' | 'user'
+    libraryType?: string
   ): Promise<Set<string>> {
     try {
       let query = supabase

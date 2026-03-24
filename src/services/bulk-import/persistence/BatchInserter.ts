@@ -617,9 +617,9 @@ export class BatchInserter {
       source_rule_id: detection.source_rule_id || null,
       source_url: detection.source_url || null,
       external_id: detection.external_id || null,
-      publish_status: detection.publish_status || 'unpublished',
-      published_to_id: detection.published_to_id || null,
-      published_at: detection.published_at || null,
+      promotion_status: detection.promotion_status || 'none',
+      promoted_to_id: detection.promoted_to_id || null,
+      promoted_at: detection.promoted_at || null,
       review_status: detection.review_status || 'none',
       // New safety columns
       bulk_import_id: bulkImportId,

@@ -9,6 +9,7 @@ import { useThreatIntel } from '../../context/ThreatIntelContext';
 import { useToast } from '../../hooks/useToast';
 import { supabase } from '../../lib/supabaseClient';
 import { Detection } from '../../types';
+import { LIBRARY_PRODUCTION, LIBRARY_DEVELOPMENT } from '../../constants/library';
 import { ROUTES, routeHelpers } from '../routes';
 
 // Type for detection draft source
@@ -38,7 +39,7 @@ export const DetectionFormPage: React.FC<DetectionFormPageProps> = ({ mode }) =>
   const [loading, setLoading] = useState(mode === 'edit');
 
   // Get library type from URL param
-  const targetLibrary = searchParams.get('library') === 'universal' ? 'universal' : 'user';
+  const targetLibrary = searchParams.get('library') === 'development' ? LIBRARY_DEVELOPMENT : LIBRARY_PRODUCTION;
 
   // Get draft from session storage if available
   // We need to check this ONCE and use the result for both draft state and showSelection
@@ -225,7 +226,7 @@ export const DetectionFormPage: React.FC<DetectionFormPageProps> = ({ mode }) =>
         onCancel={handleCancel}
         mitreFramework={mitreFramework}
         userId={user?.id || ''}
-        targetLibrary={mode === 'edit' ? (detection?.library_type || 'user') : targetLibrary}
+        targetLibrary={mode === 'edit' ? (detection?.library_type || LIBRARY_PRODUCTION) : targetLibrary}
       />
     </PageErrorBoundary>
   );
