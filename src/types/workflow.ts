@@ -118,8 +118,8 @@ export type ActivityAction =
   | 'comment_added'
   | 'comment_resolved'
   // Publishing actions
-  | 'detection_published'
-  | 'detection_publish_requested'
+  | 'detection_promoted'
+  | 'detection_promotion_requested'
   | 'detection_copied'
   // User actions
   | 'user_invited'
@@ -162,8 +162,8 @@ export type AuditEventAction =
   | 'detection.updated'
   | 'detection.deleted'
   | 'detection.status_changed'
-  | 'detection.published'
-  | 'detection.publish_requested'
+  | 'detection.promoted'
+  | 'detection.promotion_requested'
   | 'detection.deployed'
   | 'detection.assigned'
   | 'detection.unassigned'
@@ -266,7 +266,10 @@ export interface ScoringProfile {
 // PUBLISH REQUEST TYPES
 // ============================================
 
-export interface PublishRequest {
+/** @deprecated Use PromotionRequest instead */
+export type PublishRequest = PromotionRequest;
+
+export interface PromotionRequest {
   id: string;
   detection_id: string;
   target_rule_id: string | null;
@@ -335,9 +338,9 @@ export interface PublishEligibility {
     mitre_mapping: { passed: boolean; count: number };
     detection_query: { passed: boolean };
   };
-  publish_status: string;
-  already_published: boolean;
+  promotion_status: string;
+  already_promoted: boolean;
   is_pending: boolean;
-  is_published_unchanged: boolean;
+  is_promoted_unchanged: boolean;
   is_update: boolean;
 }

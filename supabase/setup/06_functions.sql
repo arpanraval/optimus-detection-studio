@@ -157,6 +157,21 @@ BEGIN
 END;
 $function$;
 
+-- Check if user is a global admin or lead (owner, admin, or lead role in profiles)
+CREATE OR REPLACE FUNCTION public.is_global_admin_or_lead(p_user_id uuid DEFAULT auth.uid())
+ RETURNS boolean
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+AS $function$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM profiles
+    WHERE id = p_user_id
+    AND role IN ('owner', 'admin', 'lead')
+  );
+END;
+$function$;
+
 -- Get user permissions based on team role
 CREATE OR REPLACE FUNCTION public.get_user_permissions(p_team_id uuid DEFAULT NULL::uuid)
  RETURNS jsonb
@@ -556,12 +571,12 @@ BEGIN
     );
   END IF;
 
-  -- Check universal library permissions
-  IF p_library_type = 'universal' THEN
+  -- Check Development Library permissions (only owners/admins can write directly)
+  IF p_library_type = 'development' THEN
     IF v_profile.role NOT IN ('owner', 'admin') THEN
       RETURN jsonb_build_object(
         'allowed', false,
-        'error', 'Only owners and admins can import to Production Library',
+        'error', 'Only owners and admins can import to Development Library',
         'required_role', 'admin',
         'current_role', v_profile.role
       );
@@ -578,143 +593,38 @@ BEGIN
 END;
 $function$;
 
--- Copy a universal library detection to user's personal library
-CREATE OR REPLACE FUNCTION public.copy_to_user_library(p_detection_id text, p_user_id uuid)
- RETURNS text
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-DECLARE
-  v_source_rule RECORD;
-  v_new_id TEXT;
-  v_existing_id TEXT;
-BEGIN
-  -- Get the source rule
-  SELECT * INTO v_source_rule
-  FROM detections
-  WHERE id = p_detection_id AND library_type = 'universal';
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Universal rule not found: %', p_detection_id;
-  END IF;
-
-  -- Check if user already has a copy
-  SELECT id INTO v_existing_id
-  FROM detections
-  WHERE source_rule_id = p_detection_id
-    AND user_id = p_user_id
-    AND library_type = 'user';
-
-  IF FOUND THEN
-    RAISE EXCEPTION 'Rule already in your library: %', v_existing_id;
-  END IF;
-
-  -- Generate new ID
-  v_new_id := gen_random_uuid()::TEXT;
-
-  -- Create the copy
-  INSERT INTO detections (
-    id, user_id, version, "updatedDate", created_by, updated_by,
-    library_type, source, source_rule_id, source_url, external_id, publish_status,
-    name, description, author, status, maturity, "detectionType",
-    severity, confidence, "logSource", "logSources", "dataSources", "dataComponents",
-    platforms, technology, queries, "queryLanguage", "detectionQuery", "queryExplanation",
-    "mitreAttackIds", "mitreTactics", "mitreTechniques",
-    "linkedGroups", "linkedSoftware", "linkedCampaigns",
-    "threatActors", campaigns, software, "associatedCVEs",
-    "investigationSteps", "responseActions", "falsePositiveGuidance",
-    prerequisites, caveats, "fineTuning", "testedAndValidated",
-    "references", tags, "qualityScore"
-  )
-  VALUES (
-    v_new_id,
-    p_user_id,
-    1,
-    now(),
-    p_user_id::TEXT,
-    p_user_id::TEXT,
-    'user',
-    v_source_rule.source,
-    p_detection_id,
-    v_source_rule.source_url,
-    v_source_rule.external_id,
-    'unpublished',
-    v_source_rule.name,
-    v_source_rule.description,
-    v_source_rule.author,
-    'Draft',
-    v_source_rule.maturity,
-    v_source_rule."detectionType",
-    v_source_rule.severity,
-    v_source_rule.confidence,
-    v_source_rule."logSource",
-    v_source_rule."logSources",
-    v_source_rule."dataSources",
-    v_source_rule."dataComponents",
-    v_source_rule.platforms,
-    v_source_rule.technology,
-    v_source_rule.queries,
-    v_source_rule."queryLanguage",
-    v_source_rule."detectionQuery",
-    v_source_rule."queryExplanation",
-    v_source_rule."mitreAttackIds",
-    v_source_rule."mitreTactics",
-    v_source_rule."mitreTechniques",
-    v_source_rule."linkedGroups",
-    v_source_rule."linkedSoftware",
-    v_source_rule."linkedCampaigns",
-    v_source_rule."threatActors",
-    v_source_rule.campaigns,
-    v_source_rule.software,
-    v_source_rule."associatedCVEs",
-    v_source_rule."investigationSteps",
-    v_source_rule."responseActions",
-    v_source_rule."falsePositiveGuidance",
-    v_source_rule.prerequisites,
-    v_source_rule.caveats,
-    v_source_rule."fineTuning",
-    false,
-    v_source_rule."references",
-    v_source_rule.tags,
-    v_source_rule."qualityScore"
-  );
-
-  RETURN v_new_id;
-END;
-$function$;
-
--- Fork a Production Library detection to the Lab for experimentation
-CREATE OR REPLACE FUNCTION public.fork_to_lab(p_detection_id text, p_user_id uuid)
+-- Fork a Production Library detection to the Development Library for experimentation
+CREATE OR REPLACE FUNCTION public.fork_to_development(p_detection_id text, p_user_id uuid)
 RETURNS text AS $$
 DECLARE
   v_source_rule RECORD;
   v_new_id text;
   v_existing_id text;
 BEGIN
-  -- Source must be a Production Library rule (library_type = 'user')
+  -- Source must be a Production Library rule (library_type = 'production')
   SELECT * INTO v_source_rule
   FROM detections
-  WHERE id = p_detection_id AND library_type = 'user';
+  WHERE id = p_detection_id AND library_type = 'production';
 
   IF v_source_rule IS NULL THEN
     RAISE EXCEPTION 'Detection not found or not in Production Library';
   END IF;
 
-  -- Check if user already has a lab fork
+  -- Check if user already has a development fork
   SELECT id INTO v_existing_id
   FROM detections
   WHERE source_rule_id = p_detection_id
     AND user_id = p_user_id
-    AND library_type = 'universal';
+    AND library_type = 'development';
 
   IF v_existing_id IS NOT NULL THEN
-    RAISE EXCEPTION 'You already have a lab copy of this detection (ID: %)', v_existing_id;
+    RAISE EXCEPTION 'You already have a development copy of this detection (ID: %)', v_existing_id;
   END IF;
 
   v_new_id := gen_random_uuid()::text;
 
   INSERT INTO detections (
-    id, user_id, version, library_type, source_rule_id, publish_status,
+    id, user_id, version, library_type, source_rule_id, promotion_status,
     name, description, author, status, severity, "detectionType",
     "logSource", "logSources", technology, "queryLanguage", "detectionQuery",
     queries, "queryExplanation", "mitreAttackIds", "mitreTactics", "mitreTechniques",
@@ -728,7 +638,7 @@ BEGIN
     "createdDate", "updatedDate"
   )
   SELECT
-    v_new_id, p_user_id, 1, 'universal', p_detection_id, 'unpublished',
+    v_new_id, p_user_id, 1, 'development', p_detection_id, 'none',
     name, description, author, 'Draft', severity, "detectionType",
     "logSource", "logSources", technology, "queryLanguage", "detectionQuery",
     queries, "queryExplanation", "mitreAttackIds", "mitreTactics", "mitreTechniques",
@@ -835,8 +745,8 @@ AS $function$
   );
 $function$;
 
--- Check publish eligibility for a detection
-CREATE OR REPLACE FUNCTION public.check_publish_eligibility(p_detection_id text)
+-- Check promotion eligibility for a detection
+CREATE OR REPLACE FUNCTION public.check_promotion_eligibility(p_detection_id text)
  RETURNS json
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -844,7 +754,7 @@ AS $function$
 DECLARE
   v_detection RECORD;
   v_is_pending BOOLEAN;
-  v_is_published_unchanged BOOLEAN;
+  v_is_promoted_unchanged BOOLEAN;
 BEGIN
   SELECT * INTO v_detection FROM detections WHERE id = p_detection_id;
 
@@ -853,19 +763,19 @@ BEGIN
   END IF;
 
   -- Check if currently pending approval
-  v_is_pending := v_detection.publish_status = 'pending';
+  v_is_pending := v_detection.promotion_status = 'pending';
 
-  -- Check if published and NOT updated since (no changes to re-publish)
-  v_is_published_unchanged := (
-    v_detection.publish_status = 'published' AND
-    v_detection.published_at IS NOT NULL AND
-    v_detection."updatedDate" <= v_detection.published_at
+  -- Check if promoted and NOT updated since (no changes to re-promote)
+  v_is_promoted_unchanged := (
+    v_detection.promotion_status = 'promoted' AND
+    v_detection.promoted_at IS NOT NULL AND
+    v_detection."updatedDate" <= v_detection.promoted_at
   );
 
   RETURN json_build_object(
     'eligible', (
       NOT v_is_pending AND
-      NOT v_is_published_unchanged AND
+      NOT v_is_promoted_unchanged AND
       COALESCE(v_detection."qualityScore", 0) >= 60 AND
       v_detection.name IS NOT NULL AND v_detection.name != '' AND
       v_detection.description IS NOT NULL AND LENGTH(v_detection.description) >= 20 AND
@@ -879,17 +789,17 @@ BEGIN
       'mitre_mapping', json_build_object('passed', v_detection."mitreAttackIds" IS NOT NULL AND array_length(v_detection."mitreAttackIds", 1) > 0, 'count', COALESCE(array_length(v_detection."mitreAttackIds", 1), 0)),
       'detection_query', json_build_object('passed', v_detection."detectionQuery" IS NOT NULL AND v_detection."detectionQuery" != '')
     ),
-    'publish_status', v_detection.publish_status,
-    'already_published', v_detection.publish_status = 'published',
+    'promotion_status', v_detection.promotion_status,
+    'already_promoted', v_detection.promotion_status = 'promoted',
     'is_pending', v_is_pending,
-    'is_published_unchanged', v_is_published_unchanged,
+    'is_promoted_unchanged', v_is_promoted_unchanged,
     'is_update', v_detection.source_rule_id IS NOT NULL
   );
 END;
 $function$;
 
--- Submit a detection for publish to the Production Library (text id variant)
-CREATE OR REPLACE FUNCTION public.submit_for_publish(p_detection_id text, p_user_id uuid)
+-- Submit a detection for promotion to the Production Library (text id variant)
+CREATE OR REPLACE FUNCTION public.submit_for_promotion(p_detection_id text, p_user_id uuid)
  RETURNS json
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -899,18 +809,18 @@ DECLARE
   v_request_id UUID;
   v_target_rule_id TEXT;
 BEGIN
-  -- Get the detection — must be in Lab (universal) and owned by user
+  -- Get the detection — must be in Development Library and owned by user
   SELECT * INTO v_detection
   FROM detections
   WHERE id = p_detection_id
-    AND library_type = 'universal'
+    AND library_type = 'development'
     AND user_id = p_user_id;
 
   IF NOT FOUND THEN
     RETURN json_build_object('success', false, 'error', 'Detection not found or not owned by user');
   END IF;
 
-  IF v_detection.publish_status = 'pending' THEN
+  IF v_detection.promotion_status = 'pending' THEN
     RETURN json_build_object('success', false, 'error', 'Already pending approval');
   END IF;
 
@@ -938,12 +848,12 @@ BEGIN
 
   v_target_rule_id := v_detection.source_rule_id;
 
-  INSERT INTO publish_requests (detection_id, target_rule_id, submitted_by, status)
+  INSERT INTO promotion_requests (detection_id, target_rule_id, submitted_by, status)
   VALUES (p_detection_id, v_target_rule_id, p_user_id, 'pending')
   RETURNING id INTO v_request_id;
 
   UPDATE detections
-  SET publish_status = 'pending', "updatedDate" = now()
+  SET promotion_status = 'pending', "updatedDate" = now()
   WHERE id = p_detection_id;
 
   RETURN json_build_object(
@@ -955,8 +865,8 @@ BEGIN
 END;
 $function$;
 
--- Submit a detection for publish to the Production Library (uuid id variant)
-CREATE OR REPLACE FUNCTION public.submit_for_publish(p_detection_id uuid, p_user_id uuid)
+-- Submit a detection for promotion to the Production Library (uuid id variant)
+CREATE OR REPLACE FUNCTION public.submit_for_promotion(p_detection_id uuid, p_user_id uuid)
  RETURNS json
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -966,26 +876,26 @@ DECLARE
   v_request_id UUID;
   v_target_rule_id TEXT;
 BEGIN
-  -- Get the detection — must be in Lab (universal) and owned by user
+  -- Get the detection — must be in Development Library and owned by user
   SELECT * INTO v_detection
   FROM detections
   WHERE id = p_detection_id
-    AND library_type = 'universal'
+    AND library_type = 'development'
     AND user_id = p_user_id;
 
   IF NOT FOUND THEN
     RETURN json_build_object('success', false, 'error', 'Detection not found or not owned by user');
   END IF;
 
-  IF v_detection.publish_status = 'pending' THEN
+  IF v_detection.promotion_status = 'pending' THEN
     RETURN json_build_object('success', false, 'error', 'Already pending approval');
   END IF;
 
-  -- Block re-submission of published detections that haven't been modified
-  IF v_detection.publish_status = 'published'
-     AND v_detection.published_at IS NOT NULL
-     AND v_detection."updatedDate" <= v_detection.published_at THEN
-    RETURN json_build_object('success', false, 'error', 'Already published and unchanged since last publish');
+  -- Block re-submission of promoted detections that haven't been modified
+  IF v_detection.promotion_status = 'promoted'
+     AND v_detection.promoted_at IS NOT NULL
+     AND v_detection."updatedDate" <= v_detection.promoted_at THEN
+    RETURN json_build_object('success', false, 'error', 'Already promoted and unchanged since last promotion');
   END IF;
 
   -- Quality gates
@@ -1012,12 +922,12 @@ BEGIN
 
   v_target_rule_id := v_detection.source_rule_id;
 
-  INSERT INTO publish_requests (detection_id, target_rule_id, submitted_by, status)
+  INSERT INTO promotion_requests (detection_id, target_rule_id, submitted_by, status)
   VALUES (p_detection_id, v_target_rule_id, p_user_id, 'pending')
   RETURNING id INTO v_request_id;
 
   UPDATE detections
-  SET publish_status = 'pending', "updatedDate" = now()
+  SET promotion_status = 'pending', "updatedDate" = now()
   WHERE id = p_detection_id;
 
   RETURN json_build_object(
@@ -1029,8 +939,8 @@ BEGIN
 END;
 $function$;
 
--- Approve or reject a publish request (admin action)
-CREATE OR REPLACE FUNCTION public.approve_publish_request(p_request_id uuid, p_admin_id uuid, p_action text, p_notes text DEFAULT NULL::text)
+-- Approve or reject a promotion request (admin/lead action)
+CREATE OR REPLACE FUNCTION public.approve_promotion(p_request_id uuid, p_admin_id uuid, p_action text, p_notes text DEFAULT NULL::text)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -1045,13 +955,13 @@ DECLARE
   v_is_update BOOLEAN := false;
   v_current_version INTEGER;
 BEGIN
-  -- Verify admin role (owner role is higher than admin in hierarchy)
-  IF NOT EXISTS (SELECT 1 FROM profiles WHERE id = p_admin_id AND role IN ('owner', 'admin')) THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Admin access required');
+  -- Verify role (owner, admin, or lead can approve promotions)
+  IF NOT EXISTS (SELECT 1 FROM profiles WHERE id = p_admin_id AND role IN ('owner', 'admin', 'lead')) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Admin or Lead access required');
   END IF;
 
   -- Get request
-  SELECT * INTO v_request FROM publish_requests WHERE id = p_request_id;
+  SELECT * INTO v_request FROM promotion_requests WHERE id = p_request_id;
 
   IF NOT FOUND THEN
     RETURN jsonb_build_object('success', false, 'error', 'Request not found');
@@ -1069,13 +979,13 @@ BEGIN
   END IF;
 
   IF p_action = 'approve' THEN
-    -- Determine if this is an update or new publish
+    -- Determine if this is an update or new promotion
 
-    IF v_detection.published_to_id IS NOT NULL THEN
-      v_target_detection_id := v_detection.published_to_id;
+    IF v_detection.promoted_to_id IS NOT NULL THEN
+      v_target_detection_id := v_detection.promoted_to_id;
       v_is_update := true;
 
-      IF NOT EXISTS (SELECT 1 FROM detections WHERE id = v_target_detection_id AND library_type = 'user') THEN
+      IF NOT EXISTS (SELECT 1 FROM detections WHERE id = v_target_detection_id AND library_type = 'production') THEN
         v_target_detection_id := gen_random_uuid()::text;
         v_is_update := false;
       END IF;
@@ -1084,7 +994,7 @@ BEGIN
       v_target_detection_id := v_detection.source_rule_id;
       v_is_update := true;
 
-      IF NOT EXISTS (SELECT 1 FROM detections WHERE id = v_target_detection_id AND library_type = 'user') THEN
+      IF NOT EXISTS (SELECT 1 FROM detections WHERE id = v_target_detection_id AND library_type = 'production') THEN
         v_target_detection_id := gen_random_uuid()::text;
         v_is_update := false;
       END IF;
@@ -1099,7 +1009,7 @@ BEGIN
       SELECT COALESCE(version, 1) INTO v_current_version
       FROM detections WHERE id = v_target_detection_id;
 
-      -- UPDATE existing universal rule
+      -- UPDATE existing Production Library rule
       UPDATE detections
       SET
         name = v_detection.name,
@@ -1147,7 +1057,7 @@ BEGIN
 
       v_notification_message := 'Your update to "' || v_detection.name || '" has been approved and the Production Library rule has been updated.';
     ELSE
-      -- CREATE new universal rule
+      -- CREATE new Production Library rule
       INSERT INTO detections (
         id, name, description, status, severity, author, version,
         "createdDate", "updatedDate", "detectionType", "logSource", "logSources", technology,
@@ -1205,7 +1115,7 @@ BEGIN
         v_detection.tags,
         v_detection.maturity,
         v_detection.confidence,
-        'user',
+        'production',
         'community',
         v_request.submitted_by
       );
@@ -1213,17 +1123,17 @@ BEGIN
       v_notification_message := 'Your detection "' || v_detection.name || '" has been approved and promoted to the Production Library.';
     END IF;
 
-    -- Update original user detection to link to universal
+    -- Update original Development Library detection to link to Production
     UPDATE detections
     SET
-      publish_status = 'published',
-      published_to_id = v_target_detection_id,
-      published_at = NOW(),
+      promotion_status = 'promoted',
+      promoted_to_id = v_target_detection_id,
+      promoted_at = NOW(),
       "updatedDate" = NOW()
     WHERE id = v_request.detection_id;
 
     -- Update request with correct column names
-    UPDATE publish_requests
+    UPDATE promotion_requests
     SET
       status = 'approved',
       reviewed_by = p_admin_id,
@@ -1234,7 +1144,7 @@ BEGIN
       updated_at = NOW()
     WHERE id = p_request_id;
 
-    v_notification_type := 'publish_approved';
+    v_notification_type := 'promotion_approved';
     v_notification_title := CASE WHEN v_is_update THEN 'Production Update Approved' ELSE 'Promoted to Production' END;
 
   ELSIF p_action = 'approve_as_new' THEN
@@ -1297,7 +1207,7 @@ BEGIN
       v_detection.tags,
       v_detection.maturity,
       v_detection.confidence,
-      'user',
+      'production',
       'community',
       v_request.submitted_by
     );
@@ -1305,14 +1215,14 @@ BEGIN
     -- Update original detection
     UPDATE detections
     SET
-      publish_status = 'published',
-      published_to_id = v_target_detection_id,
-      published_at = NOW(),
+      promotion_status = 'promoted',
+      promoted_to_id = v_target_detection_id,
+      promoted_at = NOW(),
       "updatedDate" = NOW()
     WHERE id = v_request.detection_id;
 
     -- Update request
-    UPDATE publish_requests
+    UPDATE promotion_requests
     SET
       status = 'approved',
       reviewed_by = p_admin_id,
@@ -1323,7 +1233,7 @@ BEGIN
       updated_at = NOW()
     WHERE id = p_request_id;
 
-    v_notification_type := 'publish_approved_as_new';
+    v_notification_type := 'promotion_approved_as_new';
     v_notification_title := 'Promoted as New Rule';
     v_notification_message := 'Your detection "' || v_detection.name || '" has been approved and added as a NEW rule in the Production Library.';
 
@@ -1331,12 +1241,12 @@ BEGIN
     -- Update detection status
     UPDATE detections
     SET
-      publish_status = 'rejected',
+      promotion_status = 'rejected',
       "updatedDate" = NOW()
     WHERE id = v_request.detection_id;
 
     -- Update request
-    UPDATE publish_requests
+    UPDATE promotion_requests
     SET
       status = 'rejected',
       reviewed_by = p_admin_id,
@@ -1346,8 +1256,8 @@ BEGIN
       updated_at = NOW()
     WHERE id = p_request_id;
 
-    v_notification_type := 'publish_rejected';
-    v_notification_title := 'Publish Request Rejected';
+    v_notification_type := 'promotion_rejected';
+    v_notification_title := 'Promotion Request Rejected';
     v_notification_message := 'Your detection "' || v_detection.name || '" was not approved.' ||
       CASE WHEN p_notes IS NOT NULL AND p_notes != '' THEN ' Reason: ' || p_notes ELSE '' END;
   ELSE
@@ -1377,7 +1287,7 @@ BEGIN
     'success', true,
     'action', p_action,
     'is_update', v_is_update,
-    'universal_id', v_target_detection_id
+    'production_id', v_target_detection_id
   );
 END;
 $function$;
@@ -1597,10 +1507,10 @@ AS $function$
     AND array_length(d."mitreAttackIds", 1) > 0
     AND (
       CASE p_scope
-        WHEN 'production' THEN d.library_type = 'user' AND d.user_id = p_user_id
-        WHEN 'lab' THEN d.library_type = 'universal'
-        WHEN 'all' THEN d.library_type = 'user' AND d.user_id = p_user_id OR d.library_type = 'universal'
-        ELSE d.library_type = 'user' AND d.user_id = p_user_id
+        WHEN 'production' THEN d.library_type = 'production' AND d.user_id = p_user_id
+        WHEN 'lab' THEN d.library_type = 'development'
+        WHEN 'all' THEN d.library_type = 'production' AND d.user_id = p_user_id OR d.library_type = 'development'
+        ELSE d.library_type = 'production' AND d.user_id = p_user_id
       END
     )
   ),
@@ -1616,10 +1526,10 @@ AS $function$
     WHERE d."mitreAttackIds" IS NOT NULL
     AND (
       CASE p_scope
-        WHEN 'production' THEN d.library_type = 'user' AND d.user_id = p_user_id
-        WHEN 'lab' THEN d.library_type = 'universal'
-        WHEN 'all' THEN d.library_type = 'user' AND d.user_id = p_user_id OR d.library_type = 'universal'
-        ELSE d.library_type = 'user' AND d.user_id = p_user_id
+        WHEN 'production' THEN d.library_type = 'production' AND d.user_id = p_user_id
+        WHEN 'lab' THEN d.library_type = 'development'
+        WHEN 'all' THEN d.library_type = 'production' AND d.user_id = p_user_id OR d.library_type = 'development'
+        ELSE d.library_type = 'production' AND d.user_id = p_user_id
       END
     )
   ),
@@ -2421,7 +2331,7 @@ BEGIN
   FROM detection_embeddings de
   JOIN detections d ON d.id = de.detection_id
   WHERE de.detection_id = p_detection_id
-    AND (d.user_id = v_caller_id OR d.library_type = 'universal');
+    AND (d.user_id = v_caller_id OR d.library_type = 'production');
 
   -- If no embedding found (or unauthorized), return empty
   IF v_embedding IS NULL THEN
@@ -2445,7 +2355,7 @@ BEGIN
   WHERE
     (NOT p_exclude_self OR de.detection_id != p_detection_id)
     AND 1 - (de.embedding <=> v_embedding) > p_match_threshold
-    AND (d.user_id = v_caller_id OR d.library_type = 'universal')
+    AND (d.user_id = v_caller_id OR d.library_type = 'production')
   ORDER BY de.embedding <=> v_embedding ASC
   LIMIT p_match_count;
 END;
@@ -2692,7 +2602,7 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'Detection not found');
   END IF;
 
-  IF v_detection.library_type != 'universal' THEN
+  IF v_detection.library_type != 'production' THEN
     RETURN jsonb_build_object('success', false, 'error', 'Only Production Library detections can be added to workspaces');
   END IF;
 
@@ -2730,7 +2640,7 @@ BEGIN
 
   FOREACH v_detection_id IN ARRAY p_detection_ids LOOP
     BEGIN
-      IF NOT EXISTS (SELECT 1 FROM detections WHERE id = v_detection_id AND library_type = 'universal') THEN
+      IF NOT EXISTS (SELECT 1 FROM detections WHERE id = v_detection_id AND library_type = 'production') THEN
         v_skipped := v_skipped + 1;
         v_errors := array_append(v_errors, format('%s: not in Production Library', v_detection_id));
         CONTINUE;
@@ -2834,7 +2744,7 @@ DECLARE
   v_overrides jsonb;
   v_workspace_data jsonb;
 BEGIN
-  SELECT to_jsonb(d.*) INTO v_detection FROM detections d WHERE d.id = p_detection_id AND d.library_type = 'universal';
+  SELECT to_jsonb(d.*) INTO v_detection FROM detections d WHERE d.id = p_detection_id AND d.library_type = 'production';
   IF v_detection IS NULL THEN RETURN NULL; END IF;
 
   SELECT jsonb_build_object(

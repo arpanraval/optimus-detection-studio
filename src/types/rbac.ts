@@ -41,9 +41,9 @@ export type Permission =
   | 'team_library:contribute'
   | 'team_library:manage'
   // Universal library permissions
-  | 'universal:read'
-  | 'universal:publish'
-  | 'universal:approve'
+  | 'development:read'
+  | 'development:promote'
+  | 'development:approve_promotion'
   // Assignment permissions
   | 'assignment:self'
   | 'assignment:others'
@@ -75,7 +75,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'detection:create', 'detection:read', 'detection:update:own', 'detection:update:assigned',
     'detection:update:any', 'detection:delete:own', 'detection:delete:any',
     'team_library:read', 'team_library:contribute', 'team_library:manage',
-    'universal:read', 'universal:publish', 'universal:approve',
+    'development:read', 'development:promote', 'development:approve_promotion',
     'assignment:self', 'assignment:others', 'assignment:view',
     'review:request', 'review:perform', 'review:view',
     'comment:create', 'comment:edit:own', 'comment:delete:own', 'comment:resolve',
@@ -87,7 +87,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'detection:create', 'detection:read', 'detection:update:own', 'detection:update:assigned',
     'detection:update:any', 'detection:delete:own', 'detection:delete:any',
     'team_library:read', 'team_library:contribute', 'team_library:manage',
-    'universal:read', 'universal:publish', 'universal:approve',
+    'development:read', 'development:promote', 'development:approve_promotion',
     'assignment:self', 'assignment:others', 'assignment:view',
     'review:request', 'review:perform', 'review:view',
     'comment:create', 'comment:edit:own', 'comment:delete:own', 'comment:resolve',
@@ -99,7 +99,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'detection:create', 'detection:read', 'detection:update:own', 'detection:update:assigned',
     'detection:update:any', 'detection:delete:own', 'detection:delete:any',
     'team_library:read', 'team_library:contribute', 'team_library:manage',
-    'universal:read', 'universal:publish',
+    'development:read', 'development:promote',
     'assignment:self', 'assignment:others', 'assignment:view',
     'review:request', 'review:perform', 'review:view',
     'comment:create', 'comment:edit:own', 'comment:delete:own', 'comment:resolve',
@@ -110,7 +110,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'detection:create', 'detection:read', 'detection:update:own', 'detection:update:assigned',
     'detection:delete:own',
     'team_library:read', 'team_library:contribute',
-    'universal:read',
+    'development:read',
     'assignment:self', 'assignment:view',
     'review:request', 'review:view',
     'comment:create', 'comment:edit:own', 'comment:delete:own',
@@ -120,7 +120,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   viewer: [
     'detection:read',
     'team_library:read',
-    'universal:read',
+    'development:read',
     'assignment:view',
     'review:view',
     'comment:create', 'comment:edit:own',
@@ -177,8 +177,8 @@ export type GranularPermission =
   // Library Access
   | 'library:view_personal'
   | 'library:view_team'
-  | 'library:view_universal'
-  | 'library:copy_universal'
+  | 'library:view_development'
+  | 'library:copy_development'
   | 'library:publish'
   | 'library:approve_publish'
   // AI & Tools
@@ -262,10 +262,10 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
     permissions: [
       { key: 'library:view_personal', label: 'View personal library', description: 'Access your own detections' },
       { key: 'library:view_team', label: 'View team library', description: 'Access team shared detections' },
-      { key: 'library:view_universal', label: 'View universal library', description: 'Access curated universal rules' },
-      { key: 'library:copy_universal', label: 'Copy from universal', description: 'Fork rules from universal library' },
-      { key: 'library:publish', label: 'Publish to universal', description: 'Submit rules for universal library' },
-      { key: 'library:approve_publish', label: 'Approve publications', description: 'Approve publish requests' },
+      { key: 'library:view_development', label: 'View development library', description: 'Access the development library' },
+      { key: 'library:copy_development', label: 'Fork from production', description: 'Fork rules from production library' },
+      { key: 'library:publish', label: 'Submit for promotion', description: 'Submit rules for promotion to production' },
+      { key: 'library:approve_publish', label: 'Approve promotions', description: 'Approve promotion requests' },
     ],
   },
   {
@@ -336,7 +336,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, GranularPermission[]> = {
     // All permissions
     'detection:create', 'detection:edit_own', 'detection:edit_any', 'detection:delete_own', 'detection:delete_any', 'detection:export', 'detection:import',
     'review:request', 'review:perform', 'review:approve', 'assignment:self', 'assignment:others', 'assignment:remove',
-    'library:view_personal', 'library:view_team', 'library:view_universal', 'library:copy_universal', 'library:publish', 'library:approve_publish',
+    'library:view_personal', 'library:view_team', 'library:view_development', 'library:copy_development', 'library:publish', 'library:approve_publish',
     'tools:ai_query_gen', 'tools:sigma_converter', 'tools:ai_agent', 'tools:export_reports',
     'mitre:view_coverage', 'mitre:view_groups', 'mitre:view_software', 'mitre:view_campaigns', 'mitre:link_entities',
     'team:view_members', 'team:invite_users', 'team:change_roles', 'team:deactivate_users', 'team:delete_users', 'team:view_activity',
@@ -346,7 +346,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, GranularPermission[]> = {
   admin: [
     'detection:create', 'detection:edit_own', 'detection:edit_any', 'detection:delete_own', 'detection:delete_any', 'detection:export', 'detection:import',
     'review:request', 'review:perform', 'review:approve', 'assignment:self', 'assignment:others', 'assignment:remove',
-    'library:view_personal', 'library:view_team', 'library:view_universal', 'library:copy_universal', 'library:publish', 'library:approve_publish',
+    'library:view_personal', 'library:view_team', 'library:view_development', 'library:copy_development', 'library:publish', 'library:approve_publish',
     'tools:ai_query_gen', 'tools:sigma_converter', 'tools:ai_agent', 'tools:export_reports',
     'mitre:view_coverage', 'mitre:view_groups', 'mitre:view_software', 'mitre:view_campaigns', 'mitre:link_entities',
     'team:view_members', 'team:invite_users', 'team:change_roles', 'team:deactivate_users', 'team:view_activity',
@@ -356,7 +356,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, GranularPermission[]> = {
   lead: [
     'detection:create', 'detection:edit_own', 'detection:edit_any', 'detection:delete_own', 'detection:export', 'detection:import',
     'review:request', 'review:perform', 'review:approve', 'assignment:self', 'assignment:others', 'assignment:remove',
-    'library:view_personal', 'library:view_team', 'library:view_universal', 'library:copy_universal', 'library:publish',
+    'library:view_personal', 'library:view_team', 'library:view_development', 'library:copy_development', 'library:publish',
     'tools:ai_query_gen', 'tools:sigma_converter', 'tools:ai_agent', 'tools:export_reports',
     'mitre:view_coverage', 'mitre:view_groups', 'mitre:view_software', 'mitre:view_campaigns', 'mitre:link_entities',
     'team:view_members', 'team:view_activity',
@@ -366,7 +366,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, GranularPermission[]> = {
   analyst: [
     'detection:create', 'detection:edit_own', 'detection:delete_own', 'detection:export',
     'review:request', 'assignment:self',
-    'library:view_personal', 'library:view_team', 'library:view_universal', 'library:copy_universal',
+    'library:view_personal', 'library:view_team', 'library:view_development', 'library:copy_development',
     'tools:ai_query_gen', 'tools:sigma_converter', 'tools:ai_agent', 'tools:export_reports',
     'mitre:view_coverage', 'mitre:view_groups', 'mitre:view_software', 'mitre:view_campaigns', 'mitre:link_entities',
     'team:view_members',
@@ -374,7 +374,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, GranularPermission[]> = {
     'settings:edit_profile', 'settings:change_password', 'settings:enable_mfa',
   ],
   viewer: [
-    'library:view_personal', 'library:view_team', 'library:view_universal',
+    'library:view_personal', 'library:view_team', 'library:view_development',
     'mitre:view_coverage', 'mitre:view_groups', 'mitre:view_software', 'mitre:view_campaigns',
     'team:view_members',
     'integrations:view',
