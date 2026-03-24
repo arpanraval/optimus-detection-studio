@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { User } from '@supabase/supabase-js';
 import { Detection, Profile, Status, Severity, Maturity, DetectionType, Confidence } from '../types';
+import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION } from '../constants/library';
 import { supabase } from '../lib/supabaseClient';
 import { loadMitreFrameworkData, getMitreFramework, MitreFramework } from '../mitre';
 import { attackRuleMapService } from '@/services/attack-rule-map/AttackRuleMapService';
@@ -74,14 +75,14 @@ const sanitizeSingleDetection = (d: any): Detection => ({
   tags: d.tags || [],
   qualityScore: d.qualityScore || 0,
   auditLog: d.auditLog || [],
-  library_type: d.library_type || 'user',
+  library_type: d.library_type || LIBRARY_PRODUCTION,
   source: d.source || 'custom',
   source_rule_id: d.source_rule_id || null,
   source_url: d.source_url || null,
   external_id: d.external_id || null,
-  publish_status: d.publish_status || 'unpublished',
-  published_to_id: d.published_to_id || null,
-  published_at: d.published_at || null,
+  promotion_status: d.promotion_status || 'none',
+  promoted_to_id: d.promoted_to_id || null,
+  promoted_at: d.promoted_at || null,
   team_id: d.team_id || null,
   assigned_to: d.assigned_to || null,
   assigned_by: d.assigned_by || null,
@@ -123,7 +124,7 @@ const LIGHTWEIGHT_COLUMNS = [
   'threatActors', 'campaigns', 'software', 'associatedCVEs',
   'tags', 'source',
   'createdDate', 'updatedDate',
-  'library_type', 'publish_status', 'external_id', 'source_rule_id',
+  'library_type', 'promotion_status', 'external_id', 'source_rule_id',
   'team_id',
   'assigned_to', 'assigned_by', 'assigned_at',
   'review_status', 'reviewer_id', 'review_requested_at', 'reviewed_at',
@@ -145,7 +146,7 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({ children, user
       const { data: first, error, count } = await supabase
         .from('detections')
         .select(LIGHTWEIGHT_COLUMNS, { count: 'exact' })
-        .or(`and(user_id.eq.${user.id},or(library_type.eq.user,library_type.is.null)),library_type.eq.universal`)
+        .or(`and(user_id.eq.${user.id},or(library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null)),library_type.eq.${LIBRARY_DEVELOPMENT}`)
         .order('updatedDate', { ascending: false })
         .range(0, PAGE_SIZE - 1);
 
@@ -162,7 +163,7 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({ children, user
           Promise.resolve(supabase
             .from('detections')
             .select(LIGHTWEIGHT_COLUMNS)
-            .or(`and(user_id.eq.${user.id},or(library_type.eq.user,library_type.is.null)),library_type.eq.universal`)
+            .or(`and(user_id.eq.${user.id},or(library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null)),library_type.eq.${LIBRARY_DEVELOPMENT}`)
             .order('updatedDate', { ascending: false })
             .range(offset, offset + PAGE_SIZE - 1)
             .then(({ data, error }) => {
