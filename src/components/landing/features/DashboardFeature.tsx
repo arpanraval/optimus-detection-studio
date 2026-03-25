@@ -256,7 +256,7 @@ const MITREFocusMockup = () => (
     <div className="mt-4">
       <div className="mono text-[10px] text-white/30 tracking-wider mb-3">MITRE ATT&CK HEATMAP</div>
       <div className="space-y-1">
-        {TACTICS.map(tactic => (
+        {TACTICS.map((tactic, ti) => (
           <div key={tactic.name} className="flex items-center gap-2">
             <span className="mono text-[7px] text-white/20 w-24 sm:w-32 truncate text-right shrink-0">{tactic.name}</span>
             <div className="flex gap-[2px] flex-1 overflow-hidden">
