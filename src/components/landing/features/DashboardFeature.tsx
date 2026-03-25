@@ -261,7 +261,7 @@ const MITREFocusMockup = () => (
             <span className="mono text-[7px] text-white/20 w-24 sm:w-32 truncate text-right shrink-0">{tactic.name}</span>
             <div className="flex gap-[2px] flex-1 overflow-hidden">
               {Array.from({ length: 28 }, (_, i) => {
-                const intensity = Math.random();
+                const intensity = ((i * 7 + ti * 13 + 5) % 37) / 37;
                 const hasDetection = intensity > 0.3;
                 return (
                   <div
