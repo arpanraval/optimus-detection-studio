@@ -15,17 +15,27 @@ declare const Deno: {
   serve(handler: (req: Request) => Promise<Response>): void;
 };
 
-// Public-facing function — permissive CORS (no auth required)
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
+// Allowed origins for CORS
+const ALLOWED_ORIGINS = ['https://detectionstudio.com', 'https://www.detectionstudio.com', 'http://localhost:5173', 'http://localhost:3000'];
 
-function jsonResponse(data: unknown, status = 200) {
+function getCorsOrigin(req: Request): string {
+  const origin = req.headers.get('Origin') || '';
+  return ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+}
+
+function corsHeaders(req: Request) {
+  return {
+    'Access-Control-Allow-Origin': getCorsOrigin(req),
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Vary': 'Origin',
+  };
+}
+
+function jsonResponse(data: unknown, req: Request, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
   });
 }
 
@@ -43,25 +53,27 @@ function isBusinessEmail(email: string): boolean {
 Deno.serve(async (req: Request) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: corsHeaders(req) });
   }
 
   if (req.method !== 'POST') {
-    return jsonResponse({ error: 'Method not allowed' }, 405);
+    return jsonResponse({ error: 'Method not allowed' }, req, 405);
   }
 
   try {
-    const { email, message } = await req.json();
+    const body = await req.json();
+    const email = body.email;
+    const message = typeof body.message === 'string' ? body.message.slice(0, 2000) : '';
 
     // Validate
     if (!email || typeof email !== 'string') {
-      return jsonResponse({ error: 'Email is required' }, 400);
+      return jsonResponse({ error: 'Email is required' }, req, 400);
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return jsonResponse({ error: 'Invalid email format' }, 400);
+      return jsonResponse({ error: 'Invalid email format' }, req, 400);
     }
     if (!isBusinessEmail(email)) {
-      return jsonResponse({ error: 'Please use a business email address' }, 400);
+      return jsonResponse({ error: 'Please use a business email address' }, req, 400);
     }
 
     // Sanitize inputs to prevent HTML injection in email
@@ -74,7 +86,7 @@ Deno.serve(async (req: Request) => {
 
     if (!RESEND_API_KEY) {
       console.error('RESEND_API_KEY not configured');
-      return jsonResponse({ error: 'Email service not configured' }, 500);
+      return jsonResponse({ error: 'Email service not configured' }, req, 500);
     }
 
     // Send notification email to your mailbox
@@ -120,7 +132,7 @@ Deno.serve(async (req: Request) => {
     if (!emailResponse.ok) {
       const err = await emailResponse.text();
       console.error('Resend error:', err);
-      return jsonResponse({ error: 'Failed to send notification' }, 500);
+      return jsonResponse({ error: 'Failed to send notification' }, req, 500);
     }
 
     // Also store in database (best-effort, don't fail if this errors)
@@ -142,10 +154,10 @@ Deno.serve(async (req: Request) => {
       console.warn('Failed to store in DB (non-fatal):', dbErr);
     }
 
-    return jsonResponse({ success: true, message: 'Demo request submitted' });
+    return jsonResponse({ success: true, message: 'Demo request submitted' }, req);
 
   } catch (err) {
     console.error('Demo request error:', err);
-    return jsonResponse({ error: 'Internal server error' }, 500);
+    return jsonResponse({ error: 'Internal server error' }, req, 500);
   }
 });
