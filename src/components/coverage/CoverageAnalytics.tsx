@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Detection, Status } from '../../types';
+import { LIBRARY_PRODUCTION } from '../../constants/library';
 import { supabase } from '../../lib/supabaseClient';
 import { Icon } from '../Icon';
 import { Skeleton } from '../ui';
@@ -547,8 +548,7 @@ export const CoverageAnalytics: React.FC<CoverageAnalyticsProps> = ({
 
   const scopedDetections = useMemo(() => {
     if (scope === 'all') return detections;
-    // Production Library = library_type 'user' (semantic flip)
-    return detections.filter(d => d.library_type === 'user');
+    return detections.filter(d => d.library_type === LIBRARY_PRODUCTION);
   }, [detections, scope]);
 
   const coveredTechniques = useMemo(() => {

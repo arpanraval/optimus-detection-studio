@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { Icon } from '../Icon';
 import { LibraryType } from '../../types';
+import { LIBRARY_PRODUCTION } from '../../constants/library';
 
 // Design tokens
 const SOLID_TERTIARY = '#783264';
@@ -212,7 +213,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
   if (selectedCount === 0 && !selectAllMatchingMode) return null;
 
   const allPageSelected = selectedCount === totalCount;
-  const isUserLibrary = libraryType === 'user';
+  const isUserLibrary = libraryType === LIBRARY_PRODUCTION;
 
   // Confirmation modal content based on action type
   const getConfirmationContent = () => {

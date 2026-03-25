@@ -1,4 +1,17 @@
 import { Status, Maturity, DetectionType, Severity, Confidence } from './enums';
+import {
+  type LibraryType,
+  type PromotionStatus,
+  type Visibility,
+  LIBRARY_LABELS,
+  LIBRARY_LABELS_SHORT,
+  LIBRARY_DESCRIPTIONS,
+  LIBRARY_ICONS,
+} from '../constants/library';
+
+// Re-export library constants and types from canonical source
+export type { LibraryType, PromotionStatus, Visibility };
+export { LIBRARY_LABELS, LIBRARY_LABELS_SHORT, LIBRARY_DESCRIPTIONS, LIBRARY_ICONS };
 
 // ============================================
 // REVIEW TYPES
@@ -14,39 +27,6 @@ export type ReviewRequestStatus = 'pending' | 'in_progress' | 'approved' | 'reje
 // LIBRARY VIEW TYPES
 // ============================================
 
-export type LibraryType = 'universal' | 'user';
-
-/** Extended library type for future team library */
-export type ExtendedLibraryType = 'personal' | 'team' | 'universal';
-
-/**
- * Display names for library types — single source of truth for all UI labels.
- *
- * SEMANTIC FLIP from original naming:
- * - 'user' (was "My Library") → NOW "Production Library" — curated, quality-controlled, SIEM deployment
- * - 'universal' (was "Universal Library") → NOW "Detection Lab" — sandbox for imported vendor rules, experimentation
- */
-export const LIBRARY_LABELS: Record<LibraryType, string> = {
-  'user': 'Production Library',
-  'universal': 'Detection Lab',
-};
-
-export const LIBRARY_LABELS_SHORT: Record<LibraryType, string> = {
-  'user': 'Production',
-  'universal': 'Lab',
-};
-
-export const LIBRARY_DESCRIPTIONS: Record<LibraryType, string> = {
-  'user': 'Quality-controlled production rules deployed to your SIEMs',
-  'universal': 'Sandbox for importing vendor rules, creating drafts, and experimenting',
-};
-
-export const LIBRARY_ICONS: Record<LibraryType, string> = {
-  'user': 'shield',
-  'universal': 'flask',
-};
-
-export type PublishStatus = 'unpublished' | 'pending' | 'published' | 'rejected';
 export type DetectionSource = 'custom' | 'sigmahq' | 'splunk_escu' | 'elastic' | 'microsoft_sentinel' | 'crowdstrike' | 'chronicle' | 'community';
 
 // ============================================
@@ -101,8 +81,8 @@ export type AuditAction =
   | 'deployed'
   | 'linked_entity_added'
   | 'linked_entity_removed'
-  | 'published'
-  | 'copied_from_universal'
+  | 'promoted'
+  | 'forked_from_production'
   // New RBAC audit actions
   | 'assigned'
   | 'unassigned'
@@ -208,13 +188,14 @@ export interface Detection {
 
   // === LIBRARY VIEW FIELDS ===
   library_type: LibraryType;
+  visibility?: Visibility;
   source: DetectionSource;
-  source_rule_id: string | null;     // Points to Universal rule if copied
+  source_rule_id: string | null;     // Points to Production rule if forked
   source_url: string | null;
   external_id: string | null;        // Original ID from source system
-  publish_status: PublishStatus;
-  published_to_id: string | null;    // Points to Universal copy after approval
-  published_at: string | null;
+  promotion_status: PromotionStatus;
+  promoted_to_id: string | null;     // Points to Production copy after approval
+  promoted_at: string | null;
 
   // === RBAC FIELDS (NEW) ===
   team_id?: string;                  // Team that owns this detection
@@ -280,14 +261,15 @@ export const createEmptyDetection = (userId: string, teamId?: string): Partial<D
   tags: [],
   auditLog: [],
   // Library fields
-  library_type: 'user',
+  library_type: 'production',
+  visibility: 'shared',
   source: 'custom',
   source_rule_id: null,
   source_url: null,
   external_id: null,
-  publish_status: 'unpublished',
-  published_to_id: null,
-  published_at: null,
+  promotion_status: 'none',
+  promoted_to_id: null,
+  promoted_at: null,
   // RBAC fields
   team_id: teamId,
   assigned_to: undefined,

@@ -10,6 +10,7 @@
 
 import { supabase } from '../../../lib/supabaseClient';
 import { Detection } from '../../../types';
+import type { LibraryType } from '../../../constants/library';
 import {
   ImportJobError,
   ImportJobResult,
@@ -36,7 +37,7 @@ export interface BatchInsertOptions {
   /** User ID performing the import */
   userId?: string;
   /** Target library type */
-  targetLibrary?: 'user' | 'universal';
+  targetLibrary?: LibraryType;
   /** Progress callback */
   onProgress?: (inserted: number, total: number, batchNumber: number) => void;
   /** Error callback */
@@ -76,7 +77,7 @@ export class BatchInserter {
    */
   async checkPermissions(
     userId: string,
-    targetLibrary: 'user' | 'universal'
+    targetLibrary: LibraryType
   ): Promise<ImportPermissionCheckResult> {
     try {
       // Call the database function for permission check
@@ -104,7 +105,7 @@ export class BatchInserter {
    */
   private async fallbackPermissionCheck(
     userId: string,
-    targetLibrary: 'user' | 'universal'
+    targetLibrary: LibraryType
   ): Promise<ImportPermissionCheckResult> {
     try {
       // Check user profile for role
@@ -121,12 +122,12 @@ export class BatchInserter {
         };
       }
 
-      // Universal library requires admin/owner role
-      if (targetLibrary === 'universal') {
+      // Development library requires admin/owner role
+      if (targetLibrary === 'development') {
         if (!['owner', 'admin'].includes(profile.role)) {
           return {
             allowed: false,
-            error: 'Only owners and admins can import to Universal Library',
+            error: 'Only owners and admins can import to Development Library',
             required_role: 'admin',
             current_role: profile.role,
           };
@@ -612,14 +613,14 @@ export class BatchInserter {
       references: detection.references || [],
       tags: detection.tags || [],
       auditLog: detection.auditLog || [],
-      library_type: detection.library_type || 'user',
+      library_type: detection.library_type || 'production',
       source: detection.source || 'community',
       source_rule_id: detection.source_rule_id || null,
       source_url: detection.source_url || null,
       external_id: detection.external_id || null,
-      publish_status: detection.publish_status || 'unpublished',
-      published_to_id: detection.published_to_id || null,
-      published_at: detection.published_at || null,
+      promotion_status: detection.promotion_status || 'none',
+      promoted_to_id: detection.promoted_to_id || null,
+      promoted_at: detection.promoted_at || null,
       review_status: detection.review_status || 'none',
       // New safety columns
       bulk_import_id: bulkImportId,

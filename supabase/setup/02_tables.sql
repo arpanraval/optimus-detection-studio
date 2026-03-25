@@ -183,7 +183,7 @@ CREATE TABLE IF NOT EXISTS bulk_import_jobs (
 
   CONSTRAINT bulk_import_jobs_pkey PRIMARY KEY (id),
   CONSTRAINT bulk_import_jobs_source_type_check CHECK (source_type = ANY (ARRAY['github'::text, 'zip'::text, 'files'::text])),
-  CONSTRAINT bulk_import_jobs_target_library_check CHECK (target_library = ANY (ARRAY['universal'::text, 'user'::text])),
+  CONSTRAINT bulk_import_jobs_target_library_check CHECK (target_library = ANY (ARRAY['development'::text, 'production'::text])),
   CONSTRAINT bulk_import_jobs_status_check CHECK (status = ANY (ARRAY['pending'::text, 'fetching'::text, 'parsing'::text, 'validating'::text, 'preview'::text, 'inserting'::text, 'completed'::text, 'failed'::text, 'cancelled'::text, 'reverted'::text])),
   CONSTRAINT bulk_import_jobs_duplicate_strategy_check CHECK (duplicate_strategy = ANY (ARRAY['skip'::text, 'update'::text, 'create_new'::text])),
   CONSTRAINT bulk_import_jobs_source_vendor_check CHECK (source_vendor = ANY (ARRAY['sigma'::text, 'splunk_escu'::text, 'elastic'::text, 'kql'::text, 'chronicle'::text, 'mixed'::text]))
@@ -618,14 +618,15 @@ CREATE TABLE IF NOT EXISTS detections (
   "testCases" text[] DEFAULT '{}'::text[],
   "qualityScore" integer DEFAULT 0,
   "auditLog" jsonb DEFAULT '[]'::jsonb,
-  library_type text DEFAULT 'user'::text,
+  library_type text DEFAULT 'production'::text,
+  visibility text DEFAULT 'private',
   source text DEFAULT 'custom'::text,
   source_rule_id text,
   source_url text,
   external_id text,
-  publish_status text DEFAULT 'unpublished'::text,
-  published_to_id text,
-  published_at timestamptz,
+  promotion_status text DEFAULT 'none'::text,
+  promoted_to_id text,
+  promoted_at timestamptz,
   team_id uuid,
   assigned_to uuid,
   assigned_by uuid,
@@ -641,11 +642,12 @@ CREATE TABLE IF NOT EXISTS detections (
 
   CONSTRAINT detections_pkey PRIMARY KEY (id),
   CONSTRAINT detections_source_rule_id_fkey FOREIGN KEY (source_rule_id) REFERENCES detections(id) ON DELETE SET NULL,
-  CONSTRAINT detections_published_to_id_fkey FOREIGN KEY (published_to_id) REFERENCES detections(id) ON DELETE SET NULL,
+  CONSTRAINT detections_promoted_to_id_fkey FOREIGN KEY (promoted_to_id) REFERENCES detections(id) ON DELETE SET NULL,
   CONSTRAINT detections_bulk_import_id_fkey FOREIGN KEY (bulk_import_id) REFERENCES bulk_import_jobs(id) ON DELETE SET NULL,
   CONSTRAINT detections_team_id_fkey FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE SET NULL,
-  CONSTRAINT detections_library_type_check CHECK (library_type = ANY (ARRAY['universal'::text, 'user'::text])),
-  CONSTRAINT detections_publish_status_check CHECK (publish_status = ANY (ARRAY['unpublished'::text, 'pending'::text, 'published'::text, 'rejected'::text])),
+  CONSTRAINT detections_library_type_check CHECK (library_type = ANY (ARRAY['development'::text, 'production'::text])),
+  CONSTRAINT detections_visibility_check CHECK (visibility = ANY (ARRAY['private'::text, 'shared'::text])),
+  CONSTRAINT detections_promotion_status_check CHECK (promotion_status = ANY (ARRAY['none'::text, 'pending'::text, 'promoted'::text, 'rejected'::text])),
   CONSTRAINT detections_review_status_check CHECK (review_status = ANY (ARRAY['none'::text, 'requested'::text, 'in_review'::text, 'approved'::text, 'rejected'::text]))
 );
 
@@ -801,9 +803,9 @@ CREATE TABLE IF NOT EXISTS pack_detections (
 );
 
 -- ----------------------------------------------------------
--- publish_requests
+-- promotion_requests
 -- ----------------------------------------------------------
-CREATE TABLE IF NOT EXISTS publish_requests (
+CREATE TABLE IF NOT EXISTS promotion_requests (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   detection_id text NOT NULL,
   target_rule_id text,
@@ -820,12 +822,12 @@ CREATE TABLE IF NOT EXISTS publish_requests (
   updated_at timestamptz DEFAULT now(),
   reviewer_id uuid,
 
-  CONSTRAINT publish_requests_pkey PRIMARY KEY (id),
-  CONSTRAINT publish_requests_detection_id_fkey FOREIGN KEY (detection_id) REFERENCES detections(id) ON DELETE CASCADE,
-  CONSTRAINT publish_requests_target_rule_id_fkey FOREIGN KEY (target_rule_id) REFERENCES detections(id) ON DELETE SET NULL,
-  CONSTRAINT publish_requests_result_rule_id_fkey FOREIGN KEY (result_rule_id) REFERENCES detections(id) ON DELETE SET NULL,
-  CONSTRAINT publish_requests_reviewer_id_fkey FOREIGN KEY (reviewer_id) REFERENCES profiles(id) ON DELETE NO ACTION,
-  CONSTRAINT publish_requests_status_check CHECK (status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'approved_as_new'::text]))
+  CONSTRAINT promotion_requests_pkey PRIMARY KEY (id),
+  CONSTRAINT promotion_requests_detection_id_fkey FOREIGN KEY (detection_id) REFERENCES detections(id) ON DELETE CASCADE,
+  CONSTRAINT promotion_requests_target_rule_id_fkey FOREIGN KEY (target_rule_id) REFERENCES detections(id) ON DELETE SET NULL,
+  CONSTRAINT promotion_requests_result_rule_id_fkey FOREIGN KEY (result_rule_id) REFERENCES detections(id) ON DELETE SET NULL,
+  CONSTRAINT promotion_requests_reviewer_id_fkey FOREIGN KEY (reviewer_id) REFERENCES profiles(id) ON DELETE NO ACTION,
+  CONSTRAINT promotion_requests_status_check CHECK (status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'approved_as_new'::text]))
 );
 
 -- ----------------------------------------------------------
@@ -981,5 +983,5 @@ CREATE TABLE IF NOT EXISTS user_notifications (
 
   CONSTRAINT user_notifications_pkey PRIMARY KEY (id),
   CONSTRAINT user_notifications_detection_id_fkey FOREIGN KEY (detection_id) REFERENCES detections(id) ON DELETE SET NULL,
-  CONSTRAINT user_notifications_publish_request_id_fkey FOREIGN KEY (publish_request_id) REFERENCES publish_requests(id) ON DELETE SET NULL
+  CONSTRAINT user_notifications_publish_request_id_fkey FOREIGN KEY (publish_request_id) REFERENCES promotion_requests(id) ON DELETE SET NULL
 );

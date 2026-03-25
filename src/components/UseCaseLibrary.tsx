@@ -1,6 +1,7 @@
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { Detection, LIBRARY_LABELS, LIBRARY_LABELS_SHORT } from '../types';
+import { Detection, LIBRARY_LABELS, LIBRARY_LABELS_SHORT, LibraryType } from '../types';
+import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION } from '../constants/library';
 import { UseCaseCard } from './UseCaseCard';
 import { UseCaseListItem } from './UseCaseListItem';
 import { Icon } from './Icon';
@@ -56,7 +57,7 @@ interface FilterConfig {
   key: string;
   label: string;
   type: 'string' | 'array' | 'boolean' | 'computed';
-  librarySpecific?: 'user' | 'universal';
+  librarySpecific?: LibraryType;
 }
 
 interface ViewPreset {
@@ -106,8 +107,8 @@ const ALL_FILTER_FIELDS: FilterConfig[] = [
   { key: 'maturity', label: 'Maturity', type: 'string' },
   { key: 'testedAndValidated', label: 'Validated', type: 'boolean' },
   { key: 'qualityGrade', label: 'Quality Grade', type: 'computed' },
-  { key: 'publish_status', label: 'Publish Status', type: 'string', librarySpecific: 'user' },
-  { key: 'source', label: 'Source', type: 'string', librarySpecific: 'universal' },
+  { key: 'promotion_status', label: 'Promotion Status', type: 'string', librarySpecific: LIBRARY_PRODUCTION },
+  { key: 'source', label: 'Source', type: 'string', librarySpecific: LIBRARY_DEVELOPMENT },
 ];
 
 const COLUMN_GRID_WIDTHS: Record<string, string> = {
@@ -659,8 +660,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
     universalDetections,
     isLoading,
     userRole,
-    copyToUserLibrary,
-    submitForPublish,
+    submitForPromotion,
     refreshUserLibrary,
     refreshUniversalLibrary,
     // Pagination
@@ -686,8 +686,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
     bulkDelete,
     bulkUpdateStatus,
     bulkUpdateSeverity,
-    bulkCopyToUserLibrary,
-    forkToLab,
+    forkToDevelopment,
     // Server-side bulk actions
     bulkDeleteByFilter,
     bulkUpdateStatusByFilter,
@@ -695,10 +694,10 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
     getFilteredCount,
   } = useLibrary();
   const isAdmin = userRole === 'admin';
-  const detections = currentLibrary === 'universal' ? universalDetections : userDetections;
+  const detections = currentLibrary === LIBRARY_DEVELOPMENT ? universalDetections : userDetections;
 
   const { options: filterOpts, loading: filterOptsLoading } = useFilterOptions(
-    currentLibrary === 'universal' ? 'universal' : 'user'
+    currentLibrary
   );
   const { showToast } = useToast();
   const { extractAndStore, loading: extractingPatterns } = useDetectionPatterns();
@@ -873,7 +872,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
       showToast('success', 'MITRE Data Resolved', `Updated ${successCount} of ${detectionsNeedingMitreResolution.length} detections.`);
 
       // Refresh the library
-      if (currentLibrary === 'universal') {
+      if (currentLibrary === LIBRARY_DEVELOPMENT) {
         await refreshUniversalLibrary();
       } else {
         await refreshUserLibrary();
@@ -945,15 +944,12 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
   };
 
   const handleBulkCopyToLibrary = async (ids: string[]) => {
-    if (currentLibrary === 'user') {
-      // Production view → Fork to Lab (one by one since no bulk fork yet)
+    if (currentLibrary === LIBRARY_PRODUCTION) {
+      // Production view → Fork to Development (one by one since no bulk fork yet)
       for (const id of ids) {
-        await forkToLab(id);
+        await forkToDevelopment(id);
       }
       clearSelection();
-    } else {
-      // Lab view → Copy to Production
-      await bulkCopyToUserLibrary(ids);
     }
     setSelectionMode(false);
   };
@@ -974,18 +970,18 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
         {/* Library Toggle - SAME rounded-xl for both active and inactive */}
         <div className="flex bg-surface-container rounded-xl p-1 gap-1">
           <button
-            onClick={() => setCurrentLibrary('user')}
+            onClick={() => setCurrentLibrary(LIBRARY_PRODUCTION)}
             className={libBtnBase}
-            style={currentLibrary === 'user' 
+            style={currentLibrary === LIBRARY_PRODUCTION 
               ? { backgroundColor: SOLID_BLUE, color: 'white' } 
               : { color: 'var(--md-sys-color-on-surface-variant)' }
             }
           >
             <Icon name="user" className="w-4 h-4" />
-            <span>{LIBRARY_LABELS['user']}</span>
+            <span>{LIBRARY_LABELS[LIBRARY_PRODUCTION]}</span>
             <span
               className="text-xs font-bold px-2 py-0.5 rounded-lg"
-              style={currentLibrary === 'user'
+              style={currentLibrary === LIBRARY_PRODUCTION
                 ? { backgroundColor: 'rgba(255,255,255,0.2)' }
                 : { backgroundColor: 'var(--md-sys-color-surface-container-highest)' }
               }
@@ -994,18 +990,18 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
             </span>
           </button>
           <button
-            onClick={() => setCurrentLibrary('universal')}
+            onClick={() => setCurrentLibrary(LIBRARY_DEVELOPMENT)}
             className={libBtnBase}
-            style={currentLibrary === 'universal'
+            style={currentLibrary === LIBRARY_DEVELOPMENT
               ? { backgroundColor: SOLID_BLUE, color: 'white' }
               : { color: 'var(--md-sys-color-on-surface-variant)' }
             }
           >
             <Icon name="globe" className="w-4 h-4" />
-            <span>{LIBRARY_LABELS_SHORT['universal']}</span>
+            <span>{LIBRARY_LABELS_SHORT[LIBRARY_DEVELOPMENT]}</span>
             <span
               className="text-xs font-bold px-2 py-0.5 rounded-lg"
-              style={currentLibrary === 'universal'
+              style={currentLibrary === LIBRARY_DEVELOPMENT
                 ? { backgroundColor: 'rgba(255,255,255,0.2)' }
                 : { backgroundColor: 'var(--md-sys-color-surface-container-highest)' }
               }
@@ -1040,7 +1036,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
         <div className="w-px h-7 bg-outline-variant/30" />
 
         {/* New Button - solid tertiary */}
-        {currentLibrary === 'user' && onNewDetection && (
+        {currentLibrary === LIBRARY_PRODUCTION && onNewDetection && (
           <button 
             onClick={onNewDetection} 
             className="h-10 px-5 rounded-xl text-sm font-medium text-white transition-all inline-flex items-center gap-2 hover:brightness-110"
@@ -1050,7 +1046,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
             <span>New Detection</span>
           </button>
         )}
-        {currentLibrary === 'universal' && onNewUniversalDetection && isAdmin && (
+        {currentLibrary === LIBRARY_DEVELOPMENT && onNewUniversalDetection && isAdmin && (
           <button 
             onClick={onNewUniversalDetection} 
             className="h-10 px-5 rounded-xl text-sm font-medium text-white transition-all inline-flex items-center gap-2 hover:brightness-110"
@@ -1109,7 +1105,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
           </button>
         )}
 
-        {currentLibrary === 'user' && (
+        {currentLibrary === LIBRARY_PRODUCTION && (
           <button
             onClick={async () => {
               try {
@@ -1118,7 +1114,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
                 const { data: allDetections } = await supabase
                   .from('detections')
                   .select('id, "mitreAttackIds", "mitreTactics", "logSources", platforms, queries, "queryLanguage", "detectionQuery", source, severity')
-                  .eq('library_type', 'user');
+                  .eq('library_type', LIBRARY_PRODUCTION);
                 if (allDetections && allDetections.length > 0) {
                   const count = await extractAndStore(allDetections, user.id);
                   showToast('success', 'Patterns Analyzed', `Extracted patterns from ${count} detections`);
@@ -1304,8 +1300,8 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
               to={routeHelpers.detectionDetail(d.id)}
               onClick={() => { if (!selectionMode) onSelectDetection(d); }}
               libraryType={currentLibrary}
-              onAddToLibrary={currentLibrary === 'universal' ? copyToUserLibrary : undefined}
-              isInUserLibrary={currentLibrary === 'universal' ? userDetections.some(ud => ud.source_rule_id === d.id) : false}
+              onAddToLibrary={undefined}
+              isInUserLibrary={currentLibrary === LIBRARY_DEVELOPMENT ? userDetections.some(ud => ud.source_rule_id === d.id) : false}
               selectionMode={selectionMode}
               isSelected={isSelected(d.id)}
               onToggleSelect={handleToggleSelect}
@@ -1388,7 +1384,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
       {sortedDetections.length === 0 && !isLoading && (
         <div className="flex flex-col items-center justify-center py-16">
           <div className="w-12 h-12 bg-surface-container-highest rounded-xl flex items-center justify-center mb-3">
-            <Icon name={currentLibrary === 'universal' ? 'globe' : 'library'} className="w-6 h-6 text-on-surface-variant" />
+            <Icon name={currentLibrary === LIBRARY_DEVELOPMENT ? 'globe' : 'library'} className="w-6 h-6 text-on-surface-variant" />
           </div>
           <h3 className="font-semibold text-on-surface">{detections.length === 0 ? 'No rules yet' : 'No results'}</h3>
           <p className="text-sm text-on-surface-variant mt-1">{detections.length === 0 ? 'Create your first detection.' : 'Adjust filters.'}</p>
@@ -1419,17 +1415,17 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
           externalSelectAllMatching={selectAllMatchingMode}
           onSelectAllMatchingChange={setSelectAllMatchingMode}
           // Page-level actions (by ID)
-          onDelete={currentLibrary === 'user' ? handleBulkDelete : undefined}
+          onDelete={currentLibrary === LIBRARY_PRODUCTION ? handleBulkDelete : undefined}
           onExport={handleBulkExport}
-          onChangeStatus={currentLibrary === 'user' ? handleBulkStatusChange : undefined}
-          onChangeSeverity={currentLibrary === 'user' ? handleBulkSeverityChange : undefined}
-          onCopyToLibrary={currentLibrary === 'user' ? handleBulkCopyToLibrary : undefined}
-          onPublishToUniversal={currentLibrary === 'universal' ? handleBulkPublish : undefined}
+          onChangeStatus={currentLibrary === LIBRARY_PRODUCTION ? handleBulkStatusChange : undefined}
+          onChangeSeverity={currentLibrary === LIBRARY_PRODUCTION ? handleBulkSeverityChange : undefined}
+          onCopyToLibrary={currentLibrary === LIBRARY_PRODUCTION ? handleBulkCopyToLibrary : undefined}
+          onPublishToUniversal={currentLibrary === LIBRARY_DEVELOPMENT ? handleBulkPublish : undefined}
           onDeploy={(ids) => { setBulkDeployIds(ids); setShowBulkDeploy(true); }}
           // Server-side bulk actions (by filter)
-          onDeleteByFilter={currentLibrary === 'user' ? bulkDeleteByFilter : undefined}
-          onChangeStatusByFilter={currentLibrary === 'user' ? bulkUpdateStatusByFilter : undefined}
-          onChangeSeverityByFilter={currentLibrary === 'user' ? bulkUpdateSeverityByFilter : undefined}
+          onDeleteByFilter={currentLibrary === LIBRARY_PRODUCTION ? bulkDeleteByFilter : undefined}
+          onChangeStatusByFilter={currentLibrary === LIBRARY_PRODUCTION ? bulkUpdateStatusByFilter : undefined}
+          onChangeSeverityByFilter={currentLibrary === LIBRARY_PRODUCTION ? bulkUpdateSeverityByFilter : undefined}
         />
       )}
 

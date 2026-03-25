@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import type { LibraryType } from '../constants/library';
 
 export interface FilterOptions {
   technologies: string[];
@@ -31,7 +32,7 @@ const EMPTY_OPTIONS: FilterOptions = {
 
 const optionsCache: Record<string, FilterOptions> = {};
 
-export function useFilterOptions(libraryType: 'user' | 'universal') {
+export function useFilterOptions(libraryType: LibraryType) {
   const [options, setOptions] = useState<FilterOptions>(
     optionsCache[libraryType] || EMPTY_OPTIONS
   );

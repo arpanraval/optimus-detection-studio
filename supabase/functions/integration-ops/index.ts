@@ -174,8 +174,8 @@ async function validateDeploymentEligibility(
     return { eligible: false, errors, warnings }
   }
 
-  // Security: Only Production Library (library_type='user') detections can be deployed
-  if (detection.library_type !== 'user') {
+  // Security: Only Production Library detections can be deployed
+  if (detection.library_type !== 'production') {
     errors.push({ code: 'LAB_DETECTION', message: 'Only Production Library detections can be deployed to SIEMs. Promote this detection from Detection Lab first.' })
     return { eligible: false, errors, warnings }
   }

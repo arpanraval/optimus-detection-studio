@@ -16,51 +16,25 @@ export const PLAYBOOKS: Playbook[] = [
   {
     id: 'ransomware-readiness',
     name: 'Ransomware Readiness Assessment',
-    description: 'Evaluate your detection coverage against common ransomware kill chain techniques. Identifies gaps in encryption, shadow copy deletion, lateral movement, and initial access detections.',
+    description: 'Behavioral assessment across 11 ransomware kill chain phases. Matches your detection library against specific ransomware behaviors — not generic MITRE techniques.',
     icon: 'shield-alert',
     category: 'threat-assessment',
-    estimatedDuration: '2-3 minutes',
+    estimatedDuration: '1-2 minutes',
     steps: [
       {
-        id: 'coverage-gaps',
-        name: 'Ransomware Coverage Gap Analysis',
-        description: 'Identify gaps in ransomware-related MITRE ATT&CK techniques',
-        tool: 'identify_coverage_gaps',
-        params: { profile: 'ransomware' },
-        contextKey: 'ransomwareGaps',
-      },
-      {
-        id: 'coverage-summary',
-        name: 'Overall Coverage Summary',
-        description: 'Get current detection coverage metrics',
-        tool: 'get_coverage_summary',
-        params: { scope: 'overall' },
-        contextKey: 'coverageSummary',
-      },
-      {
-        id: 'search-ransomware',
-        name: 'Find Existing Ransomware Detections',
-        description: 'Search library for ransomware-related detections',
-        tool: 'search_library',
-        params: { query: 'ransomware encryption shadow copy volume deletion', limit: 15 },
-        contextKey: 'existingDetections',
-      },
-      {
-        id: 'search-lateral',
-        name: 'Find Lateral Movement Detections',
-        description: 'Search for lateral movement detections relevant to ransomware',
-        tool: 'search_library',
-        params: { query: 'lateral movement SMB PsExec WMI remote service', limit: 10 },
-        contextKey: 'lateralDetections',
+        id: 'assessment',
+        name: 'Ransomware Kill Chain Assessment',
+        description: 'Analyze detection library against full ransomware kill chain',
+        tool: 'ransomware_readiness',
+        params: {},
+        contextKey: 'assessment',
       },
     ],
     reportTemplate: {
       title: 'Ransomware Readiness Assessment',
       sections: [
         { key: 'executive-summary', title: 'Executive Summary', type: 'ai-generated' },
-        { key: 'coverage-gaps', title: 'Coverage Gaps', type: 'data', contextKey: 'ransomwareGaps' },
-        { key: 'existing-detections', title: 'Existing Ransomware Detections', type: 'data', contextKey: 'existingDetections' },
-        { key: 'lateral-movement', title: 'Lateral Movement Coverage', type: 'data', contextKey: 'lateralDetections' },
+        { key: 'phase-assessment', title: 'Kill Chain Assessment', type: 'data', contextKey: 'assessment' },
         { key: 'recommendations', title: 'Recommendations', type: 'ai-generated' },
       ],
     },
@@ -72,6 +46,8 @@ export const PLAYBOOKS: Playbook[] = [
     icon: 'target',
     category: 'threat-assessment',
     estimatedDuration: '2-3 minutes',
+    disabled: true,
+    disabledReason: 'Being redesigned with behavioral assessment',
     requiresInput: {
       key: 'actorQuery',
       label: 'Threat Actor Name or MITRE ID',
@@ -124,6 +100,8 @@ export const PLAYBOOKS: Playbook[] = [
     icon: 'sparkles',
     category: 'quality',
     estimatedDuration: '1-2 minutes',
+    disabled: true,
+    disabledReason: 'Being redesigned with behavioral assessment',
     steps: [
       {
         id: 'coverage-summary',
@@ -167,6 +145,8 @@ export const PLAYBOOKS: Playbook[] = [
     icon: 'shield-alert',
     category: 'threat-assessment',
     estimatedDuration: '2-3 minutes',
+    disabled: true,
+    disabledReason: 'Being redesigned with behavioral assessment',
     requiresInput: {
       key: 'cveOrThreat',
       label: 'CVE ID or Threat Name',
@@ -227,6 +207,8 @@ export const PLAYBOOKS: Playbook[] = [
     icon: 'database',
     category: 'reporting',
     estimatedDuration: '1-2 minutes',
+    disabled: true,
+    disabledReason: 'Being redesigned with behavioral assessment',
     requiresInput: {
       key: 'targetFocus',
       label: 'Target Focus',
@@ -277,6 +259,8 @@ export const PLAYBOOKS: Playbook[] = [
     icon: 'list-checks',
     category: 'quality',
     estimatedDuration: '2-3 minutes',
+    disabled: true,
+    disabledReason: 'Being redesigned with behavioral assessment',
     requiresInput: {
       key: 'threatFocus',
       label: 'Threat Focus',
@@ -329,6 +313,8 @@ export const PLAYBOOKS: Playbook[] = [
     icon: 'briefcase',
     category: 'reporting',
     estimatedDuration: '2-3 minutes',
+    disabled: true,
+    disabledReason: 'Being redesigned with behavioral assessment',
     steps: [
       {
         id: 'coverage-summary',

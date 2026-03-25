@@ -135,9 +135,9 @@ export class DetectionNormalizer {
       source_rule_id: null,
       source_url: rule.sourceUrl || null,
       external_id: rule.sourceId,
-      publish_status: 'unpublished',
-      published_to_id: null,
-      published_at: null,
+      promotion_status: 'none',
+      promoted_to_id: null,
+      promoted_at: null,
 
       // RBAC fields
       review_status: 'none',

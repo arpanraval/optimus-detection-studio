@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import { getCorsHeaders, handleCorsPreflight, corsErrorResponse } from '../_shared/cors.ts'
 import { checkRateLimit } from '../_shared/rate-limiter.ts'
+import { runRansomwareAssessment } from './behavioral-matcher.ts'
 
 // =============================================================================
 // CONFIGURATION
@@ -883,6 +884,11 @@ serve(async (req: Request) => {
         result = await handleWebSearch(params)
         break
 
+      case 'ransomware_readiness':
+        const geminiKey = Deno.env.get('GEMINI_API_KEY') || null;
+        result = await runRansomwareAssessment(supabase, geminiKey);
+        break
+
       default:
         return new Response(
           JSON.stringify({
@@ -895,7 +901,8 @@ serve(async (req: Request) => {
               'identify_coverage_gaps',
               'query_mitre',
               'generate_navigator_layer',
-              'web_search'
+              'web_search',
+              'ransomware_readiness'
             ]
           }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

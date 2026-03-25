@@ -101,7 +101,7 @@ export const AdminApprovalQueue: React.FC<AdminApprovalQueueProps> = ({
   const [reviewRequests, setReviewRequests] = useState<DetectionReview[]>([]);
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
 
-  const { pendingRequests, approveRequest, bulkApproveRequests, refreshPendingRequests } = useLibrary();
+  const { pendingRequests, approvePromotion: approveRequest, bulkApproveRequests, refreshPendingRequests } = useLibrary();
   const { startReview, getPendingReviews } = useReview();
 
   // Fetch pending reviews
@@ -125,7 +125,7 @@ export const AdminApprovalQueue: React.FC<AdminApprovalQueueProps> = ({
 
       // Fetch publish request history (approved/rejected)
       const { data: publishHistory, error: publishError } = await supabase
-        .from('publish_requests')
+        .from('promotion_requests')
         .select(`
           id, status, submitted_at, reviewed_at, review_notes, detection_id, submitted_by, reviewed_by
         `)

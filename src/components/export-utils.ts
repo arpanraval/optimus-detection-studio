@@ -97,16 +97,16 @@ const DETECTION_TYPE_COLORS: Record<string, { bg: string; text: string }> = {
 
 // Library type color mapping
 const LIBRARY_COLORS: Record<string, { bg: string; text: string }> = {
-  'universal': { bg: COLORS.infoLight, text: COLORS.info },
-  'user': { bg: COLORS.tertiaryLight, text: COLORS.tertiary },
+  'development': { bg: COLORS.infoLight, text: COLORS.info },
+  'production': { bg: COLORS.tertiaryLight, text: COLORS.tertiary },
 };
 
-// Publish status color mapping
-const PUBLISH_STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  'published': { bg: COLORS.successLight, text: COLORS.success },
+// Promotion status color mapping
+const PROMOTION_STATUS_COLORS: Record<string, { bg: string; text: string }> = {
+  'promoted': { bg: COLORS.successLight, text: COLORS.success },
   'pending': { bg: COLORS.warningLight, text: COLORS.warning },
   'rejected': { bg: COLORS.errorLight, text: COLORS.error },
-  'unpublished': { bg: COLORS.surfaceDim, text: COLORS.textMuted },
+  'none': { bg: COLORS.surfaceDim, text: COLORS.textMuted },
 };
 
 // Source color mapping
@@ -206,9 +206,9 @@ export const EXPORT_COLUMNS: ExportColumn[] = [
   { key: 'source', header: 'Source', getValue: d => d.source || '', width: 14, category: 'library' },
   { key: 'source_rule_id', header: 'Source Rule ID', getValue: d => d.source_rule_id || '', width: 36, category: 'library' },
   { key: 'source_url', header: 'Source URL', getValue: d => d.source_url || '', width: 45, category: 'library' },
-  { key: 'publish_status', header: 'Publish Status', getValue: d => d.publish_status || '', width: 16, category: 'library' },
-  { key: 'published_to_id', header: 'Published To ID', getValue: d => d.published_to_id || '', width: 36, category: 'library' },
-  { key: 'published_at', header: 'Published At', getValue: d => d.published_at || '', width: 22, category: 'library' },
+  { key: 'promotion_status', header: 'Promotion Status', getValue: d => d.promotion_status || '', width: 16, category: 'library' },
+  { key: 'promoted_to_id', header: 'Promoted To ID', getValue: d => d.promoted_to_id || '', width: 36, category: 'library' },
+  { key: 'promoted_at', header: 'Promoted At', getValue: d => d.promoted_at || '', width: 22, category: 'library' },
   
   // === DATES ===
   { key: 'createdDate', header: 'Created Date', getValue: d => d.createdDate || '', width: 22, category: 'dates' },
@@ -234,7 +234,7 @@ export const COLUMN_CATEGORIES: { key: string; label: string; columns: string[] 
   { key: 'tuning', label: 'Tuning & Context', columns: ['caveats', 'fineTuning'] },
   { key: 'validation', label: 'Validation', columns: ['testedAndValidated', 'validationDate', 'validationEnvironment', 'testCases'] },
   { key: 'metadata', label: 'Metadata', columns: ['references', 'tags'] },
-  { key: 'library', label: 'Library Info', columns: ['library_type', 'source', 'source_rule_id', 'source_url', 'publish_status', 'published_to_id', 'published_at'] },
+  { key: 'library', label: 'Library Info', columns: ['library_type', 'source', 'source_rule_id', 'source_url', 'promotion_status', 'promoted_to_id', 'promoted_at'] },
   { key: 'dates', label: 'Dates & Audit', columns: ['createdDate', 'updatedDate', 'created_by', 'updated_by', 'auditLog'] },
 ];
 
@@ -520,12 +520,12 @@ export async function downloadExcel(detections: Detection[], filename?: string, 
         
         if (col.key === 'library_type' && value && LIBRARY_COLORS[value]) {
           applyColorStyle(cell, LIBRARY_COLORS[value]);
-          cell.value = value === 'universal' ? '🌐 Universal' : '👤 User';
+          cell.value = value === 'development' ? '🧪 Development' : '🛡️ Production';
         }
-        
-        if (col.key === 'publish_status' && value && PUBLISH_STATUS_COLORS[value]) {
-          applyColorStyle(cell, PUBLISH_STATUS_COLORS[value]);
-          const icons: Record<string, string> = { 'published': '✓', 'pending': '⏳', 'rejected': '✗', 'unpublished': '○' };
+
+        if (col.key === 'promotion_status' && value && PROMOTION_STATUS_COLORS[value]) {
+          applyColorStyle(cell, PROMOTION_STATUS_COLORS[value]);
+          const icons: Record<string, string> = { 'promoted': '✓', 'pending': '⏳', 'rejected': '✗', 'none': '○' };
           cell.value = `${icons[value] || ''} ${value.charAt(0).toUpperCase() + value.slice(1)}`;
         }
         

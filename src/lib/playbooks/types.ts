@@ -50,6 +50,10 @@ export interface Playbook {
   icon: string;
   category: 'threat-assessment' | 'quality' | 'reporting';
   estimatedDuration: string;
+  /** If true, playbook is greyed out and not runnable */
+  disabled?: boolean;
+  /** Reason shown to user when disabled */
+  disabledReason?: string;
   /** If set, the playbook requires user input before running */
   requiresInput?: PlaybookInput;
   steps: PlaybookStep[];

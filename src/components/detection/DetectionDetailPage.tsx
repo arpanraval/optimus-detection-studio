@@ -21,6 +21,7 @@ import { batchResolveTechniques } from '../../mitre';
 import { supabase } from '../../lib/supabaseClient';
 import { SimilarDetectionsPanel } from './SimilarDetectionsPanel';
 import { LIBRARY_LABELS } from '../../types/detection';
+import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION, PROMOTION_NONE, PROMOTION_PENDING, PROMOTION_PROMOTED, PROMOTION_REJECTED } from '../../constants/library';
 import { DecisionTimeline } from '../decisions/DecisionTimeline';
 
 interface DetectionDetailPageProps {
@@ -74,19 +75,18 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
   const [rejectionReason, setRejectionReason] = useState<string | null>(null);
   const { showToast } = useToast();
   const {
-    copyToUserLibrary,
-    forkToLab,
+    forkToDevelopment,
     refreshUserLibrary,
     refreshUniversalLibrary,
     universalDetections,
     userDetections,
-    submitForPublish,
+    submitForPromotion,
     userId,
   } = useLibrary();
 
   // Determine library type and permissions
-  const isUniversalRule = detection.library_type === 'universal';
-  const isUserRule = detection.library_type === 'user' || !detection.library_type;
+  const isUniversalRule = detection.library_type === LIBRARY_DEVELOPMENT;
+  const isUserRule = detection.library_type === LIBRARY_PRODUCTION || !detection.library_type;
   const isCopiedFromUniversal = detection.source_rule_id !== null;
   const isAdmin = userRole === 'admin';
   
@@ -121,11 +121,11 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
   // E3: Fetch rejection reason if status is rejected
   useEffect(() => {
     const fetchRejectionReason = async () => {
-      if (detection.publish_status === 'rejected') {
+      if (detection.promotion_status === PROMOTION_REJECTED) {
         try {
           const { supabase } = await import('../../lib/supabaseClient');
           const { data } = await supabase
-            .from('publish_requests')
+            .from('promotion_requests')
             .select('review_notes')
             .eq('detection_id', detection.id)
             .eq('status', 'rejected')
@@ -143,7 +143,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
     };
     
     fetchRejectionReason();
-  }, [detection.id, detection.publish_status]);
+  }, [detection.id, detection.promotion_status]);
 
   const handleDeleteClick = () => {
     setShowDeleteConfirm(true);
@@ -156,7 +156,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
       await onDelete(detection.id);
       showToast('success', 'Detection Deleted',
         isUniversalRule
-          ? `The rule has been removed from ${LIBRARY_LABELS['universal']}.`
+          ? `The rule has been removed from ${LIBRARY_LABELS[LIBRARY_DEVELOPMENT]}.`
           : 'The detection has been permanently removed.'
       );
       // Refresh the appropriate library
@@ -182,35 +182,18 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
     setIsPDFExportModalOpen(true);
   };
 
-  // E1: Fork to Lab (Production → Lab) or Promote to Production (Lab → Production)
+  // E1: Fork to Development (Production → Development)
   const handleForkToLab = async () => {
     setIsCopying(true);
     try {
-      const newId = await forkToLab(detection.id);
+      const newId = await forkToDevelopment(detection.id);
       if (newId) {
         await refreshUniversalLibrary();
-        showToast('success', 'Forked to Lab', 'Detection forked to Lab. You can now experiment with it safely.');
+        showToast('success', 'Forked to Development', 'Detection forked to Development Library. You can now experiment with it safely.');
         onBack();
       }
     } catch (error: any) {
       showToast('error', 'Fork Failed', error.message || 'Could not fork detection.');
-    } finally {
-      setIsCopying(false);
-    }
-  };
-
-  // Copy from Lab to Production (legacy promote path via copy)
-  const handleCopyToLibrary = async () => {
-    setIsCopying(true);
-    try {
-      const newId = await copyToUserLibrary(detection.id);
-      if (newId) {
-        await refreshUserLibrary();
-        showToast('success', 'Added to Library', 'Rule copied to your library. You can now customize it.');
-        onBack();
-      }
-    } catch (error: any) {
-      showToast('error', 'Copy Failed', error.message || 'Could not copy rule.');
     } finally {
       setIsCopying(false);
     }
@@ -298,7 +281,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
     <div className="min-h-screen bg-background text-on-surface">
       
       {/* E3: Rejection Banner — shows on Lab rules that were rejected for promotion */}
-      {isUniversalRule && detection.publish_status === 'rejected' && (
+      {isUniversalRule && detection.promotion_status === PROMOTION_REJECTED && (
         <div className="bg-error/10 border-b border-error/20">
           <div className="px-6 lg:px-8 py-3 max-w-[1600px] mx-auto flex items-start gap-3">
             <Icon name="alert-triangle" className="w-5 h-5 text-error flex-shrink-0 mt-0.5" />
@@ -339,7 +322,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
               >
                 {sourceRule.name}
               </button>
-              {' '}in {LIBRARY_LABELS['universal']}
+              {' '}in {LIBRARY_LABELS[LIBRARY_DEVELOPMENT]}
             </p>
             {/* E6: View in Universal button */}
             <button
@@ -390,12 +373,12 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                     {isUniversalRule ? (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white border border-blue-500/30">
                         <Icon name="flask" className="w-3 h-3" />
-                        {LIBRARY_LABELS['universal']}
+                        {LIBRARY_LABELS[LIBRARY_DEVELOPMENT]}
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-white border border-white/20" style={{ backgroundColor: '#783264' }}>
                         <Icon name="user" className="w-3 h-3" />
-                        {LIBRARY_LABELS['user']}
+                        {LIBRARY_LABELS[LIBRARY_PRODUCTION]}
                       </span>
                     )}
                     
@@ -412,8 +395,8 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                     </span>
                     
                     {/* Publish Status - only for Lab rules (they get promoted to Production) */}
-                    {isUniversalRule && detection.publish_status && detection.publish_status !== 'unpublished' && (
-                      <PublishStatusBadge status={detection.publish_status} size="sm" />
+                    {isUniversalRule && detection.promotion_status && detection.promotion_status !== PROMOTION_NONE && (
+                      <PublishStatusBadge status={detection.promotion_status} size="sm" />
                     )}
                     
                     {/* Forked indicator */}
@@ -467,7 +450,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                {/* Deploy to SIEM — permission gated */}
                {detection.detectionQuery && hasPermission(userRole, 'integrations:sync') && (
                  isUserRule ? (
-                   /* Production Library (library_type='user') → full Deploy */
+                   /* Production Library (library_type='production') → full Deploy */
                    <button
                      onClick={() => setIsDeployModalOpen(true)}
                      className="h-9 px-3 flex items-center gap-2 rounded-full text-sm font-medium bg-surface-container-highest text-on-surface border border-outline-variant/30 hover:bg-surface-container-high transition-all"
@@ -477,7 +460,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                      <span className="hidden sm:inline">Deploy</span>
                    </button>
                  ) : (
-                   /* Detection Lab (library_type='universal') → Preview only */
+                   /* Development Library (library_type='development') → Preview only */
                    <button
                      onClick={() => setShowDeployPreview(true)}
                      className="h-9 px-3 flex items-center gap-2 rounded-full text-sm font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20 hover:bg-amber-500/20 transition-all"
@@ -508,7 +491,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                        ? 'text-on-surface-variant/50 cursor-wait' 
                        : 'text-on-surface-variant hover:text-error hover:bg-error-container/20'
                    }`}
-                   title={isUniversalRule ? `Delete from ${LIBRARY_LABELS['universal']} (Admin)` : "Delete Detection"}
+                   title={isUniversalRule ? `Delete from ${LIBRARY_LABELS[LIBRARY_DEVELOPMENT]} (Admin)` : "Delete Detection"}
                  >
                    <Icon name={isDeleting ? "loader" : "trash"} className={`w-5 h-5 ${isDeleting ? 'animate-spin' : ''}`} />
                  </button>
@@ -516,7 +499,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
 
                {/* === LIBRARY-SPECIFIC ACTIONS === */}
 
-               {/* For Production Rules: "Fork to Lab" button */}
+               {/* For Production Rules: "Fork to Development" button */}
                {isUserRule && (
                  <button
                    onClick={handleForkToLab}
@@ -536,23 +519,23 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                    ) : (
                      <>
                        <Icon name="copy" className="w-4 h-4" />
-                       <span>Fork to Lab</span>
+                       <span>Fork to Development</span>
                      </>
                    )}
                  </button>
                )}
 
                {/* For Lab Rules: Promote button — only show if owned by user and not pending */}
-               {isUniversalRule && isOwner && detection.publish_status !== 'pending' && (
+               {isUniversalRule && isOwner && detection.promotion_status !== PROMOTION_PENDING && (
                  <button
                    onClick={() => setIsPublishModalOpen(true)}
                    className="h-9 px-4 flex items-center gap-2 rounded-full text-sm font-medium bg-surface-container-highest text-on-surface border border-outline-variant/30 hover:bg-surface-container-high hover:border-outline-variant transition-all active:scale-95"
-                   title={detection.publish_status === 'published' ? `Submit update to ${LIBRARY_LABELS['user']}` : `Promote to ${LIBRARY_LABELS['user']}`}
+                   title={detection.promotion_status === PROMOTION_PROMOTED ? `Submit update to ${LIBRARY_LABELS[LIBRARY_PRODUCTION]}` : `Promote to ${LIBRARY_LABELS[LIBRARY_PRODUCTION]}`}
                  >
                    <Icon name="globe" className="w-4 h-4" />
                    <span className="hidden sm:inline">
-                     {detection.publish_status === 'published' ? 'Update' :
-                      detection.publish_status === 'rejected' ? 'Re-submit' : 'Promote'}
+                     {detection.promotion_status === PROMOTION_PROMOTED ? 'Update' :
+                      detection.promotion_status === PROMOTION_REJECTED ? 'Re-submit' : 'Promote'}
                    </span>
                  </button>
                )}
@@ -712,7 +695,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                 Are you sure you want to delete <span className="font-medium text-on-surface">"{detection.name}"</span>?
                 {isUniversalRule && (
                   <span className="block mt-2 text-warning font-medium">
-                    ⚠️ This is a {LIBRARY_LABELS['universal']} rule. Deleting it will affect all users.
+                    ⚠️ This is a {LIBRARY_LABELS[LIBRARY_DEVELOPMENT]} rule. Deleting it will affect all users.
                   </span>
                 )}
               </p>
