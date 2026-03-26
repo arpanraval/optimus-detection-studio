@@ -126,7 +126,7 @@ export interface ParsedAIResponse {
  * 3. Legacy markers: :::OPTIMUS_RESPONSE:::...:::END_RESPONSE:::
  */
 export function parseAIResponse(rawText: string): ParsedAIResponse {
-  const trimmed = rawText.trim();
+  const trimmed = rawText.trim().replace(/\r\n/g, '\n');
 
   // Format 0: JSON in markdown code block (most common from modern LLMs)
   const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -221,6 +221,14 @@ export function parseAIResponse(rawText: string): ParsedAIResponse {
   // Legacy format: :::OPTIMUS_RESPONSE::: markers
   const structuredResponse = parseOptimusResponse(rawText);
   const { displayText, draftData } = parseDraft(rawText);
+
+  // Log when we fall through to legacy/text-only parsing for monitoring
+  if (!structuredResponse && trimmed.length > 100 && (trimmed.includes('"type"') || trimmed.includes('"visualization"'))) {
+    logger.warn('Response parser: possible structured data fell through to text-only path', {
+      length: trimmed.length,
+      preview: trimmed.slice(0, 200)
+    });
+  }
 
   // If we have a structured response, use its summary as display text
   const finalDisplayText = structuredResponse
