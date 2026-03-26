@@ -57,7 +57,9 @@ export const ROUTES = {
   PLAYBOOKS: '/arsenal/playbooks',
   ONBOARDING: '/onboarding',
 
-  // Pipeline
+  // Detection Board (formerly Pipeline)
+  DETECTION_BOARD: '/library/board',
+  // Legacy redirect
   PIPELINE: '/pipeline',
 
   // Action Plan
@@ -169,7 +171,8 @@ export const viewToRoute: Record<string, string> = {
   'playbooks': ROUTES.PLAYBOOKS,
   'bulk_import': ROUTES.BULK_IMPORT,
   'onboarding': ROUTES.ONBOARDING,
-  'pipeline': ROUTES.PIPELINE,
+  'pipeline': ROUTES.DETECTION_BOARD,
+  'detection-board': ROUTES.DETECTION_BOARD,
   'integrations': ROUTES.INTEGRATIONS,
   'scoring_settings': ROUTES.SCORING,
   'environment_profile': ROUTES.ENVIRONMENT_PROFILE,
@@ -242,7 +245,7 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.IMPORT_HISTORY]: { title: 'Import History', description: 'View past bulk imports and rollback if needed' },
   [ROUTES.PLAYBOOKS]: { title: 'Playbooks', description: 'Guided multi-step analysis workflows for detection coverage' },
   [ROUTES.ONBOARDING]: { title: 'Add Official Sources', description: 'Import detection rules from official vendor repositories' },
-  [ROUTES.PIPELINE]: { title: 'Pipeline', description: 'Visual detection lifecycle management' },
+  [ROUTES.DETECTION_BOARD]: { title: 'Detection Board', description: 'Visual detection lifecycle management' },
   [ROUTES.INTEGRATIONS]: { title: 'Integrations', description: 'Connect your SIEM, SOAR, and security tools' },
   [ROUTES.INTEGRATION_DETAIL]: { title: 'Integration Details', description: undefined },
   [ROUTES.SCORING]: { title: 'Defense Impact Intelligence', description: 'Configure detection scoring and impact metrics' },
