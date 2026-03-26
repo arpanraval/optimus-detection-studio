@@ -112,7 +112,26 @@ const loadSession = (id: string): ChatSession | null => {
     } catch { return null; }
 };
 const saveSession = (s: ChatSession) => {
-    localStorage.setItem(SESSION_PREFIX + s.id, JSON.stringify(s));
+    try {
+        localStorage.setItem(SESSION_PREFIX + s.id, JSON.stringify(s));
+    } catch (e: any) {
+        if (e?.name === 'QuotaExceededError' || e?.code === 22) {
+            // Prune oldest sessions to free space
+            const idx = loadIndex();
+            if (idx.length > 5) {
+                const toRemove = idx.slice(-3); // Remove 3 oldest (index sorted newest-first)
+                toRemove.forEach(old => localStorage.removeItem(SESSION_PREFIX + old.id));
+                saveIndex(idx.slice(0, -3));
+                try {
+                    localStorage.setItem(SESSION_PREFIX + s.id, JSON.stringify(s));
+                } catch {
+                    console.error('localStorage quota exceeded even after pruning');
+                }
+            }
+            return;
+        }
+        throw e;
+    }
     const idx = loadIndex(), i = idx.findIndex(x => x.id === s.id);
     const sum: SessionSummary = { id: s.id, name: s.name, updatedAt: s.updatedAt, messageCount: s.messages.length };
     if (i >= 0) idx[i] = sum; else idx.unshift(sum);
@@ -521,6 +540,8 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                 'generate_navigator_layer': 'Navigator Layer',
                 'web_search': 'Web Search'
             };
+            const getToolDisplayName = (name: string): string =>
+                toolDisplayNames[name] ?? name.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
             while (response.functionCalls && response.functionCalls.length > 0 && toolIterations < MAX_TOOL_ITERATIONS) {
                 toolIterations++;
@@ -602,7 +623,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
 
             if (failedTools.length > 0) {
                 const failedNames = failedTools
-                    .map(t => toolDisplayNames[t.name] || t.name.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '))
+                    .map(t => getToolDisplayName(t.name))
                     .join(', ');
 
                 // If ALL tools failed, short-circuit with clear error
@@ -634,6 +655,9 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
             let displayContent = parsed.displayText;
             if (!displayContent && fullText) {
                 displayContent = fullText;
+            }
+            if (!displayContent) {
+                displayContent = "I wasn't able to generate a complete response. Please try rephrasing your question.";
             }
 
             // Prepend tool failure warning if any
@@ -667,6 +691,18 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
             }));
             showToast('error', 'Failed', err.message);
         } finally {
+            // Clean up any orphaned 'running' tool states
+            setSession(prev => ({
+                ...prev,
+                messages: prev.messages.map(m => ({
+                    ...m,
+                    toolCalls: m.toolCalls?.map(tc =>
+                        tc.status === 'running'
+                            ? { ...tc, status: 'error' as const, endTime: Date.now() }
+                            : tc
+                    )
+                }))
+            }));
             setIsGen(false);
             abortControllerRef.current = null;
         }
@@ -844,7 +880,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                                                     />
                                                 )}
                                                 {/* Render visualization card FIRST (hero element), then text below */}
-                                                {msg.structuredResponse?.visualization && hasVisualizationData(msg.structuredResponse.visualization) && (
+                                                {msg.structuredResponse?.visualization && hasVisualizationData(msg.structuredResponse.visualization) ? (
                                                     <div className="mb-3">
                                                         <OptimusResponseRenderer
                                                             response={{
@@ -855,7 +891,9 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                                                             onAction={handleOptimusAction}
                                                         />
                                                     </div>
-                                                )}
+                                                ) : msg.structuredResponse?.visualization ? (
+                                                    <p className="text-xs text-on-surface-variant/50 italic mt-2">No data available for this visualization.</p>
+                                                ) : null}
                                                 {/* Legacy: structured response without visualization field */}
                                                 {msg.structuredResponse && !msg.structuredResponse.visualization && msg.structuredResponse.type && msg.structuredResponse.type !== 'text' && (
                                                     <div className="mb-3">
