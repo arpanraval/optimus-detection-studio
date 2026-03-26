@@ -11,6 +11,7 @@ import { routeHelpers } from '../../router/routes';
 import { useNavigate } from 'react-router-dom';
 import { useLibrary } from '../../context/LibraryContext';
 import { useAssignment } from '../../hooks/useAssignment';
+import { supabase } from '../../lib/supabaseClient';
 import type { UserLookup } from './KanbanBoard';
 
 interface KanbanCardProps {
@@ -102,6 +103,8 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
   const { userId, refreshAll } = useLibrary();
   const { assignDetection } = useAssignment({ onAssignmentChange: () => refreshAll() });
   const [assigning, setAssigning] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(detection.name);
   const {
     attributes, listeners, setNodeRef, transform, transition, isDragging,
   } = useSortable({ id: detection.id, data: { detection }, disabled: overlay });
@@ -112,7 +115,18 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
     opacity: isDragging ? 0.3 : 1,
   };
 
+  const handleSaveTitle = async () => {
+    const trimmed = editTitle.trim();
+    if (!trimmed || trimmed === detection.name) { setIsEditing(false); return; }
+    try {
+      const { error } = await supabase.from('detections').update({ name: trimmed, updatedDate: new Date().toISOString() }).eq('id', detection.id);
+      if (!error) refreshAll();
+    } catch { /* ignore */ }
+    setIsEditing(false);
+  };
+
   const handleClick = (e: React.MouseEvent) => {
+    if (isEditing) return;
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
       onToggleSelect?.(detection.id);
@@ -211,9 +225,25 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
       {/* Row 1: Title + Menu */}
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-medium text-on-surface leading-snug line-clamp-2 group-hover:text-[#783264] transition-colors">
-            {detection.name}
-          </p>
+          {isEditing ? (
+            <input
+              autoFocus
+              type="text"
+              value={editTitle}
+              onChange={e => setEditTitle(e.target.value)}
+              onBlur={handleSaveTitle}
+              onKeyDown={e => { if (e.key === 'Enter') handleSaveTitle(); if (e.key === 'Escape') { setEditTitle(detection.name); setIsEditing(false); }}}
+              onClick={e => e.stopPropagation()}
+              className="text-[13px] font-medium text-on-surface leading-snug w-full bg-surface-container-highest rounded-lg px-1.5 py-0.5 outline-none border border-[#783264]/30 -ml-1.5"
+            />
+          ) : (
+            <p
+              className="text-[13px] font-medium text-on-surface leading-snug line-clamp-2 group-hover:text-[#783264] transition-colors"
+              onDoubleClick={(e) => { e.stopPropagation(); e.preventDefault(); setIsEditing(true); setEditTitle(detection.name); }}
+            >
+              {detection.name}
+            </p>
+          )}
         </div>
         <KanbanCardMenu detection={detection} isFlagged={isFlagged} onToggleFlag={onToggleFlag} />
       </div>

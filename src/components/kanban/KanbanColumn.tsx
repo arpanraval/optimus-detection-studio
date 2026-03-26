@@ -166,6 +166,28 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
             </button>
           </div>
         </div>
+        {detections.length > 0 && (
+          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-outline-variant/10">
+            <span className="text-[9px] text-on-surface-variant/50">
+              Avg Q: <span className="font-bold text-on-surface-variant">{Math.round(detections.reduce((s, d) => s + (d.qualityScore || 0), 0) / detections.length)}</span>
+            </span>
+            <div className="h-3 w-px bg-outline-variant/10" />
+            {(() => {
+              const crit = detections.filter(d => d.severity === 'Critical').length;
+              const high = detections.filter(d => d.severity === 'High').length;
+              const med = detections.filter(d => d.severity === 'Medium').length;
+              const low = detections.filter(d => d.severity === 'Low').length;
+              return (
+                <div className="flex items-center gap-1">
+                  {crit > 0 && <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-[#A63D40]/10 text-[#A63D40]">{crit}C</span>}
+                  {high > 0 && <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-orange-500/10 text-orange-400">{high}H</span>}
+                  {med > 0 && <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-yellow-500/10 text-yellow-500">{med}M</span>}
+                  {low > 0 && <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-[#4D7C6F]/10 text-[#4D7C6F]">{low}L</span>}
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </div>
 
       {/* Card Area - visible lane background */}
