@@ -19,10 +19,24 @@ const DEFAULT_PREFS: BoardPreferences = {
   sortWithinColumn: 'updated',
 };
 
+const VALID_SWIMLANE = new Set(['none', 'assignee', 'severity', 'source', 'mitreTactic']);
+const VALID_DENSITY = new Set(['comfortable', 'compact']);
+const VALID_SORT = new Set(['severity', 'quality', 'updated', 'name']);
+
+// M3 fix: validate deserialized values to prevent localStorage poisoning
 function loadPrefs(): BoardPreferences {
   try {
     const stored = localStorage.getItem(LS_KEY);
-    return stored ? { ...DEFAULT_PREFS, ...JSON.parse(stored) } : DEFAULT_PREFS;
+    if (!stored) return DEFAULT_PREFS;
+    const parsed = JSON.parse(stored);
+    return {
+      ...DEFAULT_PREFS,
+      wipLimits: typeof parsed.wipLimits === 'object' && parsed.wipLimits ? parsed.wipLimits : {},
+      collapsedColumns: Array.isArray(parsed.collapsedColumns) ? parsed.collapsedColumns : [],
+      swimlaneGroupBy: VALID_SWIMLANE.has(parsed.swimlaneGroupBy) ? parsed.swimlaneGroupBy : 'none',
+      cardDensity: VALID_DENSITY.has(parsed.cardDensity) ? parsed.cardDensity : 'comfortable',
+      sortWithinColumn: VALID_SORT.has(parsed.sortWithinColumn) ? parsed.sortWithinColumn : 'updated',
+    };
   } catch { return DEFAULT_PREFS; }
 }
 

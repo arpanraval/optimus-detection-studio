@@ -972,11 +972,9 @@ CREATE POLICY "Service role can manage user_notifications" ON public.user_notifi
   USING (true)
   WITH CHECK (true);
 
-CREATE POLICY "System can insert notifications" ON public.user_notifications
-  AS PERMISSIVE
+CREATE POLICY "Insert notifications with verified source" ON public.user_notifications
   FOR INSERT
-  TO public
-  WITH CHECK (true);
+  WITH CHECK (source_user_id = auth.uid() OR auth.role() = 'service_role');
 
 CREATE POLICY "Users can read own notifications" ON public.user_notifications
   AS PERMISSIVE

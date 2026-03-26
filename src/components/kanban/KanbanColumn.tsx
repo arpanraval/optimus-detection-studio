@@ -106,7 +106,8 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
     wipSubmittedRef.current = true;
     const parsed = parseInt(wipInputValue, 10);
     if (onSetWipLimit) {
-      onSetWipLimit(wipInputValue.trim() === '' || isNaN(parsed) || parsed <= 0 ? null : parsed);
+      // M4 fix: cap at 999 to prevent silently disabling WIP enforcement
+      onSetWipLimit(wipInputValue.trim() === '' || isNaN(parsed) || parsed <= 0 ? null : Math.min(parsed, 999));
     }
     setShowWipInput(false);
   };
