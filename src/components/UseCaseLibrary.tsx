@@ -632,6 +632,7 @@ const PaginationControls: React.FC<{
 
 export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
   onSelectDetection,
+  onEditDetection,
   mitreFilter,
   onClearMitreFilter,
   onNewDetection,
@@ -656,17 +657,17 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
   const {
     currentLibrary,
     setCurrentLibrary,
-    userDetections,
-    universalDetections,
+    productionDetections,
+    developmentDetections,
     isLoading,
     userRole,
     submitForPromotion,
-    refreshUserLibrary,
-    refreshUniversalLibrary,
+    refreshProductionLibrary,
+    refreshDevelopmentLibrary,
     // Pagination
     currentPagination,
-    userPagination,
-    universalPagination,
+    productionPagination,
+    developmentPagination,
     setPage,
     setPageSize,
     // Sorting (server-side)
@@ -694,7 +695,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
     getFilteredCount,
   } = useLibrary();
   const isAdmin = userRole === 'admin';
-  const detections = currentLibrary === LIBRARY_DEVELOPMENT ? universalDetections : userDetections;
+  const detections = currentLibrary === LIBRARY_DEVELOPMENT ? developmentDetections : productionDetections;
 
   const { options: filterOpts, loading: filterOptsLoading } = useFilterOptions(
     currentLibrary
@@ -873,9 +874,9 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
 
       // Refresh the library
       if (currentLibrary === LIBRARY_DEVELOPMENT) {
-        await refreshUniversalLibrary();
+        await refreshDevelopmentLibrary();
       } else {
-        await refreshUserLibrary();
+        await refreshProductionLibrary();
       }
     } catch (error: any) {
       console.error('Bulk MITRE resolution error:', error);
@@ -986,7 +987,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
                 : { backgroundColor: 'var(--md-sys-color-surface-container-highest)' }
               }
             >
-              {userPagination.totalCount.toLocaleString()}
+              {productionPagination.totalCount.toLocaleString()}
             </span>
           </button>
           <button
@@ -1006,7 +1007,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
                 : { backgroundColor: 'var(--md-sys-color-surface-container-highest)' }
               }
             >
-              {universalPagination.totalCount.toLocaleString()}
+              {developmentPagination.totalCount.toLocaleString()}
             </span>
           </button>
         </div>
@@ -1301,7 +1302,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
               onClick={() => { if (!selectionMode) onSelectDetection(d); }}
               libraryType={currentLibrary}
               onAddToLibrary={undefined}
-              isInUserLibrary={currentLibrary === LIBRARY_DEVELOPMENT ? userDetections.some(ud => ud.source_rule_id === d.id) : false}
+              isInUserLibrary={currentLibrary === LIBRARY_DEVELOPMENT ? productionDetections.some(ud => ud.source_rule_id === d.id) : false}
               selectionMode={selectionMode}
               isSelected={isSelected(d.id)}
               onToggleSelect={handleToggleSelect}
