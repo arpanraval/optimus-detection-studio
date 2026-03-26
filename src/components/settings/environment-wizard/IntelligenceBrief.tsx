@@ -77,7 +77,7 @@ export const IntelligenceBrief: React.FC<IntelligenceBriefProps> = ({
       if (error) throw error;
       showToast('success', 'Deploy Queue Generated',
         `${top25Ids.length} priority detections added to your pipeline backlog`);
-      navigate(ROUTES.PIPELINE);
+      navigate(ROUTES.DETECTION_BOARD);
     } catch (err) {
       showToast('error', 'Failed', err instanceof Error ? err.message : 'Could not generate queue');
     } finally {

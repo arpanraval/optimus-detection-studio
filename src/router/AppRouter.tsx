@@ -250,8 +250,10 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       // Defense Exercises
       { path: 'exercises/state-sponsored', element: <StateSponsoredReportPage /> },
 
-      // Onboarding
-      { path: 'pipeline', element: <PipelinePage /> },
+      // Detection Board (under library)
+      { path: 'library/board', element: <PipelinePage /> },
+      // Legacy redirect from old pipeline route
+      { path: 'pipeline', element: <Navigate to="/library/board" replace /> },
       { path: 'onboarding', element: <OnboardingPage /> },
 
       // Account
@@ -366,6 +368,13 @@ export const AppRouter: React.FC = () => {
           setPendingAuthAction('set-password');
         }
         setUserProfile(data as Profile);
+
+        // Update last_active_at for activity tracking
+        supabase
+          .from('profiles')
+          .update({ last_active_at: new Date().toISOString() })
+          .eq('id', userId)
+          .then();
       }
     } catch (error) {
       console.error('Error fetching profile:', error);
