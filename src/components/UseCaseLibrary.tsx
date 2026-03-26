@@ -109,6 +109,7 @@ const ALL_FILTER_FIELDS: FilterConfig[] = [
   { key: 'qualityGrade', label: 'Quality Grade', type: 'computed' },
   { key: 'promotion_status', label: 'Promotion Status', type: 'string', librarySpecific: LIBRARY_PRODUCTION },
   { key: 'source', label: 'Source', type: 'string', librarySpecific: LIBRARY_DEVELOPMENT },
+  { key: 'review_status', label: 'Review Status', type: 'string' },
 ];
 
 const COLUMN_GRID_WIDTHS: Record<string, string> = {
