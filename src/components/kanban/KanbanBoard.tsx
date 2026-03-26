@@ -79,13 +79,13 @@ export const KanbanBoard: React.FC = () => {
     return map;
   }, [allUsers]);
 
+  // H3 note: Supabase Realtime doesn't support row-level filters for team-shared tables.
+  // The channel receives events for all detections, but actual data is re-fetched via RLS-protected queries.
+  // We only use the event as a signal to refresh - we don't read payload.new fields for display.
   useEffect(() => {
     const unsub = subscribe('detections', '*', (payload) => {
-      if (payload.eventType === 'UPDATE') {
-        const updated = payload.new as any;
-        if (updated.status !== (payload.old as any)?.status || updated.assigned_to !== (payload.old as any)?.assigned_to) {
-          refreshAll();
-        }
+      if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT' || payload.eventType === 'DELETE') {
+        refreshAll();
       }
     });
     return unsub;
@@ -349,7 +349,7 @@ export const KanbanBoard: React.FC = () => {
           supabase.from('user_notifications').insert({
             user_id: detection.assigned_to,
             type: 'status_change',
-            title: `${detection.name} moved to ${targetStatus}`,
+            title: `${detection.name.slice(0, 100)} moved to ${targetStatus}`,
             message: `Detection status changed to ${targetStatus}`,
             detection_id: detection.id,
             action_url: `/library/detections/${detection.id}`,

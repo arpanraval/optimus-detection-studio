@@ -10,6 +10,7 @@ import { getScoreColor, formatRelativeDate } from '../card-utils';
 import { routeHelpers } from '../../router/routes';
 import { useNavigate } from 'react-router-dom';
 import { useLibrary } from '../../context/LibraryContext';
+import { usePermissions } from '../../context/PermissionsContext';
 import { useAssignment } from '../../hooks/useAssignment';
 import { supabase } from '../../lib/supabaseClient';
 import type { UserLookup } from './KanbanBoard';
@@ -103,6 +104,7 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
 }) => {
   const navigate = useNavigate();
   const { userId, refreshAll } = useLibrary();
+  const { can } = usePermissions();
   const { assignDetection } = useAssignment({ onAssignmentChange: () => refreshAll() });
   const [assigning, setAssigning] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -117,13 +119,16 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
     opacity: isDragging ? 0.3 : 1,
   };
 
+  const canEdit = can('detection:update:any') || can('detection:update:own');
+
   const handleSaveTitle = async () => {
     const trimmed = editTitle.trim();
     if (!trimmed || trimmed === detection.name) { setIsEditing(false); return; }
+    // H1 fix: permission check before DB call
+    if (!canEdit) { setEditTitle(detection.name); setIsEditing(false); return; }
     const { error } = await supabase.from('detections').update({ name: trimmed, updatedDate: new Date().toISOString() }).eq('id', detection.id);
     if (error) {
-      // C3 fix: show error instead of silently swallowing
-      setEditTitle(detection.name); // revert
+      setEditTitle(detection.name); // revert on error
     } else {
       refreshAll();
     }
@@ -234,6 +239,7 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
             <input
               autoFocus
               type="text"
+              maxLength={255}
               value={editTitle}
               onChange={e => setEditTitle(e.target.value)}
               onBlur={handleSaveTitle}
@@ -244,7 +250,7 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
           ) : (
             <p
               className="text-[13px] font-medium text-on-surface leading-snug line-clamp-2 group-hover:text-[#783264] transition-colors"
-              onDoubleClick={(e) => { e.stopPropagation(); e.preventDefault(); setIsEditing(true); setEditTitle(detection.name); }}
+              onDoubleClick={canEdit ? (e) => { e.stopPropagation(); e.preventDefault(); setIsEditing(true); setEditTitle(detection.name); } : undefined}
             >
               {detection.name}
             </p>
