@@ -126,9 +126,11 @@ const saveSession = (s: ChatSession) => {
                     localStorage.setItem(SESSION_PREFIX + s.id, JSON.stringify(s));
                 } catch {
                     console.error('localStorage quota exceeded even after pruning');
+                    return;
                 }
+            } else {
+                return;
             }
-            return;
         }
         throw e;
     }
@@ -304,8 +306,12 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
         const container = endRef.current?.parentElement;
         if (!container) return;
 
+        let scrollTimer: ReturnType<typeof setTimeout>;
         const observer = new ResizeObserver(() => {
-            endRef.current?.scrollIntoView({ behavior: 'smooth' });
+            clearTimeout(scrollTimer);
+            scrollTimer = setTimeout(() => {
+                endRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }, 50);
         });
         observer.observe(container);
 

@@ -40,7 +40,7 @@ export const SourceCitationBar: React.FC<SourceCitationBarProps> = ({ sources })
               name={sourceTypeIcons[source.type] || 'link'}
               className="w-3 h-3 text-on-surface-variant/60"
             />
-            {source.url ? (
+            {source.url && /^https?:\/\//i.test(source.url) ? (
               <a
                 href={source.url}
                 target="_blank"

@@ -25,8 +25,12 @@ export function truncateHistory(history: ChatHistoryMessage[]): ChatHistoryMessa
     .filter(Boolean)
     .join('; ');
 
+  // Use 'model' role for summary if first recent message is 'user' to maintain
+  // strict alternating user/model roles required by the Gemini API
+  const summaryRole = recentMessages[0]?.role === 'user' ? 'model' : 'user';
+
   const summaryMessage: ChatHistoryMessage = {
-    role: 'user',
+    role: summaryRole,
     parts: [{
       text: `[Earlier conversation summary — ${olderMessages.length} messages about: ${topicSummary || 'general discussion'}. Continue from the recent context below.]`
     }]

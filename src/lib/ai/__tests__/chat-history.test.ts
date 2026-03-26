@@ -33,4 +33,15 @@ describe('truncateHistory', () => {
     const result = truncateHistory([]);
     expect(result).toEqual([]);
   });
+
+  it('maintains alternating user/model roles after truncation', () => {
+    // Create history where recent messages start with 'user'
+    const history = Array.from({ length: 40 }, (_, i) =>
+      makeMsg(i % 2 === 0 ? 'user' : 'model', `msg-${i}`)
+    );
+    const result = truncateHistory(history);
+    // Summary should be 'model' to avoid consecutive 'user' messages
+    expect(result[0].role).toBe('model');
+    expect(result[1].role).toBe('user');
+  });
 });
