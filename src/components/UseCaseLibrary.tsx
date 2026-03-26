@@ -25,6 +25,9 @@ import { FilterPanel, ActiveFilterChips } from './library';
 import { useFilterOptions } from '../hooks/useFilterOptions';
 import { routeHelpers } from '../router/routes';
 import { useDetectionPatterns } from '../hooks/useDetectionPatterns';
+import { useClickOutside } from '../hooks/useClickOutside';
+import { useLocalStorage } from '../hooks/useLocalStorage';
+import { getQualityGrade } from '../lib/utils/formatting';
 
 // ============================================================================
 // TYPES
@@ -78,15 +81,6 @@ const STATUS_ORDER: Record<string, number> = { Production: 6, Testing: 5, Review
 // Special value for filtering empty/missing values
 const EMPTY_FILTER_VALUE = '__EMPTY__';
 const EMPTY_FILTER_LABEL = '(Empty)';
-
-// Helper to compute quality grade from qualityScore
-const getQualityGrade = (score: number): string => {
-  if (score >= 90) return 'A';
-  if (score >= 75) return 'B';
-  if (score >= 60) return 'C';
-  if (score >= 40) return 'D';
-  return 'F';
-};
 
 const ALL_FILTER_FIELDS: FilterConfig[] = [
   { key: 'technology', label: 'Technology', type: 'string' },
@@ -166,35 +160,6 @@ const SOLID_TERTIARY = '#783264';
 
 // Row container - rounded-xl to match list items
 const ROW_CONTAINER = "bg-surface-container-high rounded-xl";
-
-// ============================================================================
-// HOOKS
-// ============================================================================
-
-const useClickOutside = (ref: React.RefObject<HTMLElement>, handler: () => void) => {
-  useEffect(() => {
-    const listener = (e: MouseEvent | TouchEvent) => {
-      if (!ref.current || ref.current.contains(e.target as Node)) return;
-      handler();
-    };
-    document.addEventListener('mousedown', listener);
-    return () => document.removeEventListener('mousedown', listener);
-  }, [ref, handler]);
-};
-
-const useLocalStorage = <T,>(key: string, defaultValue: T): [T, (value: T) => void] => {
-  const [state, setState] = useState<T>(() => {
-    try {
-      const stored = localStorage.getItem(key);
-      return stored ? JSON.parse(stored) : defaultValue;
-    } catch { return defaultValue; }
-  });
-  const setValue = useCallback((value: T) => {
-    setState(value);
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
-  }, [key]);
-  return [state, setValue];
-};
 
 // ============================================================================
 // SUB-COMPONENTS
@@ -710,6 +675,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
   const [bulkPublishIds, setBulkPublishIds] = useState<string[]>([]);
   const [showBulkDeploy, setShowBulkDeploy] = useState(false);
   const [bulkDeployIds, setBulkDeployIds] = useState<string[]>([]);
+  const [bulkProcessing, setBulkProcessing] = useState<string | null>(null);
 
   // Apply initial filters from props (e.g. from Dashboard click)
   useEffect(() => {
@@ -975,8 +941,13 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
 
   // Bulk action handlers
   const handleBulkDelete = async (ids: string[]) => {
-    await bulkDelete(ids);
-    setSelectionMode(false);
+    setBulkProcessing(`Deleting ${ids.length} detections...`);
+    try {
+      await bulkDelete(ids);
+    } finally {
+      setBulkProcessing(null);
+      setSelectionMode(false);
+    }
   };
 
   const handleBulkExport = (ids: string[]) => {
@@ -985,11 +956,21 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
   };
 
   const handleBulkStatusChange = async (ids: string[], status: string) => {
-    await bulkUpdateStatus(ids, status);
+    setBulkProcessing(`Updating status for ${ids.length} detections...`);
+    try {
+      await bulkUpdateStatus(ids, status);
+    } finally {
+      setBulkProcessing(null);
+    }
   };
 
   const handleBulkSeverityChange = async (ids: string[], severity: string) => {
-    await bulkUpdateSeverity(ids, severity);
+    setBulkProcessing(`Updating severity for ${ids.length} detections...`);
+    try {
+      await bulkUpdateSeverity(ids, severity);
+    } finally {
+      setBulkProcessing(null);
+    }
   };
 
   const handleBulkCopyToLibrary = async (ids: string[]) => {
@@ -1463,6 +1444,8 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
       {/* Bulk Action Bar */}
       {(selectionMode || selectedDetectionIds.size > 0) && (
         <BulkActionBar
+          isProcessing={!!bulkProcessing}
+          processingMessage={bulkProcessing || undefined}
           selectedCount={selectedDetectionIds.size}
           selectedIds={Array.from(selectedDetectionIds)}
           libraryType={currentLibrary}
