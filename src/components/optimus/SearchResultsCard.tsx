@@ -1,6 +1,6 @@
 /**
  * Search Results Card
- * Unified design system — plain status dots, text-only header, mono MITRE IDs
+ * M3-inspired design for detection search results
  */
 
 import React, { useState } from 'react';
@@ -16,15 +16,14 @@ interface Props {
   onAction: (action: OptimusAction) => void;
 }
 
-const getStatusDot = (status: string) => {
+const getStatusStyle = (status: string) => {
   switch (status?.toLowerCase()) {
-    case 'production':
-      return 'w-1.5 h-1.5 rounded-full bg-teal';
-    case 'testing':
-    case 'review':
-      return 'w-1.5 h-1.5 rounded-full bg-amber';
-    default:
-      return 'w-1.5 h-1.5 rounded-full bg-surface-container-highest';
+    case 'production': return { bg: 'bg-primary/15', text: 'text-primary', border: 'border-primary/20' };
+    case 'testing': return { bg: 'bg-tertiary/15', text: 'text-tertiary', border: 'border-tertiary/20' };
+    case 'review': return { bg: 'bg-secondary/15', text: 'text-secondary', border: 'border-secondary/20' };
+    case 'draft': return { bg: 'bg-surface-container-highest', text: 'text-on-surface-variant', border: 'border-outline-variant/30' };
+    case 'deprecated': return { bg: 'bg-error/15', text: 'text-error', border: 'border-error/20' };
+    default: return { bg: 'bg-surface-container-highest', text: 'text-on-surface-variant', border: 'border-outline-variant/30' };
   }
 };
 
@@ -37,119 +36,129 @@ export const SearchResultsCard: React.FC<Props> = ({ summary, data, actions, onA
   const hasMore = results && results.length > INITIAL_SHOW;
 
   return (
-    <div className="bg-surface-container-low rounded-2xl border border-outline-variant/20 overflow-hidden">
+    <div className="bg-surface-container rounded-2xl border border-outline-variant/15 overflow-hidden shadow-sm">
       {/* Header */}
-      <div className="p-5 pb-4 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent">
-        <h3 className="text-base font-semibold text-on-surface">
-          Found {total} detection{total !== 1 ? 's' : ''} for &ldquo;{query}&rdquo;
-        </h3>
+      <div className="px-5 pt-5 pb-4">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+            <Icon name="search" className="w-5 h-5 text-primary" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-base font-semibold text-on-surface">Search Results</h3>
+            <p className="text-xs text-on-surface-variant/60">{total} detection{total !== 1 ? 's' : ''} found</p>
+          </div>
+        </div>
       </div>
 
-      {/* Divider */}
-      <div className="border-t border-outline-variant/[0.08]" />
-
       {/* Results list */}
-      <div className="px-5 py-4">
+      <div className="px-4 pb-2">
         {displayResults && displayResults.length > 0 ? (
-          <div className="space-y-1">
-            {displayResults.map((result: SearchResult) => (
-              <Link
-                key={result.id}
-                to={routeHelpers.detectionDetail(result.id)}
-                className="block no-underline text-inherit px-3 py-2.5 rounded-lg hover:bg-surface-container-high/50 transition-colors duration-300 ease-emphasized"
-              >
-                <p className="text-sm font-medium text-on-surface hover:text-primary transition-colors">{result.name}</p>
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
-                  {/* Status dot + text */}
-                  {result.status && (
-                    <span className="flex items-center gap-1.5">
-                      <span className={`shrink-0 ${getStatusDot(result.status)}`} />
-                      <span className="text-xs text-on-surface-variant">{result.status}</span>
-                    </span>
-                  )}
+          <div className="space-y-2">
+            {displayResults.map((result: SearchResult) => {
+              const statusStyle = getStatusStyle(result.status);
+              return (
+                <Link
+                  key={result.id}
+                  to={routeHelpers.detectionDetail(result.id)}
+                  className="block no-underline text-inherit p-3 rounded-xl border border-outline-variant/10 hover:bg-surface-container-high/50 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-sm font-medium text-on-surface">
+                        {result.name}
+                      </h4>
 
-                  {/* MITRE IDs */}
-                  {result.mitreIds && result.mitreIds.slice(0, 4).map((id) => (
-                    <span key={id} className="font-mono text-xs text-tertiary">
-                      {id}
-                    </span>
-                  ))}
-                  {result.mitreIds && result.mitreIds.length > 4 && (
-                    <span className="text-xs text-on-surface-variant/50">
-                      +{result.mitreIds.length - 4}
-                    </span>
-                  )}
+                      {/* Tags row */}
+                      <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                        {/* Status badge */}
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}>
+                          {result.status}
+                        </span>
 
-                  {/* Similarity score */}
-                  {result.similarity != null ? (
-                    <span className="font-mono text-xs text-on-surface-variant/60">
-                      {Math.round(result.similarity * 100)}% match
-                    </span>
-                  ) : (
-                    <span className="font-mono text-xs text-on-surface-variant/40">
-                      keyword match
-                    </span>
-                  )}
-                </div>
-              </Link>
-            ))}
+                        {/* MITRE IDs */}
+                        {result.mitreIds && result.mitreIds.slice(0, 4).map((id) => (
+                          <span
+                            key={id}
+                            className="text-[10px] font-mono font-medium px-1.5 py-0.5 bg-tertiary/10 text-tertiary rounded"
+                          >
+                            {id}
+                          </span>
+                        ))}
+                        {result.mitreIds && result.mitreIds.length > 4 && (
+                          <span className="text-[10px] text-on-surface-variant/50">
+                            +{result.mitreIds.length - 4}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Similarity score */}
+                    {result.similarity !== undefined && result.similarity > 0 && (
+                      <div className="text-right shrink-0">
+                        <span className="text-xs font-mono text-on-surface-variant/40 bg-surface-container-highest px-2 py-1 rounded">
+                          {Math.round(result.similarity * 100)}%
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         ) : (
           <div className="py-8 text-center">
             <Icon name="search" className="w-8 h-8 text-on-surface-variant/20 mx-auto mb-2" />
-            <p className="text-sm text-on-surface-variant">No detections found for &ldquo;{query}&rdquo;</p>
+            <p className="text-sm text-on-surface-variant">No detections found for "{query}"</p>
           </div>
         )}
 
-        {/* Show all / show less toggle */}
+        {/* Show more/less button */}
         {hasMore && (
           <button
             onClick={() => setShowAll(!showAll)}
-            className="w-full mt-3 px-4 py-2 text-xs font-medium text-primary hover:bg-primary/5 rounded-xl transition-colors"
+            className="w-full mt-3 py-2.5 text-xs font-medium text-primary hover:bg-primary/5 rounded-xl transition-colors"
           >
-            {showAll ? 'Show less' : `Show all ${results.length} results`}
+            {showAll
+              ? 'Show less'
+              : `Show ${results.length - INITIAL_SHOW} more detection${results.length - INITIAL_SHOW > 1 ? 's' : ''}`
+            }
           </button>
         )}
       </div>
 
       {/* Related techniques */}
       {relatedTechniques && relatedTechniques.length > 0 && (
-        <>
-          <div className="border-t border-outline-variant/[0.08]" />
-          <div className="px-5 py-3">
-            <p className="text-xs font-medium text-on-surface-variant/50 uppercase tracking-wider mb-2">
-              Related
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {relatedTechniques.slice(0, 8).map((id) => (
-                <span
-                  key={id}
-                  className="font-mono text-xs text-tertiary px-2 py-0.5 rounded border border-outline-variant/20"
-                >
-                  {id}
-                </span>
-              ))}
-              {relatedTechniques.length > 8 && (
-                <span className="text-xs text-on-surface-variant/40">
-                  +{relatedTechniques.length - 8} more
-                </span>
-              )}
-            </div>
+        <div className="mx-4 mb-4 p-3 rounded-xl bg-surface-container-high/30 border border-outline-variant/10">
+          <p className="text-[10px] text-on-surface-variant/60 uppercase tracking-wider mb-2">Related Techniques</p>
+          <div className="flex flex-wrap gap-1.5">
+            {relatedTechniques.slice(0, 8).map((id) => (
+              <span
+                key={id}
+                className="text-[10px] font-mono px-2 py-0.5 bg-surface-container-highest text-on-surface-variant rounded"
+              >
+                {id}
+              </span>
+            ))}
+            {relatedTechniques.length > 8 && (
+              <span className="text-[10px] text-on-surface-variant/40">
+                +{relatedTechniques.length - 8} more
+              </span>
+            )}
           </div>
-        </>
+        </div>
       )}
 
       {/* Actions */}
       {actions && actions.length > 0 && (
-        <div className="px-5 pb-5 pt-2 border-t border-outline-variant/[0.08] flex flex-wrap gap-2">
+        <div className="px-4 pb-4 pt-2 border-t border-outline-variant/10 flex flex-wrap gap-2">
           {actions.map((action, i) => (
             <button
               key={i}
               onClick={() => onAction(action)}
-              className={`px-4 py-2 text-xs font-medium rounded-xl transition-colors ${
+              className={`px-4 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 ease-emphasized ${
                 i === 0
-                  ? 'bg-primary text-on-primary hover:bg-primary/90 shadow-sm shadow-primary/10'
-                  : 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest'
+                  ? 'bg-primary text-on-primary hover:bg-primary/90 shadow-sm'
+                  : 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest border border-outline-variant/10'
               }`}
             >
               {action.label}
