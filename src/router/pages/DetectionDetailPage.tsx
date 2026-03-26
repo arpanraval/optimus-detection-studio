@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { DetectionDetailPage as DetailPage } from '../../components/detection/DetectionDetailPage';
 import { PageErrorBoundary } from '../../components/ErrorBoundary';
 import { Icon } from '../../components/Icon';
@@ -12,7 +12,8 @@ import { ROUTES, routeHelpers } from '../routes';
 export const DetectionDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const { detections, profile, deleteDetection, sanitizeDetection } = useAppData();
+  const location = useLocation();
+  const { profile, deleteDetection, sanitizeDetection } = useAppData();
   const { showToast } = useToast();
   const [detection, setDetection] = useState<Detection | null>(null);
   const [loading, setLoading] = useState(true);
@@ -24,16 +25,9 @@ export const DetectionDetailPage: React.FC = () => {
         return;
       }
 
-      // Check if a full object exists in context (e.g., from a recent save).
-      // Lightweight objects from AppDataContext won't have detectionQuery.
-      const inContext = detections.find(d => d.id === id);
-      if (inContext && 'detectionQuery' in inContext && inContext.detectionQuery !== '') {
-        setDetection(inContext);
-        setLoading(false);
-        return;
-      }
+      setLoading(true);
 
-      // Fetch full detection from database (includes all heavy fields)
+      // Always fetch fresh from database (includes all heavy fields, picks up edits)
       try {
         const { data, error } = await supabase
           .from('detections')
@@ -59,8 +53,7 @@ export const DetectionDetailPage: React.FC = () => {
     };
 
     fetchDetection();
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- detections intentionally excluded; we fetch from DB, not context
-  }, [id]);
+  }, [id, location.key]);
 
   const handleBack = () => {
     navigate(ROUTES.LIBRARY);
@@ -87,6 +80,10 @@ export const DetectionDetailPage: React.FC = () => {
 
   const handleNavigateToCampaign = (campaignId: string) => {
     navigate(routeHelpers.campaignDetail(campaignId));
+  };
+
+  const handleNavigateToTechnique = (techniqueId: string) => {
+    navigate(routeHelpers.libraryWithFilter(techniqueId));
   };
 
   const handleNavigateToDetection = (detectionId: string) => {
@@ -128,6 +125,7 @@ export const DetectionDetailPage: React.FC = () => {
         onNavigateToGroup={handleNavigateToGroup}
         onNavigateToSoftware={handleNavigateToSoftware}
         onNavigateToCampaign={handleNavigateToCampaign}
+        onNavigateToTechnique={handleNavigateToTechnique}
         onNavigateToDetection={handleNavigateToDetection}
       />
     </PageErrorBoundary>
