@@ -19,6 +19,9 @@ interface KanbanCardProps {
   onToggleSelect?: (id: string) => void;
   overlay?: boolean;
   userLookup?: UserLookup;
+  cardDensity?: 'comfortable' | 'compact';
+  isFlagged?: boolean;
+  onToggleFlag?: (id: string) => void;
 }
 
 // Avatar colors (same as Sidebar)
@@ -91,6 +94,9 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
   onToggleSelect,
   overlay = false,
   userLookup = {},
+  cardDensity,
+  isFlagged = false,
+  onToggleFlag,
 }) => {
   const navigate = useNavigate();
   const { userId, refreshAll } = useLibrary();
@@ -117,6 +123,29 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
 
   const qualityScore = detection.qualityScore || 0;
   const stale = getStaleInfo(detection.updatedDate);
+
+  if (cardDensity === 'compact') {
+    return (
+      <div
+        ref={overlay ? undefined : setNodeRef}
+        style={style}
+        className={`group relative rounded-xl bg-surface-container border px-3 py-1.5 cursor-grab hover:bg-surface-container-high transition-all ${
+          isSelected
+            ? 'border-[#783264] border-2 ring-2 ring-[#783264]/20'
+            : 'border-outline-variant/30 hover:border-[#783264]/40'
+        } ${isDragging && !overlay ? 'shadow-xl' : ''} ${overlay ? 'shadow-2xl border-[#783264]/40' : ''}`}
+        onClick={handleClick}
+        {...(overlay ? {} : { ...attributes, ...listeners })}
+      >
+        <div className="flex items-center gap-2">
+          <SeverityBadge severity={detection.severity} size="xs" />
+          <p className="text-[11px] text-on-surface truncate flex-1">{detection.name}</p>
+          {isFlagged && <Icon name="flag" className="w-3 h-3 text-[#A63D40] flex-shrink-0" />}
+          <QualityCircle score={qualityScore} />
+        </div>
+      </div>
+    );
+  }
 
   const daysInColumn = detection.updatedDate
     ? Math.floor((Date.now() - new Date(detection.updatedDate).getTime()) / (1000 * 60 * 60 * 24))
@@ -178,8 +207,13 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
             {detection.name}
           </p>
         </div>
-        <KanbanCardMenu detection={detection} />
+        <KanbanCardMenu detection={detection} isFlagged={isFlagged} onToggleFlag={onToggleFlag} />
       </div>
+      {isFlagged && (
+        <div className="absolute top-2 right-10 w-5 h-5 rounded-md bg-[#A63D40]/15 flex items-center justify-center" title="Flagged as blocked">
+          <Icon name="flag" className="w-3 h-3 text-[#A63D40]" />
+        </div>
+      )}
 
       {/* Row 2: Description snippet */}
       {detection.description && (
