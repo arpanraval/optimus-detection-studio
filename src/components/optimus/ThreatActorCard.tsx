@@ -189,6 +189,24 @@ Focus on their particular methods, tools, and indicators rather than generic det
                 )}
               </div>
             )}
+
+            {showGaps && gapTechniques.length === 0 && gapsCount > 0 && (
+              <div className="px-5 pb-4">
+                <p className="text-xs text-on-surface-variant/60 italic px-1">
+                  {gapsCount} gap{gapsCount > 1 ? 's' : ''} identified but technique details unavailable.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Full coverage empty state */}
+        {gapsCount === 0 && (
+          <div className="border-t border-outline-variant/10 px-5 py-4">
+            <div className="flex items-center gap-2 p-3 bg-green-500/5 rounded-lg">
+              <Icon name="shield-check" className="w-4 h-4 text-green-500" />
+              <span className="text-xs text-green-600 dark:text-green-400">Full coverage against this actor's known techniques.</span>
+            </div>
           </div>
         )}
 
