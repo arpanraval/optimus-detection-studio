@@ -299,12 +299,25 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
         }
     }, [session]);
 
-    // Scroll to bottom
+    // ResizeObserver for scroll-on-resize (handles async card rendering)
+    useEffect(() => {
+        const container = endRef.current?.parentElement;
+        if (!container) return;
+
+        const observer = new ResizeObserver(() => {
+            endRef.current?.scrollIntoView({ behavior: 'smooth' });
+        });
+        observer.observe(container);
+
+        return () => observer.disconnect();
+    }, [session.id]);
+
+    // Scroll on new messages (immediate)
     useEffect(() => {
         if (session.messages.length > 0) {
-            setTimeout(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+            endRef.current?.scrollIntoView({ behavior: 'smooth' });
         }
-    }, [session.messages.length, isGen]);
+    }, [session.messages.length]);
 
     // Click outside handler
     useEffect(() => {
