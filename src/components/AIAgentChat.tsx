@@ -243,6 +243,8 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
     const [chatHistory, setChatHistory] = useState<ChatHistoryMessage[]>([]);
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
     const [editingContent, setEditingContent] = useState('');
+    const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+    const [renameValue, setRenameValue] = useState('');
 
     const endRef = useRef<HTMLDivElement>(null);
     const histRef = useRef<HTMLDivElement>(null);
@@ -759,7 +761,38 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                                                 <div key={s.id} onClick={() => handleSwitch(s.id)} 
                                                     className={`flex items-center justify-between px-4 py-2.5 cursor-pointer transition-colors group ${s.id === session.id ? 'bg-surface-container-high/50' : 'hover:bg-surface-container-high/30'}`}>
                                                     <div className="flex-1 min-w-0">
-                                                        <p className={`text-[11px] font-medium truncate ${s.id === session.id ? 'text-on-surface' : 'text-on-surface-variant/70'}`}>{s.name}</p>
+                                                        {renamingSessionId === s.id ? (
+                                            <input
+                                                value={renameValue}
+                                                onChange={(e) => setRenameValue(e.target.value)}
+                                                onBlur={() => {
+                                                    if (renameValue.trim()) {
+                                                        const loaded = loadSession(s.id);
+                                                        if (loaded) {
+                                                            loaded.name = renameValue.trim();
+                                                            saveSession(loaded);
+                                                            if (session.id === s.id) setSession(prev => ({ ...prev, name: renameValue.trim() }));
+                                                            setSessionsIdx(loadIndex());
+                                                        }
+                                                    }
+                                                    setRenamingSessionId(null);
+                                                }}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                                                    if (e.key === 'Escape') setRenamingSessionId(null);
+                                                }}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="text-[11px] font-medium bg-transparent border-b border-primary focus:outline-none w-full text-on-surface"
+                                                autoFocus
+                                            />
+                                        ) : (
+                                            <p
+                                                className={`text-[11px] font-medium truncate cursor-pointer ${s.id === session.id ? 'text-on-surface' : 'text-on-surface-variant/70'}`}
+                                                onDoubleClick={(e) => { e.stopPropagation(); setRenamingSessionId(s.id); setRenameValue(s.name); }}
+                                            >
+                                                {s.name}
+                                            </p>
+                                        )}
                                                         <p className="text-[9px] text-on-surface-variant/40 mt-0.5">{formatTime(s.updatedAt)}</p>
                                                     </div>
                                                     <button onClick={(e) => handleDelete(s.id, e)} className="p-1 text-on-surface-variant/20 hover:text-error opacity-0 group-hover:opacity-100 transition-all">
