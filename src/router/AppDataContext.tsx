@@ -142,7 +142,7 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({ children, user
 
   useEffect(() => {
     const fetchAllDetections = async (): Promise<Detection[]> => {
-      // Fetch user's own detections + universal library detections (lightweight columns only)
+      // Fetch production + development library detections (lightweight columns only)
       const { data: first, error, count } = await supabase
         .from('detections')
         .select(LIGHTWEIGHT_COLUMNS, { count: 'exact' })
@@ -203,6 +203,22 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({ children, user
   }, []);
 
   const saveDetection = useCallback(async (detection: Detection) => {
+    // Optimistic concurrency check: if version > 1 the record already exists in DB.
+    // Verify nobody else has modified it since we last loaded it.
+    if (detection.version && detection.version > 1) {
+      const { data: current } = await supabase
+        .from('detections')
+        .select('version')
+        .eq('id', detection.id)
+        .single();
+
+      if (current && current.version >= detection.version) {
+        throw new Error(
+          'This detection was modified by another user since you started editing. Please refresh the page and try again.'
+        );
+      }
+    }
+
     const now = new Date().toISOString();
 
     const detectionToSave = {
@@ -214,7 +230,7 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({ children, user
 
     // Use upsert to handle both insert and update atomically.
     // This avoids the bug where in-memory state doesn't contain the detection
-    // (e.g. universal library rules), causing a false INSERT → 409 Conflict.
+    // (e.g. development library rules), causing a false INSERT → 409 Conflict.
     const { data, error } = await supabase
       .from('detections')
       .upsert(detectionToSave, { onConflict: 'id' })
