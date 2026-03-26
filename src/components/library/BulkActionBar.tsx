@@ -13,6 +13,8 @@ const SOLID_TERTIARY = '#783264';
 const SOLID_BLUE = '#005091';
 
 interface BulkActionBarProps {
+  isProcessing?: boolean;
+  processingMessage?: string;
   selectedCount: number;
   selectedIds: string[];
   libraryType: LibraryType;
@@ -84,6 +86,8 @@ const ActionDropdown: React.FC<{
 };
 
 export const BulkActionBar: React.FC<BulkActionBarProps> = ({
+  isProcessing,
+  processingMessage,
   selectedCount,
   selectedIds,
   libraryType,
@@ -256,7 +260,13 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
     <>
       {/* Floating action bar */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-4 duration-200">
-        <div className="bg-surface-container-high border border-outline-variant/30 rounded-2xl shadow-2xl px-3 py-2.5 flex items-center gap-2">
+        <div className="relative bg-surface-container-high border border-outline-variant/30 rounded-2xl shadow-2xl px-3 py-2.5 flex items-center gap-2">
+          {isProcessing && (
+            <div className="absolute inset-0 bg-surface-container/80 backdrop-blur-sm rounded-xl flex items-center justify-center gap-3 z-10">
+              <Icon name="loader" className="w-5 h-5 animate-spin text-primary" />
+              <span className="text-sm font-medium text-on-surface">{processingMessage || 'Processing...'}</span>
+            </div>
+          )}
           {/* Selection count chip */}
           <div className="flex items-center gap-2 pr-2 border-r border-outline-variant/30">
             <div
@@ -317,7 +327,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
 
           {/* Actions */}
           <div className="flex items-center gap-0.5">
-            {/* Status change - only for user library */}
+            {/* Status change - only for production library */}
             {isUserLibrary && (onChangeStatus || onChangeStatusByFilter) && (
               <ActionDropdown
                 label="Status"
@@ -327,7 +337,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
               />
             )}
 
-            {/* Severity change - only for user library */}
+            {/* Severity change - only for production library */}
             {isUserLibrary && (onChangeSeverity || onChangeSeverityByFilter) && (
               <ActionDropdown
                 label="Severity"
@@ -382,7 +392,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
               </button>
             )}
 
-            {/* Delete - only for user library */}
+            {/* Delete - only for production library */}
             {isUserLibrary && (onDelete || onDeleteByFilter) && (
               <button
                 onClick={() => {
