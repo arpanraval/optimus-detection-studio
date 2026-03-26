@@ -1,6 +1,6 @@
 /**
  * Coverage Report Card - Unified Design System
- * Consistent shell: rounded-xl, gradient header, hairline divider, uniform padding
+ * Consistent shell: rounded-2xl, gradient header, hairline divider, uniform padding
  */
 
 import React, { useState, useEffect } from 'react';
@@ -36,27 +36,27 @@ export const CoverageReportCard: React.FC<Props> = ({ summary, data, actions, on
   const total = data.total || data.overall?.total || 0;
 
   const tiers = [
-    { key: 'production', label: 'Production', icon: 'shield-check', tier: production, dotClass: 'bg-green-500 shadow-[0_0_4px_rgba(34,197,94,0.3)]', barClass: 'bg-primary' },
-    { key: 'library', label: 'In Library', icon: 'package', tier: inLibrary, dotClass: 'bg-amber-500 shadow-[0_0_4px_rgba(245,158,11,0.3)]', barClass: 'bg-primary/40' },
-    { key: 'gaps', label: 'Coverage Gaps', icon: 'alert-triangle', tier: gaps, dotClass: 'bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.3)]', barClass: '' },
+    { key: 'production', label: 'Production', icon: 'shield-check', tier: production, dotClass: 'bg-teal', barClass: 'bg-primary' },
+    { key: 'library', label: 'In Library', icon: 'package', tier: inLibrary, dotClass: 'bg-secondary', barClass: 'bg-primary/40' },
+    { key: 'gaps', label: 'Coverage Gaps', icon: 'alert-triangle', tier: gaps, dotClass: 'bg-error/60', barClass: '' },
   ];
 
   return (
-    <div className="rounded-xl border border-outline-variant/10 overflow-hidden">
+    <div className="bg-surface-container-low rounded-2xl border border-outline-variant/20 overflow-hidden">
       {/* Header with gradient wash */}
-      <div className="p-5 pb-4 bg-gradient-to-br from-primary/[0.03] to-transparent">
+      <div className="p-5 pb-4 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent">
         <div className="flex items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
               <Icon name="shield" className="w-5 h-5 text-primary" />
-              <h3 className="text-base font-medium text-on-surface">{data.title || 'Coverage Report'}</h3>
+              <h3 className="text-base font-semibold text-on-surface">{data.title || 'Coverage Report'}</h3>
             </div>
             <p className="text-sm text-on-surface-variant mt-1">{total} techniques evaluated</p>
           </div>
           <AnimatedNumber
             value={production.percent}
             suffix="%"
-            className="text-2xl font-semibold tabular-nums text-on-surface"
+            className="text-2xl font-brand font-semibold tabular-nums text-on-surface"
             duration={600}
           />
         </div>
@@ -104,7 +104,7 @@ export const CoverageReportCard: React.FC<Props> = ({ summary, data, actions, on
               <button
                 onClick={() => hasTechniques && setExpandedTier(isExpanded ? null : t.key)}
                 disabled={!hasTechniques}
-                className={`w-full py-3 px-2 -mx-2 rounded-lg flex items-center justify-between ${hasTechniques ? 'cursor-pointer hover:bg-surface-container-high/30' : 'cursor-default'} transition-colors duration-200`}
+                className={`w-full py-3 px-2 -mx-2 rounded-lg flex items-center justify-between ${hasTechniques ? 'cursor-pointer hover:bg-surface-container-high/50' : 'cursor-default'} transition-colors duration-300 ease-emphasized`}
               >
                 <div className="flex items-center gap-3">
                   <span className={`w-2 h-2 rounded-full ${t.dotClass}`} />
@@ -124,13 +124,13 @@ export const CoverageReportCard: React.FC<Props> = ({ summary, data, actions, on
               {isExpanded && hasTechniques && (
                 <div className="pl-9 pb-3 space-y-1 max-h-52 overflow-y-auto">
                   {t.tier.techniques!.slice(0, 10).map(tech => (
-                    <div key={tech.id} className={`flex items-center gap-3 py-1.5 px-3 rounded-lg hover:bg-surface-container-high/30 transition-colors ${
+                    <div key={tech.id} className={`flex items-center gap-3 py-1.5 px-3 rounded-lg hover:bg-surface-container-high/50 transition-colors ${
                       tech.priority === 'critical' ? 'border-l-2 border-error' :
-                      tech.priority === 'high' ? 'border-l-2 border-orange-500' :
-                      tech.priority === 'medium' ? 'border-l-2 border-yellow-500' :
+                      tech.priority === 'high' ? 'border-l-2 border-orange' :
+                      tech.priority === 'medium' ? 'border-l-2 border-amber' :
                       'border-l-2 border-transparent'
                     }`}>
-                      <span className="font-mono text-xs text-on-surface-variant">{tech.id}</span>
+                      <span className="font-mono text-xs text-primary">{tech.id}</span>
                       <span className="text-xs text-on-surface-variant/70 flex-1 truncate">{tech.name}</span>
                       {tech.detectionCount != null && tech.detectionCount > 0 && (
                         <span className="text-xs text-on-surface-variant/50">{tech.detectionCount}</span>
@@ -156,9 +156,9 @@ export const CoverageReportCard: React.FC<Props> = ({ summary, data, actions, on
             <button
               key={i}
               onClick={() => onAction(action)}
-              className={`px-4 py-2 text-xs font-medium rounded-lg transition-colors ${
+              className={`px-4 py-2 text-xs font-medium rounded-xl transition-colors ${
                 i === 0
-                  ? 'bg-primary text-on-primary hover:bg-primary/90'
+                  ? 'bg-primary text-on-primary hover:bg-primary/90 shadow-sm shadow-primary/10'
                   : 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest'
               }`}
             >

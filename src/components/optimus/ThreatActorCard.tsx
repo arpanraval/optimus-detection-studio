@@ -75,15 +75,15 @@ Focus on their particular methods, tools, and indicators rather than generic det
   };
 
   return (
-    <div className="rounded-xl border border-outline-variant/10 overflow-hidden">
+    <div className="bg-surface-container-low rounded-2xl border border-outline-variant/20 overflow-hidden">
 
       {/* Header with gradient wash */}
-      <div className="p-5 pb-4 bg-gradient-to-br from-primary/[0.03] to-transparent">
+      <div className="p-5 pb-4 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <Icon name="crosshairs" className="w-5 h-5 text-primary" />
-              <h3 className="text-base font-medium text-on-surface">{actor.name}</h3>
+              <h3 className="text-base font-semibold text-on-surface">{actor.name}</h3>
             </div>
             <p className="text-sm text-on-surface-variant mt-1">
               {actor.mitreId}
@@ -99,7 +99,7 @@ Focus on their particular methods, tools, and indicators rather than generic det
           <AnimatedNumber
             value={percent}
             suffix="%"
-            className="text-2xl font-semibold tabular-nums text-on-surface flex-shrink-0"
+            className="text-2xl font-brand font-semibold tabular-nums text-on-surface flex-shrink-0"
             duration={600}
           />
         </div>
@@ -124,15 +124,15 @@ Focus on their particular methods, tools, and indicators rather than generic det
           {/* Legend */}
           <div className="flex items-center gap-4 mt-2.5">
             <div className="flex items-center gap-1.5 text-xs text-on-surface-variant/60">
-              <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_4px_rgba(34,197,94,0.3)]" />
+              <span className="w-2 h-2 rounded-full bg-teal" />
               {covered} Production
             </div>
             <div className="flex items-center gap-1.5 text-xs text-on-surface-variant/60">
-              <span className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_4px_rgba(245,158,11,0.3)]" />
+              <span className="w-2 h-2 rounded-full bg-secondary" />
               {inLibraryCount} Library
             </div>
             <div className="flex items-center gap-1.5 text-xs text-on-surface-variant/60">
-              <span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.3)]" />
+              <span className="w-2 h-2 rounded-full bg-error/60" />
               {gapsCount} Gaps
             </div>
           </div>
@@ -151,10 +151,10 @@ Focus on their particular methods, tools, and indicators rather than generic det
             <div>
               <button
                 onClick={() => setShowCoverage(!showCoverage)}
-                className="w-full py-3 px-2 -mx-2 rounded-lg flex items-center justify-between cursor-pointer hover:bg-surface-container-high/30 transition-colors duration-200"
+                className="w-full py-3 px-2 -mx-2 rounded-lg flex items-center justify-between cursor-pointer hover:bg-surface-container-high/50 transition-colors duration-300 ease-emphasized"
               >
                 <div className="flex items-center gap-3">
-                  <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_4px_rgba(34,197,94,0.3)]" />
+                  <span className="w-2 h-2 rounded-full bg-teal" />
                   <Icon name="shield-check" className="w-4 h-4 text-on-surface-variant/60" />
                   <span className="text-sm font-medium text-on-surface">Your Coverage</span>
                   <span className="text-xs text-on-surface-variant/60">({covered} techniques)</span>
@@ -177,10 +177,10 @@ Focus on their particular methods, tools, and indicators rather than generic det
             <div>
               <button
                 onClick={() => setShowGaps(!showGaps)}
-                className="w-full py-3 px-2 -mx-2 rounded-lg flex items-center justify-between cursor-pointer hover:bg-surface-container-high/30 transition-colors duration-200"
+                className="w-full py-3 px-2 -mx-2 rounded-lg flex items-center justify-between cursor-pointer hover:bg-surface-container-high/50 transition-colors duration-300 ease-emphasized"
               >
                 <div className="flex items-center gap-3">
-                  <span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.3)]" />
+                  <span className="w-2 h-2 rounded-full bg-error/60" />
                   <Icon name="alert-triangle" className="w-4 h-4 text-on-surface-variant/60" />
                   <span className="text-sm font-medium text-on-surface">Coverage Gaps</span>
                   <span className="text-xs text-on-surface-variant/60">({gapsCount} techniques)</span>
@@ -201,15 +201,15 @@ Focus on their particular methods, tools, and indicators rather than generic det
                     {gapTechniques.map((tech, i) => (
                       <div
                         key={tech.id + i}
-                        className="flex items-center justify-between gap-3 py-1.5 px-3 rounded-lg hover:bg-surface-container-high/30 transition-colors duration-200 group"
+                        className="flex items-center justify-between gap-3 py-1.5 px-3 rounded-lg hover:bg-surface-container-high/50 transition-colors duration-200 group"
                       >
                         <div className="min-w-0 flex-1">
-                          <span className="font-mono text-xs text-on-surface-variant">{tech.id}</span>
+                          <span className="font-mono text-xs text-error">{tech.id}</span>
                           <span className="text-xs text-on-surface-variant/60 ml-2 truncate">{tech.name}</span>
                         </div>
                         <button
                           onClick={() => handleDraftDetection(tech)}
-                          className="flex-shrink-0 px-3 py-1.5 text-xs font-medium bg-primary text-on-primary rounded-lg hover:bg-primary/90 transition-colors opacity-80 group-hover:opacity-100"
+                          className="flex-shrink-0 px-3 py-1.5 text-xs font-medium bg-primary text-on-primary rounded-xl hover:bg-primary/90 transition-colors opacity-80 group-hover:opacity-100"
                         >
                           Draft detection
                         </button>
@@ -236,8 +236,8 @@ Focus on their particular methods, tools, and indicators rather than generic det
         ) : (
           /* Full coverage empty state */
           <div className="py-3 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_4px_rgba(34,197,94,0.3)]" />
-            <span className="text-sm text-on-surface-variant">Full coverage against this actor's known techniques.</span>
+            <span className="w-2 h-2 rounded-full bg-teal" />
+            <span className="text-sm text-teal">Full coverage against this actor's known techniques.</span>
           </div>
         )}
       </div>
@@ -249,7 +249,7 @@ Focus on their particular methods, tools, and indicators rather than generic det
       <div className="px-5 py-4 flex flex-wrap gap-2">
         <button
           onClick={handleViewDetections}
-          className="px-4 py-2 text-xs font-medium bg-surface-container-high text-on-surface rounded-lg hover:bg-surface-container-highest transition-colors"
+          className="px-4 py-2 text-xs font-medium bg-surface-container-high text-on-surface rounded-xl hover:bg-surface-container-highest transition-colors"
         >
           View Detections
         </button>
@@ -257,9 +257,9 @@ Focus on their particular methods, tools, and indicators rather than generic det
           <button
             key={i}
             onClick={() => onAction(action)}
-            className={`px-4 py-2 text-xs font-medium rounded-lg transition-colors ${
+            className={`px-4 py-2 text-xs font-medium rounded-xl transition-colors ${
               i === 0
-                ? 'bg-primary text-on-primary hover:bg-primary/90'
+                ? 'bg-primary text-on-primary hover:bg-primary/90 shadow-sm shadow-primary/10'
                 : 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest'
             }`}
           >

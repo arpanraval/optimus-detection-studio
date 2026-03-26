@@ -19,10 +19,10 @@ interface Props {
 const getStatusDot = (status: string) => {
   switch (status?.toLowerCase()) {
     case 'production':
-      return 'w-1.5 h-1.5 rounded-full bg-green-500';
+      return 'w-1.5 h-1.5 rounded-full bg-teal';
     case 'testing':
     case 'review':
-      return 'w-1.5 h-1.5 rounded-full bg-amber-500';
+      return 'w-1.5 h-1.5 rounded-full bg-amber';
     default:
       return 'w-1.5 h-1.5 rounded-full bg-surface-container-highest';
   }
@@ -37,10 +37,10 @@ export const SearchResultsCard: React.FC<Props> = ({ summary, data, actions, onA
   const hasMore = results && results.length > INITIAL_SHOW;
 
   return (
-    <div className="rounded-xl border border-outline-variant/10 overflow-hidden">
+    <div className="bg-surface-container-low rounded-2xl border border-outline-variant/20 overflow-hidden">
       {/* Header */}
-      <div className="p-5 pb-4 bg-gradient-to-br from-primary/[0.03] to-transparent">
-        <h3 className="text-base font-medium text-on-surface">
+      <div className="p-5 pb-4 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent">
+        <h3 className="text-base font-semibold text-on-surface">
           Found {total} detection{total !== 1 ? 's' : ''} for &ldquo;{query}&rdquo;
         </h3>
       </div>
@@ -56,9 +56,9 @@ export const SearchResultsCard: React.FC<Props> = ({ summary, data, actions, onA
               <Link
                 key={result.id}
                 to={routeHelpers.detectionDetail(result.id)}
-                className="block no-underline text-inherit px-3 py-2.5 rounded-lg hover:bg-surface-container-high/30 transition-colors duration-200"
+                className="block no-underline text-inherit px-3 py-2.5 rounded-lg hover:bg-surface-container-high/50 transition-colors duration-300 ease-emphasized"
               >
-                <p className="text-sm font-medium text-on-surface">{result.name}</p>
+                <p className="text-sm font-medium text-on-surface hover:text-primary transition-colors">{result.name}</p>
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
                   {/* Status dot + text */}
                   {result.status && (
@@ -70,7 +70,7 @@ export const SearchResultsCard: React.FC<Props> = ({ summary, data, actions, onA
 
                   {/* MITRE IDs */}
                   {result.mitreIds && result.mitreIds.slice(0, 4).map((id) => (
-                    <span key={id} className="font-mono text-xs text-on-surface-variant">
+                    <span key={id} className="font-mono text-xs text-tertiary">
                       {id}
                     </span>
                   ))}
@@ -105,7 +105,7 @@ export const SearchResultsCard: React.FC<Props> = ({ summary, data, actions, onA
         {hasMore && (
           <button
             onClick={() => setShowAll(!showAll)}
-            className="w-full mt-3 px-4 py-2 text-xs font-medium text-primary hover:bg-primary/5 rounded-lg transition-colors"
+            className="w-full mt-3 px-4 py-2 text-xs font-medium text-primary hover:bg-primary/5 rounded-xl transition-colors"
           >
             {showAll ? 'Show less' : `Show all ${results.length} results`}
           </button>
@@ -124,7 +124,7 @@ export const SearchResultsCard: React.FC<Props> = ({ summary, data, actions, onA
               {relatedTechniques.slice(0, 8).map((id) => (
                 <span
                   key={id}
-                  className="font-mono text-xs text-on-surface-variant px-2 py-0.5 rounded border border-outline-variant/10"
+                  className="font-mono text-xs text-tertiary px-2 py-0.5 rounded border border-outline-variant/20"
                 >
                   {id}
                 </span>
@@ -146,9 +146,9 @@ export const SearchResultsCard: React.FC<Props> = ({ summary, data, actions, onA
             <button
               key={i}
               onClick={() => onAction(action)}
-              className={`px-4 py-2 text-xs font-medium rounded-lg transition-colors ${
+              className={`px-4 py-2 text-xs font-medium rounded-xl transition-colors ${
                 i === 0
-                  ? 'bg-primary text-on-primary hover:bg-primary/90'
+                  ? 'bg-primary text-on-primary hover:bg-primary/90 shadow-sm shadow-primary/10'
                   : 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest'
               }`}
             >
