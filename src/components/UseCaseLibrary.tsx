@@ -1148,6 +1148,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
         {currentLibrary === LIBRARY_PRODUCTION && (
           <button
             onClick={async () => {
+              if (!confirm(`Analyze patterns across all ${productionPagination.totalCount} production detections? This may take a moment.`)) return;
               try {
                 const { data: { user } } = await supabase.auth.getUser();
                 if (!user) return;
@@ -1166,7 +1167,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
             }}
             disabled={extractingPatterns}
             className="h-8 px-3 text-sm font-medium rounded-xl text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface transition-all inline-flex items-center gap-1.5 disabled:opacity-50"
-            title="Analyze detection patterns across your library"
+            title="Analyze detection patterns across your entire production library (MITRE coverage, log source distribution, severity breakdown)"
           >
             <Icon name={extractingPatterns ? 'spinner' : 'cpu'} className={`w-4 h-4${extractingPatterns ? ' animate-spin' : ''}`} />
             <span>{extractingPatterns ? 'Analyzing...' : 'Analyze Patterns'}</span>
