@@ -68,7 +68,7 @@ export const ToolTimeline: React.FC<Props> = ({ tools, isComplete }) => {
         <div key={index} className="flex items-center gap-3">
           {/* Status indicator */}
           {tool.status === 'running' ? (
-            <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+            <span className="w-3 h-3 rounded-full border-2 border-primary border-t-transparent animate-spin" />
           ) : tool.status === 'completed' ? (
             <span className="w-2 h-2 rounded-full bg-green-500" />
           ) : (
