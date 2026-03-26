@@ -9,6 +9,7 @@ import { CoverageReportCard } from './CoverageReportCard';
 import { ThreatActorCard } from './ThreatActorCard';
 import { SearchResultsCard } from './SearchResultsCard';
 import { GapAnalysisCard } from './GapAnalysisCard';
+import { SourceCitationBar } from './SourceCitationBar';
 import { Icon } from '../Icon';
 
 interface Props {
@@ -88,14 +89,21 @@ const ErrorResponse: React.FC<{
  * Main response renderer
  */
 export const OptimusResponseRenderer: React.FC<Props> = ({ response, onAction }) => {
+  const citations = response.sources && response.sources.length > 0 ? (
+    <SourceCitationBar sources={response.sources} />
+  ) : null;
+
   // Handle error responses
   if (response.type === 'error' || response.data?.error) {
     return (
-      <ErrorResponse
-        error={response.data?.error || response.summary || 'An error occurred'}
-        suggestions={response.data?.suggestions}
-        hint={response.data?.hint}
-      />
+      <>
+        <ErrorResponse
+          error={response.data?.error || response.summary || 'An error occurred'}
+          suggestions={response.data?.suggestions}
+          hint={response.data?.hint}
+        />
+        {citations}
+      </>
     );
   }
 
@@ -103,52 +111,67 @@ export const OptimusResponseRenderer: React.FC<Props> = ({ response, onAction })
     case 'coverage_report':
     case 'coverage':
       return (
-        <CoverageReportCard
-          summary={response.summary}
-          data={response.data}
-          actions={response.actions}
-          onAction={onAction}
-        />
+        <>
+          <CoverageReportCard
+            summary={response.summary}
+            data={response.data}
+            actions={response.actions}
+            onAction={onAction}
+          />
+          {citations}
+        </>
       );
 
     case 'threat_actor':
       return (
-        <ThreatActorCard
-          summary={response.summary}
-          data={response.data}
-          actions={response.actions}
-          onAction={onAction}
-        />
+        <>
+          <ThreatActorCard
+            summary={response.summary}
+            data={response.data}
+            actions={response.actions}
+            onAction={onAction}
+          />
+          {citations}
+        </>
       );
 
     case 'search_results':
       return (
-        <SearchResultsCard
-          summary={response.summary}
-          data={response.data}
-          actions={response.actions}
-          onAction={onAction}
-        />
+        <>
+          <SearchResultsCard
+            summary={response.summary}
+            data={response.data}
+            actions={response.actions}
+            onAction={onAction}
+          />
+          {citations}
+        </>
       );
 
     case 'gap_analysis':
       return (
-        <GapAnalysisCard
-          summary={response.summary}
-          data={response.data}
-          actions={response.actions}
-          onAction={onAction}
-        />
+        <>
+          <GapAnalysisCard
+            summary={response.summary}
+            data={response.data}
+            actions={response.actions}
+            onAction={onAction}
+          />
+          {citations}
+        </>
       );
 
     case 'text':
     default:
       return (
-        <TextResponse
-          content={response.summary || response.data?.content || ''}
-          actions={response.actions}
-          onAction={onAction}
-        />
+        <>
+          <TextResponse
+            content={response.summary || response.data?.content || ''}
+            actions={response.actions}
+            onAction={onAction}
+          />
+          {citations}
+        </>
       );
   }
 };
