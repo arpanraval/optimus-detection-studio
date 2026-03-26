@@ -1282,6 +1282,46 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   }, [buildFilterQuery, getFilteredCount, refreshAll, showToast]);
 
   // ============================================
+  // REALTIME SUBSCRIPTION
+  // ============================================
+
+  // Realtime subscription for live updates
+  const realtimeDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('library-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'detections',
+        },
+        (payload) => {
+          // Debounce to avoid rapid-fire refreshes
+          if (realtimeDebounceRef.current) clearTimeout(realtimeDebounceRef.current);
+          realtimeDebounceRef.current = setTimeout(() => {
+            const changedLibraryType = (payload.new as any)?.library_type
+              || (payload.old as any)?.library_type;
+
+            if (changedLibraryType === LIBRARY_DEVELOPMENT) {
+              refreshDevelopmentLibrary();
+            } else {
+              refreshProductionLibrary();
+            }
+          }, 1000);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (realtimeDebounceRef.current) clearTimeout(realtimeDebounceRef.current);
+      supabase.removeChannel(channel);
+    };
+  }, [refreshProductionLibrary, refreshDevelopmentLibrary]);
+
+  // ============================================
   // CONTEXT VALUE
   // ============================================
 
