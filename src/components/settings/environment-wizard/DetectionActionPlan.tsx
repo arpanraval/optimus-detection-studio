@@ -185,7 +185,7 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
         .in('id', ids);
       if (error) throw error;
       showToast('success', 'Added to Backlog', `${ids.length} detections added to pipeline backlog`);
-      navigate(ROUTES.PIPELINE);
+      navigate(ROUTES.DETECTION_BOARD);
     } catch (err) {
       showToast('error', 'Failed', err instanceof Error ? err.message : 'Could not deploy');
     }
