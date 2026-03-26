@@ -23,6 +23,7 @@ import { SimilarDetectionsPanel } from './SimilarDetectionsPanel';
 import { LIBRARY_LABELS } from '../../types/detection';
 import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION, PROMOTION_NONE, PROMOTION_PENDING, PROMOTION_PROMOTED, PROMOTION_REJECTED } from '../../constants/library';
 import { DecisionTimeline } from '../decisions/DecisionTimeline';
+import { TabErrorBoundary } from './TabErrorBoundary';
 
 interface DetectionDetailPageProps {
   detection: Detection;
@@ -578,49 +579,67 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
       {/* CONTENT */}
       <div className="max-w-[1600px] mx-auto px-6 lg:px-8 py-8">
         {activeTab === 'overview' && (
-          <OverviewTab
-            detection={localDetection}
-            sourceRule={sourceRule}
-            onNavigateToGroup={onNavigateToGroup}
-            onNavigateToSoftware={onNavigateToSoftware}
-            onNavigateToCampaign={onNavigateToCampaign}
-            onNavigateToTechnique={onNavigateToTechnique}
-            onViewSourceRule={handleViewInUniversal}
-          />
+          <TabErrorBoundary tabName="Overview">
+            <OverviewTab
+              detection={localDetection}
+              sourceRule={sourceRule}
+              onNavigateToGroup={onNavigateToGroup}
+              onNavigateToSoftware={onNavigateToSoftware}
+              onNavigateToCampaign={onNavigateToCampaign}
+              onNavigateToTechnique={onNavigateToTechnique}
+              onViewSourceRule={handleViewInUniversal}
+            />
+          </TabErrorBoundary>
         )}
         {activeTab === 'logic' && (
-          <DetectionLogicTab detection={localDetection} />
+          <TabErrorBoundary tabName="Logic">
+            <DetectionLogicTab detection={localDetection} />
+          </TabErrorBoundary>
         )}
         {activeTab === 'investigation' && (
-          <InvestigationTab detection={localDetection} />
+          <TabErrorBoundary tabName="Investigation">
+            <InvestigationTab detection={localDetection} />
+          </TabErrorBoundary>
         )}
         {activeTab === 'validation' && (
-          <TuningTab detection={localDetection} />
+          <TabErrorBoundary tabName="Validation">
+            <TuningTab detection={localDetection} />
+          </TabErrorBoundary>
         )}
         {activeTab === 'collaboration' && (
-          <CollaborationTab
-            detection={localDetection}
-            onDetectionUpdate={handleDetectionUpdate}
-          />
+          <TabErrorBoundary tabName="Collaboration">
+            <CollaborationTab
+              detection={localDetection}
+              onDetectionUpdate={handleDetectionUpdate}
+            />
+          </TabErrorBoundary>
         )}
         {activeTab === 'deployments' && (
-          <DeploymentHistoryTab detection={localDetection} />
+          <TabErrorBoundary tabName="Deployments">
+            <DeploymentHistoryTab detection={localDetection} />
+          </TabErrorBoundary>
         )}
         {activeTab === 'decisions' && (
-          <DecisionTimeline detectionId={localDetection.id} />
+          <TabErrorBoundary tabName="Decisions">
+            <DecisionTimeline detectionId={localDetection.id} />
+          </TabErrorBoundary>
         )}
         {activeTab === 'history' && (
-          <HistoryTab detection={localDetection} />
+          <TabErrorBoundary tabName="History">
+            <HistoryTab detection={localDetection} />
+          </TabErrorBoundary>
         )}
 
         {/* Similar Detections Panel - cross-vendor similarity */}
         {activeTab === 'overview' && (
-          <div className="mt-8">
-            <SimilarDetectionsPanel
-              detectionId={localDetection.id}
-              onNavigateToDetection={onNavigateToDetection}
-            />
-          </div>
+          <TabErrorBoundary tabName="Similar Detections">
+            <div className="mt-8">
+              <SimilarDetectionsPanel
+                detectionId={localDetection.id}
+                onNavigateToDetection={onNavigateToDetection}
+              />
+            </div>
+          </TabErrorBoundary>
         )}
       </div>
 
