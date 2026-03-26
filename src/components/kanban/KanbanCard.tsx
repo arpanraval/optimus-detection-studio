@@ -23,6 +23,7 @@ interface KanbanCardProps {
   cardDensity?: 'comfortable' | 'compact';
   isFlagged?: boolean;
   onToggleFlag?: (id: string) => void;
+  onRequestStatusChange?: (detectionIds: string[], targetStatus: import('../../types').Status) => void;
 }
 
 // Avatar colors (same as Sidebar)
@@ -98,6 +99,7 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
   cardDensity,
   isFlagged = false,
   onToggleFlag,
+  onRequestStatusChange,
 }) => {
   const navigate = useNavigate();
   const { userId, refreshAll } = useLibrary();
@@ -118,10 +120,13 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
   const handleSaveTitle = async () => {
     const trimmed = editTitle.trim();
     if (!trimmed || trimmed === detection.name) { setIsEditing(false); return; }
-    try {
-      const { error } = await supabase.from('detections').update({ name: trimmed, updatedDate: new Date().toISOString() }).eq('id', detection.id);
-      if (!error) refreshAll();
-    } catch { /* ignore */ }
+    const { error } = await supabase.from('detections').update({ name: trimmed, updatedDate: new Date().toISOString() }).eq('id', detection.id);
+    if (error) {
+      // C3 fix: show error instead of silently swallowing
+      setEditTitle(detection.name); // revert
+    } else {
+      refreshAll();
+    }
     setIsEditing(false);
   };
 
@@ -245,7 +250,7 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
             </p>
           )}
         </div>
-        <KanbanCardMenu detection={detection} isFlagged={isFlagged} onToggleFlag={onToggleFlag} />
+        <KanbanCardMenu detection={detection} isFlagged={isFlagged} onToggleFlag={onToggleFlag} onRequestStatusChange={onRequestStatusChange} />
       </div>
       {isFlagged && (
         <div className="absolute top-2 right-10 w-5 h-5 rounded-md bg-[#A63D40]/15 flex items-center justify-center" title="Flagged as blocked">
