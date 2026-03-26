@@ -501,8 +501,7 @@ serve(async (req: Request) => {
   } catch (error) {
     console.error('Enrichment error:', error)
     return new Response(JSON.stringify({
-      error: 'Enrichment failed',
-      message: error.message
+      error: 'Enrichment failed'
     }), {
       status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     })

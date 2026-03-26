@@ -397,6 +397,33 @@ CREATE OR REPLACE VIEW v_technique_stats AS
   GROUP BY t.stix_id, t.mitre_id, t.name, t.tactics;
 
 -- ============================================================
+-- Security: Enable security_invoker on all views so they respect
+-- RLS policies of the calling user (prevents RLS bypass via views)
+-- ============================================================
+ALTER VIEW mitre_campaigns SET (security_invoker = true);
+ALTER VIEW mitre_campaign_techniques SET (security_invoker = true);
+ALTER VIEW mitre_groups SET (security_invoker = true);
+ALTER VIEW mitre_group_campaigns SET (security_invoker = true);
+ALTER VIEW mitre_group_software SET (security_invoker = true);
+ALTER VIEW mitre_group_techniques SET (security_invoker = true);
+ALTER VIEW mitre_mitigations SET (security_invoker = true);
+ALTER VIEW mitre_software SET (security_invoker = true);
+ALTER VIEW mitre_software_techniques SET (security_invoker = true);
+ALTER VIEW mitre_techniques SET (security_invoker = true);
+ALTER VIEW resumable_imports SET (security_invoker = true);
+ALTER VIEW v_mitre_analytics SET (security_invoker = true);
+ALTER VIEW v_mitre_data_components SET (security_invoker = true);
+ALTER VIEW v_mitre_detection_strategies SET (security_invoker = true);
+ALTER VIEW v_mitre_groups_with_stats SET (security_invoker = true);
+ALTER VIEW v_mitre_groups_with_targeting SET (security_invoker = true);
+ALTER VIEW v_mitre_mitigations SET (security_invoker = true);
+ALTER VIEW v_mitre_software_with_stats SET (security_invoker = true);
+ALTER VIEW v_mitre_techniques_full SET (security_invoker = true);
+ALTER VIEW v_group_recency SET (security_invoker = true);
+ALTER VIEW v_mitre_analytics_with_strategy SET (security_invoker = true);
+ALTER VIEW v_technique_stats SET (security_invoker = true);
+
+-- ============================================================
 -- Layer 3: Thin wrapper views over materialized views
 -- These are created in 05_materialized_views.sql (after the MVs)
 -- ============================================================
