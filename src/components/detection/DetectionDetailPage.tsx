@@ -37,13 +37,13 @@ interface DetectionDetailPageProps {
   onNavigateToDetection?: (detectionId: string) => void; // NEW: For viewing source rule
 }
 
-type TabId = 'overview' | 'logic' | 'investigation' | 'tuning' | 'collaboration' | 'history' | 'deployments' | 'decisions';
+type TabId = 'overview' | 'logic' | 'investigation' | 'validation' | 'collaboration' | 'history' | 'deployments' | 'decisions';
 
 const TABS: { id: TabId; label: string; icon?: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'logic', label: 'Detection Query' },
   { id: 'investigation', label: 'Investigation' },
-  { id: 'tuning', label: 'Validation & Tuning' },
+  { id: 'validation', label: 'Validation & Tuning' },
   { id: 'collaboration', label: 'Collaboration' },
   { id: 'deployments', label: 'Deployments' },
   { id: 'decisions', label: 'Decisions' },
@@ -594,7 +594,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
         {activeTab === 'investigation' && (
           <InvestigationTab detection={localDetection} />
         )}
-        {activeTab === 'tuning' && (
+        {activeTab === 'validation' && (
           <TuningTab detection={localDetection} />
         )}
         {activeTab === 'collaboration' && (
