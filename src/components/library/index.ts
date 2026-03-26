@@ -1,6 +1,6 @@
 
 export { LibrarySwitcher } from './LibrarySwitcher';
-export { PublishStatusBadge } from './PublishStatusBadge';
+export { PromotionStatusBadge, PublishStatusBadge } from './PublishStatusBadge';
 export { NotificationBell } from './NotificationBell';
 export { PublishModal } from './PublishModal';
 export { AdminApprovalQueue } from './AdminApprovalQueue';

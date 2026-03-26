@@ -34,7 +34,6 @@ import { getQualityGrade } from '../lib/utils/formatting';
 // ============================================================================
 
 interface DetectionLibraryProps {
-  detections?: Detection[];  // Optional - component uses LibraryContext
   onSelectDetection: (detection: Detection) => void;
   onEditDetection?: (detection: Detection) => void;  // For edit functionality
   mitreFilter?: string | null;
