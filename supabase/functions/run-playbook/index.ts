@@ -375,7 +375,7 @@ serve(async (req: Request) => {
         stepResults.push({
           stepId: step.id,
           status: 'error',
-          error: e.message || 'Step execution failed',
+          error: 'Step execution failed',
         })
         // Continue with remaining steps even if one fails
       }

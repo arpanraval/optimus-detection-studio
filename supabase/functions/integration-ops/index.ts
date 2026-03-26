@@ -1631,7 +1631,7 @@ async function handleSaveCredentials(
 
     if (credError) {
       return new Response(
-        JSON.stringify({ error: 'Failed to save credentials', details: credError.message }),
+        JSON.stringify({ error: 'Failed to save credentials' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
@@ -1728,7 +1728,8 @@ async function handleTestConnection(
         result = { success: true, message: `${integration.provider} connection test not yet implemented`, latency_ms: 0 }
     }
   } catch (err) {
-    result = { success: false, message: err instanceof Error ? err.message : 'Connection test failed', latency_ms: 0 }
+    console.error('Connection test error:', err instanceof Error ? err.message : err)
+    result = { success: false, message: 'Connection test failed', latency_ms: 0 }
   }
 
   // Update integration status
@@ -1871,7 +1872,7 @@ async function handleDeployRule(
 
   if (depError) {
     return new Response(
-      JSON.stringify({ error: 'Failed to create deployment record', details: depError.message }),
+      JSON.stringify({ error: 'Failed to create deployment record' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
@@ -1938,7 +1939,7 @@ async function handleDeployRule(
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : 'Deployment failed'
+    console.error('Deployment error:', err instanceof Error ? err.message : err)
     const completedAt = new Date().toISOString()
     const durationMs = new Date(completedAt).getTime() - new Date(startedAt).getTime()
 
@@ -1946,14 +1947,14 @@ async function handleDeployRule(
       .from('deployment_history')
       .update({
         status: 'failed',
-        error_message: errorMessage,
+        error_message: err instanceof Error ? err.message : 'Deployment failed',
         completed_at: completedAt,
         duration_ms: durationMs,
       })
       .eq('id', deployment.id)
 
     return new Response(
-      JSON.stringify({ error: errorMessage, deployment: { ...deployment, status: 'failed', error_message: errorMessage } }),
+      JSON.stringify({ error: 'Deployment failed', deployment: { ...deployment, status: 'failed' } }),
       { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
@@ -2099,9 +2100,9 @@ async function handleDeleteRule(
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : 'Delete failed'
+    console.error('Delete error:', err instanceof Error ? err.message : err)
     return new Response(
-      JSON.stringify({ error: errorMessage }),
+      JSON.stringify({ error: 'Delete failed' }),
       { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
@@ -2246,7 +2247,7 @@ async function handleToggleRule(
     )
   } catch (err) {
     return new Response(
-      JSON.stringify({ error: err instanceof Error ? err.message : 'Toggle failed' }),
+      JSON.stringify({ error: 'Toggle failed' }),
       { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
@@ -2323,7 +2324,7 @@ async function handleDeleteVendorRule(
     )
   } catch (err) {
     return new Response(
-      JSON.stringify({ error: err instanceof Error ? err.message : 'Delete failed' }),
+      JSON.stringify({ error: 'Delete failed' }),
       { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
@@ -2419,7 +2420,7 @@ serve(async (req: Request) => {
         return handleDeleteVendorRule(body, user.id, corsHeaders)
       default:
         return new Response(
-          JSON.stringify({ error: `Unknown action: ${body.action}` }),
+          JSON.stringify({ error: 'Unknown action' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
     }

@@ -135,7 +135,7 @@ serve(async (req: Request) => {
 
     return corsJsonResponse({ new_entries_count: totalNew, errors }, req);
   } catch (err: any) {
-    return corsErrorResponse(err.message || 'Internal error', req, 500);
+    return corsErrorResponse('Internal error', req, 500);
   }
 });
 

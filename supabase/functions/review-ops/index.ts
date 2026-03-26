@@ -541,9 +541,8 @@ Deno.serve(async (req: Request) => {
     }
 
   } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error('Review operation error:', errorMessage);
-    return new Response(JSON.stringify({ error: errorMessage }), {
+    console.error('Review operation error:', error instanceof Error ? error.message : error);
+    return new Response(JSON.stringify({ error: 'Operation failed' }), {
       status: 400,
       headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
     });

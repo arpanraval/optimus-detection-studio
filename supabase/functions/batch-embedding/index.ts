@@ -235,7 +235,7 @@ async function handleSubmit(supabase: any, userId: string, req: Request): Promis
   if (insertError) {
     console.error('Failed to store batch job:', insertError)
     return new Response(
-      JSON.stringify({ error: 'Failed to store job record', detail: insertError.message }),
+      JSON.stringify({ error: 'Failed to store job record' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
@@ -460,7 +460,7 @@ async function handleProcess(supabase: any, jobId: string, req: Request): Promis
     }).eq('id', jobId)
 
     return new Response(
-      JSON.stringify({ error: 'Failed to process results', detail: e.message }),
+      JSON.stringify({ error: 'Failed to process results' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
