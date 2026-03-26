@@ -810,7 +810,54 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
   const applyPreset = (p: ViewPreset) => { setFilters(p.filters); if (p.listColumns) setListColumns(p.listColumns); setActivePreset(p.id); };
   
   const handleExport = async (format: ExportFormat, columns: string[]) => {
-    await exportDetections(sortedDetections, format, columns);
+    const totalCount = currentPagination.totalCount;
+    const pageCount = sortedDetections.length;
+
+    if (totalCount <= pageCount) {
+      // All detections fit on current page — export directly
+      await exportDetections(sortedDetections, format, columns);
+      return;
+    }
+
+    // Need to fetch all matching detections for export
+    showToast('info', 'Exporting', `Fetching all ${totalCount.toLocaleString()} detections...`);
+    try {
+      const libraryFilter = currentLibrary === LIBRARY_DEVELOPMENT
+        ? `library_type.eq.${LIBRARY_DEVELOPMENT}`
+        : `library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null`;
+
+      let query = supabase
+        .from('detections')
+        .select('*')
+        .or(libraryFilter);
+
+      // Apply key server filters
+      if (serverFilters.search) {
+        const escapeLike = (s: string) => s.replace(/[%_\\]/g, '\\$&');
+        const t = `%${escapeLike(serverFilters.search)}%`;
+        query = query.or(`name.ilike.${t},description.ilike.${t},id.ilike.${t}`);
+      }
+      if (serverFilters.status?.length) query = query.in('status', serverFilters.status);
+      if (serverFilters.severity?.length) query = query.in('severity', serverFilters.severity);
+      if (serverFilters.queryLanguage?.length) query = query.in('queryLanguage', serverFilters.queryLanguage);
+      if (serverFilters.tags?.length) query = query.overlaps('tags', serverFilters.tags);
+      if (serverFilters.mitreTactics?.length) query = query.overlaps('mitreTactics', serverFilters.mitreTactics);
+      if (serverFilters.mitreTechniques?.length) query = query.overlaps('mitreTechniques', serverFilters.mitreTechniques);
+      if (serverFilters.platforms?.length) query = query.overlaps('platforms', serverFilters.platforms);
+      if (serverFilters.detectionType?.length) query = query.in('detectionType', serverFilters.detectionType);
+      if (serverFilters.technology?.length) query = query.in('technology', serverFilters.technology);
+      if (serverFilters.logSource?.length) query = query.in('logSource', serverFilters.logSource);
+      if (serverFilters.author?.length) query = query.in('author', serverFilters.author);
+
+      const { data, error } = await query.order('"updatedDate"', { ascending: false });
+
+      if (error) throw error;
+      await exportDetections(data || [], format, columns);
+      showToast('success', 'Export Complete', `Exported ${(data?.length || 0).toLocaleString()} detections.`);
+    } catch (err: any) {
+      console.error('Export all error:', err);
+      showToast('error', 'Export Failed', err.message || 'Could not export all detections.');
+    }
   };
 
   // Find detections that need MITRE resolution (have mitreAttackIds but missing tactics/techniques)
