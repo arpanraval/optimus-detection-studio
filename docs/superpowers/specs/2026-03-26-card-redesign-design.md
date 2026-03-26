@@ -49,7 +49,7 @@ border-t border-outline-variant/8
 ### Spacing (4px grid)
 Only these values: `gap-1` (4px), `gap-2` (8px), `gap-3` (12px), `gap-4` (16px), `gap-5` (20px), `gap-6` (24px), `gap-8` (32px).
 
-No arbitrary padding values like `px-5 pt-5 pb-4`. Use consistent tokens.
+Stick to the 4px grid. The header uses `p-5 pb-4` (reduces bottom padding for visual balance with the divider below). Avoid ad-hoc padding overrides beyond the defined card header/body tokens.
 
 ### Progress Bars
 ```
@@ -58,7 +58,7 @@ Fill:  transition-all duration-700 ease-out
 ```
 Three-segment bar pattern:
 - Production: `bg-primary` (full opacity)
-- Library: `bg-primary/40`
+- Library: `bg-primary/40` (replaces the current `bg-secondary` used in CoverageReportCard)
 - Gaps: track color (unfilled)
 
 ### Interactive Rows
@@ -103,7 +103,7 @@ Secondary: px-4 py-2 text-xs font-medium bg-surface-container-high text-on-surfa
 
 ### 2.1 CoverageReportCard
 
-**Current:** 373 lines, rounded-3xl, three gradient tier sections, staggered entrance, AnimatedValue counter, custom progress bars per tier.
+**Current:** 373 lines, rounded-3xl, three gradient tier sections, staggered entrance, LOCAL `AnimatedValue` sub-component (lines 18-45, NOT the shared `AnimatedNumber` — must be replaced with the shared import), custom progress bars per tier, local `TierSection` sub-component (96 lines).
 
 **Target:** ~200 lines. Single card shell, one three-segment progress bar, expandable tier rows.
 
@@ -129,6 +129,8 @@ Secondary: px-4 py-2 text-xs font-medium bg-surface-container-high text-on-surfa
 ```
 
 **Key changes from current:**
+- Delete local `AnimatedValue` sub-component, import shared `AnimatedNumber` from `./AnimatedNumber`
+- Delete local `TierSection` sub-component — inline as simple expand rows
 - Kill `rounded-3xl` → `rounded-xl`
 - Kill per-tier gradient backgrounds and separate progress bars
 - Single three-segment bar replaces 3 bars
@@ -178,8 +180,9 @@ Left border accent uses priority color if available. MITRE ID in mono. Name trun
 - Kill `text-4xl` percentage → `text-2xl font-semibold`
 - Kill `text-xl font-bold` actor name → `text-base font-medium`
 - MITRE ID + aliases on subtitle line, not separate sections
-- Same three-segment bar, same legend format
+- Same three-segment bar, same legend format. Note: `ThreatActorData` has `production`, `inLibrary`, and `gaps` tiers. The bar shows all three segments (same as CoverageReport), even though the current card ignores `inLibrary`. The "Your Coverage" expand row shows production count; library count appears in the legend.
 - Same expand row pattern for coverage and gaps
+- Preserve the "View detections" navigation action (currently `handleViewDetections` navigating to `/library?threatActor=...`) — move it to the bottom action buttons as [View Detections]
 - Remove `max-w-lg` constraint (let card fill container like others)
 
 ### 2.3 GapAnalysisCard
@@ -222,6 +225,8 @@ Left border accent uses priority color if available. MITRE ID in mono. Name trun
 - Priority shown via left-border accent, not colored pill badges
 - Kill separate colored section backgrounds
 - Recommendation as plain text with section header, not icon-heavy section
+- No `AnimatedNumber` for this card — percentage is inline in the subtitle at `text-sm`, not a standalone display element
+- Border changes from `border-outline-variant/20` → `border-outline-variant/10` (align with shared token)
 
 ### 2.4 SearchResultsCard
 
@@ -255,6 +260,7 @@ Left border accent uses priority color if available. MITRE ID in mono. Name trun
 
 **Key changes:**
 - Kill header icon badge (w-10 h-10 rounded-xl) → text-only header
+- Collapse two-line header ("Search Results" title + "N detections found" count) into single line: "Found N detections for query"
 - Kill colored status pills → plain `text-xs text-on-surface-variant` status text
 - Kill per-status color map (emerald, blue, amber, rose) entirely
 - Results as simple stacked items: name (text-sm font-medium), metadata line below
@@ -284,6 +290,8 @@ Left border accent uses priority color if available. MITRE ID in mono. Name trun
 | Colored status pill backgrounds | SearchResultsCard | 5 different color families → dots |
 | Per-tier separate progress bars | CoverageReportCard | Replaced by 3-segment single bar |
 | `shadow-sm`, `shadow-lg` | Various | Flat design, separation via spacing |
+| `bg-secondary` for library tier | CoverageReportCard | Replaced by `bg-primary/40` |
+| `border-outline-variant/20` | GapAnalysisCard | Standardized to `/10` |
 | `blur-xl` gradient accents | CoverageReportCard | Visual clutter |
 | `bg-green-500/5` section backgrounds | GapAnalysisCard quick wins | Plain layout instead |
 | `bg-error/10` section backgrounds | GapAnalysisCard gaps | Left-border accent instead |
@@ -294,7 +302,7 @@ Left border accent uses priority color if available. MITRE ID in mono. Name trun
 
 | Item | Where | Why |
 |---|---|---|
-| AnimatedNumber component | CoverageReport, ThreatActor, GapAnalysis | Satisfying detail, unify usage |
+| AnimatedNumber component | CoverageReport, ThreatActor | Satisfying detail for standalone percentage display. NOT used in GapAnalysis (percentage is inline subtitle text) |
 | Progress bar fill animation | All cards with bars | Good UX feedback |
 | Chevron expand/collapse | All expandable rows | Standard affordance |
 | Profile-specific icons | GapAnalysisCard | Adds personality |
