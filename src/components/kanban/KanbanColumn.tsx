@@ -17,6 +17,9 @@ interface KanbanColumnProps {
   onToggleCollapse: () => void;
   wipLimit?: number;
   onSetWipLimit?: (limit: number | null) => void;
+  cardDensity?: 'comfortable' | 'compact';
+  flaggedIds?: Set<string>;
+  onToggleFlag?: (id: string) => void;
 }
 
 // Design system aligned column themes
@@ -42,6 +45,9 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
   onToggleCollapse,
   wipLimit,
   onSetWipLimit,
+  cardDensity,
+  flaggedIds,
+  onToggleFlag,
 }) => {
   const { setNodeRef, isOver } = useDroppable({
     id: `column-${status}`,
@@ -182,6 +188,9 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
               isSelected={selectedIds.has(detection.id)}
               onToggleSelect={onToggleSelect}
               userLookup={userLookup}
+              cardDensity={cardDensity}
+              isFlagged={flaggedIds?.has(detection.id)}
+              onToggleFlag={onToggleFlag}
             />
           ))}
         </SortableContext>

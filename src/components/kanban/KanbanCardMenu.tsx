@@ -8,9 +8,11 @@ import { Icon } from '../Icon';
 
 interface KanbanCardMenuProps {
   detection: Detection;
+  isFlagged?: boolean;
+  onToggleFlag?: (id: string) => void;
 }
 
-export const KanbanCardMenu: React.FC<KanbanCardMenuProps> = ({ detection }) => {
+export const KanbanCardMenu: React.FC<KanbanCardMenuProps> = ({ detection, isFlagged, onToggleFlag }) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { bulkUpdateStatus } = useLibrary();
@@ -50,6 +52,18 @@ export const KanbanCardMenu: React.FC<KanbanCardMenuProps> = ({ detection }) => 
 
       {isOpen && (
         <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-xl border border-outline-variant/20 bg-surface-container-low shadow-xl py-1">
+          {onToggleFlag && (
+            <>
+              <button
+                onClick={(e) => { e.stopPropagation(); onToggleFlag(detection.id); setIsOpen(false); }}
+                className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-on-surface hover:bg-surface-container transition-colors"
+              >
+                <Icon name="flag" className={`w-3.5 h-3.5 ${isFlagged ? 'text-[#A63D40]' : ''}`} />
+                {isFlagged ? 'Remove Flag' : 'Flag as Blocked'}
+              </button>
+              <div className="border-t border-outline-variant/10 mx-2 my-1" />
+            </>
+          )}
           <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-on-surface-variant/60">
             Move to
           </div>
