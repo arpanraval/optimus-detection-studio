@@ -596,6 +596,36 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
 
             if (abortControllerRef.current?.signal.aborted) return;
 
+            // Check if any critical tools failed
+            const failedTools = toolCallsHistory.filter(t => t.status === 'error');
+            let toolWarning = '';
+
+            if (failedTools.length > 0) {
+                const failedNames = failedTools
+                    .map(t => toolDisplayNames[t.name] || t.name.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '))
+                    .join(', ');
+
+                // If ALL tools failed, short-circuit with clear error
+                if (failedTools.length === toolCallsHistory.length && toolCallsHistory.length > 0) {
+                    const errorContent = `I wasn't able to retrieve the data needed to answer your question. The following tool${failedTools.length > 1 ? 's' : ''} failed: **${failedNames}**.\n\nPlease try again, or rephrase your question.`;
+                    setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: errorContent }] }]);
+                    setSession(p => ({
+                        ...p,
+                        messages: p.messages.map(m => m.id === aiMsgId ? {
+                            ...m,
+                            content: errorContent,
+                            toolCalls: toolCallsHistory
+                        } : m),
+                        isGenerating: false,
+                        updatedAt: Date.now()
+                    }));
+                    return;
+                }
+
+                // If SOME tools failed, prepend a warning to the AI's response
+                toolWarning = `> **Note:** ${failedNames} failed to return data. The analysis below may be incomplete.\n\n`;
+            }
+
             // Parse the response for structured data and drafts
             const fullText = response.text || '';
             const parsed: ParsedAIResponse = parseAIResponse(fullText);
@@ -604,6 +634,11 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
             let displayContent = parsed.displayText;
             if (!displayContent && fullText) {
                 displayContent = fullText;
+            }
+
+            // Prepend tool failure warning if any
+            if (toolWarning) {
+                displayContent = toolWarning + displayContent;
             }
 
             // Update chat history with assistant response
