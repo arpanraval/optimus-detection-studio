@@ -53,7 +53,7 @@ export const Breadcrumb: React.FC<BreadcrumbProps> = ({ items, className = '' })
                     : 'text-on-surface-variant/60'
                 }`}>
                   {item.icon && <Icon name={item.icon} className="w-3.5 h-3.5" />}
-                  <span className="truncate max-w-[200px]">{item.label}</span>
+                  <span className={`truncate ${isLast ? 'max-w-[400px]' : 'max-w-[200px]'}`}>{item.label}</span>
                 </span>
               ) : (
                 <Link
