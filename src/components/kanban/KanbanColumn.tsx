@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Detection, Status } from '../../types';
@@ -20,6 +20,10 @@ interface KanbanColumnProps {
   cardDensity?: 'comfortable' | 'compact';
   flaggedIds?: Set<string>;
   onToggleFlag?: (id: string) => void;
+  /** Unique prefix for droppable IDs (required for swimlane mode) */
+  laneKey?: string;
+  /** H6: route status changes through board decision flow */
+  onRequestStatusChange?: (detectionIds: string[], targetStatus: Status) => void;
 }
 
 // Design system aligned column themes
@@ -48,9 +52,13 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
   cardDensity,
   flaggedIds,
   onToggleFlag,
+  laneKey,
+  onRequestStatusChange,
 }) => {
+  // C1+C2 fix: unique droppable ID per lane+status, works in both normal and swimlane mode
+  const droppableId = laneKey ? `${laneKey}-column-${status}` : `column-${status}`;
   const { setNodeRef, isOver } = useDroppable({
-    id: `column-${status}`,
+    id: droppableId,
     data: { status },
   });
 
@@ -62,6 +70,7 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
 
   const [showWipInput, setShowWipInput] = useState(false);
   const [wipInputValue, setWipInputValue] = useState('');
+  const wipSubmittedRef = useRef(false); // H4 fix: guard against Enter+blur double-submit
 
   // Collapsed state
   if (isCollapsed) {
@@ -87,11 +96,14 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
   }
 
   const handleWipBadgeClick = () => {
+    wipSubmittedRef.current = false;
     setWipInputValue(wipLimit != null ? String(wipLimit) : '');
     setShowWipInput(true);
   };
 
   const handleWipSubmit = () => {
+    if (wipSubmittedRef.current) return; // H4: prevent double-submit
+    wipSubmittedRef.current = true;
     const parsed = parseInt(wipInputValue, 10);
     if (onSetWipLimit) {
       onSetWipLimit(wipInputValue.trim() === '' || isNaN(parsed) || parsed <= 0 ? null : parsed);
@@ -101,7 +113,7 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
 
   const handleWipKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleWipSubmit();
-    if (e.key === 'Escape') setShowWipInput(false);
+    if (e.key === 'Escape') { wipSubmittedRef.current = true; setShowWipInput(false); }
   };
 
   return (
@@ -213,6 +225,7 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
               cardDensity={cardDensity}
               isFlagged={flaggedIds?.has(detection.id)}
               onToggleFlag={onToggleFlag}
+              onRequestStatusChange={onRequestStatusChange}
             />
           ))}
         </SortableContext>

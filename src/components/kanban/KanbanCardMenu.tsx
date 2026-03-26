@@ -10,9 +10,11 @@ interface KanbanCardMenuProps {
   detection: Detection;
   isFlagged?: boolean;
   onToggleFlag?: (id: string) => void;
+  /** H6 fix: route status changes through board's decision flow */
+  onRequestStatusChange?: (detectionIds: string[], targetStatus: Status) => void;
 }
 
-export const KanbanCardMenu: React.FC<KanbanCardMenuProps> = ({ detection, isFlagged, onToggleFlag }) => {
+export const KanbanCardMenu: React.FC<KanbanCardMenuProps> = ({ detection, isFlagged, onToggleFlag, onRequestStatusChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { bulkUpdateStatus } = useLibrary();
@@ -36,7 +38,12 @@ export const KanbanCardMenu: React.FC<KanbanCardMenuProps> = ({ detection, isFla
       return;
     }
     setIsOpen(false);
-    await bulkUpdateStatus([detection.id], status);
+    // H6 fix: route through board's decision flow (triggers DecisionModal for Production/Deprecated)
+    if (onRequestStatusChange) {
+      onRequestStatusChange([detection.id], status);
+    } else {
+      await bulkUpdateStatus([detection.id], status);
+    }
   };
 
   if (!can('detection:update:any') && !can('detection:update:own')) return null;

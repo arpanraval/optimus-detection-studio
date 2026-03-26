@@ -15,8 +15,6 @@ import { useLibrary } from '../../context/LibraryContext';
 import { useRealtime } from '../../context/RealtimeContext';
 import { usePermissions } from '../../context/PermissionsContext';
 import { useTeam } from '../../context/TeamContext';
-
-export type UserLookup = Record<string, { name: string; email: string }>;
 import { useToast } from '../../hooks/useToast';
 import { supabase } from '../../lib/supabaseClient';
 import { KanbanColumn } from './KanbanColumn';
@@ -34,6 +32,8 @@ import { BoardSavedViews } from './BoardSavedViews';
 import type { SavedView } from './BoardSavedViews';
 import type { QuickReason } from '../../types/intelligence';
 import type { Detection } from '../../types';
+
+export type UserLookup = Record<string, { name: string; email: string }>;
 
 const DEFAULT_VISIBLE: Status[] = [
   Status.Backlog, Status.Draft, Status.Development,
@@ -109,13 +109,15 @@ export const KanbanBoard: React.FC = () => {
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [flaggedIds, setFlaggedIds] = useState<Set<string>>(new Set());
 
-  useBoardKeyboardShortcuts({
+  // H1 fix: memoize actions object so keyboard shortcuts don't re-register every render
+  const keyboardActions = useMemo(() => ({
     toggleMyWork: () => setMyWorkOnly(v => !v),
     toggleFilters: () => setShowFilters(v => !v),
     toggleArchived: () => setShowArchived(v => !v),
     clearSelection: () => setSelectedIds(new Set()),
     focusSearch: () => document.querySelector<HTMLInputElement>('[data-board-search]')?.focus(),
-  });
+  }), []);
+  useBoardKeyboardShortcuts(keyboardActions);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -175,12 +177,13 @@ export const KanbanBoard: React.FC = () => {
     () => columns.reduce((sum, status) => sum + (grouped[status]?.length || 0), 0),
     [columns, grouped]
   );
-  const totalUnfiltered = useMemo(
-    () => myWorkOnly && userId
-      ? userDetections.filter(d => d.assigned_to === userId).length
-      : userDetections.length,
-    [userDetections, myWorkOnly, userId]
-  );
+  // H5 fix: scope totalUnfiltered to visible columns so X/Y ratio is accurate
+  const totalUnfiltered = useMemo(() => {
+    const visibleStatuses = new Set(columns);
+    let dets = userDetections.filter(d => visibleStatuses.has(d.status || Status.Backlog));
+    if (myWorkOnly && userId) dets = dets.filter(d => d.assigned_to === userId);
+    return dets.length;
+  }, [userDetections, myWorkOnly, userId, columns]);
   const productionCount = grouped[Status.Production]?.length || 0;
   const inProgressCount = (grouped[Status.Development]?.length || 0) + (grouped[Status.Review]?.length || 0) + (grouped[Status.Testing]?.length || 0);
 
@@ -228,11 +231,28 @@ export const KanbanBoard: React.FC = () => {
   const handleLoadView = useCallback((view: SavedView) => {
     setBoardFilters(view.filters);
     setMyWorkOnly(view.myWorkOnly);
+    setSearchQuery(''); // H2 fix: clear search when loading a saved view
     setPrefs({ swimlaneGroupBy: view.swimlaneGroupBy, sortWithinColumn: view.sortWithinColumn });
     if (view.filters.severities.length > 0 || view.filters.queryLanguages.length > 0) {
       setShowFilters(true);
     }
   }, [setPrefs]);
+
+  // H6 fix: shared handler for card menu status changes (routes through DecisionModal)
+  const handleRequestStatusChange = useCallback((detectionIds: string[], targetStatus: Status) => {
+    if (!can('detection:update:any') && !can('detection:update:own')) {
+      showToast('error', 'Permission Denied', 'You do not have permission to change detection status');
+      return;
+    }
+    if (targetStatus === Status.Production && !hasRoleOrHigher('lead')) {
+      showToast('error', 'Permission Denied', 'Only Leads and above can move detections to Production');
+      return;
+    }
+    const previousStatuses = [...new Set(
+      detectionIds.map(id => userDetections.find(d => d.id === id)?.status).filter(Boolean)
+    )] as string[];
+    setPendingStatusChange({ detectionIds, targetStatus, previousStatuses });
+  }, [can, hasRoleOrHigher, showToast, userDetections]);
 
   const toggleFlag = useCallback((id: string) => {
     setFlaggedIds(prev => {
@@ -533,6 +553,7 @@ export const KanbanBoard: React.FC = () => {
                         <KanbanColumn
                           key={`${lane.key}-${status}`}
                           status={status}
+                          laneKey={lane.key}
                           detections={lane.detections[status] || []}
                           selectedIds={selectedIds}
                           onToggleSelect={toggleSelect}
@@ -545,6 +566,7 @@ export const KanbanBoard: React.FC = () => {
                           cardDensity={prefs.cardDensity}
                           flaggedIds={flaggedIds}
                           onToggleFlag={toggleFlag}
+                          onRequestStatusChange={handleRequestStatusChange}
                         />
                       ))}
                     </div>
@@ -569,6 +591,7 @@ export const KanbanBoard: React.FC = () => {
                     cardDensity={prefs.cardDensity}
                     flaggedIds={flaggedIds}
                     onToggleFlag={toggleFlag}
+                    onRequestStatusChange={handleRequestStatusChange}
                   />
                 ))}
               </div>
