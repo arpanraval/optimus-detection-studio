@@ -398,7 +398,9 @@ export const UseCaseCard: React.FC<UseCaseCardProps> = ({
                   onClick={handleAddToLibrary}
                 />
               )}
-              <QualityScore score={detection.qualityScore || 0} />
+              <div title={`Quality Score: ${detection.qualityScore || 0}/100`}>
+                <QualityScore score={detection.qualityScore || 0} />
+              </div>
             </div>
           </div>
         </div>
