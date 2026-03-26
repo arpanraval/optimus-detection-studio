@@ -76,18 +76,18 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
   const { showToast } = useToast();
   const {
     forkToDevelopment,
-    refreshUserLibrary,
-    refreshUniversalLibrary,
-    universalDetections,
-    userDetections,
+    refreshProductionLibrary,
+    refreshDevelopmentLibrary,
+    developmentDetections,
+    productionDetections,
     submitForPromotion,
     userId,
   } = useLibrary();
 
   // Determine library type and permissions
-  const isUniversalRule = detection.library_type === LIBRARY_DEVELOPMENT;
-  const isUserRule = detection.library_type === LIBRARY_PRODUCTION || !detection.library_type;
-  const isCopiedFromUniversal = detection.source_rule_id !== null;
+  const isDevelopmentRule = detection.library_type === LIBRARY_DEVELOPMENT;
+  const isProductionRule = detection.library_type === LIBRARY_PRODUCTION || !detection.library_type;
+  const isForkedFromDevelopment = detection.source_rule_id !== null;
   const isAdmin = userRole === 'admin';
   
   const isOwnerOrAdmin = userRole === 'owner' || userRole === 'admin';
@@ -99,12 +99,12 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
 
   // E2: Fetch source rule info for forked detections
   useEffect(() => {
-    if (isCopiedFromUniversal && detection.source_rule_id) {
-      const source = universalDetections.find(d => d.id === detection.source_rule_id)
-        || userDetections.find(d => d.id === detection.source_rule_id);
+    if (isForkedFromDevelopment && detection.source_rule_id) {
+      const source = developmentDetections.find(d => d.id === detection.source_rule_id)
+        || productionDetections.find(d => d.id === detection.source_rule_id);
       setSourceRule(source || null);
     }
-  }, [detection.source_rule_id, isCopiedFromUniversal, universalDetections, userDetections]);
+  }, [detection.source_rule_id, isForkedFromDevelopment, developmentDetections, productionDetections]);
 
   const [localDetection, setLocalDetection] = useState<Detection>(detection);
 
@@ -155,15 +155,15 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
     try {
       await onDelete(detection.id);
       showToast('success', 'Detection Deleted',
-        isUniversalRule
+        isDevelopmentRule
           ? `The rule has been removed from ${LIBRARY_LABELS[LIBRARY_DEVELOPMENT]}.`
           : 'The detection has been permanently removed.'
       );
       // Refresh the appropriate library
-      if (isUniversalRule) {
-        await refreshUniversalLibrary();
+      if (isDevelopmentRule) {
+        await refreshDevelopmentLibrary();
       } else {
-        await refreshUserLibrary();
+        await refreshProductionLibrary();
       }
       onBack();
     } catch (error: any) {
@@ -188,7 +188,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
     try {
       const newId = await forkToDevelopment(detection.id);
       if (newId) {
-        await refreshUniversalLibrary();
+        await refreshDevelopmentLibrary();
         showToast('success', 'Forked to Development', 'Detection forked to Development Library. You can now experiment with it safely.');
         onBack();
       }
@@ -209,7 +209,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
     setIsPublishModalOpen(true);
   };
 
-  // E6: View source rule in Universal Library
+  // E6: View source rule in Development Library
   const handleViewInUniversal = () => {
     if (detection.source_rule_id && onNavigateToDetection) {
       onNavigateToDetection(detection.source_rule_id);
@@ -264,10 +264,10 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
       showToast('success', 'MITRE Data Resolved', `Resolved ${mitreTactics.length} tactics and ${mitreTechniques.length} techniques.`);
 
       // Refresh libraries to reflect changes
-      if (isUniversalRule) {
-        await refreshUniversalLibrary();
+      if (isDevelopmentRule) {
+        await refreshDevelopmentLibrary();
       } else {
-        await refreshUserLibrary();
+        await refreshProductionLibrary();
       }
     } catch (error: any) {
       console.error('MITRE resolution error:', error);
@@ -281,7 +281,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
     <div className="min-h-screen bg-background text-on-surface">
       
       {/* E3: Rejection Banner — shows on Lab rules that were rejected for promotion */}
-      {isUniversalRule && detection.promotion_status === PROMOTION_REJECTED && (
+      {isDevelopmentRule && detection.promotion_status === PROMOTION_REJECTED && (
         <div className="bg-error/10 border-b border-error/20">
           <div className="px-6 lg:px-8 py-3 max-w-[1600px] mx-auto flex items-start gap-3">
             <Icon name="alert-triangle" className="w-5 h-5 text-error flex-shrink-0 mt-0.5" />
@@ -310,7 +310,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
       )}
 
       {/* E2: Fork Lineage Banner */}
-      {isCopiedFromUniversal && sourceRule && (
+      {isForkedFromDevelopment && sourceRule && (
         <div className="bg-surface-container-high border-b border-outline-variant/30">
           <div className="px-6 lg:px-8 py-2.5 max-w-[1600px] mx-auto flex items-center gap-3">
             <Icon name="git-branch" className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
@@ -370,7 +370,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                     <span className="font-mono text-xs text-on-surface-variant/70">#{detection.id.slice(0,8)}</span>
                     
                     {/* Library Type Badge */}
-                    {isUniversalRule ? (
+                    {isDevelopmentRule ? (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white border border-blue-500/30">
                         <Icon name="flask" className="w-3 h-3" />
                         {LIBRARY_LABELS[LIBRARY_DEVELOPMENT]}
@@ -383,7 +383,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                     )}
                     
                     {/* Source Badge - for Universal rules */}
-                    {isUniversalRule && detection.source && detection.source !== 'custom' && (
+                    {isDevelopmentRule && detection.source && detection.source !== 'custom' && (
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${sourceConfig[detection.source]?.className || sourceConfig.custom.className}`}>
                         {sourceConfig[detection.source]?.label || detection.source}
                       </span>
@@ -395,12 +395,12 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                     </span>
                     
                     {/* Publish Status - only for Lab rules (they get promoted to Production) */}
-                    {isUniversalRule && detection.promotion_status && detection.promotion_status !== PROMOTION_NONE && (
+                    {isDevelopmentRule && detection.promotion_status && detection.promotion_status !== PROMOTION_NONE && (
                       <PublishStatusBadge status={detection.promotion_status} size="sm" />
                     )}
                     
                     {/* Forked indicator */}
-                    {isCopiedFromUniversal && (
+                    {isForkedFromDevelopment && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20">
                         <Icon name="git-branch" className="w-3 h-3" />
                         Forked
@@ -449,7 +449,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
 
                {/* Deploy to SIEM — permission gated */}
                {detection.detectionQuery && hasPermission(userRole, 'integrations:sync') && (
-                 isUserRule ? (
+                 isProductionRule ? (
                    /* Production Library (library_type='production') → full Deploy */
                    <button
                      onClick={() => setIsDeployModalOpen(true)}
@@ -491,7 +491,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                        ? 'text-on-surface-variant/50 cursor-wait' 
                        : 'text-on-surface-variant hover:text-error hover:bg-error-container/20'
                    }`}
-                   title={isUniversalRule ? `Delete from ${LIBRARY_LABELS[LIBRARY_DEVELOPMENT]} (Admin)` : "Delete Detection"}
+                   title={isDevelopmentRule ? `Delete from ${LIBRARY_LABELS[LIBRARY_DEVELOPMENT]} (Admin)` : "Delete Detection"}
                  >
                    <Icon name={isDeleting ? "loader" : "trash"} className={`w-5 h-5 ${isDeleting ? 'animate-spin' : ''}`} />
                  </button>
@@ -500,7 +500,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                {/* === LIBRARY-SPECIFIC ACTIONS === */}
 
                {/* For Production Rules: "Fork to Development" button */}
-               {isUserRule && (
+               {isProductionRule && (
                  <button
                    onClick={handleForkToLab}
                    disabled={isCopying}
@@ -526,7 +526,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                )}
 
                {/* For Lab Rules: Promote button — only show if owned by user and not pending */}
-               {isUniversalRule && isOwner && detection.promotion_status !== PROMOTION_PENDING && (
+               {isDevelopmentRule && isOwner && detection.promotion_status !== PROMOTION_PENDING && (
                  <button
                    onClick={() => setIsPublishModalOpen(true)}
                    className="h-9 px-4 flex items-center gap-2 rounded-full text-sm font-medium bg-surface-container-highest text-on-surface border border-outline-variant/30 hover:bg-surface-container-high hover:border-outline-variant transition-all active:scale-95"
@@ -578,8 +578,8 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
       {/* CONTENT */}
       <div className="max-w-[1600px] mx-auto px-6 lg:px-8 py-8">
         {activeTab === 'overview' && (
-          <OverviewTab 
-            detection={detection}
+          <OverviewTab
+            detection={localDetection}
             sourceRule={sourceRule}
             onNavigateToGroup={onNavigateToGroup}
             onNavigateToSoftware={onNavigateToSoftware}
@@ -589,35 +589,35 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
           />
         )}
         {activeTab === 'logic' && (
-          <DetectionLogicTab detection={detection} />
+          <DetectionLogicTab detection={localDetection} />
         )}
         {activeTab === 'investigation' && (
-          <InvestigationTab detection={detection} />
+          <InvestigationTab detection={localDetection} />
         )}
         {activeTab === 'tuning' && (
-          <TuningTab detection={detection} />
+          <TuningTab detection={localDetection} />
         )}
         {activeTab === 'collaboration' && (
-          <CollaborationTab 
+          <CollaborationTab
             detection={localDetection}
             onDetectionUpdate={handleDetectionUpdate}
           />
         )}
         {activeTab === 'deployments' && (
-          <DeploymentHistoryTab detection={detection} />
+          <DeploymentHistoryTab detection={localDetection} />
         )}
         {activeTab === 'decisions' && (
-          <DecisionTimeline detectionId={detection.id} />
+          <DecisionTimeline detectionId={localDetection.id} />
         )}
         {activeTab === 'history' && (
-          <HistoryTab detection={detection} />
+          <HistoryTab detection={localDetection} />
         )}
 
         {/* Similar Detections Panel - cross-vendor similarity */}
         {activeTab === 'overview' && (
           <div className="mt-8">
             <SimilarDetectionsPanel
-              detectionId={detection.id}
+              detectionId={localDetection.id}
               onNavigateToDetection={onNavigateToDetection}
             />
           </div>
@@ -693,7 +693,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
             <div className="px-6 pb-4">
               <p className="text-on-surface-variant">
                 Are you sure you want to delete <span className="font-medium text-on-surface">"{detection.name}"</span>?
-                {isUniversalRule && (
+                {isDevelopmentRule && (
                   <span className="block mt-2 text-warning font-medium">
                     ⚠️ This is a {LIBRARY_LABELS[LIBRARY_DEVELOPMENT]} rule. Deleting it will affect all users.
                   </span>
