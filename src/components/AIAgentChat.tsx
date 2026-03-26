@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Icon } from './Icon';
 import { ModelSelector } from './ModelSelector';
 import { generateAIChat, AIFunctionCall, DEFAULT_MODEL } from '../lib/aiService';
+import { truncateHistory } from '../lib/ai/chat-history';
 import { useTheme } from '../context/ThemeContext';
 import { useToast } from '../hooks/useToast';
 import { Detection } from '../types';
@@ -482,7 +483,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                 responseFormat: 'text',
                 systemInstruction: OPTIMUS_SYSTEM_PROMPT,
                 tools: OPTIMUS_TOOLS,
-                history: newHistory.slice(0, -1)
+                history: truncateHistory(newHistory.slice(0, -1))
             });
 
             if (abortControllerRef.current?.signal.aborted) return;
@@ -567,7 +568,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                     responseFormat: 'text',
                     systemInstruction: OPTIMUS_SYSTEM_PROMPT,
                     tools: OPTIMUS_TOOLS,
-                    history: [...newHistory, { role: 'model', parts: [{ text: '' }] }],
+                    history: truncateHistory([...newHistory, { role: 'model', parts: [{ text: '' }] }]),
                     functionResponses: results.map(r => ({
                         id: r.name,
                         name: r.name,
