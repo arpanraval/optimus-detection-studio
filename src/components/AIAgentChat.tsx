@@ -404,6 +404,14 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
         const msg = session.messages[msgIdx];
         if (msg.role !== 'user') return;
 
+        const subsequentCount = session.messages.length - msgIdx - 1;
+        if (subsequentCount > 0) {
+            const confirmed = window.confirm(
+                `Retrying will remove ${subsequentCount} subsequent message${subsequentCount > 1 ? 's' : ''}. This cannot be undone.\n\nContinue?`
+            );
+            if (!confirmed) return;
+        }
+
         // Remove this message and all subsequent messages
         const newMessages = session.messages.slice(0, msgIdx);
         setSession(prev => ({
@@ -429,6 +437,15 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
 
         const msgIdx = session.messages.findIndex(m => m.id === msgId);
         if (msgIdx === -1) return;
+
+        const subsequentCount = session.messages.length - msgIdx - 1;
+
+        if (subsequentCount > 0) {
+            const confirmed = window.confirm(
+                `Editing this message will remove ${subsequentCount} subsequent message${subsequentCount > 1 ? 's' : ''}. This cannot be undone.\n\nContinue?`
+            );
+            if (!confirmed) return;
+        }
 
         // Remove this message and all subsequent messages
         const newMessages = session.messages.slice(0, msgIdx);
