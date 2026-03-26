@@ -1,45 +1,88 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Detection } from '../../types';
+import { Detection, DetectionType } from '../../types';
 import { SeverityBadge } from '../SeverityBadge';
 import { ReviewStatusBadge } from '../rbac/ReviewStatusBadge';
-import { CircularProgress } from '../CircularProgress';
+import { Icon } from '../Icon';
 import { KanbanCardMenu } from './KanbanCardMenu';
-import { scoreDetection } from '../../lib/quality/scoringEngine';
+import { getScoreColor, formatRelativeDate } from '../card-utils';
 import { routeHelpers } from '../../router/routes';
 import { useNavigate } from 'react-router-dom';
+import { useLibrary } from '../../context/LibraryContext';
+import { useAssignment } from '../../hooks/useAssignment';
+import type { UserLookup } from './KanbanBoard';
 
 interface KanbanCardProps {
   detection: Detection;
   isSelected?: boolean;
   onToggleSelect?: (id: string) => void;
   overlay?: boolean;
+  userLookup?: UserLookup;
+}
+
+// Avatar colors (same as Sidebar)
+const AVATAR_COLORS = [
+  { bg: 'bg-violet-500/15', text: 'text-violet-400' },
+  { bg: 'bg-blue-500/15', text: 'text-blue-400' },
+  { bg: 'bg-cyan-500/15', text: 'text-cyan-400' },
+  { bg: 'bg-teal-500/15', text: 'text-teal-400' },
+  { bg: 'bg-emerald-500/15', text: 'text-emerald-400' },
+  { bg: 'bg-amber-500/15', text: 'text-amber-400' },
+  { bg: 'bg-rose-500/15', text: 'text-rose-400' },
+  { bg: 'bg-fuchsia-500/15', text: 'text-fuchsia-400' },
+];
+
+function getAvatarColor(seed: string) {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = seed.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
 }
 
 const STALE_WARNING_DAYS = 7;
 const STALE_CRITICAL_DAYS = 14;
 
-function getStaleIndicator(updatedDate: string | undefined): 'none' | 'warning' | 'critical' {
-  if (!updatedDate) return 'none';
+function getStaleInfo(updatedDate: string | undefined): { level: 'none' | 'warning' | 'critical'; days: number } {
+  if (!updatedDate) return { level: 'none', days: 0 };
   const days = Math.floor((Date.now() - new Date(updatedDate).getTime()) / (1000 * 60 * 60 * 24));
-  if (days >= STALE_CRITICAL_DAYS) return 'critical';
-  if (days >= STALE_WARNING_DAYS) return 'warning';
-  return 'none';
+  if (days >= STALE_CRITICAL_DAYS) return { level: 'critical', days };
+  if (days >= STALE_WARNING_DAYS) return { level: 'warning', days };
+  return { level: 'none', days };
 }
 
-function getInitials(name?: string, email?: string): string {
-  if (name) return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-  if (email) return email[0].toUpperCase();
-  return '?';
-}
+// Micro quality circle for kanban cards (28px)
+const QualityCircle: React.FC<{ score: number }> = ({ score }) => {
+  const { hex } = getScoreColor(score);
+  const size = 28;
+  const radius = 10;
+  const strokeWidth = 3;
+  const circumference = 2 * Math.PI * radius;
+  const progress = (score / 100) * circumference;
 
-const GRADE_COLORS: Record<string, string> = {
-  A: 'bg-emerald-500/20 text-emerald-400',
-  B: 'bg-blue-500/20 text-blue-400',
-  C: 'bg-amber-500/20 text-amber-400',
-  D: 'bg-orange-500/20 text-orange-400',
-  F: 'bg-red-500/20 text-red-400',
+  return (
+    <div
+      className="relative inline-flex items-center justify-center rounded-full flex-shrink-0"
+      style={{ width: size, height: size, backgroundColor: `${hex}10` }}
+    >
+      <svg width={size} height={size} className="transform -rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" strokeWidth={strokeWidth} stroke={`${hex}20`} />
+        <circle
+          cx={size / 2} cy={size / 2} r={radius} fill="none"
+          strokeWidth={strokeWidth} stroke={hex} strokeLinecap="round"
+          strokeDasharray={circumference} strokeDashoffset={circumference - progress}
+        />
+      </svg>
+      <span className="absolute text-[8px] font-bold" style={{ color: hex }}>{score}</span>
+    </div>
+  );
 };
 
 export const KanbanCard: React.FC<KanbanCardProps> = ({
@@ -47,25 +90,20 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
   isSelected = false,
   onToggleSelect,
   overlay = false,
+  userLookup = {},
 }) => {
   const navigate = useNavigate();
+  const { userId, refreshAll } = useLibrary();
+  const { assignDetection } = useAssignment({ onAssignmentChange: () => refreshAll() });
+  const [assigning, setAssigning] = useState(false);
   const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({
-    id: detection.id,
-    data: { detection },
-    disabled: overlay,
-  });
+    attributes, listeners, setNodeRef, transform, transition, isDragging,
+  } = useSortable({ id: detection.id, data: { detection }, disabled: overlay });
 
   const style = overlay ? undefined : {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.4 : 1,
+    opacity: isDragging ? 0.3 : 1,
   };
 
   const handleClick = (e: React.MouseEvent) => {
@@ -77,67 +115,202 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
     navigate(routeHelpers.detectionDetail(detection.id));
   };
 
-  const firstTactic = detection.mitreTactics?.[0] || detection.mitreAttackIds?.[0];
+  const qualityScore = detection.qualityScore || 0;
+  const stale = getStaleInfo(detection.updatedDate);
+
+  const daysInColumn = detection.updatedDate
+    ? Math.floor((Date.now() - new Date(detection.updatedDate).getTime()) / (1000 * 60 * 60 * 24))
+    : 0;
+  const agingLevel = daysInColumn >= 14 ? 3 : daysInColumn >= 7 ? 2 : daysInColumn >= 3 ? 1 : 0;
+
+  // MITRE data
+  const tactics = detection.mitreTactics || [];
+  const techniques = detection.mitreAttackIds || [];
+
+  // Query languages
+  const queryLanguages = detection.queries?.length > 0
+    ? [...new Set(detection.queries.map(q => q.language))]
+    : [detection.queryLanguage].filter(Boolean);
+
+  // Detection type short label
+  const typeLabel = detection.detectionType === DetectionType.Hunting ? 'Hunt'
+    : detection.detectionType === DetectionType.Correlation ? 'Corr'
+    : detection.detectionType === DetectionType.Anomaly ? 'Anom'
+    : null;
+
+  // Log sources
+  const logSources = detection.logSources?.length ? detection.logSources : (detection.logSource ? [detection.logSource] : []);
+
+  const isAssignedToMe = detection.assigned_to === userId;
+
+  const handleAssignToMe = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!userId || assigning) return;
+    setAssigning(true);
+    await assignDetection(detection, userId);
+    setAssigning(false);
+  };
 
   return (
     <div
       ref={overlay ? undefined : setNodeRef}
       style={style}
-      className={`group rounded-xl border bg-surface-container-low p-3 cursor-grab active:cursor-grabbing transition-all hover:border-outline-variant/50 ${
-        isSelected ? 'ring-2 ring-primary/50 border-primary/30' : 'border-outline-variant/20'
-      } ${isDragging && !overlay ? 'shadow-lg' : ''}`}
+      className={`
+        group relative rounded-2xl p-4 transition-all duration-200
+        cursor-grab active:cursor-grabbing
+        bg-surface-container border
+        hover:bg-surface-container-high hover:shadow-md hover:scale-[1.01]
+        ${isSelected
+          ? 'border-[#783264] border-2 ring-2 ring-[#783264]/20'
+          : 'border-outline-variant/30 hover:border-[#783264]/40'
+        }
+        ${isDragging && !overlay ? 'shadow-xl' : ''}
+        ${overlay ? 'shadow-2xl border-[#783264]/40' : ''}
+      `}
       onClick={handleClick}
       {...(overlay ? {} : { ...attributes, ...listeners })}
     >
-      {/* Header: name + menu */}
-      <div className="flex items-start justify-between gap-1 mb-2">
-        <p className="text-sm font-medium text-on-surface line-clamp-2 flex-1">
-          {detection.name}
-        </p>
+      {/* Row 1: Title + Menu */}
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] font-medium text-on-surface leading-snug line-clamp-2 group-hover:text-[#783264] transition-colors">
+            {detection.name}
+          </p>
+        </div>
         <KanbanCardMenu detection={detection} />
       </div>
 
-      {/* Metadata row */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {detection.severity && (
-          <SeverityBadge severity={detection.severity} size="xs" />
-        )}
-        {firstTactic && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-container text-on-surface-variant truncate max-w-[80px]">
-            {firstTactic}
+      {/* Row 2: Description snippet */}
+      {detection.description && (
+        <p className="text-[11px] text-on-surface-variant/70 line-clamp-2 leading-relaxed mb-2.5">
+          {detection.description}
+        </p>
+      )}
+
+      {/* Row 3: MITRE Mapping */}
+      {(tactics.length > 0 || techniques.length > 0) && (
+        <div className="bg-surface-container-highest/40 rounded-xl p-2 mb-2.5 space-y-1">
+          {tactics.length > 0 && (
+            <div className="flex items-center gap-1 overflow-hidden">
+              <Icon name="target" className="w-2.5 h-2.5 text-[#783264] flex-shrink-0" />
+              {tactics.slice(0, 2).map(t => (
+                <span key={t} className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-[#783264]/10 text-[#783264] border border-[#783264]/15 truncate max-w-[90px]">
+                  {t}
+                </span>
+              ))}
+              {tactics.length > 2 && (
+                <span className="text-[9px] font-bold px-1 py-0.5 rounded-md bg-surface-container-highest text-on-surface-variant">
+                  +{tactics.length - 2}
+                </span>
+              )}
+            </div>
+          )}
+          {techniques.length > 0 && (
+            <div className="flex items-center gap-1 overflow-hidden">
+              <Icon name="zap" className="w-2.5 h-2.5 text-purple-400 flex-shrink-0" />
+              {techniques.slice(0, 2).map(t => (
+                <span key={t} className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/15 truncate max-w-[90px] font-mono">
+                  {t}
+                </span>
+              ))}
+              {techniques.length > 2 && (
+                <span className="text-[9px] font-bold px-1 py-0.5 rounded-md bg-surface-container-highest text-on-surface-variant">
+                  +{techniques.length - 2}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Row 4: Metadata badges */}
+      <div className="flex items-center gap-1 flex-wrap mb-2.5">
+        <SeverityBadge severity={detection.severity} size="xs" />
+        {typeLabel && (
+          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-surface-container-highest text-on-surface-variant border border-outline-variant/20">
+            {typeLabel}
           </span>
+        )}
+        {queryLanguages.slice(0, 1).map(lang => (
+          <span key={lang} className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-surface-container-highest text-on-surface-variant border border-outline-variant/20">
+            {lang}
+          </span>
+        ))}
+        {logSources.slice(0, 1).map(src => (
+          <span key={src} className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-[#4D7C6F]/10 text-[#4D7C6F] border border-[#4D7C6F]/15 truncate max-w-[80px]">
+            {src}
+          </span>
+        ))}
+        {detection.review_status && detection.review_status !== 'none' && (
+          <ReviewStatusBadge status={detection.review_status} size="sm" />
         )}
       </div>
 
-      {/* Bottom row */}
-      <div className="flex items-center justify-between mt-2 pt-2 border-t border-outline-variant/10">
-        <div className="flex items-center gap-1.5">
-          {(() => {
-            const stale = getStaleIndicator(detection.updatedDate);
-            if (stale === 'critical') return <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="Stale: >14 days" />;
-            if (stale === 'warning') return <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" title="Stale: >7 days" />;
-            return null;
-          })()}
-          {detection.qualityScore != null && detection.qualityScore > 0 && (
-            <CircularProgress score={detection.qualityScore} size={24} strokeWidth={2} showLabel={false} />
+      {/* Row 5: Footer - Quality Score + Updated + Assignee */}
+      <div className="flex items-center justify-between pt-2.5 border-t border-outline-variant/15">
+        <div className="flex items-center gap-2">
+          <QualityCircle score={qualityScore} />
+          {detection.updatedDate && (
+            <span className={`text-[9px] flex items-center gap-1 ${
+              stale.level === 'critical' ? 'text-[#A63D40]'
+              : stale.level === 'warning' ? 'text-yellow-500'
+              : 'text-on-surface-variant/50'
+            }`}>
+              {stale.level !== 'none' && <Icon name="clock" className="w-2.5 h-2.5" />}
+              {formatRelativeDate(detection.updatedDate)}
+            </span>
           )}
-          {(() => {
-            const quality = scoreDetection(detection);
-            return (
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${GRADE_COLORS[quality.grade] || ''}`}>
-                {quality.grade}
-              </span>
-            );
-          })()}
-          {detection.review_status && detection.review_status !== 'none' && (
-            <ReviewStatusBadge status={detection.review_status} size="sm" />
+          {agingLevel > 0 && (
+            <div className="flex items-center gap-0.5 ml-1" title={`${daysInColumn} days in ${detection.status}`}>
+              {Array.from({ length: agingLevel }).map((_, i) => (
+                <div key={i} className={`w-1 h-1 rounded-full ${
+                  agingLevel >= 3 ? 'bg-[#A63D40]' : agingLevel >= 2 ? 'bg-yellow-500' : 'bg-on-surface-variant/30'
+                }`} />
+              ))}
+            </div>
           )}
         </div>
-        {detection.assigned_to && (
-          <div className="w-6 h-6 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center flex-shrink-0" title={`Assigned: ${detection.assigned_to}`}>
-            {getInitials(undefined, detection.assigned_to)}
-          </div>
-        )}
+
+        <div className="flex items-center gap-1.5">
+          {detection.review_notes && (
+            <span className="text-on-surface-variant/40" title="Has review notes">
+              <Icon name="message-square" className="w-3 h-3" />
+            </span>
+          )}
+          {detection.testedAndValidated && (
+            <span className="text-[#4D7C6F]/60" title="Tested & Validated">
+              <Icon name="check-check" className="w-3 h-3" />
+            </span>
+          )}
+          {detection.assigned_to ? (() => {
+            const user = userLookup[detection.assigned_to];
+            const displayName = user?.name || '?';
+            const initials = getInitials(displayName);
+            const color = getAvatarColor(user?.email || detection.assigned_to);
+            return (
+              <div
+                className={`w-6 h-6 rounded-lg text-[9px] font-semibold flex items-center justify-center flex-shrink-0 ${color.bg} ${color.text}`}
+                title={displayName}
+              >
+                {initials}
+              </div>
+            );
+          })() : (
+            <button
+              onClick={handleAssignToMe}
+              disabled={assigning}
+              title="Assign to me"
+              className="w-6 h-6 rounded-lg bg-surface-container-highest/60 text-on-surface-variant/50 flex items-center justify-center flex-shrink-0 opacity-0 group-hover:opacity-100 hover:bg-[#783264]/15 hover:text-[#783264] transition-all"
+            >
+              {assigning ? (
+                <div className="w-2.5 h-2.5 border border-current border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Icon name="user-plus" className="w-3 h-3" />
+              )}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
