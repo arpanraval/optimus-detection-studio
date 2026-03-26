@@ -947,10 +947,21 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
 
   const handleBulkCopyToLibrary = async (ids: string[]) => {
     if (currentLibrary === LIBRARY_PRODUCTION) {
-      // Production view → Fork to Development (one by one since no bulk fork yet)
-      for (const id of ids) {
-        await forkToDevelopment(id);
+      const total = ids.length;
+      let completed = 0;
+      const BATCH_SIZE = 5;
+
+      showToast('info', 'Forking Detections', `Forking ${total} detections to Development Library...`);
+
+      for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+        const batch = ids.slice(i, i + BATCH_SIZE);
+        const results = await Promise.allSettled(
+          batch.map(id => forkToDevelopment(id))
+        );
+        completed += results.filter(r => r.status === 'fulfilled').length;
       }
+
+      showToast('success', 'Fork Complete', `Successfully forked ${completed} of ${total} detections.`);
       clearSelection();
     }
     setSelectionMode(false);
