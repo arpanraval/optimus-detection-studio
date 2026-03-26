@@ -30,6 +30,8 @@ import { Icon } from '../Icon';
 import { DecisionModal } from '../decisions/DecisionModal';
 import { useDetectionDecisions } from '../../hooks/useDetectionDecisions';
 import { useBoardPreferences } from './useBoardPreferences';
+import { BoardSavedViews } from './BoardSavedViews';
+import type { SavedView } from './BoardSavedViews';
 import type { QuickReason } from '../../types/intelligence';
 import type { Detection } from '../../types';
 
@@ -223,6 +225,15 @@ export const KanbanBoard: React.FC = () => {
     });
   }, [grouped, prefs.swimlaneGroupBy, prefs.sortWithinColumn, userLookup]);
 
+  const handleLoadView = useCallback((view: SavedView) => {
+    setBoardFilters(view.filters);
+    setMyWorkOnly(view.myWorkOnly);
+    setPrefs({ swimlaneGroupBy: view.swimlaneGroupBy, sortWithinColumn: view.sortWithinColumn });
+    if (view.filters.severities.length > 0 || view.filters.queryLanguages.length > 0) {
+      setShowFilters(true);
+    }
+  }, [setPrefs]);
+
   const toggleFlag = useCallback((id: string) => {
     setFlaggedIds(prev => {
       const next = new Set(prev);
@@ -400,6 +411,14 @@ export const KanbanBoard: React.FC = () => {
               </button>
             </div>
           )}
+
+          <BoardSavedViews
+            currentFilters={boardFilters}
+            myWorkOnly={myWorkOnly}
+            swimlaneGroupBy={prefs.swimlaneGroupBy}
+            sortWithinColumn={prefs.sortWithinColumn}
+            onLoadView={handleLoadView}
+          />
 
           <select
             value={prefs.sortWithinColumn}
