@@ -93,13 +93,17 @@ export const SearchResultsCard: React.FC<Props> = ({ summary, data, actions, onA
                     </div>
 
                     {/* Similarity score */}
-                    {result.similarity !== undefined && result.similarity > 0 && (
-                      <div className="text-right shrink-0">
-                        <span className="text-xs font-mono text-on-surface-variant/40 bg-surface-container-highest px-2 py-1 rounded">
-                          {Math.round(result.similarity * 100)}%
+                    <div className="text-right shrink-0">
+                      {result.similarity != null ? (
+                        <span className="text-[10px] font-mono text-on-surface-variant/60">
+                          {Math.round(result.similarity * 100)}% match
                         </span>
-                      </div>
-                    )}
+                      ) : (
+                        <span className="text-[10px] font-mono text-on-surface-variant/40">
+                          keyword match
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </Link>
               );
