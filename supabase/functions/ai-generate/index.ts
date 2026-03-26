@@ -521,7 +521,7 @@ serve(async (req: Request) => {
 
     // Validate model name to prevent URL injection
     if (!/^(gemini|gpt-|o[134]|claude)-[a-zA-Z0-9._-]+$/.test(model)) {
-      return new Response(JSON.stringify({ error: `Invalid model: ${model}` }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      return new Response(JSON.stringify({ error: 'Invalid model' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
 
     // Library-aware pattern injection (Detection Intelligence Loop)

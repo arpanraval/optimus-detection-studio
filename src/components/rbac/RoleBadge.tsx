@@ -48,14 +48,14 @@ export const RoleBadge: React.FC<RoleBadgeProps> = ({
   const { label, className: colorClass } = config[role] || config.viewer;
   
   const sizeClasses = {
-    sm: 'px-1.5 py-0.5 text-[10px]',
-    md: 'px-2 py-0.5 text-xs',
+    sm: 'px-1.5 py-0.5 text-[10px] min-w-[52px]',
+    md: 'px-2.5 py-1 text-[11px] min-w-[62px]',
   };
 
   return (
-    <span 
+    <span
       className={`
-        inline-flex items-center font-medium rounded-md
+        inline-flex items-center justify-center font-medium rounded-md
         ${sizeClasses[size]}
         ${colorClass}
         ${className}

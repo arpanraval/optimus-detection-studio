@@ -254,7 +254,8 @@ async function handleBatchDetections(
     .in('id', ids)
 
   if (error || !detections) {
-    results.errorDetails.push(`Fetch detections failed: ${error?.message || 'no data returned'}`)
+    console.error('Fetch detections failed:', error?.message || 'no data returned')
+    results.errorDetails.push('Fetch detections failed')
     return { ...results, processed: 0, generated: 0, unchanged: 0, errors: ids.length }
   }
 
@@ -327,7 +328,8 @@ async function handleBatchDetections(
 
           if (singleError) {
             results.errors++
-            results.errorDetails.push(`Row ${batch[j].detection.id}: ${singleError.message} (code: ${singleError.code})`)
+            console.error(`Row ${batch[j].detection.id} upsert failed:`, singleError.message, singleError.code)
+            results.errorDetails.push(`Row ${batch[j].detection.id}: storage failed`)
           } else {
             results.generated++
           }
@@ -338,7 +340,8 @@ async function handleBatchDetections(
     } catch (e: any) {
       console.error('Batch embedding error:', e)
       results.errors += batch.length
-      results.errorDetails.push(`Gemini API error: ${e?.message || String(e)}`)
+      console.error('Gemini API error:', e?.message || String(e))
+      results.errorDetails.push('Embedding generation failed')
     }
   }
 

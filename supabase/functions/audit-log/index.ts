@@ -170,7 +170,7 @@ Deno.serve(async (req: Request) => {
     });
   } catch (error) {
     console.error('Audit log error:', error);
-    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : 'Internal error' }), {
+    return new Response(JSON.stringify({ error: 'Internal error' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

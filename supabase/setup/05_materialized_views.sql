@@ -386,3 +386,9 @@ CREATE OR REPLACE VIEW v_strategy_impact AS
     raw_score,
     impact_score
    FROM mv_strategy_impact;
+
+-- Security: Enable security_invoker on wrapper views
+ALTER VIEW v_threat_actor_weights SET (security_invoker = true);
+ALTER VIEW v_technique_importance SET (security_invoker = true);
+ALTER VIEW v_mitigation_impact SET (security_invoker = true);
+ALTER VIEW v_strategy_impact SET (security_invoker = true);

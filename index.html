@@ -3,7 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- Security Headers -->
+    <!-- Security Headers
+         NOTE: style-src requires 'unsafe-inline' because React uses inline styles
+         extensively (1079 occurrences across 181 components). Removing it requires
+         SSR with nonce injection. script-src uses SHA hashes (not unsafe-inline),
+         which is the critical XSS vector. CSS injection risk is accepted/low. -->
     <meta http-equiv="Content-Security-Policy" content="
       default-src 'self';
       script-src 'self' 'sha256-obImMQeJTdh3Y2kZgVk8nMEKAEiT27H0NwHfYKdpCYk=' 'wasm-unsafe-eval' https://aistudiocdn.com https://esm.sh https://cdn.jsdelivr.net blob:;

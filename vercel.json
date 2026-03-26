@@ -16,7 +16,9 @@
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
         { "key": "Permissions-Policy", "value": "geolocation=(), microphone=(), camera=()" },
         { "key": "Strict-Transport-Security", "value": "max-age=31536000; includeSubDomains" },
-        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+        { "key": "X-Powered-By", "value": "" },
+        { "key": "Server", "value": "" }
       ]
     },
     {
@@ -30,8 +32,12 @@
     { "source": "/.env:path*", "destination": "/", "statusCode": 404 },
     { "source": "/.git/:path*", "destination": "/", "statusCode": 404 },
     { "source": "/.vscode/:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/.svn/:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/.htaccess", "destination": "/", "statusCode": 404 },
+    { "source": "/.htpasswd", "destination": "/", "statusCode": 404 },
     { "source": "/__env:path*", "destination": "/", "statusCode": 404 },
     { "source": "/wp-:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/wordpress/:path*", "destination": "/", "statusCode": 404 },
     { "source": "/config:path*", "destination": "/", "statusCode": 404 },
     { "source": "/storage/:path*", "destination": "/", "statusCode": 404 },
     { "source": "/debug/:path*", "destination": "/", "statusCode": 404 },
@@ -46,6 +52,29 @@
     { "source": "/api/:path*", "destination": "/", "statusCode": 404 },
     { "source": "/graphql", "destination": "/", "statusCode": 404 },
     { "source": "/bundle.js", "destination": "/", "statusCode": 404 },
-    { "source": "/constants.js", "destination": "/", "statusCode": 404 }
+    { "source": "/constants.js", "destination": "/", "statusCode": 404 },
+    { "source": "/panel/:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/admin/:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/administrator/:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/phpmyadmin/:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/cgi-bin/:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/bot-connect.js", "destination": "/", "statusCode": 404 },
+    { "source": "/:path*.php", "destination": "/", "statusCode": 404 },
+    { "source": "/:path*.asp", "destination": "/", "statusCode": 404 },
+    { "source": "/:path*.aspx", "destination": "/", "statusCode": 404 },
+    { "source": "/:path*.jsp", "destination": "/", "statusCode": 404 },
+    { "source": "/:path*.cgi", "destination": "/", "statusCode": 404 },
+    { "source": "/xmlrpc.php", "destination": "/", "statusCode": 404 },
+    { "source": "/server-status", "destination": "/", "statusCode": 404 },
+    { "source": "/server-info", "destination": "/", "statusCode": 404 },
+    { "source": "/.well-known/security.txt", "destination": "/", "statusCode": 404 },
+    { "source": "/backup:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/db:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/dump:path*", "destination": "/", "statusCode": 404 },
+    { "source": "/:path*.sql", "destination": "/", "statusCode": 404 },
+    { "source": "/:path*.bak", "destination": "/", "statusCode": 404 },
+    { "source": "/:path*.zip", "destination": "/", "statusCode": 404 },
+    { "source": "/:path*.tar.gz", "destination": "/", "statusCode": 404 },
+    { "source": "/:path*.log", "destination": "/", "statusCode": 404 }
   ]
 }
