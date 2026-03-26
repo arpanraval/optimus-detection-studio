@@ -152,6 +152,14 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
     : 0;
   const agingLevel = daysInColumn >= 14 ? 3 : daysInColumn >= 7 ? 2 : daysInColumn >= 3 ? 1 : 0;
 
+  // Due date
+  const dueDateRaw = (detection as any).due_date as string | undefined;
+  const isDueSoon = dueDateRaw ? (() => {
+    const due = new Date(dueDateRaw);
+    const daysUntilDue = Math.ceil((due.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    return { daysUntilDue, isOverdue: daysUntilDue < 0, isUrgent: daysUntilDue >= 0 && daysUntilDue <= 3 };
+  })() : null;
+
   // MITRE data
   const tactics = detection.mitreTactics || [];
   const techniques = detection.mitreAttackIds || [];
@@ -281,6 +289,33 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
         )}
       </div>
 
+      {/* Row 4.5: Linked items + investigation progress */}
+      {(() => {
+        const linkedCount = (detection.linkedGroups?.length || 0) + (detection.linkedSoftware?.length || 0) + (detection.linkedCampaigns?.length || 0);
+        const investigationTotal = detection.investigationSteps?.length || 0;
+        const hasLinks = linkedCount > 0;
+        const hasSteps = investigationTotal > 0;
+
+        if (!hasLinks && !hasSteps) return null;
+
+        return (
+          <div className="flex items-center gap-2 mb-2.5">
+            {hasLinks && (
+              <span className="text-[9px] flex items-center gap-1 text-on-surface-variant/50" title={`${linkedCount} linked threat intel items`}>
+                <Icon name="link" className="w-2.5 h-2.5" />
+                {linkedCount} linked
+              </span>
+            )}
+            {hasSteps && (
+              <span className="text-[9px] flex items-center gap-1 text-on-surface-variant/50" title={`${investigationTotal} investigation steps`}>
+                <Icon name="clipboard-check" className="w-2.5 h-2.5" />
+                {investigationTotal} steps
+              </span>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Row 5: Footer - Quality Score + Updated + Assignee */}
       <div className="flex items-center justify-between pt-2.5 border-t border-outline-variant/15">
         <div className="flex items-center gap-2">
@@ -303,6 +338,17 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
                 }`} />
               ))}
             </div>
+          )}
+          {isDueSoon && (
+            <span className={`text-[9px] flex items-center gap-0.5 ${
+              isDueSoon.isOverdue ? 'text-[#A63D40]' : isDueSoon.isUrgent ? 'text-yellow-500' : 'text-on-surface-variant/50'
+            }`} title={`Due: ${new Date(dueDateRaw!).toLocaleDateString()}`}>
+              <Icon name="calendar" className="w-2.5 h-2.5" />
+              {isDueSoon.isOverdue
+                ? `${Math.abs(isDueSoon.daysUntilDue)}d overdue`
+                : isDueSoon.daysUntilDue === 0 ? 'Due today'
+                : `${isDueSoon.daysUntilDue}d left`}
+            </span>
           )}
         </div>
 
