@@ -2,24 +2,12 @@ import React, { useState } from 'react';
 import { Detection } from '../../../types';
 import { Icon } from '../../Icon';
 import { MonacoCodeEditor } from '../../MonacoCodeEditor';
+import { DetailCard } from '../DetailCard';
 
 interface InvestigationTabProps {
   detection: Detection;
 }
 
-const DetailCard: React.FC<{ title: string; description?: string; children: React.ReactNode }> = ({ title, description, children }) => (
-  <section className="rounded-2xl overflow-hidden mb-6 border border-outline-variant/30 bg-surface-container-low">
-    <div className="px-6 py-5 border-b border-outline-variant/30 bg-surface-container-low">
-      <h3 className="text-base font-medium text-on-surface">{title}</h3>
-      {description && (
-        <p className="text-sm mt-0.5 text-on-surface-variant">{description}</p>
-      )}
-    </div>
-    <div className="p-6 space-y-5">
-      {children}
-    </div>
-  </section>
-);
 
 const SectionLabel: React.FC<{ children: React.ReactNode; count?: number }> = ({ children, count }) => (
   <div className="flex items-center gap-2 mb-3">
