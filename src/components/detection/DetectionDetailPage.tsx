@@ -577,7 +577,8 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
       </div>
 
       {/* CONTENT */}
-      <div className="max-w-[1600px] mx-auto px-6 lg:px-8 py-8">
+      <div className="max-w-[1600px] mx-auto px-6 lg:px-8 py-8" key={activeTab}>
+        <div className="animate-fade-in">
         {activeTab === 'overview' && (
           <TabErrorBoundary tabName="Overview">
             <OverviewTab
@@ -641,6 +642,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
             </div>
           </TabErrorBoundary>
         )}
+        </div>
       </div>
 
       {/* Publish Modal */}
