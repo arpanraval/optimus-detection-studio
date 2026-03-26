@@ -6,6 +6,7 @@ import { Icon } from '../../Icon';
 import { getMitreDataById } from '../../../mitre';
 import { StatusBadge } from '../../StatusBadge';
 import { sourceConfig } from '../../card-utils';
+import { DetailCard } from '../DetailCard';
 
 interface OverviewTabProps {
   detection: Detection;
@@ -17,19 +18,6 @@ interface OverviewTabProps {
   onViewSourceRule?: () => void; // Navigate to source rule
 }
 
-const DetailCard: React.FC<{ title: string; description?: string; children: React.ReactNode; className?: string }> = ({ title, description, children, className }) => (
-  <section className={`rounded-2xl overflow-hidden mb-6 border border-outline-variant/30 bg-surface-container-low ${className || ''}`}>
-    <div className="px-6 py-5 border-b border-outline-variant/30 bg-surface-container-low">
-      <h3 className="text-base font-medium text-on-surface">{title}</h3>
-      {description && (
-        <p className="text-sm mt-0.5 text-on-surface-variant">{description}</p>
-      )}
-    </div>
-    <div className="p-6 space-y-5">
-      {children}
-    </div>
-  </section>
-);
 
 const DetailField: React.FC<{ label: string; value: React.ReactNode; fullWidth?: boolean }> = ({ label, value, fullWidth }) => (
   <div className={fullWidth ? 'col-span-full' : ''}>
@@ -110,9 +98,9 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
     return grouped;
   }, [detection.mitreAttackIds]);
 
-  // Check if this is a Universal Library rule
-  const isUniversalRule = detection.library_type === LIBRARY_DEVELOPMENT;
-  const isCopiedFromUniversal = detection.source_rule_id !== null;
+  // Check if this is a Development Library rule
+  const isDevelopmentRule = detection.library_type === LIBRARY_DEVELOPMENT;
+  const isForkedFromDevelopment = detection.source_rule_id !== null;
 
   // L1: Get source info
   const hasSourceInfo = detection.source || detection.external_id || detection.source_url;
@@ -121,7 +109,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
     <div className="animate-fade-in space-y-6">
       
       {/* L1: Source Information Card - Only for Universal rules with source info */}
-      {isUniversalRule && hasSourceInfo && (
+      {isDevelopmentRule && hasSourceInfo && (
         <DetailCard 
           title="Source Information" 
           description="Origin and external references for this detection rule"
@@ -176,7 +164,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       )}
 
       {/* Fork Source Card - For user rules copied from Universal */}
-      {isCopiedFromUniversal && sourceRule && (
+      {isForkedFromDevelopment && sourceRule && (
         <DetailCard 
           title="Forked From" 
           description={`This detection was forked from ${LIBRARY_LABELS[LIBRARY_DEVELOPMENT]}`}
