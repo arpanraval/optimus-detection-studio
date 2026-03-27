@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <circle cx="12" cy="12" r="11" stroke="#3a3a4a" stroke-width="1.2"/>
+  <circle cx="12" cy="12" r="9" stroke="#3a3a4a" stroke-width="0.5" opacity="0.5"/>
+  <path d="M12 12 L12 2 C13.5 2 14.5 3.5 14 5 L12 12 Z" fill="#783264" opacity="0.85"/>
+  <path d="M12 12 L12 2 C13.5 2 14.5 3.5 14 5 L12 12 Z" fill="#783264" opacity="0.85" transform="rotate(25.714 12 12)"/>
+  <path d="M12 12 L12 2 C13.5 2 14.5 3.5 14 5 L12 12 Z" fill="#783264" opacity="0.85" transform="rotate(51.429 12 12)"/>
+  <path d="M12 12 L12 2 C13.5 2 14.5 3.5 14 5 L12 12 Z" fill="#783264" opacity="0.85" transform="rotate(77.143 12 12)"/>
+  <path d="M12 12 L12 2 C13.5 2 14.5 3.5 14 5 L12 12 Z" fill="#783264" opacity="0.85" transform="rotate(102.857 12 12)"/>
+  <path d="M12 12 L12 2 C13.5 2 14.5 3.5 14 5 L12 12 Z" fill="#783264" opacity="0.85" transform="rotate(128.571 12 12)"/>
+  <path d="M12 12 L12 2 C13.5 2 14.5 3.5 14 5 L12 12 Z" fill="#783264" opacity="0.85" transform="rotate(154.286 12 12)"/>
+  <path d="M12 12 L12 2 C13.5 2 14.5 3.5 14 5 L12 12 Z" fill="#783264" opacity="0.85" transform="rotate(180 12 12)"/>
+  <path d="M12 12 L12 2 C13.5 2 14.5 3.5 14 5 L12 12 Z" fill="#783264" opacity="0.85" transform="rotate(205.714 12 12)"/>
+  <path d="M12 12 L12 2 C13.5 2 14.5 3.5 14 5 L12 12 Z" fill="#783264" opacity="0.85" transform="rotate(231.429 12 12)"/>
+  <path d="M12 12 L12 2 C13.5 2 14.5 3.5 14 5 L12 12 Z" fill="#783264" opacity="0.85" transform="rotate(257.143 12 12)"/>
+  <path d="M12 12 L12 2 C13.5 2 14.5 3.5 14 5 L12 12 Z" fill="#783264" opacity="0.85" transform="rotate(282.857 12 12)"/>
+  <path d="M12 12 L12 2 C13.5 2 14.5 3.5 14 5 L12 12 Z" fill="#783264" opacity="0.85" transform="rotate(308.571 12 12)"/>
+  <path d="M12 12 L12 2 C13.5 2 14.5 3.5 14 5 L12 12 Z" fill="#783264" opacity="0.85" transform="rotate(334.286 12 12)"/>
+  <circle cx="12" cy="12" r="3" fill="#3a3a4a"/>
+  <path d="M12 12 L12 9.5 A 2.5 2.5 0 0 1 14.5 12" stroke="rgba(255,255,255,0.5)" stroke-width="0.5" fill="none"/>
+</svg>
