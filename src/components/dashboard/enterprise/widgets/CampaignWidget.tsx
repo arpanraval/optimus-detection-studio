@@ -1,6 +1,6 @@
 import React from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import { useLibrary } from '../../../../context/LibraryContext';
 import { useDefensivePosture, useThreatActorWeights } from '../../../../hooks/useImpactScores';
 import { useCommandCenterData } from '../../../../hooks/useCommandCenterData';
@@ -8,7 +8,7 @@ import WidgetEmptyState from './WidgetEmptyState';
 import { withAlpha } from '../engine/colorUtils';
 
 const CampaignWidget: React.FC<WidgetComponentProps> = ({ config, onNavigate }) => {
-  const { detections } = useAppData();
+  const { detections } = useDashboardDetections();
   const { userId } = useLibrary();
   const { posture } = useDefensivePosture(userId);
   const { actors } = useThreatActorWeights();

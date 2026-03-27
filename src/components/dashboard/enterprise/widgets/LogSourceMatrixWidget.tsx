@@ -1,11 +1,11 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import { withAlpha } from '../engine/colorUtils';
 import WidgetEmptyState from './WidgetEmptyState';
 
 const LogSourceMatrixWidget: React.FC<WidgetComponentProps> = ({ config, onNavigate, timeRange }) => {
-  const { detections: allDetections } = useAppData();
+  const { detections: allDetections } = useDashboardDetections();
   const accent = config.accentColor || 'rgb(var(--md-sys-color-primary))';
 
   const detections = useMemo(() => {

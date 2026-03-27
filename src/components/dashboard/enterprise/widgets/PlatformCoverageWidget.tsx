@@ -1,10 +1,10 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import WidgetEmptyState from './WidgetEmptyState';
 
 const PlatformCoverageWidget: React.FC<WidgetComponentProps> = ({ onNavigate }) => {
-  const { detections } = useAppData();
+  const { detections } = useDashboardDetections();
 
   const platformData = useMemo(() => {
     if (detections.length === 0) return null;

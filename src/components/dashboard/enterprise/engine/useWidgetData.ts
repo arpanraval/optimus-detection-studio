@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import { getField } from './fieldRegistry';
 import type { EngineWidgetConfig, WidgetDataResult, FilterClause } from './types';
 
@@ -14,7 +14,7 @@ export function useWidgetData(
   config: EngineWidgetConfig,
   timeRange: TimeRange,
 ): WidgetDataResult {
-  const { detections } = useAppData();
+  const { detections } = useDashboardDetections();
 
   return useMemo(() => {
     try {

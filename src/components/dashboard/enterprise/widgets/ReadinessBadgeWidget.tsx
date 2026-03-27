@@ -3,14 +3,14 @@ import type { WidgetComponentProps } from './types';
 import { useLibrary } from '../../../../context/LibraryContext';
 import { useDefensivePosture, useThreatActorWeights } from '../../../../hooks/useImpactScores';
 import { useCommandCenterData } from '../../../../hooks/useCommandCenterData';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import { AnimatedNumber } from '../../../optimus/AnimatedNumber';
 
 interface BreakdownItem { label: string; value: number; weight: string; }
 
 const ReadinessBadgeWidget: React.FC<WidgetComponentProps> = ({ config }) => {
   const { userId } = useLibrary();
-  const { detections } = useAppData();
+  const { detections } = useDashboardDetections();
   const { posture, loading: postureLoading } = useDefensivePosture(userId);
   const { actors, loading: actorsLoading } = useThreatActorWeights();
   const { } = useCommandCenterData(actors, detections, posture?.total_techniques);

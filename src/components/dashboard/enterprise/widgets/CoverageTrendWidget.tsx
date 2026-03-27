@@ -1,6 +1,6 @@
 import React, { useId, useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import { useLibrary } from '../../../../context/LibraryContext';
 import { useDefensivePosture, useThreatActorWeights } from '../../../../hooks/useImpactScores';
 import { useCommandCenterData } from '../../../../hooks/useCommandCenterData';
@@ -13,7 +13,7 @@ const MONTH_MAP: Record<string, number> = {
 
 const CoverageTrendWidget: React.FC<WidgetComponentProps> = ({ config, timeRange }) => {
   const gradientId = useId();
-  const { detections } = useAppData();
+  const { detections } = useDashboardDetections();
   const { userId } = useLibrary();
   const { posture } = useDefensivePosture(userId);
   const { actors } = useThreatActorWeights();

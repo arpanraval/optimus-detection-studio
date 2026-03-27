@@ -64,7 +64,7 @@ function sortDetections(detections: Detection[], sortBy: string): Detection[] {
 }
 
 export const KanbanBoard: React.FC = () => {
-  const { userDetections, isLoading, bulkUpdateStatus, userId, refreshAll } = useLibrary();
+  const { productionDetections, isLoading, bulkUpdateStatus, userId, refreshAll } = useLibrary();
   const { subscribe } = useRealtime();
   const { can, hasRoleOrHigher } = usePermissions();
   const { showToast } = useToast();
@@ -126,12 +126,12 @@ export const KanbanBoard: React.FC = () => {
   const columns = useMemo(() => showArchived ? STATUSES : DEFAULT_VISIBLE, [showArchived]);
 
   const grouped = useMemo(() => {
-    const map: Record<string, typeof userDetections> = {};
+    const map: Record<string, typeof productionDetections> = {};
     for (const status of STATUSES) map[status] = [];
 
-    let filtered = userDetections;
+    let filtered = productionDetections;
     if (myWorkOnly && userId) {
-      filtered = userDetections.filter(d => d.assigned_to === userId);
+      filtered = productionDetections.filter(d => d.assigned_to === userId);
     }
 
     if (searchQuery.trim()) {
@@ -165,11 +165,11 @@ export const KanbanBoard: React.FC = () => {
     }
 
     return map;
-  }, [userDetections, myWorkOnly, userId, searchQuery, boardFilters, prefs.sortWithinColumn]);
+  }, [productionDetections, myWorkOnly, userId, searchQuery, boardFilters, prefs.sortWithinColumn]);
 
   const activeDetection = useMemo(
-    () => activeId ? userDetections.find(d => d.id === activeId) : null,
-    [activeId, userDetections]
+    () => activeId ? productionDetections.find(d => d.id === activeId) : null,
+    [activeId, productionDetections]
   );
 
   // Stats
@@ -180,21 +180,21 @@ export const KanbanBoard: React.FC = () => {
   // H5 fix: scope totalUnfiltered to visible columns so X/Y ratio is accurate
   const totalUnfiltered = useMemo(() => {
     const visibleStatuses = new Set(columns);
-    let dets = userDetections.filter(d => visibleStatuses.has(d.status || Status.Backlog));
+    let dets = productionDetections.filter(d => visibleStatuses.has(d.status || Status.Backlog));
     if (myWorkOnly && userId) dets = dets.filter(d => d.assigned_to === userId);
     return dets.length;
-  }, [userDetections, myWorkOnly, userId, columns]);
+  }, [productionDetections, myWorkOnly, userId, columns]);
   const productionCount = grouped[Status.Production]?.length || 0;
   const inProgressCount = (grouped[Status.Development]?.length || 0) + (grouped[Status.Review]?.length || 0) + (grouped[Status.Testing]?.length || 0);
 
   const availableLanguages = useMemo(() => {
     const langs = new Set<string>();
-    for (const d of userDetections) {
+    for (const d of productionDetections) {
       if (d.queries) d.queries.forEach(q => { if (q.language) langs.add(q.language); });
       else if (d.queryLanguage) langs.add(d.queryLanguage);
     }
     return Array.from(langs).sort();
-  }, [userDetections]);
+  }, [productionDetections]);
 
   const swimlanes = useMemo(() => {
     if (prefs.swimlaneGroupBy === 'none') return null;
@@ -249,10 +249,10 @@ export const KanbanBoard: React.FC = () => {
       return;
     }
     const previousStatuses = [...new Set(
-      detectionIds.map(id => userDetections.find(d => d.id === id)?.status).filter(Boolean)
+      detectionIds.map(id => productionDetections.find(d => d.id === id)?.status).filter(Boolean)
     )] as string[];
     setPendingStatusChange({ detectionIds, targetStatus, previousStatuses });
-  }, [can, hasRoleOrHigher, showToast, userDetections]);
+  }, [can, hasRoleOrHigher, showToast, productionDetections]);
 
   const toggleFlag = useCallback((id: string) => {
     setFlaggedIds(prev => {
@@ -286,7 +286,7 @@ export const KanbanBoard: React.FC = () => {
     const idsToMove = selectedIds.has(draggedId) ? Array.from(selectedIds) : [draggedId];
 
     const detectionsToMove = idsToMove.filter(id => {
-      const d = userDetections.find(det => det.id === id);
+      const d = productionDetections.find(det => det.id === id);
       return d && d.status !== targetStatus;
     });
     if (detectionsToMove.length === 0) return;
@@ -303,12 +303,12 @@ export const KanbanBoard: React.FC = () => {
 
     const previousStatuses = [...new Set(
       detectionsToMove
-        .map(id => userDetections.find(d => d.id === id)?.status)
+        .map(id => productionDetections.find(d => d.id === id)?.status)
         .filter(Boolean)
     )] as string[];
 
     setPendingStatusChange({ detectionIds: detectionsToMove, targetStatus, previousStatuses });
-  }, [selectedIds, userDetections, can, hasRoleOrHigher, showToast]);
+  }, [selectedIds, productionDetections, can, hasRoleOrHigher, showToast]);
 
   const isBlockingTransition = useCallback((targetStatus: Status) => {
     return targetStatus === Status.Production || targetStatus === Status.Deprecated;
@@ -324,7 +324,7 @@ export const KanbanBoard: React.FC = () => {
     const result = await bulkUpdateStatus(detectionIds, targetStatus);
     if (result.success) {
       for (const id of detectionIds) {
-        const prevStatus = userDetections.find(d => d.id === id)?.status || 'unknown';
+        const prevStatus = productionDetections.find(d => d.id === id)?.status || 'unknown';
         try {
           await createDecision({
             detection_id: id,
@@ -343,7 +343,7 @@ export const KanbanBoard: React.FC = () => {
 
       setSelectedIds(new Set());
 
-      const movedDetections = detectionIds.map(id => userDetections.find(d => d.id === id)).filter(Boolean);
+      const movedDetections = detectionIds.map(id => productionDetections.find(d => d.id === id)).filter(Boolean);
       for (const detection of movedDetections) {
         if (detection && detection.assigned_to && detection.assigned_to !== userId) {
           supabase.from('user_notifications').insert({
@@ -365,7 +365,7 @@ export const KanbanBoard: React.FC = () => {
     }
 
     setPendingStatusChange(null);
-  }, [pendingStatusChange, bulkUpdateStatus, createDecision, userDetections, selectedIds, showToast, userId]);
+  }, [pendingStatusChange, bulkUpdateStatus, createDecision, productionDetections, selectedIds, showToast, userId]);
 
   const skipPendingStatusChange = useCallback(async () => {
     if (!pendingStatusChange) return;
