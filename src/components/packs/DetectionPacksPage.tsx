@@ -35,13 +35,13 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
   const [packTypeFilter, setPackTypeFilter] = useState<PackType | 'all'>('all');
   const { showToast } = useToast();
   const { hasRoleOrHigher } = usePermissions();
-  const { userDetections, universalDetections } = useLibrary();
+  const { productionDetections, developmentDetections } = useLibrary();
 
   const canManagePacks = hasRoleOrHigher('lead');
 
   // Combine all available detections for pack generation
   const allDetections = useMemo(() => {
-    const combined = [...(userDetections || []), ...(universalDetections || [])];
+    const combined = [...(productionDetections || []), ...(developmentDetections || [])];
     // Deduplicate by id
     const seen = new Set<string>();
     return combined.filter(d => {
@@ -49,7 +49,7 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
       seen.add(d.id);
       return true;
     });
-  }, [userDetections, universalDetections]);
+  }, [productionDetections, developmentDetections]);
 
   // Filter packs by pack_type
   const filteredPacks = useMemo(() => {

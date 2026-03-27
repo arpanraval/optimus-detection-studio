@@ -124,7 +124,7 @@ export function ScaleConfirmationDialog({
           </div>
         </div>
 
-        {/* Universal library warning */}
+        {/* Development library warning */}
         {isUniversal && (
           <div className="p-4 bg-tertiary-container/20 border border-tertiary/30 rounded-[12px] mb-4">
             <div className="flex items-start gap-3">

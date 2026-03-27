@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import WidgetEmptyState from './WidgetEmptyState';
 import { withAlpha } from '../engine/colorUtils';
 
@@ -9,7 +9,7 @@ const FILTER_MAP: Record<string, string> = {
 };
 
 const DistributionWidget: React.FC<WidgetComponentProps> = ({ config, onNavigate, timeRange }) => {
-  const { detections: allDetections } = useAppData();
+  const { detections: allDetections } = useDashboardDetections();
   const [expanded, setExpanded] = useState(false);
 
   const detections = useMemo(() => {

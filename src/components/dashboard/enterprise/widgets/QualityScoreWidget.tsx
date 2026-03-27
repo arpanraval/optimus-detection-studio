@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import { withAlpha } from '../engine/colorUtils';
 import WidgetEmptyState from './WidgetEmptyState';
 
@@ -16,7 +16,7 @@ const BUCKETS = [
 const BUCKET_OPACITY = [0.2, 0.35, 0.5, 0.7, 1.0];
 
 const QualityScoreWidget: React.FC<WidgetComponentProps> = ({ config, timeRange }) => {
-  const { detections: allDetections } = useAppData();
+  const { detections: allDetections } = useDashboardDetections();
   const accent = config.accentColor || 'rgb(var(--md-sys-color-primary))';
 
   const detections = useMemo(() => {

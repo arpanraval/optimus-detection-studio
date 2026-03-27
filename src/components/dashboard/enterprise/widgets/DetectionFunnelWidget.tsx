@@ -1,13 +1,13 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import WidgetEmptyState from './WidgetEmptyState';
 
 const STAGES = ['Draft', 'Development', 'Review', 'Testing', 'Production'] as const;
 const STAGE_COLORS = ['rgb(var(--md-sys-color-tertiary))', 'rgb(var(--md-ext-color-amber))', 'rgb(var(--md-ext-color-blue))', 'rgb(var(--md-ext-color-indigo))', 'rgb(var(--md-ext-color-green))'];
 
 const DetectionFunnelWidget: React.FC<WidgetComponentProps> = ({ config, onNavigate, timeRange }) => {
-  const { detections: allDetections } = useAppData();
+  const { detections: allDetections } = useDashboardDetections();
 
   const detections = useMemo(() => {
     if (!timeRange.startDate) return allDetections;

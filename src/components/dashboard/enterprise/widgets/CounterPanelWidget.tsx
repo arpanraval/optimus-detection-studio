@@ -6,7 +6,7 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
 import { FONT_SIZE_CLASS, ALIGNMENT_CLASS, formatWidgetNumber } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import { withAlpha } from '../engine/colorUtils';
 
 // ---------------------------------------------------------------------------
@@ -166,7 +166,7 @@ function matchesFilter(d: any, field: string, op: string, value: any): boolean {
 // ---------------------------------------------------------------------------
 
 const CounterPanelWidget: React.FC<WidgetComponentProps> = ({ config, timeRange }) => {
-  const { detections: allDetections } = useAppData();
+  const { detections: allDetections } = useDashboardDetections();
 
   const accent = config.accentColor || 'rgb(var(--md-sys-color-primary))';
   const custom = config.custom || {};

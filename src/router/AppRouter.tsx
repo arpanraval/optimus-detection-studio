@@ -110,6 +110,7 @@ const ThreatIntelFeedsPage = lazy(() => import('./pages/ThreatIntelFeedsPage').t
 const ReportHistoryPage = lazy(() => import('./pages/ReportHistoryPage').then(m => ({ default: m.ReportHistoryPage })));
 const ReportDetailPage = lazy(() => import('./pages/ReportDetailPage').then(m => ({ default: m.ReportDetailPage })));
 const SiemHealthPage = lazy(() => import('./pages/SiemHealthPage').then(m => ({ default: m.SiemHealthPage })));
+const SiemHomePageRoute = lazy(() => import('./pages/SiemHomePageRoute').then(m => ({ default: m.SiemHomePageRoute })));
 
 // Design System Pages
 const DesignOverviewPage = lazy(() => import('../components/design-system/pages/OverviewPage').then(m => ({ default: m.OverviewPage })));
@@ -238,8 +239,9 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       { path: 'settings/audit-log', element: <AuditLogPage /> },
       { path: 'settings/environment', element: <EnvironmentProfilePage /> },
 
-      // SIEM Health
+      // SIEM Home
       { path: 'siem', element: <SiemHealthPage /> },
+      { path: 'siem/:id', element: <SiemHomePageRoute /> },
 
       // Search
       { path: 'search', element: <SearchResultsPage /> },

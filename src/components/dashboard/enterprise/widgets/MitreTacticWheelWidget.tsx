@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import WidgetEmptyState from './WidgetEmptyState';
 
 const TACTIC_COLORS = [
@@ -16,7 +16,7 @@ function formatTactic(raw: string): string {
 }
 
 const MitreTacticWheelWidget: React.FC<WidgetComponentProps> = ({ config, onNavigate, timeRange }) => {
-  const { detections: allDetections } = useAppData();
+  const { detections: allDetections } = useDashboardDetections();
 
   const detections = useMemo(() => {
     if (!timeRange.startDate) return allDetections;

@@ -77,8 +77,9 @@ export const ROUTES = {
   AUDIT_LOG: '/settings/audit-log',
   ENVIRONMENT_PROFILE: '/settings/environment',
 
-  // SIEM Health
+  // SIEM Home
   SIEM_HEALTH: '/siem',
+  SIEM_HOME: '/siem/:id',
 
   // Account
   ACCOUNT: '/account',
@@ -127,6 +128,7 @@ export const routeHelpers = {
   threatIntelDetail: (id: string) => `/intelligence/threat-digest/${id}`,
   reportDetail: (id: string) => `/intelligence/reports/${id}`,
   integrationDetail: (id: string) => `/settings/integrations/${id}`,
+  siemHome: (id: string) => `/siem/${id}`,
   enterpriseDashboard: (id: string) => `/dashboard/enterprise/${id}`,
   stateSponsoredReport: () => `/exercises/state-sponsored`,
 
@@ -253,7 +255,8 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.MITRE_SYNC]: { title: 'Data Sync', description: 'Sync MITRE ATT&CK data and vector embeddings' },
   [ROUTES.AUDIT_LOG]: { title: 'Audit Log', description: 'Enterprise audit trail for compliance and accountability' },
   [ROUTES.ENVIRONMENT_PROFILE]: { title: 'Environment Profile', description: 'Configure your security environment for personalized intelligence' },
-  [ROUTES.SIEM_HEALTH]: { title: 'SIEM Health', description: 'Monitor SIEM deployment health, drift detection, and deploy queue' },
+  [ROUTES.SIEM_HEALTH]: { title: 'SIEM Home', description: 'Manage your SIEM and EDR integrations' },
+  [ROUTES.SIEM_HOME]: { title: 'SIEM Home', description: undefined },
   [ROUTES.ACTION_PLAN]: { title: 'Detection Action Plan', description: 'Prioritized detection deployment roadmap' },
   [ROUTES.EXERCISES_STATE_SPONSORED]: { title: 'State Sponsored Attack Report', description: 'Defense exercise: state-sponsored threat posture analysis' },
   [ROUTES.ACCOUNT]: { title: 'Account Settings', description: 'Manage your profile and preferences' },

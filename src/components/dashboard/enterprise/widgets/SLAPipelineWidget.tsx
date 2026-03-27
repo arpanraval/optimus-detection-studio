@@ -1,12 +1,12 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import WidgetEmptyState from './WidgetEmptyState';
 
 const SLA_STAGES = ['Draft', 'Development', 'Review', 'Testing', 'Production'] as const;
 
 const SLAPipelineWidget: React.FC<WidgetComponentProps> = ({ onNavigate, timeRange }) => {
-  const { detections: allDetections } = useAppData();
+  const { detections: allDetections } = useDashboardDetections();
 
   const detections = useMemo(() => {
     if (!timeRange.startDate) return allDetections;

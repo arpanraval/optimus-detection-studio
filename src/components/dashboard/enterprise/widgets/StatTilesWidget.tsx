@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import { useLibrary } from '../../../../context/LibraryContext';
 import { useDefensivePosture, useThreatActorWeights } from '../../../../hooks/useImpactScores';
 
@@ -16,7 +16,7 @@ const StatTile: React.FC<{ label: string; value: number; total?: number; suffix?
 );
 
 const StatTilesWidget: React.FC<WidgetComponentProps> = ({ onNavigate, timeRange }) => {
-  const { detections } = useAppData();
+  const { detections } = useDashboardDetections();
   const { userId } = useLibrary();
   const { posture, loading } = useDefensivePosture(userId);
 

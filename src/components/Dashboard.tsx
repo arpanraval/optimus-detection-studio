@@ -263,7 +263,7 @@ const DashboardSkeleton: React.FC = () => (
 // ============================================================================
 
 export const Dashboard: React.FC<DashboardProps> = ({ detections, onNavigate }) => {
-  const { userDetections, isLoading } = useLibrary();
+  const { productionDetections, isLoading } = useLibrary();
 
   // 1. Calculate Statistics
   const stats = useMemo(() => {

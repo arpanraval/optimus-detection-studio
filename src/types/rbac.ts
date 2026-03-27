@@ -40,7 +40,7 @@ export type Permission =
   | 'team_library:read'
   | 'team_library:contribute'
   | 'team_library:manage'
-  // Universal library permissions
+  // Development library permissions
   | 'development:read'
   | 'development:promote'
   | 'development:approve_promotion'

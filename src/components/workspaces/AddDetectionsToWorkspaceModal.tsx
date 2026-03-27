@@ -24,7 +24,7 @@ export const AddDetectionsToWorkspaceModal: React.FC<AddDetectionsToWorkspaceMod
     [workspaceDetections]
   );
 
-  // Fetch Universal Library detections
+  // Fetch Development Library detections
   useEffect(() => {
     if (!isOpen) return;
     
@@ -124,7 +124,7 @@ export const AddDetectionsToWorkspaceModal: React.FC<AddDetectionsToWorkspaceMod
             <div>
               <h2 className="text-lg font-semibold text-on-surface">Add Detections</h2>
               <p className="text-sm text-on-surface-variant mt-0.5">
-                Add detections from Universal Library to {currentWorkspace?.name}
+                Add detections from Development Library to {currentWorkspace?.name}
               </p>
             </div>
             <button
@@ -182,7 +182,7 @@ export const AddDetectionsToWorkspaceModal: React.FC<AddDetectionsToWorkspaceMod
                 {searchQuery 
                   ? 'No matching detections found' 
                   : detections.length === existingIds.size
-                    ? 'All Universal Library detections are already in this workspace'
+                    ? 'All Development Library detections are already in this workspace'
                     : 'No detections available'}
               </p>
             </div>

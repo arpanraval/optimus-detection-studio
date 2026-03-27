@@ -24,9 +24,9 @@ export const AddDetectionsModal: React.FC<AddDetectionsModalProps> = ({
   existingDetectionIds,
   packName,
 }) => {
-  const { userDetections, universalDetections } = useLibrary();
+  const { productionDetections, developmentDetections } = useLibrary();
   // Combine both libraries for detection picker
-  const allDetections = [...(userDetections || []), ...(universalDetections || [])];
+  const allDetections = [...(productionDetections || []), ...(developmentDetections || [])];
   
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
@@ -82,7 +82,7 @@ export const AddDetectionsModal: React.FC<AddDetectionsModalProps> = ({
         }
         return sortDirection === 'asc' ? comparison : -comparison;
       });
-  }, [userDetections, universalDetections, existingDetectionIds, search, severityFilter, statusFilter, technologyFilter, sortField, sortDirection]);
+  }, [productionDetections, developmentDetections, existingDetectionIds, search, severityFilter, statusFilter, technologyFilter, sortField, sortDirection]);
 
   // Extract unique values for filters
   const filterOptions = useMemo(() => {
@@ -101,7 +101,7 @@ export const AddDetectionsModal: React.FC<AddDetectionsModalProps> = ({
       statuses: Array.from(statuses).sort((a, b) => (STATUS_ORDER[b] || 0) - (STATUS_ORDER[a] || 0)),
       technologies: Array.from(technologies).sort(),
     };
-  }, [userDetections, universalDetections]);
+  }, [productionDetections, developmentDetections]);
 
   const toggleSelection = (id: string) => {
     const newSelected = new Set(selectedIds);
