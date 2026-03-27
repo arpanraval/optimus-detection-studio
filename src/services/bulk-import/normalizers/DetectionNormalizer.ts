@@ -22,8 +22,8 @@ import {
   mapStatus,
   mapMaturity,
   mapSource,
-  calculateQualityScore,
 } from '../types';
+import { scoreDetection } from '../../../lib/quality/scoringEngine';
 
 /**
  * Options for normalization
@@ -121,8 +121,8 @@ export class DetectionNormalizer {
       testedAndValidated: false,
       testCases: [],
 
-      // Quality
-      qualityScore: calculateQualityScore(rule),
+      // Quality - will be recalculated below using the full scoring engine
+      qualityScore: 0,
 
       // Metadata
       references: rule.references,
@@ -142,6 +142,10 @@ export class DetectionNormalizer {
       // RBAC fields
       review_status: 'none',
     };
+
+    // Recalculate quality score using the unified scoring engine so that
+    // unvalidated imports correctly receive 0 for the peer_review dimension.
+    detection.qualityScore = scoreDetection(detection).score;
 
     return detection;
   }

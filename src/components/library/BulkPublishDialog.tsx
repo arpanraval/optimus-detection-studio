@@ -1,5 +1,5 @@
 /**
- * BulkPublishDialog - Multi-step dialog for bulk publishing detections to Universal Library.
+ * BulkPublishDialog - Multi-step dialog for bulk promoting detections to Production Library.
  * Steps: Eligibility Check -> Summary & Confirmation -> Progress -> Done
  */
 
@@ -34,7 +34,7 @@ export const BulkPublishDialog: React.FC<BulkPublishDialogProps> = ({
   onClose,
   onComplete,
 }) => {
-  const { checkPromotionEligibility, submitForPromotionSilent, refreshUserLibrary, refreshUserSubmissions } = useLibrary();
+  const { checkPromotionEligibility, submitForPromotionSilent, refreshProductionLibrary, refreshUserSubmissions } = useLibrary();
 
   const [step, setStep] = useState<DialogStep>('checking');
   const [results, setResults] = useState<EligibilityResult[]>([]);
@@ -136,9 +136,9 @@ export const BulkPublishDialog: React.FC<BulkPublishDialogProps> = ({
     }
 
     // Refresh once at the end
-    await Promise.all([refreshUserLibrary(), refreshUserSubmissions()]);
+    await Promise.all([refreshProductionLibrary(), refreshUserSubmissions()]);
     setStep('done');
-  }, [eligibleIds, detections, submitForPromotionSilent, refreshUserLibrary, refreshUserSubmissions]);
+  }, [eligibleIds, detections, submitForPromotionSilent, refreshProductionLibrary, refreshUserSubmissions]);
 
   const handleDone = () => {
     onComplete();

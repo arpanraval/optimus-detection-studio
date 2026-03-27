@@ -1645,7 +1645,7 @@ async function executeStage<T>(
     console.error(`Stage ${stageName} failed:`, error)
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: 'Stage failed',
       durationMs: Date.now() - startTime
     }
   }

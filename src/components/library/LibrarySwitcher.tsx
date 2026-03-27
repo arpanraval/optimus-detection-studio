@@ -10,7 +10,7 @@ interface LibrarySwitcherProps {
 }
 
 export const LibrarySwitcher: React.FC<LibrarySwitcherProps> = ({ className = '' }) => {
-  const { currentLibrary, setCurrentLibrary, userDetections, universalDetections } = useLibrary();
+  const { currentLibrary, setCurrentLibrary, productionDetections, developmentDetections } = useLibrary();
 
   return (
     <div className={`flex items-center gap-1 p-1 bg-surface-container rounded-full ${className}`}>
@@ -29,7 +29,7 @@ export const LibrarySwitcher: React.FC<LibrarySwitcherProps> = ({ className = ''
             ? 'bg-on-primary/20 text-on-primary'
             : 'bg-surface-container-highest text-text-tertiary'
         }`}>
-          {userDetections.length}
+          {productionDetections.length}
         </span>
       </button>
 
@@ -48,7 +48,7 @@ export const LibrarySwitcher: React.FC<LibrarySwitcherProps> = ({ className = ''
             ? 'bg-on-secondary/20 text-on-secondary'
             : 'bg-surface-container-highest text-text-tertiary'
         }`}>
-          {universalDetections.length}
+          {developmentDetections.length}
         </span>
       </button>
     </div>

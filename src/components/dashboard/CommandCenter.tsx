@@ -37,19 +37,26 @@ interface CommandCenterProps {
 export const CommandCenter: React.FC<CommandCenterProps> = ({ detections, scope = 'production', onScopeChange, onNavigate }) => {
   const { isLoading, userId } = useLibrary();
   const location = useLocation();
+
+  // Filter detections based on scope toggle — production excludes development library items
+  const filteredDetections = useMemo(() => {
+    if (scope === 'all') return detections;
+    return detections.filter(d => d.library_type !== 'development');
+  }, [detections, scope]);
+
   const { posture, loading: postureLoading } = useDefensivePosture(userId, scope);
   const { actors, loading: actorsLoading } = useThreatActorWeights();
-  const { campaignReadiness, threatLandscape, sectorCoverage, originCoverage, coverageTrend, error: dataError } = useCommandCenterData(actors, detections, posture?.total_techniques);
+  const { campaignReadiness, threatLandscape, sectorCoverage, originCoverage, coverageTrend, error: dataError } = useCommandCenterData(actors, filteredDetections, posture?.total_techniques);
   const { techniques: mitreTechniques, loading: mitreLoading } = useMitreMatrix();
   const { activities, isLoading: activityLoading } = useActivityLog({ limit: 8, autoFetch: true });
   const supaLoading = postureLoading || actorsLoading;
 
   const stats = useMemo(() => {
-    const total = detections.length;
+    const total = filteredDetections.length;
     if (total === 0) return null;
-    const production = detections.filter(d => d.status === 'Production').length;
-    const validated = detections.filter(d => d.testedAndValidated).length;
-    const qualityTotal = detections.reduce((s, d) => s + (d.qualityScore || 0), 0);
+    const production = filteredDetections.filter(d => d.status === 'Production').length;
+    const validated = filteredDetections.filter(d => d.testedAndValidated).length;
+    const qualityTotal = filteredDetections.reduce((s, d) => s + (d.qualityScore || 0), 0);
     const byTactic: Record<string, number> = {};
     // Build a lookup from normalized tactic name → tactic ID
     const tacticLookup = new Map<string, string>();
@@ -74,7 +81,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ detections, scope 
     // Unique techniques per tactic (for coverage fractions)
     const tacticTechniques: Record<string, Set<string>> = {};
 
-    detections.forEach(d => {
+    filteredDetections.forEach(d => {
       const tacticIds: string[] = [];
       (d.mitreTactics || []).forEach(t => {
         const id = tacticLookup.get(t) || tacticLookup.get(t.toLowerCase()) || tacticLookup.get(t.toLowerCase().replace(/ /g, '-'));
@@ -104,18 +111,18 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ detections, scope 
       tacticTechCount[tacId] = techSet.size;
     }
     return { total, production, validated, qualityAvg: Math.round(qualityTotal / total), byTactic, tacticTechCount, byLanguage, byPlatform, bySeverity, byLogSource, byStatus };
-  }, [detections]);
+  }, [filteredDetections]);
 
   // Velocity sparkline: bucket detections by week (last 12 weeks)
   const velocityData = useMemo(() => {
-    if (detections.length === 0) return [];
+    if (filteredDetections.length === 0) return [];
     const now = new Date();
     const weeks = 12;
     const buckets = new Array(weeks).fill(0);
     const msPerWeek = 7 * 24 * 60 * 60 * 1000;
     const cutoff = now.getTime() - weeks * msPerWeek;
 
-    detections.forEach(d => {
+    filteredDetections.forEach(d => {
       if (!d.createdDate) return;
       const ts = new Date(d.createdDate).getTime();
       if (ts < cutoff) return;
@@ -123,14 +130,14 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ detections, scope 
       buckets[weeks - 1 - weekIdx]++;
     });
     return buckets;
-  }, [detections]);
+  }, [filteredDetections]);
   const userTechniqueIds = useMemo(() => {
     const ids = new Set<string>();
-    detections.forEach(d => (d.mitreAttackIds || []).forEach(id => ids.add(id)));
+    filteredDetections.forEach(d => (d.mitreAttackIds || []).forEach(id => ids.add(id)));
     return ids;
-  }, [detections]);
+  }, [filteredDetections]);
 
-  if (!isLoading && detections.length === 0) {
+  if (!isLoading && filteredDetections.length === 0) {
     return (
       <div className="h-full overflow-y-auto bg-background p-6">
         <div className="mx-auto max-w-xl">
@@ -281,16 +288,16 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ detections, scope 
             MATURITY + ACTIVITY — side by side
             ═══════════════════════════════════════════ */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 mb-2">
-          <MaturityRadar detections={detections} posture={posture} />
-          <RecentActivityPanel activities={activities} detections={detections} isLoading={activityLoading} onNavigate={onNavigate} />
+          <MaturityRadar detections={filteredDetections} posture={posture} />
+          <RecentActivityPanel activities={activities} detections={filteredDetections} isLoading={activityLoading} onNavigate={onNavigate} />
         </div>
 
         {/* ═══════════════════════════════════════════
             SLA PIPELINE + PLATFORM COVERAGE
             ═══════════════════════════════════════════ */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 mb-2">
-          <SLAPipeline detections={detections} onNavigate={onNavigate} />
-          <PlatformCoverageMatrix detections={detections} onNavigate={onNavigate} />
+          <SLAPipeline detections={filteredDetections} onNavigate={onNavigate} />
+          <PlatformCoverageMatrix detections={filteredDetections} onNavigate={onNavigate} />
         </div>
 
         {/* ═══════════════════════════════════════════
@@ -313,15 +320,15 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ detections, scope 
             CONTRIBUTORS + ASSIGNMENTS + STALE WATCHLIST
             ═══════════════════════════════════════════ */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-1.5 mb-2">
-          <TopContributors detections={detections} onNavigate={onNavigate} />
-          <MyAssignmentsPanel detections={detections} userId={userId} onNavigate={onNavigate} />
-          <StaleWatchlist detections={detections} onNavigate={onNavigate} />
+          <TopContributors detections={filteredDetections} onNavigate={onNavigate} />
+          <MyAssignmentsPanel detections={filteredDetections} userId={userId} onNavigate={onNavigate} />
+          <StaleWatchlist detections={filteredDetections} onNavigate={onNavigate} />
         </div>
 
         {/* ═══════════════════════════════════════════
             HYGIENE ALERTS — actionable nudges
             ═══════════════════════════════════════════ */}
-        <HygieneAlerts detections={detections} onNavigate={onNavigate} />
+        <HygieneAlerts detections={filteredDetections} onNavigate={onNavigate} />
 
         {/* ═══════════════════════════════════════════
             ATT&CK COVERAGE — visual heat strips

@@ -317,14 +317,14 @@ async function handleCheck(supabase: any, jobId: string, req: Request): Promise<
         processedItems: job.processed_items,
         failedItems: job.failed_items,
         batchStats: batchStatus.batchStats || null,
-        errorMessage: newStatus === 'failed' ? (batchStatus.error?.message || 'Job failed') : null,
+        errorMessage: newStatus === 'failed' ? 'Job failed' : null,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   } catch (e: any) {
     console.error('Error checking batch status:', e)
     return new Response(
-      JSON.stringify({ jobId: job.id, status: job.status, error: e.message }),
+      JSON.stringify({ jobId: job.id, status: job.status, error: 'Status check failed' }),
       { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }

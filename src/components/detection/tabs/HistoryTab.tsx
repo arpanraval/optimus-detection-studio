@@ -5,6 +5,7 @@ import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION, PROMOTION_NONE, PROMOTION_PEND
 import { Icon } from '../../Icon';
 import { useDetectionAudit } from '../../../hooks/useDetectionAudit';
 import { supabase } from '../../../lib/supabaseClient';
+import { DetailCard } from '../DetailCard';
 
 interface HistoryTabProps {
   detection: Detection;
@@ -14,20 +15,6 @@ interface UserInfo {
   email: string;
   role?: string;
 }
-
-const DetailCard: React.FC<{ title: string; description?: string; children: React.ReactNode }> = ({ title, description, children }) => (
-  <section className="rounded-2xl overflow-hidden mb-6 border border-outline-variant/30 bg-surface-container-low">
-    <div className="px-6 py-5 border-b border-outline-variant/30 bg-surface-container-low">
-      <h3 className="text-base font-medium text-on-surface">{title}</h3>
-      {description && (
-        <p className="text-sm mt-0.5 text-on-surface-variant">{description}</p>
-      )}
-    </div>
-    <div className="p-6 space-y-5">
-      {children}
-    </div>
-  </section>
-);
 
 // M1: User display component with avatar
 const UserDisplay: React.FC<{ 

@@ -1,12 +1,12 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import WidgetEmptyState from './WidgetEmptyState';
 
 const MS_PER_DAY = 86400000;
 
 const TimeToProductionWidget: React.FC<WidgetComponentProps> = ({ config, timeRange }) => {
-  const { detections: allDetections } = useAppData();
+  const { detections: allDetections } = useDashboardDetections();
   const accent = config.accentColor || 'rgb(var(--md-sys-color-primary))';
 
   const detections = useMemo(() => {

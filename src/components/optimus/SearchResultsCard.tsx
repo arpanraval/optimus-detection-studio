@@ -18,11 +18,11 @@ interface Props {
 
 const getStatusStyle = (status: string) => {
   switch (status?.toLowerCase()) {
-    case 'production': return { bg: 'bg-emerald-500/15', text: 'text-emerald-400', border: 'border-emerald-500/30' };
-    case 'testing': return { bg: 'bg-blue-500/15', text: 'text-blue-400', border: 'border-blue-500/30' };
-    case 'review': return { bg: 'bg-amber-500/15', text: 'text-amber-400', border: 'border-amber-500/30' };
+    case 'production': return { bg: 'bg-primary/15', text: 'text-primary', border: 'border-primary/20' };
+    case 'testing': return { bg: 'bg-tertiary/15', text: 'text-tertiary', border: 'border-tertiary/20' };
+    case 'review': return { bg: 'bg-secondary/15', text: 'text-secondary', border: 'border-secondary/20' };
     case 'draft': return { bg: 'bg-surface-container-highest', text: 'text-on-surface-variant', border: 'border-outline-variant/30' };
-    case 'deprecated': return { bg: 'bg-rose-500/15', text: 'text-rose-400', border: 'border-rose-500/30' };
+    case 'deprecated': return { bg: 'bg-error/15', text: 'text-error', border: 'border-error/20' };
     default: return { bg: 'bg-surface-container-highest', text: 'text-on-surface-variant', border: 'border-outline-variant/30' };
   }
 };
@@ -155,10 +155,10 @@ export const SearchResultsCard: React.FC<Props> = ({ summary, data, actions, onA
             <button
               key={i}
               onClick={() => onAction(action)}
-              className={`px-4 py-2.5 text-xs font-semibold rounded-xl transition-all duration-150 ${
+              className={`px-4 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 ease-emphasized ${
                 i === 0
-                  ? 'bg-primary text-on-primary hover:bg-primary/90 shadow-sm shadow-primary/20'
-                  : 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest'
+                  ? 'bg-primary text-on-primary hover:bg-primary/90 shadow-sm'
+                  : 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest border border-outline-variant/10'
               }`}
             >
               {action.label}

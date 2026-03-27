@@ -1,12 +1,12 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import { useLibrary } from '../../../../context/LibraryContext';
 import { useDefensivePosture } from '../../../../hooks/useImpactScores';
 import WidgetEmptyState from './WidgetEmptyState';
 
 const MaturityRadarWidget: React.FC<WidgetComponentProps> = ({ config, timeRange }) => {
-  const { detections: allDetections } = useAppData();
+  const { detections: allDetections } = useDashboardDetections();
   const { userId } = useLibrary();
   const { posture } = useDefensivePosture(userId);
 

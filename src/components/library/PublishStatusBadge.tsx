@@ -4,15 +4,14 @@ import { PromotionStatus, PROMOTION_NONE, PROMOTION_PENDING, PROMOTION_PROMOTED,
 
 export type BadgeSize = 'xs' | 'sm' | 'md' | 'lg';
 
-interface PublishStatusBadgeProps {
+interface PromotionStatusBadgeProps {
   status: PromotionStatus;
   size?: BadgeSize;
   showLabel?: boolean;
 }
 
 /**
- * PromotionStatusBadge (exported as PublishStatusBadge for backward compatibility)
- * TODO: Rename export to PromotionStatusBadge once all imports are updated
+ * PromotionStatusBadge
  *
  * Colors:
  * - none: Surface Gray
@@ -62,7 +61,7 @@ const sizeStyles: Record<BadgeSize, { padding: string; text: string; radius: str
   lg: { padding: 'px-3 py-1.5', text: 'text-[11px]', radius: 'rounded-lg', iconSize: 'w-3.5 h-3.5', gap: 'gap-1.5' },
 };
 
-export const PublishStatusBadge: React.FC<PublishStatusBadgeProps> = ({
+export const PromotionStatusBadge: React.FC<PromotionStatusBadgeProps> = ({
   status,
   size = 'sm',
   showLabel = true
@@ -86,3 +85,6 @@ export const PublishStatusBadge: React.FC<PublishStatusBadgeProps> = ({
     </span>
   );
 };
+
+// Backward compatibility re-export
+export { PromotionStatusBadge as PublishStatusBadge };

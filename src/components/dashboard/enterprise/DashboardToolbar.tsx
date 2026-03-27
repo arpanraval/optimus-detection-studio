@@ -443,6 +443,30 @@ const DashboardToolbar: React.FC<DashboardToolbarProps> = ({ userId }) => {
         )}
       </div>
 
+      {/* Scope toggle */}
+      <div className="inline-flex items-center rounded-lg bg-surface-container p-0.5">
+        <button
+          onClick={() => dispatch({ type: 'SET_SCOPE_FILTER', scope: 'production' })}
+          className={`px-3 py-1 text-[11px] font-brand font-bold rounded-md transition-all tracking-wide ${
+            state.scopeFilter === 'production'
+              ? 'bg-primary text-on-primary shadow-sm'
+              : 'text-on-surface-variant/60 hover:text-on-surface-variant'
+          }`}
+        >
+          Production Only
+        </button>
+        <button
+          onClick={() => dispatch({ type: 'SET_SCOPE_FILTER', scope: 'all' })}
+          className={`px-3 py-1 text-[11px] font-brand font-bold rounded-md transition-all tracking-wide ${
+            state.scopeFilter === 'all'
+              ? 'bg-primary text-on-primary shadow-sm'
+              : 'text-on-surface-variant/60 hover:text-on-surface-variant'
+          }`}
+        >
+          + Development Library
+        </button>
+      </div>
+
       {/* Spacer */}
       <div className="flex-1" />
 

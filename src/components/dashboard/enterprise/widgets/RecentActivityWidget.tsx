@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import { useActivityLog } from '../../../../hooks/useActivityLog';
 
 const ACTION_DOT_COLORS: Record<string, string> = {
@@ -27,7 +27,7 @@ function relativeTime(dateStr: string): string {
 }
 
 const RecentActivityWidget: React.FC<WidgetComponentProps> = ({ config, onNavigate, timeRange }) => {
-  const { detections } = useAppData();
+  const { detections } = useDashboardDetections();
   const limit = config.maxItems ?? 8;
   const { activities, isLoading } = useActivityLog({ limit, autoFetch: true });
 

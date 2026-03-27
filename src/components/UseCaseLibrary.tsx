@@ -25,13 +25,15 @@ import { FilterPanel, ActiveFilterChips } from './library';
 import { useFilterOptions } from '../hooks/useFilterOptions';
 import { routeHelpers } from '../router/routes';
 import { useDetectionPatterns } from '../hooks/useDetectionPatterns';
+import { useClickOutside } from '../hooks/useClickOutside';
+import { useLocalStorage } from '../hooks/useLocalStorage';
+import { getQualityGrade } from '../lib/utils/formatting';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 interface DetectionLibraryProps {
-  detections?: Detection[];  // Optional - component uses LibraryContext
   onSelectDetection: (detection: Detection) => void;
   onEditDetection?: (detection: Detection) => void;  // For edit functionality
   mitreFilter?: string | null;
@@ -79,15 +81,6 @@ const STATUS_ORDER: Record<string, number> = { Production: 6, Testing: 5, Review
 const EMPTY_FILTER_VALUE = '__EMPTY__';
 const EMPTY_FILTER_LABEL = '(Empty)';
 
-// Helper to compute quality grade from qualityScore
-const getQualityGrade = (score: number): string => {
-  if (score >= 90) return 'A';
-  if (score >= 75) return 'B';
-  if (score >= 60) return 'C';
-  if (score >= 40) return 'D';
-  return 'F';
-};
-
 const ALL_FILTER_FIELDS: FilterConfig[] = [
   { key: 'technology', label: 'Technology', type: 'string' },
   { key: 'logSource', label: 'Log Source', type: 'string' },
@@ -109,6 +102,7 @@ const ALL_FILTER_FIELDS: FilterConfig[] = [
   { key: 'qualityGrade', label: 'Quality Grade', type: 'computed' },
   { key: 'promotion_status', label: 'Promotion Status', type: 'string', librarySpecific: LIBRARY_PRODUCTION },
   { key: 'source', label: 'Source', type: 'string', librarySpecific: LIBRARY_DEVELOPMENT },
+  { key: 'review_status', label: 'Review Status', type: 'string' },
 ];
 
 const COLUMN_GRID_WIDTHS: Record<string, string> = {
@@ -165,35 +159,6 @@ const SOLID_TERTIARY = '#783264';
 
 // Row container - rounded-xl to match list items
 const ROW_CONTAINER = "bg-surface-container-high rounded-xl";
-
-// ============================================================================
-// HOOKS
-// ============================================================================
-
-const useClickOutside = (ref: React.RefObject<HTMLElement>, handler: () => void) => {
-  useEffect(() => {
-    const listener = (e: MouseEvent | TouchEvent) => {
-      if (!ref.current || ref.current.contains(e.target as Node)) return;
-      handler();
-    };
-    document.addEventListener('mousedown', listener);
-    return () => document.removeEventListener('mousedown', listener);
-  }, [ref, handler]);
-};
-
-const useLocalStorage = <T,>(key: string, defaultValue: T): [T, (value: T) => void] => {
-  const [state, setState] = useState<T>(() => {
-    try {
-      const stored = localStorage.getItem(key);
-      return stored ? JSON.parse(stored) : defaultValue;
-    } catch { return defaultValue; }
-  });
-  const setValue = useCallback((value: T) => {
-    setState(value);
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
-  }, [key]);
-  return [state, setValue];
-};
 
 // ============================================================================
 // SUB-COMPONENTS
@@ -632,6 +597,7 @@ const PaginationControls: React.FC<{
 
 export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
   onSelectDetection,
+  onEditDetection,
   mitreFilter,
   onClearMitreFilter,
   onNewDetection,
@@ -656,17 +622,17 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
   const {
     currentLibrary,
     setCurrentLibrary,
-    userDetections,
-    universalDetections,
+    productionDetections,
+    developmentDetections,
     isLoading,
     userRole,
     submitForPromotion,
-    refreshUserLibrary,
-    refreshUniversalLibrary,
+    refreshProductionLibrary,
+    refreshDevelopmentLibrary,
     // Pagination
     currentPagination,
-    userPagination,
-    universalPagination,
+    productionPagination,
+    developmentPagination,
     setPage,
     setPageSize,
     // Sorting (server-side)
@@ -694,7 +660,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
     getFilteredCount,
   } = useLibrary();
   const isAdmin = userRole === 'admin';
-  const detections = currentLibrary === LIBRARY_DEVELOPMENT ? universalDetections : userDetections;
+  const detections = currentLibrary === LIBRARY_DEVELOPMENT ? developmentDetections : productionDetections;
 
   const { options: filterOpts, loading: filterOptsLoading } = useFilterOptions(
     currentLibrary
@@ -708,6 +674,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
   const [bulkPublishIds, setBulkPublishIds] = useState<string[]>([]);
   const [showBulkDeploy, setShowBulkDeploy] = useState(false);
   const [bulkDeployIds, setBulkDeployIds] = useState<string[]>([]);
+  const [bulkProcessing, setBulkProcessing] = useState<string | null>(null);
 
   // Apply initial filters from props (e.g. from Dashboard click)
   useEffect(() => {
@@ -808,7 +775,54 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
   const applyPreset = (p: ViewPreset) => { setFilters(p.filters); if (p.listColumns) setListColumns(p.listColumns); setActivePreset(p.id); };
   
   const handleExport = async (format: ExportFormat, columns: string[]) => {
-    await exportDetections(sortedDetections, format, columns);
+    const totalCount = currentPagination.totalCount;
+    const pageCount = sortedDetections.length;
+
+    if (totalCount <= pageCount) {
+      // All detections fit on current page — export directly
+      await exportDetections(sortedDetections, format, columns);
+      return;
+    }
+
+    // Need to fetch all matching detections for export
+    showToast('info', 'Exporting', `Fetching all ${totalCount.toLocaleString()} detections...`);
+    try {
+      const libraryFilter = currentLibrary === LIBRARY_DEVELOPMENT
+        ? `library_type.eq.${LIBRARY_DEVELOPMENT}`
+        : `library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null`;
+
+      let query = supabase
+        .from('detections')
+        .select('*')
+        .or(libraryFilter);
+
+      // Apply key server filters
+      if (serverFilters.search) {
+        const escapeLike = (s: string) => s.replace(/[%_\\]/g, '\\$&');
+        const t = `%${escapeLike(serverFilters.search)}%`;
+        query = query.or(`name.ilike.${t},description.ilike.${t},id.ilike.${t}`);
+      }
+      if (serverFilters.status?.length) query = query.in('status', serverFilters.status);
+      if (serverFilters.severity?.length) query = query.in('severity', serverFilters.severity);
+      if (serverFilters.queryLanguage?.length) query = query.in('queryLanguage', serverFilters.queryLanguage);
+      if (serverFilters.tags?.length) query = query.overlaps('tags', serverFilters.tags);
+      if (serverFilters.mitreTactics?.length) query = query.overlaps('mitreTactics', serverFilters.mitreTactics);
+      if (serverFilters.mitreTechniques?.length) query = query.overlaps('mitreTechniques', serverFilters.mitreTechniques);
+      if (serverFilters.platforms?.length) query = query.overlaps('platforms', serverFilters.platforms);
+      if (serverFilters.detectionType?.length) query = query.in('detectionType', serverFilters.detectionType);
+      if (serverFilters.technology?.length) query = query.in('technology', serverFilters.technology);
+      if (serverFilters.logSource?.length) query = query.in('logSource', serverFilters.logSource);
+      if (serverFilters.author?.length) query = query.in('author', serverFilters.author);
+
+      const { data, error } = await query.order('"updatedDate"', { ascending: false });
+
+      if (error) throw error;
+      await exportDetections(data || [], format, columns);
+      showToast('success', 'Export Complete', `Exported ${(data?.length || 0).toLocaleString()} detections.`);
+    } catch (err: any) {
+      console.error('Export all error:', err);
+      showToast('error', 'Export Failed', err.message || 'Could not export all detections.');
+    }
   };
 
   // Find detections that need MITRE resolution (have mitreAttackIds but missing tactics/techniques)
@@ -873,9 +887,9 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
 
       // Refresh the library
       if (currentLibrary === LIBRARY_DEVELOPMENT) {
-        await refreshUniversalLibrary();
+        await refreshDevelopmentLibrary();
       } else {
-        await refreshUserLibrary();
+        await refreshProductionLibrary();
       }
     } catch (error: any) {
       console.error('Bulk MITRE resolution error:', error);
@@ -926,8 +940,13 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
 
   // Bulk action handlers
   const handleBulkDelete = async (ids: string[]) => {
-    await bulkDelete(ids);
-    setSelectionMode(false);
+    setBulkProcessing(`Deleting ${ids.length} detections...`);
+    try {
+      await bulkDelete(ids);
+    } finally {
+      setBulkProcessing(null);
+      setSelectionMode(false);
+    }
   };
 
   const handleBulkExport = (ids: string[]) => {
@@ -936,19 +955,40 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
   };
 
   const handleBulkStatusChange = async (ids: string[], status: string) => {
-    await bulkUpdateStatus(ids, status);
+    setBulkProcessing(`Updating status for ${ids.length} detections...`);
+    try {
+      await bulkUpdateStatus(ids, status);
+    } finally {
+      setBulkProcessing(null);
+    }
   };
 
   const handleBulkSeverityChange = async (ids: string[], severity: string) => {
-    await bulkUpdateSeverity(ids, severity);
+    setBulkProcessing(`Updating severity for ${ids.length} detections...`);
+    try {
+      await bulkUpdateSeverity(ids, severity);
+    } finally {
+      setBulkProcessing(null);
+    }
   };
 
   const handleBulkCopyToLibrary = async (ids: string[]) => {
     if (currentLibrary === LIBRARY_PRODUCTION) {
-      // Production view → Fork to Development (one by one since no bulk fork yet)
-      for (const id of ids) {
-        await forkToDevelopment(id);
+      const total = ids.length;
+      let completed = 0;
+      const BATCH_SIZE = 5;
+
+      showToast('info', 'Forking Detections', `Forking ${total} detections to Development Library...`);
+
+      for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+        const batch = ids.slice(i, i + BATCH_SIZE);
+        const results = await Promise.allSettled(
+          batch.map(id => forkToDevelopment(id))
+        );
+        completed += results.filter(r => r.status === 'fulfilled').length;
       }
+
+      showToast('success', 'Fork Complete', `Successfully forked ${completed} of ${total} detections.`);
       clearSelection();
     }
     setSelectionMode(false);
@@ -986,7 +1026,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
                 : { backgroundColor: 'var(--md-sys-color-surface-container-highest)' }
               }
             >
-              {userPagination.totalCount.toLocaleString()}
+              {productionPagination.totalCount.toLocaleString()}
             </span>
           </button>
           <button
@@ -1006,7 +1046,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
                 : { backgroundColor: 'var(--md-sys-color-surface-container-highest)' }
               }
             >
-              {universalPagination.totalCount.toLocaleString()}
+              {developmentPagination.totalCount.toLocaleString()}
             </span>
           </button>
         </div>
@@ -1108,6 +1148,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
         {currentLibrary === LIBRARY_PRODUCTION && (
           <button
             onClick={async () => {
+              if (!confirm(`Analyze patterns across all ${productionPagination.totalCount} production detections? This may take a moment.`)) return;
               try {
                 const { data: { user } } = await supabase.auth.getUser();
                 if (!user) return;
@@ -1126,7 +1167,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
             }}
             disabled={extractingPatterns}
             className="h-8 px-3 text-sm font-medium rounded-xl text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface transition-all inline-flex items-center gap-1.5 disabled:opacity-50"
-            title="Analyze detection patterns across your library"
+            title="Analyze detection patterns across your entire production library (MITRE coverage, log source distribution, severity breakdown)"
           >
             <Icon name={extractingPatterns ? 'spinner' : 'cpu'} className={`w-4 h-4${extractingPatterns ? ' animate-spin' : ''}`} />
             <span>{extractingPatterns ? 'Analyzing...' : 'Analyze Patterns'}</span>
@@ -1301,7 +1342,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
               onClick={() => { if (!selectionMode) onSelectDetection(d); }}
               libraryType={currentLibrary}
               onAddToLibrary={undefined}
-              isInUserLibrary={currentLibrary === LIBRARY_DEVELOPMENT ? userDetections.some(ud => ud.source_rule_id === d.id) : false}
+              isInUserLibrary={currentLibrary === LIBRARY_DEVELOPMENT ? productionDetections.some(ud => ud.source_rule_id === d.id) : false}
               selectionMode={selectionMode}
               isSelected={isSelected(d.id)}
               onToggleSelect={handleToggleSelect}
@@ -1403,6 +1444,8 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
       {/* Bulk Action Bar */}
       {(selectionMode || selectedDetectionIds.size > 0) && (
         <BulkActionBar
+          isProcessing={!!bulkProcessing}
+          processingMessage={bulkProcessing || undefined}
           selectedCount={selectedDetectionIds.size}
           selectedIds={Array.from(selectedDetectionIds)}
           libraryType={currentLibrary}

@@ -1,10 +1,10 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import { useLibrary } from '../../../../context/LibraryContext';
 
 const MyAssignmentsWidget: React.FC<WidgetComponentProps> = ({ onNavigate }) => {
-  const { detections } = useAppData();
+  const { detections } = useDashboardDetections();
   const { userId } = useLibrary();
 
   const { assigned, reviews } = useMemo(() => {

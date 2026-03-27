@@ -28,6 +28,7 @@ export interface DashboardState {
   refreshTick: number;
   queryBuilderOpen: boolean;
   queryBuilderWidgetId: string | null; // null = creating new, string = editing existing
+  scopeFilter: 'production' | 'all';
 }
 
 const initialState: DashboardState = {
@@ -46,6 +47,7 @@ const initialState: DashboardState = {
   refreshTick: 0,
   queryBuilderOpen: false,
   queryBuilderWidgetId: null,
+  scopeFilter: 'production',
 };
 
 // ---------------------------------------------------------------------------
@@ -78,7 +80,8 @@ export type DashboardAction =
   | { type: 'SET_AUTO_REFRESH'; interval: AutoRefreshInterval }
   | { type: 'REFRESH_TICK' }
   | { type: 'OPEN_QUERY_BUILDER'; widgetId?: string }
-  | { type: 'CLOSE_QUERY_BUILDER' };
+  | { type: 'CLOSE_QUERY_BUILDER' }
+  | { type: 'SET_SCOPE_FILTER'; scope: 'production' | 'all' };
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -323,6 +326,9 @@ function dashboardReducer(state: DashboardState, action: DashboardAction): Dashb
 
     case 'CLOSE_QUERY_BUILDER':
       return { ...state, queryBuilderOpen: false, queryBuilderWidgetId: null };
+
+    case 'SET_SCOPE_FILTER':
+      return { ...state, scopeFilter: action.scope };
 
     default:
       return state;

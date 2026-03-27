@@ -1,10 +1,10 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import WidgetEmptyState from './WidgetEmptyState';
 
 const TopContributorsWidget: React.FC<WidgetComponentProps> = ({ config, onNavigate, timeRange }) => {
-  const { detections } = useAppData();
+  const { detections } = useDashboardDetections();
 
   const contributors = useMemo(() => {
     let source = detections;

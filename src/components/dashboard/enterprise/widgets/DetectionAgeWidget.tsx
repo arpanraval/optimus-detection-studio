@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import { withAlpha } from '../engine/colorUtils';
 import WidgetEmptyState from './WidgetEmptyState';
 
@@ -19,7 +19,7 @@ const BUCKET_OPACITY = [1.0, 0.8, 0.6, 0.45, 0.3, 0.2];
 const MS_PER_DAY = 86400000;
 
 const DetectionAgeWidget: React.FC<WidgetComponentProps> = ({ config, timeRange }) => {
-  const { detections: allDetections } = useAppData();
+  const { detections: allDetections } = useDashboardDetections();
   const accent = config.accentColor || 'rgb(var(--md-sys-color-primary))';
 
   const detections = useMemo(() => {

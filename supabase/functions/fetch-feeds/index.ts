@@ -126,7 +126,8 @@ serve(async (req: Request) => {
         totalNew += newEntries;
       } catch (err: any) {
         const errMsg = err.message || 'Unknown error';
-        errors.push(`${feed.name}: ${errMsg}`);
+        console.error(`Feed ${feed.name} error:`, errMsg);
+        errors.push(`${feed.name}: fetch failed`);
         await supabase.from('threat_intel_feeds').update({
           last_error: errMsg,
         }).eq('id', feed.id);

@@ -163,7 +163,7 @@ async function handleSearchLibrary(supabase: any, params: any) {
       status: r.status,
       severity: r.severity,
       queryLanguage: r.query_language || 'Unknown',
-      similarity: r.similarity || (1 - idx * 0.02) // Approximate if not available
+      similarity: r.similarity ?? null
     })
   })
 
@@ -178,13 +178,13 @@ async function handleSearchLibrary(supabase: any, params: any) {
         status: r.status,
         severity: r.severity,
         queryLanguage: r.queryLanguage || 'Unknown',
-        similarity: 0.5 - idx * 0.01 // Lower score for keyword-only matches
+        similarity: null
       })
     }
   })
 
   const results = Array.from(resultMap.values())
-    .sort((a, b) => b.similarity - a.similarity)
+    .sort((a, b) => (b.similarity ?? -1) - (a.similarity ?? -1))
     .slice(0, limit)
 
   // Enrich each result with recent decisions (last 2 with actual reasoning)

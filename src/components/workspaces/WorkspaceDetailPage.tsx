@@ -264,7 +264,7 @@ export const WorkspaceDetailPage: React.FC<WorkspaceDetailPageProps> = ({ onBack
             <p className="text-sm text-on-surface-variant mb-6 max-w-md">
               {searchQuery || filterStatus !== 'all'
                 ? 'Try adjusting your search or filters.'
-                : 'Add detections from the Universal Library to get started.'}
+                : 'Add detections from the Development Library to get started.'}
             </p>
             {canEdit && !searchQuery && filterStatus === 'all' && (
               <button

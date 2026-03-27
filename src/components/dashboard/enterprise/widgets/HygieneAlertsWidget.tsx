@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
 import { FONT_SIZE_CLASS, formatWidgetNumber } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import WidgetEmptyState from './WidgetEmptyState';
 
 interface HygieneAlert {
@@ -9,7 +9,7 @@ interface HygieneAlert {
 }
 
 const HygieneAlertsWidget: React.FC<WidgetComponentProps> = ({ config, onNavigate, timeRange }) => {
-  const { detections } = useAppData();
+  const { detections } = useDashboardDetections();
 
   const filtered = useMemo(() => {
     if (!timeRange.startDate) return detections;

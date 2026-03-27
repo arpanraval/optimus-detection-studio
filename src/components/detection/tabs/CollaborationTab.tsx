@@ -7,6 +7,8 @@ import { useDetectionComments } from '../../../hooks/useDetectionComments';
 import { useTeam } from '../../../context/TeamContext';
 import { supabase } from '../../../lib/supabaseClient';
 import { ReviewStatusBadge } from '../../rbac/ReviewStatusBadge';
+import { DetailCard } from '../DetailCard';
+import { formatRelativeTime } from '../../../lib/utils/formatting';
 
 // =============================================================================
 // TYPES
@@ -16,46 +18,6 @@ interface CollaborationTabProps {
     detection: Detection;
     onDetectionUpdate?: (detection: Detection) => void;
 }
-
-// =============================================================================
-// SHARED COMPONENTS
-// =============================================================================
-
-const DetailCard: React.FC<{ title: string; description?: string; headerRight?: React.ReactNode; children: React.ReactNode }> = ({ title, description, headerRight, children }) => (
-  <section className="rounded-2xl overflow-hidden mb-6 border border-outline-variant/30 bg-surface-container-low">
-    <div className="px-6 py-5 border-b border-outline-variant/30 bg-surface-container-low flex items-center justify-between">
-      <div>
-        <h3 className="text-base font-medium text-on-surface">{title}</h3>
-        {description && (
-          <p className="text-sm mt-0.5 text-on-surface-variant">{description}</p>
-        )}
-      </div>
-      {headerRight}
-    </div>
-    <div className="p-6 space-y-5">
-      {children}
-    </div>
-  </section>
-);
-
-// =============================================================================
-// HELPER FUNCTIONS
-// =============================================================================
-
-const formatRelativeTime = (date: string): string => {
-    const now = new Date();
-    const then = new Date(date);
-    const diffMs = now.getTime() - then.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return then.toLocaleDateString();
-};
 
 const getInitials = (name?: string, email?: string): string => {
     if (name) {

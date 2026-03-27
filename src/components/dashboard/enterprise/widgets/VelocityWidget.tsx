@@ -1,11 +1,11 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import WidgetEmptyState from './WidgetEmptyState';
 import { withAlpha } from '../engine/colorUtils';
 
 const VelocityWidget: React.FC<WidgetComponentProps> = ({ config, timeRange }) => {
-  const { detections } = useAppData();
+  const { detections } = useDashboardDetections();
 
   const velocityData = useMemo(() => {
     if (detections.length === 0) return [];

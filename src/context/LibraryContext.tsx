@@ -99,6 +99,7 @@ export interface ServerFilters {
   logSource?: string[];
   promotion_status?: string[];
   source?: string[];
+  review_status?: string[];
   // Boolean → .eq(field, value)
   testedAndValidated?: boolean | null;
   // Array field filters → .overlaps(field, values)
@@ -131,7 +132,7 @@ const applyServerFilters = (query: any, filters: ServerFilters): any => {
   // String fields: .in(field, values)
   const stringFields: (keyof ServerFilters)[] = [
     'status', 'severity', 'queryLanguage', 'author', 'detectionType',
-    'maturity', 'technology', 'logSource', 'promotion_status', 'source'
+    'maturity', 'technology', 'logSource', 'promotion_status', 'source', 'review_status'
   ];
   for (const field of stringFields) {
     const vals = filters[field];
@@ -265,13 +266,13 @@ interface LibraryContextType {
   userId: string;
 
   // Detections by library (paginated)
-  userDetections: Detection[];
-  universalDetections: Detection[];
+  productionDetections: Detection[];
+  developmentDetections: Detection[];
   isLoading: boolean;
 
   // Pagination state
-  userPagination: PaginationState;
-  universalPagination: PaginationState;
+  productionPagination: PaginationState;
+  developmentPagination: PaginationState;
 
   // Pagination controls
   setPage: (page: number) => void;
@@ -290,8 +291,8 @@ interface LibraryContextType {
   setServerFilters: (filters: ServerFilters) => void;
 
   // Refresh functions
-  refreshUserLibrary: () => Promise<void>;
-  refreshUniversalLibrary: () => Promise<void>;
+  refreshProductionLibrary: () => Promise<void>;
+  refreshDevelopmentLibrary: () => Promise<void>;
   refreshAll: () => Promise<void>;
 
   // Library operations
@@ -364,8 +365,8 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   
   // State
   const [currentLibrary, setCurrentLibraryState] = useState<LibraryType>(LIBRARY_PRODUCTION);
-  const [userDetections, setUserDetections] = useState<Detection[]>([]);
-  const [universalDetections, setUniversalDetections] = useState<Detection[]>([]);
+  const [productionDetections, setProductionDetections] = useState<Detection[]>([]);
+  const [developmentDetections, setDevelopmentDetections] = useState<Detection[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [pendingRequests, setPendingRequests] = useState<PublishRequest[]>([]);
   const [detectionPacks, setDetectionPacks] = useState<DetectionPack[]>([]);
@@ -387,14 +388,14 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     }
   };
 
-  const [userPagination, setUserPagination] = useState<PaginationState>({
+  const [productionPagination, setProductionPagination] = useState<PaginationState>({
     page: 1,
     pageSize: getStoredPageSize(),
     totalCount: 0,
     totalPages: 0,
   });
 
-  const [universalPagination, setUniversalPagination] = useState<PaginationState>({
+  const [developmentPagination, setDevelopmentPagination] = useState<PaginationState>({
     page: 1,
     pageSize: getStoredPageSize(),
     totalCount: 0,
@@ -415,7 +416,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   const initialLoadDone = useRef(false);
 
   // Current pagination based on active library
-  const currentPagination = currentLibrary === LIBRARY_DEVELOPMENT ? universalPagination : userPagination;
+  const currentPagination = currentLibrary === LIBRARY_DEVELOPMENT ? developmentPagination : productionPagination;
 
   // Set current library with page reset
   const setCurrentLibrary = useCallback((library: LibraryType) => {
@@ -427,9 +428,9 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   // FETCH FUNCTIONS
   // ============================================
 
-  const refreshUserLibrary = useCallback(async (page?: number, pageSize?: number, sort?: SortConfig, filters?: ServerFilters) => {
-    const currentPage = page ?? userPagination.page;
-    const currentPageSize = pageSize ?? userPagination.pageSize;
+  const refreshProductionLibrary = useCallback(async (page?: number, pageSize?: number, sort?: SortConfig, filters?: ServerFilters) => {
+    const currentPage = page ?? productionPagination.page;
+    const currentPageSize = pageSize ?? productionPagination.pageSize;
     const currentSort = sort ?? sortConfig;
     const activeFilters = filters ?? serverFilters;
     const from = (currentPage - 1) * currentPageSize;
@@ -465,8 +466,8 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       const { data, error } = await dataQ;
       if (error) throw error;
 
-      setUserDetections((data as unknown as Detection[]) || []);
-      setUserPagination(prev => ({
+      setProductionDetections((data as unknown as Detection[]) || []);
+      setProductionPagination(prev => ({
         ...prev,
         page: currentPage,
         pageSize: currentPageSize,
@@ -474,13 +475,13 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
         totalPages,
       }));
     } catch (err) {
-      logger.error('Error fetching user library:', err);
+      logger.error('Error fetching production library:', err);
     }
-  }, [userId, userPagination.page, userPagination.pageSize, sortConfig, serverFilters]);
+  }, [userId, productionPagination.page, productionPagination.pageSize, sortConfig, serverFilters]);
 
-  const refreshUniversalLibrary = useCallback(async (page?: number, pageSize?: number, sort?: SortConfig, filters?: ServerFilters) => {
-    const currentPage = page ?? universalPagination.page;
-    const currentPageSize = pageSize ?? universalPagination.pageSize;
+  const refreshDevelopmentLibrary = useCallback(async (page?: number, pageSize?: number, sort?: SortConfig, filters?: ServerFilters) => {
+    const currentPage = page ?? developmentPagination.page;
+    const currentPageSize = pageSize ?? developmentPagination.pageSize;
     const currentSort = sort ?? sortConfig;
     const activeFilters = filters ?? serverFilters;
     const from = (currentPage - 1) * currentPageSize;
@@ -515,8 +516,8 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       const { data, error } = await dataQ;
       if (error) throw error;
 
-      setUniversalDetections((data as unknown as Detection[]) || []);
-      setUniversalPagination(prev => ({
+      setDevelopmentDetections((data as unknown as Detection[]) || []);
+      setDevelopmentPagination(prev => ({
         ...prev,
         page: currentPage,
         pageSize: currentPageSize,
@@ -524,17 +525,17 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
         totalPages,
       }));
     } catch (err) {
-      logger.error('Error fetching universal library:', err);
+      logger.error('Error fetching development library:', err);
     }
-  }, [universalPagination.page, universalPagination.pageSize, sortConfig, serverFilters]);
+  }, [developmentPagination.page, developmentPagination.pageSize, sortConfig, serverFilters]);
 
   const refreshAll = useCallback(async () => {
     setIsLoading(true);
     try {
       await withTimeout(
         Promise.all([
-          refreshUserLibrary(),
-          refreshUniversalLibrary(),
+          refreshProductionLibrary(),
+          refreshDevelopmentLibrary(),
         ]),
         DEFAULT_TIMEOUT_MS
       );
@@ -544,7 +545,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     } finally {
       setIsLoading(false);
     }
-  }, [refreshUserLibrary, refreshUniversalLibrary]);
+  }, [refreshProductionLibrary, refreshDevelopmentLibrary]);
 
   // H1: Enhanced pending requests - fetch submitter profile separately if needed
   const refreshPendingRequests = useCallback(async () => {
@@ -637,8 +638,8 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
 
   // H1: Get detection by ID (searches both libraries)
   const getDetectionById = useCallback((id: string): Detection | undefined => {
-    return userDetections.find(d => d.id === id) || universalDetections.find(d => d.id === id);
-  }, [userDetections, universalDetections]);
+    return productionDetections.find(d => d.id === id) || developmentDetections.find(d => d.id === id);
+  }, [productionDetections, developmentDetections]);
 
   // Initial load
   useEffect(() => {
@@ -670,9 +671,9 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     if (serverFiltersRef.current === serverFilters && Object.keys(serverFilters).length === 0) return;
     serverFiltersRef.current = serverFilters;
     if (currentLibrary === LIBRARY_DEVELOPMENT) {
-      refreshUniversalLibrary(1, universalPagination.pageSize, sortConfig, serverFilters);
+      refreshDevelopmentLibrary(1, developmentPagination.pageSize, sortConfig, serverFilters);
     } else {
-      refreshUserLibrary(1, userPagination.pageSize, sortConfig, serverFilters);
+      refreshProductionLibrary(1, productionPagination.pageSize, sortConfig, serverFilters);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverFilters]);
@@ -719,14 +720,14 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       }
 
       showToast('success', 'Forked to Development Library', 'Detection forked to Development Library. You can now experiment with it safely.');
-      await refreshUniversalLibrary();
+      await refreshDevelopmentLibrary();
       return data;
     } catch (err: unknown) {
       logger.error('Error forking to development:', err);
       showToast('error', 'Error', err instanceof Error ? err.message : 'Failed to fork detection');
       return null;
     }
-  }, [userId, refreshUniversalLibrary, showToast]);
+  }, [userId, refreshDevelopmentLibrary, showToast]);
 
   const checkPromotionEligibility = useCallback(async (detectionId: string): Promise<PublishEligibility | null> => {
     try {
@@ -762,7 +763,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       if (result.success) {
         showToast('success', 'Submitted for Review', 'Your detection has been submitted for admin approval');
         await Promise.all([
-          refreshUserLibrary(),
+          refreshProductionLibrary(),
           refreshUserSubmissions() // H2: Refresh submissions after submitting
         ]);
         return { success: true, requestId: result.request_id };
@@ -776,7 +777,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       showToast('error', 'Error', message);
       return { success: false, error: message };
     }
-  }, [userId, refreshUserLibrary, refreshUserSubmissions, showToast]);
+  }, [userId, refreshProductionLibrary, refreshUserSubmissions, showToast]);
 
   // Silent variant: no toast, no refresh (for bulk operations)
   const submitForPromotionSilent = useCallback(async (detectionId: string): Promise<{ success: boolean; error?: string; requestId?: string }> => {
@@ -830,7 +831,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
         showToast('success', 'Request Processed', `The request has been ${actionLabel}`);
         await Promise.all([
           refreshPendingRequests(),
-          refreshUniversalLibrary()
+          refreshDevelopmentLibrary()
         ]);
         return true;
       } else {
@@ -842,7 +843,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       showToast('error', 'Error', err instanceof Error ? err.message : 'Failed to process request');
       return false;
     }
-  }, [userId, userRole, refreshPendingRequests, refreshUniversalLibrary, showToast]);
+  }, [userId, userRole, refreshPendingRequests, refreshDevelopmentLibrary, showToast]);
 
   // Silent variant: no toast, no refresh (for bulk operations)
   const approvePromotionSilent = useCallback(async (
@@ -888,16 +889,16 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       showToast('success', 'Bulk Action Complete', `${successCount} request${successCount > 1 ? 's' : ''} ${actionLabel}${failureCount > 0 ? `, ${failureCount} failed` : ''}`);
       await Promise.all([
         refreshPendingRequests(),
-        refreshUniversalLibrary()
+        refreshDevelopmentLibrary()
       ]);
     } else if (failureCount > 0) {
       showToast('error', 'Bulk Action Failed', `All ${failureCount} requests failed to process`);
     }
 
     return { successCount, failureCount };
-  }, [approvePromotionSilent, refreshPendingRequests, refreshUniversalLibrary, showToast]);
+  }, [approvePromotionSilent, refreshPendingRequests, refreshDevelopmentLibrary, showToast]);
 
-  // Refresh pending requests when switching to universal library (for admins)
+  // Refresh pending requests when switching to development library (for admins)
   useEffect(() => {
     if (userRole === 'admin') {
       refreshPendingRequests();
@@ -1007,7 +1008,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     const errors: string[] = [];
 
     // Get current tags for each detection
-    const detections = currentLibrary === LIBRARY_DEVELOPMENT ? universalDetections : userDetections;
+    const detections = currentLibrary === LIBRARY_DEVELOPMENT ? developmentDetections : productionDetections;
 
     for (const id of detectionIds) {
       try {
@@ -1042,14 +1043,14 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     }
 
     return { success: failureCount === 0, successCount, failureCount, errors };
-  }, [currentLibrary, universalDetections, userDetections, refreshAll, showToast]);
+  }, [currentLibrary, developmentDetections, productionDetections, refreshAll, showToast]);
 
   const bulkRemoveTags = useCallback(async (detectionIds: string[], tagsToRemove: string[]): Promise<BulkActionResult> => {
     let successCount = 0;
     let failureCount = 0;
     const errors: string[] = [];
 
-    const detections = currentLibrary === LIBRARY_DEVELOPMENT ? universalDetections : userDetections;
+    const detections = currentLibrary === LIBRARY_DEVELOPMENT ? developmentDetections : productionDetections;
 
     for (const id of detectionIds) {
       try {
@@ -1084,7 +1085,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     }
 
     return { success: failureCount === 0, successCount, failureCount, errors };
-  }, [currentLibrary, universalDetections, userDetections, refreshAll, showToast]);
+  }, [currentLibrary, developmentDetections, productionDetections, refreshAll, showToast]);
 
   // ============================================
   // PAGINATION CONTROLS
@@ -1092,13 +1093,13 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
 
   const setPage = useCallback((page: number) => {
     if (currentLibrary === LIBRARY_DEVELOPMENT) {
-      setUniversalPagination(prev => ({ ...prev, page }));
-      refreshUniversalLibrary(page, universalPagination.pageSize, sortConfig, serverFilters);
+      setDevelopmentPagination(prev => ({ ...prev, page }));
+      refreshDevelopmentLibrary(page, developmentPagination.pageSize, sortConfig, serverFilters);
     } else {
-      setUserPagination(prev => ({ ...prev, page }));
-      refreshUserLibrary(page, userPagination.pageSize, sortConfig, serverFilters);
+      setProductionPagination(prev => ({ ...prev, page }));
+      refreshProductionLibrary(page, productionPagination.pageSize, sortConfig, serverFilters);
     }
-  }, [currentLibrary, refreshUserLibrary, refreshUniversalLibrary, userPagination.pageSize, universalPagination.pageSize, sortConfig, serverFilters]);
+  }, [currentLibrary, refreshProductionLibrary, refreshDevelopmentLibrary, productionPagination.pageSize, developmentPagination.pageSize, sortConfig, serverFilters]);
 
   const setPageSize = useCallback((size: PageSize) => {
     // Save preference to localStorage
@@ -1108,13 +1109,13 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
 
     // Reset to page 1 when changing page size
     if (currentLibrary === LIBRARY_DEVELOPMENT) {
-      setUniversalPagination(prev => ({ ...prev, page: 1, pageSize: size }));
-      refreshUniversalLibrary(1, size, sortConfig, serverFilters);
+      setDevelopmentPagination(prev => ({ ...prev, page: 1, pageSize: size }));
+      refreshDevelopmentLibrary(1, size, sortConfig, serverFilters);
     } else {
-      setUserPagination(prev => ({ ...prev, page: 1, pageSize: size }));
-      refreshUserLibrary(1, size, sortConfig, serverFilters);
+      setProductionPagination(prev => ({ ...prev, page: 1, pageSize: size }));
+      refreshProductionLibrary(1, size, sortConfig, serverFilters);
     }
-  }, [currentLibrary, refreshUserLibrary, refreshUniversalLibrary, sortConfig, serverFilters]);
+  }, [currentLibrary, refreshProductionLibrary, refreshDevelopmentLibrary, sortConfig, serverFilters]);
 
   // ============================================
   // SORTING CONTROLS (server-side)
@@ -1129,13 +1130,13 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
 
     // Reset to page 1 when sorting changes (to see top results)
     if (currentLibrary === LIBRARY_DEVELOPMENT) {
-      setUniversalPagination(prev => ({ ...prev, page: 1 }));
-      refreshUniversalLibrary(1, universalPagination.pageSize, config, serverFilters);
+      setDevelopmentPagination(prev => ({ ...prev, page: 1 }));
+      refreshDevelopmentLibrary(1, developmentPagination.pageSize, config, serverFilters);
     } else {
-      setUserPagination(prev => ({ ...prev, page: 1 }));
-      refreshUserLibrary(1, userPagination.pageSize, config, serverFilters);
+      setProductionPagination(prev => ({ ...prev, page: 1 }));
+      refreshProductionLibrary(1, productionPagination.pageSize, config, serverFilters);
     }
-  }, [currentLibrary, refreshUserLibrary, refreshUniversalLibrary, userPagination.pageSize, universalPagination.pageSize, serverFilters]);
+  }, [currentLibrary, refreshProductionLibrary, refreshDevelopmentLibrary, productionPagination.pageSize, developmentPagination.pageSize, serverFilters]);
 
   /**
    * Convenience function to set sort field with optional direction
@@ -1281,6 +1282,46 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   }, [buildFilterQuery, getFilteredCount, refreshAll, showToast]);
 
   // ============================================
+  // REALTIME SUBSCRIPTION
+  // ============================================
+
+  // Realtime subscription for live updates
+  const realtimeDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('library-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'detections',
+        },
+        (payload) => {
+          // Debounce to avoid rapid-fire refreshes
+          if (realtimeDebounceRef.current) clearTimeout(realtimeDebounceRef.current);
+          realtimeDebounceRef.current = setTimeout(() => {
+            const changedLibraryType = (payload.new as any)?.library_type
+              || (payload.old as any)?.library_type;
+
+            if (changedLibraryType === LIBRARY_DEVELOPMENT) {
+              refreshDevelopmentLibrary();
+            } else {
+              refreshProductionLibrary();
+            }
+          }, 1000);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (realtimeDebounceRef.current) clearTimeout(realtimeDebounceRef.current);
+      supabase.removeChannel(channel);
+    };
+  }, [refreshProductionLibrary, refreshDevelopmentLibrary]);
+
+  // ============================================
   // CONTEXT VALUE
   // ============================================
 
@@ -1289,12 +1330,12 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     setCurrentLibrary,
     userRole,
     userId,
-    userDetections,
-    universalDetections,
+    productionDetections,
+    developmentDetections,
     isLoading,
     // Pagination
-    userPagination,
-    universalPagination,
+    productionPagination,
+    developmentPagination,
     currentPagination,
     setPage,
     setPageSize,
@@ -1306,8 +1347,8 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     serverFilters,
     setServerFilters,
     // Refresh functions
-    refreshUserLibrary: () => refreshUserLibrary(),
-    refreshUniversalLibrary: () => refreshUniversalLibrary(),
+    refreshProductionLibrary: () => refreshProductionLibrary(),
+    refreshDevelopmentLibrary: () => refreshDevelopmentLibrary(),
     refreshAll,
     forkToDevelopment,
     submitForPromotion,
@@ -1345,8 +1386,8 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     bulkUpdateSeverityByFilter,
     getFilteredCount,
   }), [
-    currentLibrary, userRole, userId, userDetections, universalDetections, isLoading,
-    userPagination, universalPagination, currentPagination, setPage, setPageSize,
+    currentLibrary, userRole, userId, productionDetections, developmentDetections, isLoading,
+    productionPagination, developmentPagination, currentPagination, setPage, setPageSize,
     sortConfig, setSort, serverFilters,
     refreshAll, forkToDevelopment, submitForPromotion, submitForPromotionSilent, checkPromotionEligibility,
     shareWithTeam, makePrivate,

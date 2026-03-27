@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import { useMitreMatrix } from '../../../../hooks/useMitreMatrix';
 import WidgetEmptyState from './WidgetEmptyState';
 
@@ -22,7 +22,7 @@ const TACTIC_SHORTNAMES = [
 ];
 
 const MiniMitreHeatmapWidget: React.FC<WidgetComponentProps> = ({ onNavigate }) => {
-  const { detections } = useAppData();
+  const { detections } = useDashboardDetections();
   const { techniques, loading } = useMitreMatrix();
 
   const userTechniqueIds = useMemo(() => {

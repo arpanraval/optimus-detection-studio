@@ -1,9 +1,9 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 
 const StaleWatchlistWidget: React.FC<WidgetComponentProps> = ({ config, onNavigate, timeRange }) => {
-  const { detections } = useAppData();
+  const { detections } = useDashboardDetections();
 
   const stale = useMemo(() => {
     const now = Date.now();

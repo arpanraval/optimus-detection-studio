@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import type { WidgetComponentProps } from './types';
-import { useAppData } from '../../../../router/AppDataContext';
+import { useDashboardDetections } from '../useDashboardDetections';
 import WidgetEmptyState from './WidgetEmptyState';
 
 const SEVERITY_CONFIG = [
@@ -12,7 +12,7 @@ const SEVERITY_CONFIG = [
 ];
 
 const SeverityWidget: React.FC<WidgetComponentProps> = ({ onNavigate }) => {
-  const { detections } = useAppData();
+  const { detections } = useDashboardDetections();
 
   const data = useMemo(() => {
     const counts: Record<string, number> = {};

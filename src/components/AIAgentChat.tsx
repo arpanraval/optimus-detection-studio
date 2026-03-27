@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Icon } from './Icon';
 import { ModelSelector } from './ModelSelector';
 import { generateAIChat, AIFunctionCall, DEFAULT_MODEL } from '../lib/aiService';
+import { truncateHistory } from '../lib/ai/chat-history';
 import { useTheme } from '../context/ThemeContext';
 import { useToast } from '../hooks/useToast';
 import { Detection } from '../types';
@@ -111,7 +112,28 @@ const loadSession = (id: string): ChatSession | null => {
     } catch { return null; }
 };
 const saveSession = (s: ChatSession) => {
-    localStorage.setItem(SESSION_PREFIX + s.id, JSON.stringify(s));
+    try {
+        localStorage.setItem(SESSION_PREFIX + s.id, JSON.stringify(s));
+    } catch (e: any) {
+        if (e?.name === 'QuotaExceededError' || e?.code === 22) {
+            // Prune oldest sessions to free space
+            const idx = loadIndex();
+            if (idx.length > 5) {
+                const toRemove = idx.slice(-3); // Remove 3 oldest (index sorted newest-first)
+                toRemove.forEach(old => localStorage.removeItem(SESSION_PREFIX + old.id));
+                saveIndex(idx.slice(0, -3));
+                try {
+                    localStorage.setItem(SESSION_PREFIX + s.id, JSON.stringify(s));
+                } catch {
+                    console.error('localStorage quota exceeded even after pruning');
+                    return;
+                }
+            } else {
+                return;
+            }
+        }
+        throw e;
+    }
     const idx = loadIndex(), i = idx.findIndex(x => x.id === s.id);
     const sum: SessionSummary = { id: s.id, name: s.name, updatedAt: s.updatedAt, messageCount: s.messages.length };
     if (i >= 0) idx[i] = sum; else idx.unshift(sum);
@@ -223,6 +245,8 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
     const [chatHistory, setChatHistory] = useState<ChatHistoryMessage[]>([]);
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
     const [editingContent, setEditingContent] = useState('');
+    const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+    const [renameValue, setRenameValue] = useState('');
 
     const endRef = useRef<HTMLDivElement>(null);
     const histRef = useRef<HTMLDivElement>(null);
@@ -277,12 +301,29 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
         }
     }, [session]);
 
-    // Scroll to bottom
+    // ResizeObserver for scroll-on-resize (handles async card rendering)
+    useEffect(() => {
+        const container = endRef.current?.parentElement;
+        if (!container) return;
+
+        let scrollTimer: ReturnType<typeof setTimeout>;
+        const observer = new ResizeObserver(() => {
+            clearTimeout(scrollTimer);
+            scrollTimer = setTimeout(() => {
+                endRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }, 50);
+        });
+        observer.observe(container);
+
+        return () => observer.disconnect();
+    }, [session.id]);
+
+    // Scroll on new messages (immediate)
     useEffect(() => {
         if (session.messages.length > 0) {
-            setTimeout(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+            endRef.current?.scrollIntoView({ behavior: 'smooth' });
         }
-    }, [session.messages.length, isGen]);
+    }, [session.messages.length]);
 
     // Click outside handler
     useEffect(() => {
@@ -403,6 +444,14 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
         const msg = session.messages[msgIdx];
         if (msg.role !== 'user') return;
 
+        const subsequentCount = session.messages.length - msgIdx - 1;
+        if (subsequentCount > 0) {
+            const confirmed = window.confirm(
+                `Retrying will remove ${subsequentCount} subsequent message${subsequentCount > 1 ? 's' : ''}. This cannot be undone.\n\nContinue?`
+            );
+            if (!confirmed) return;
+        }
+
         // Remove this message and all subsequent messages
         const newMessages = session.messages.slice(0, msgIdx);
         setSession(prev => ({
@@ -428,6 +477,15 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
 
         const msgIdx = session.messages.findIndex(m => m.id === msgId);
         if (msgIdx === -1) return;
+
+        const subsequentCount = session.messages.length - msgIdx - 1;
+
+        if (subsequentCount > 0) {
+            const confirmed = window.confirm(
+                `Editing this message will remove ${subsequentCount} subsequent message${subsequentCount > 1 ? 's' : ''}. This cannot be undone.\n\nContinue?`
+            );
+            if (!confirmed) return;
+        }
 
         // Remove this message and all subsequent messages
         const newMessages = session.messages.slice(0, msgIdx);
@@ -482,7 +540,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                 responseFormat: 'text',
                 systemInstruction: OPTIMUS_SYSTEM_PROMPT,
                 tools: OPTIMUS_TOOLS,
-                history: newHistory.slice(0, -1)
+                history: truncateHistory(newHistory.slice(0, -1))
             });
 
             if (abortControllerRef.current?.signal.aborted) return;
@@ -503,6 +561,8 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                 'generate_navigator_layer': 'Navigator Layer',
                 'web_search': 'Web Search'
             };
+            const getToolDisplayName = (name: string): string =>
+                toolDisplayNames[name] ?? name.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
             while (response.functionCalls && response.functionCalls.length > 0 && toolIterations < MAX_TOOL_ITERATIONS) {
                 toolIterations++;
@@ -567,7 +627,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                     responseFormat: 'text',
                     systemInstruction: OPTIMUS_SYSTEM_PROMPT,
                     tools: OPTIMUS_TOOLS,
-                    history: [...newHistory, { role: 'model', parts: [{ text: '' }] }],
+                    history: truncateHistory([...newHistory, { role: 'model', parts: [{ text: '' }] }]),
                     functionResponses: results.map(r => ({
                         id: r.name,
                         name: r.name,
@@ -578,6 +638,36 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
 
             if (abortControllerRef.current?.signal.aborted) return;
 
+            // Check if any critical tools failed
+            const failedTools = toolCallsHistory.filter(t => t.status === 'error');
+            let toolWarning = '';
+
+            if (failedTools.length > 0) {
+                const failedNames = failedTools
+                    .map(t => getToolDisplayName(t.name))
+                    .join(', ');
+
+                // If ALL tools failed, short-circuit with clear error
+                if (failedTools.length === toolCallsHistory.length && toolCallsHistory.length > 0) {
+                    const errorContent = `I wasn't able to retrieve the data needed to answer your question. The following tool${failedTools.length > 1 ? 's' : ''} failed: **${failedNames}**.\n\nPlease try again, or rephrase your question.`;
+                    setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: errorContent }] }]);
+                    setSession(p => ({
+                        ...p,
+                        messages: p.messages.map(m => m.id === aiMsgId ? {
+                            ...m,
+                            content: errorContent,
+                            toolCalls: toolCallsHistory
+                        } : m),
+                        isGenerating: false,
+                        updatedAt: Date.now()
+                    }));
+                    return;
+                }
+
+                // If SOME tools failed, prepend a warning to the AI's response
+                toolWarning = `> **Note:** ${failedNames} failed to return data. The analysis below may be incomplete.\n\n`;
+            }
+
             // Parse the response for structured data and drafts
             const fullText = response.text || '';
             const parsed: ParsedAIResponse = parseAIResponse(fullText);
@@ -586,6 +676,14 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
             let displayContent = parsed.displayText;
             if (!displayContent && fullText) {
                 displayContent = fullText;
+            }
+            if (!displayContent) {
+                displayContent = "I wasn't able to generate a complete response. Please try rephrasing your question.";
+            }
+
+            // Prepend tool failure warning if any
+            if (toolWarning) {
+                displayContent = toolWarning + displayContent;
             }
 
             // Update chat history with assistant response
@@ -614,6 +712,18 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
             }));
             showToast('error', 'Failed', err.message);
         } finally {
+            // Clean up any orphaned 'running' tool states
+            setSession(prev => ({
+                ...prev,
+                messages: prev.messages.map(m => ({
+                    ...m,
+                    toolCalls: m.toolCalls?.map(tc =>
+                        tc.status === 'running'
+                            ? { ...tc, status: 'error' as const, endTime: Date.now() }
+                            : tc
+                    )
+                }))
+            }));
             setIsGen(false);
             abortControllerRef.current = null;
         }
@@ -670,7 +780,38 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                                                 <div key={s.id} onClick={() => handleSwitch(s.id)} 
                                                     className={`flex items-center justify-between px-4 py-2.5 cursor-pointer transition-colors group ${s.id === session.id ? 'bg-surface-container-high/50' : 'hover:bg-surface-container-high/30'}`}>
                                                     <div className="flex-1 min-w-0">
-                                                        <p className={`text-[11px] font-medium truncate ${s.id === session.id ? 'text-on-surface' : 'text-on-surface-variant/70'}`}>{s.name}</p>
+                                                        {renamingSessionId === s.id ? (
+                                            <input
+                                                value={renameValue}
+                                                onChange={(e) => setRenameValue(e.target.value)}
+                                                onBlur={() => {
+                                                    if (renameValue.trim()) {
+                                                        const loaded = loadSession(s.id);
+                                                        if (loaded) {
+                                                            loaded.name = renameValue.trim();
+                                                            saveSession(loaded);
+                                                            if (session.id === s.id) setSession(prev => ({ ...prev, name: renameValue.trim() }));
+                                                            setSessionsIdx(loadIndex());
+                                                        }
+                                                    }
+                                                    setRenamingSessionId(null);
+                                                }}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                                                    if (e.key === 'Escape') setRenamingSessionId(null);
+                                                }}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="text-[11px] font-medium bg-transparent border-b border-primary focus:outline-none w-full text-on-surface"
+                                                autoFocus
+                                            />
+                                        ) : (
+                                            <p
+                                                className={`text-[11px] font-medium truncate cursor-pointer ${s.id === session.id ? 'text-on-surface' : 'text-on-surface-variant/70'}`}
+                                                onDoubleClick={(e) => { e.stopPropagation(); setRenamingSessionId(s.id); setRenameValue(s.name); }}
+                                            >
+                                                {s.name}
+                                            </p>
+                                        )}
                                                         <p className="text-[9px] text-on-surface-variant/40 mt-0.5">{formatTime(s.updatedAt)}</p>
                                                     </div>
                                                     <button onClick={(e) => handleDelete(s.id, e)} className="p-1 text-on-surface-variant/20 hover:text-error opacity-0 group-hover:opacity-100 transition-all">
@@ -791,7 +932,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                                                     />
                                                 )}
                                                 {/* Render visualization card FIRST (hero element), then text below */}
-                                                {msg.structuredResponse?.visualization && hasVisualizationData(msg.structuredResponse.visualization) && (
+                                                {msg.structuredResponse?.visualization && hasVisualizationData(msg.structuredResponse.visualization) ? (
                                                     <div className="mb-3">
                                                         <OptimusResponseRenderer
                                                             response={{
@@ -802,7 +943,9 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                                                             onAction={handleOptimusAction}
                                                         />
                                                     </div>
-                                                )}
+                                                ) : msg.structuredResponse?.visualization ? (
+                                                    <p className="text-xs text-on-surface-variant/50 italic mt-2">No data available for this visualization.</p>
+                                                ) : null}
                                                 {/* Legacy: structured response without visualization field */}
                                                 {msg.structuredResponse && !msg.structuredResponse.visualization && msg.structuredResponse.type && msg.structuredResponse.type !== 'text' && (
                                                     <div className="mb-3">

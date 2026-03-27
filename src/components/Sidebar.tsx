@@ -554,7 +554,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
       icon: 'settings',
       items: [
         { id: 'integrations' as View, label: 'Integrations' },
-        { id: 'siem-health' as View, label: 'SIEM Health', url: '/siem' },
+        { id: 'siem-health' as View, label: 'SIEM Home', url: '/siem' },
         { id: 'environment_profile' as View, label: 'Environment' },
         { id: 'scoring_settings' as View, label: 'Defense Impact Intelligence' },
         ...(isAdmin ? [{ id: 'users' as View, label: 'User Management' }] : []),

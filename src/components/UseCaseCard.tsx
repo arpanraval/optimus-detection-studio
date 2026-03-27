@@ -381,6 +381,12 @@ export const UseCaseCard: React.FC<UseCaseCardProps> = ({
               {isUser && publishLabel && (
                 <Badge>{publishLabel}</Badge>
               )}
+              {detection.assigned_to && (
+                <span className="inline-flex items-center gap-1 text-[9px] font-medium text-on-surface-variant">
+                  <Icon name="user" className="w-2.5 h-2.5" />
+                  Assigned
+                </span>
+              )}
             </div>
 
             {/* Right: Add Button + Quality Score */}
@@ -392,7 +398,9 @@ export const UseCaseCard: React.FC<UseCaseCardProps> = ({
                   onClick={handleAddToLibrary}
                 />
               )}
-              <QualityScore score={detection.qualityScore || 0} />
+              <div title={`Quality Score: ${detection.qualityScore || 0}/100`}>
+                <QualityScore score={detection.qualityScore || 0} />
+              </div>
             </div>
           </div>
         </div>
