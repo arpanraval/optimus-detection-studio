@@ -16,6 +16,10 @@ export interface ThreatIntelFeed {
   last_error?: string;
   created_at: string;
   updated_at: string;
+  curated_source_id?: string;
+  is_auto_digest: boolean;
+  extraction_method?: string;
+  extraction_reliability?: string;
 }
 
 export interface FeedEntry {
@@ -32,6 +36,12 @@ export interface FeedEntry {
   staleness_score: number;
   is_processed: boolean;
   feed_name?: string;
+  digest_status?: string;
+  classification?: Record<string, any>;
+  skip_reason?: string;
+  relevance_score?: number;
+  full_content?: string;
+  extract_error?: string;
 }
 
 export function useThreatIntelFeeds(userId: string) {
