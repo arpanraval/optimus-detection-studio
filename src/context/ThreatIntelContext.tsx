@@ -173,6 +173,11 @@ function dbRecordToSession(record: ThreatIntelReportDbRecord): ThreatIntelSessio
     selectedIoCIds: record.selected_ioc_ids || [],
     createdDetectionIds: [],
     updatedEntities: [],
+    source: record.source as 'manual' | 'auto' | undefined,
+    sourceFeedName: record.source_feed_name,
+    sourceArticleUrl: record.source_article_url,
+    feasibleGapCount: record.feasible_gap_count,
+    infeasibleGapCount: record.infeasible_gap_count,
   };
 }
 

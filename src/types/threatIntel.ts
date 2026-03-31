@@ -344,6 +344,13 @@ export interface ThreatIntelSession {
   // Actions taken
   createdDetectionIds: string[];
   updatedEntities: UpdatedEntityRecord[];
+
+  // Auto-digest provenance & feasibility (populated from DB for auto-digested reports)
+  source?: 'manual' | 'auto';
+  sourceFeedName?: string;
+  sourceArticleUrl?: string;
+  feasibleGapCount?: number;
+  infeasibleGapCount?: number;
 }
 
 export interface UpdatedEntityRecord {
