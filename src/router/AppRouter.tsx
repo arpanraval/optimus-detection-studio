@@ -97,6 +97,7 @@ const ImportHistoryPage = lazy(() => import('./pages/ImportHistoryPage').then(m 
 const SearchResultsPage = lazy(() => import('./pages/SearchResultsPage').then(m => ({ default: m.SearchResultsPage })));
 const AuditLogPage = lazy(() => import('./pages/AuditLogPage').then(m => ({ default: m.AuditLogPage })));
 const EnvironmentProfilePage = lazy(() => import('./pages/EnvironmentProfilePage').then(m => ({ default: m.EnvironmentProfilePage })));
+const AutoDigestSettingsPage = lazy(() => import('./pages/AutoDigestSettingsPage').then(m => ({ default: m.AutoDigestSettingsPage })));
 const BulkImportPage = lazy(() => import('./pages/BulkImportPage').then(m => ({ default: m.BulkImportPage })));
 const EnterpriseDashboardPage = lazy(() => import('./pages/EnterpriseDashboardPage').then(m => ({ default: m.EnterpriseDashboardPage })));
 const AIQueryPage = lazy(() => import('./pages/AIQueryPage').then(m => ({ default: m.AIQueryPage })));
@@ -238,6 +239,7 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       { path: 'settings/mitre-sync', element: <MitreSyncPage /> },
       { path: 'settings/audit-log', element: <AuditLogPage /> },
       { path: 'settings/environment', element: <EnvironmentProfilePage /> },
+      { path: 'settings/intelligence', element: <AutoDigestSettingsPage /> },
 
       // SIEM Home
       { path: 'siem', element: <SiemHealthPage /> },

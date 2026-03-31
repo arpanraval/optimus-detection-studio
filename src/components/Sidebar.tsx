@@ -7,7 +7,7 @@ import { useTheme } from '../context/ThemeContext';
 import { viewToRoute, ROUTES } from '../router/routes';
 import { readDashboardSummaries } from './dashboard/enterprise/dashboardPersistence';
 
-type View = 'dashboard' | 'command-center' | 'dashboard-classic' | 'intel-globe' | 'library' | 'detail' | 'form' | 'mitre' | 'coverage' | 'groups' | 'group-detail' | 'software' | 'software-detail' | 'campaigns' | 'campaign-detail' | 'mitigations' | 'mitigation-detail' | 'detection-strategies' | 'strategy-detail' | 'users' | 'add_selection' | 'sigma_converter' | 'ai_query_gen' | 'ai_agent' | 'bulk_import' | 'integrations' | 'approval_queue' | 'my_submissions' | 'account_settings' | 'mitre_data_sync' | 'packs' | 'pack-detail' | 'workspaces' | 'workspace-detail' | 'defensive-posture' | 'scoring_settings' | 'threat-intel' | 'threat-intel-feeds' | 'analysis-reports' | 'siem-health' | 'design-system' | 'design-system-buttons' | 'design-system-inputs' | 'design-system-badges' | 'design-system-cards' | 'design-system-navigation' | 'design-system-modals' | 'design-system-dropdowns' | 'design-system-loading' | 'design-system-misc' | 'design-system-colors' | 'design-system-bulk-import' | 'design-system-logo' | 'design-system-ai-chat-cards' | 'audit_log' | 'environment_profile' | 'pipeline' | 'detection-board' | 'onboarding' | 'action_plan' | 'exercises-state-sponsored';
+type View = 'dashboard' | 'command-center' | 'dashboard-classic' | 'intel-globe' | 'library' | 'detail' | 'form' | 'mitre' | 'coverage' | 'groups' | 'group-detail' | 'software' | 'software-detail' | 'campaigns' | 'campaign-detail' | 'mitigations' | 'mitigation-detail' | 'detection-strategies' | 'strategy-detail' | 'users' | 'add_selection' | 'sigma_converter' | 'ai_query_gen' | 'ai_agent' | 'bulk_import' | 'integrations' | 'approval_queue' | 'my_submissions' | 'account_settings' | 'mitre_data_sync' | 'packs' | 'pack-detail' | 'workspaces' | 'workspace-detail' | 'defensive-posture' | 'scoring_settings' | 'threat-intel' | 'threat-intel-feeds' | 'analysis-reports' | 'siem-health' | 'design-system' | 'design-system-buttons' | 'design-system-inputs' | 'design-system-badges' | 'design-system-cards' | 'design-system-navigation' | 'design-system-modals' | 'design-system-dropdowns' | 'design-system-loading' | 'design-system-misc' | 'design-system-colors' | 'design-system-bulk-import' | 'design-system-logo' | 'design-system-ai-chat-cards' | 'audit_log' | 'environment_profile' | 'intelligence_sources' | 'pipeline' | 'detection-board' | 'onboarding' | 'action_plan' | 'exercises-state-sponsored';
 
 // Avatar colors
 const AVATAR_COLORS = [
@@ -556,6 +556,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
         { id: 'integrations' as View, label: 'Integrations' },
         { id: 'siem-health' as View, label: 'SIEM Home', url: '/siem' },
         { id: 'environment_profile' as View, label: 'Environment' },
+        { id: 'intelligence_sources' as View, label: 'Intelligence Sources', url: '/settings/intelligence' },
         { id: 'scoring_settings' as View, label: 'Defense Impact Intelligence' },
         ...(isAdmin ? [{ id: 'users' as View, label: 'User Management' }] : []),
         ...(isAdmin ? [{ id: 'mitre_data_sync' as View, label: 'Data Sync' }] : []),

@@ -7,6 +7,8 @@ import { useToast } from '../../hooks/useToast';
 import { useThreatIntel } from '../../context/ThreatIntelContext';
 import { ThreatIntelSessionSummary, ThreatLevel, AttackType } from '../../types/threatIntel';
 import { DigestNewReportModal } from './DigestNewReportModal';
+import { AutoDigestBanner } from './AutoDigestBanner';
+import { BulkTriageBar } from './BulkTriageBar';
 import {
   badgeSizes,
   getThreatLevelConfig,
@@ -29,6 +31,8 @@ const ALL_FILTER_FIELDS: FilterConfig[] = [
   { key: 'organization', label: 'Organization', type: 'string' },
   { key: 'attribution', label: 'Attribution', type: 'string' },
   { key: 'coverageRange', label: 'Coverage', type: 'computed' },
+  { key: 'reviewStatus', label: 'Review Status', type: 'string' },
+  { key: 'source', label: 'Source Type', type: 'string' },
 ];
 
 // List column options with fixed pixel widths for better control
@@ -49,6 +53,8 @@ const LIST_COLUMN_OPTIONS: ColumnConfig[] = [
   { key: 'iocCount', label: 'IoCs', minWidth: '60px' },
   { key: 'ruleCount', label: 'Rules', minWidth: '60px' },
   { key: 'coveragePercent', label: 'Coverage', minWidth: '80px' },
+  { key: 'source', label: 'Source', minWidth: '90px' },
+  { key: 'reviewStatus', label: 'Status', minWidth: '80px' },
   { key: 'updatedAt', label: 'Updated', minWidth: '90px' },
 ];
 
@@ -256,7 +262,9 @@ const ReportListItem: React.FC<{
   to: string;
   onClick?: () => void;
   onDelete: () => void;
-}> = ({ report, columns, to, onClick, onDelete }) => {
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
+}> = ({ report, columns, to, onClick, onDelete, isSelected, onToggleSelect }) => {
   const threatConfig = getThreatLevelConfig(report.threatLevel);
   const attackConfig = getAttackTypeConfig(report.attackType);
 
@@ -325,6 +333,34 @@ const ReportListItem: React.FC<{
             </span>
           </div>
         );
+      case 'source':
+        return report.source === 'auto' ? (
+          <span className="inline-flex items-center gap-1 text-xs">
+            <Icon name="zap" className="w-3 h-3 text-primary" />
+            {report.sourceFeedName || 'Auto'}
+          </span>
+        ) : (
+          <span className="text-xs text-on-surface-variant">&#9998; Manual</span>
+        );
+      case 'reviewStatus': {
+        const status = report.reviewStatus;
+        if (status === 'pending') return (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-primary/15 text-primary">&#9679; NEW</span>
+        );
+        if (status === 'reviewed') return (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-green-500/15 text-green-400">&#10003;</span>
+        );
+        if (status === 'actioned') return (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-green-500/15 text-green-400">&#10003; Actioned</span>
+        );
+        if (status === 'deferred') return (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400">&#9208; Deferred</span>
+        );
+        if (status === 'dismissed') return (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-on-surface/10 text-on-surface-variant/50">&#10005;</span>
+        );
+        return <span className="text-on-surface-variant/50 text-xs">-</span>;
+      }
       case 'updatedAt':
         return <span className="text-on-surface-variant text-xs whitespace-nowrap">{formatDate(report.updatedAt)}</span>;
       default:
@@ -337,8 +373,20 @@ const ReportListItem: React.FC<{
       to={to}
       onClick={onClick}
       className="group grid gap-4 px-4 py-2.5 bg-surface-container/50 rounded-lg hover:bg-surface-container-high cursor-pointer transition-colors items-center border border-transparent hover:border-primary/20 no-underline text-inherit"
-      style={{ gridTemplateColumns: getListGridTemplate(columns) }}
+      style={{ gridTemplateColumns: (isSelected !== undefined ? '28px ' : '') + getListGridTemplate(columns) }}
     >
+      {isSelected !== undefined && (
+        <div className="flex items-center justify-center">
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={(e) => { e.stopPropagation(); onToggleSelect?.(); }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-4 h-4 rounded"
+            style={{ accentColor: SOLID_BLUE }}
+          />
+        </div>
+      )}
       {columns.map(key => (
         <div key={key} className="min-w-0 overflow-hidden">{renderCell(key)}</div>
       ))}
@@ -514,7 +562,7 @@ const getCoverageRange = (percent: number): string => {
 export const ThreatIntelLibraryPage: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const { reports, isLoading: loading, fetchReports, deleteReport, hasPendingMigration, migrateFromLocalStorage } = useThreatIntel();
+  const { reports, isLoading: loading, fetchReports, deleteReport, hasPendingMigration, migrateFromLocalStorage, updateReviewStatus } = useThreatIntel();
 
   const [showModal, setShowModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -526,6 +574,43 @@ export const ThreatIntelLibraryPage: React.FC = () => {
   const [listColumns, setListColumns] = useState<string[]>(DEFAULT_LIST_COLUMNS);
   const [showColModal, setShowColModal] = useState(false);
   const [isMigrating, setIsMigrating] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+
+  // Auto-digest computed values
+  const pendingReports = useMemo(
+    () => reports.filter(r => r.source === 'auto' && r.reviewStatus === 'pending'),
+    [reports]
+  );
+  const lowCoverageReports = useMemo(
+    () => pendingReports.filter(r => (r.coveragePercent ?? 100) < 50),
+    [pendingReports]
+  );
+
+  // Bulk triage handlers
+  const handleBulkDismiss = useCallback(async () => {
+    await updateReviewStatus(Array.from(selectedIds), 'dismissed');
+    setSelectedIds(new Set());
+  }, [selectedIds, updateReviewStatus]);
+
+  const handleBulkDefer = useCallback(async () => {
+    await updateReviewStatus(Array.from(selectedIds), 'deferred');
+    setSelectedIds(new Set());
+  }, [selectedIds, updateReviewStatus]);
+
+  const handleBulkMarkReviewed = useCallback(async () => {
+    await updateReviewStatus(Array.from(selectedIds), 'reviewed');
+    setSelectedIds(new Set());
+  }, [selectedIds, updateReviewStatus]);
+
+  const handleToggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   // Handle localStorage migration on mount
   useEffect(() => {
@@ -766,6 +851,31 @@ export const ThreatIntelLibraryPage: React.FC = () => {
             </div>
           )}
 
+          {/* Auto-Digest Banner */}
+          {!bannerDismissed && pendingReports.length > 0 && (
+            <AutoDigestBanner
+              pendingCount={pendingReports.length}
+              lowCoverageCount={lowCoverageReports.length}
+              onView={() => {
+                setVisibleFilters(prev => prev.includes('reviewStatus') ? prev : [...prev, 'reviewStatus']);
+                setFilters(prev => ({ ...prev, reviewStatus: ['pending'] }));
+                setBannerDismissed(true);
+              }}
+              onDismiss={() => setBannerDismissed(true)}
+            />
+          )}
+
+          {/* Bulk Triage Bar */}
+          {selectedIds.size > 0 && (
+            <BulkTriageBar
+              selectedCount={selectedIds.size}
+              onDismiss={handleBulkDismiss}
+              onDefer={handleBulkDefer}
+              onMarkReviewed={handleBulkMarkReviewed}
+              onClearSelection={() => setSelectedIds(new Set())}
+            />
+          )}
+
           {/* Search & Filters Row */}
           {reports.length > 0 && (
             <div className={`${ROW_CONTAINER} px-3 py-2.5 flex items-center gap-2 flex-wrap mb-6`}>
@@ -924,8 +1034,9 @@ export const ThreatIntelLibraryPage: React.FC = () => {
               {/* List Header */}
               <div
                 className="grid gap-4 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/70"
-                style={{ gridTemplateColumns: getListGridTemplate(listColumns) }}
+                style={{ gridTemplateColumns: (sortedReports.some(r => r.source === 'auto') ? '28px ' : '') + getListGridTemplate(listColumns) }}
               >
+                {sortedReports.some(r => r.source === 'auto') && <span />}
                 {listColumns.map(k => {
                   const col = LIST_COLUMN_OPTIONS.find(c => c.key === k);
                   if (!col) return null;
@@ -948,6 +1059,8 @@ export const ThreatIntelLibraryPage: React.FC = () => {
                     columns={listColumns}
                     to={routeHelpers.threatIntelDetail(report.id)}
                     onDelete={() => handleDeleteClick(report.id)}
+                    isSelected={report.source === 'auto' ? selectedIds.has(report.id) : undefined}
+                    onToggleSelect={report.source === 'auto' ? () => handleToggleSelect(report.id) : undefined}
                   />
                 ))}
               </div>
