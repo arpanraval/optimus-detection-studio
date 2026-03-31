@@ -24,3 +24,7 @@ CREATE EXTENSION IF NOT EXISTS "pg_graphql" SCHEMA graphql;
 
 -- Query statistics tracking
 CREATE EXTENSION IF NOT EXISTS "pg_stat_statements" SCHEMA extensions;
+
+-- Scheduling and HTTP for auto-digest pipeline
+CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
