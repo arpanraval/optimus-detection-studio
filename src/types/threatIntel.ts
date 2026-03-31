@@ -367,6 +367,15 @@ export interface ThreatIntelSessionSummary {
   attribution?: string;
   organization?: string;
   coveragePercent?: number;
+  source?: 'manual' | 'auto';
+  sourceFeedName?: string;
+  sourceArticleUrl?: string;
+  reviewStatus?: 'pending' | 'reviewed' | 'actioned' | 'deferred' | 'dismissed';
+  reviewNote?: string;
+  relevanceScore?: number;
+  feasibleGapCount?: number;
+  infeasibleGapCount?: number;
+  campaignId?: string;
 }
 
 // ============================================
