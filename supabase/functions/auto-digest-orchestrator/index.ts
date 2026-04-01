@@ -157,7 +157,7 @@ serve(async (req: Request) => {
           supabase,
           entryIds,
           job.user_id,
-          settings.ai_model,
+          settings.classification_model || settings.ai_model || 'gemini-3-flash-preview',
           result,
         );
 
@@ -228,7 +228,7 @@ serve(async (req: Request) => {
             const digestBody = {
               sourceType: 'url',
               url: entry.url,
-              model: settings.ai_model,
+              model: settings.digest_model || settings.ai_model || 'gemini-3-flash-preview',
               options: {
                 extractIoCs: true,
                 extractRules: true,
