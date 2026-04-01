@@ -79,8 +79,13 @@ export const ThreatIntelWidget: React.FC<ThreatIntelWidgetProps> = ({ userId }) 
       const weekDigested = weekRows.length;
       const weekActioned = weekRows.filter((r: any) => r.review_status === 'actioned').length;
 
+      // Only consider pending/reviewed reports for lowest coverage (exclude dismissed/deferred)
+      const pendingWeekRows = (weekRows as any[]).filter(
+        (r: any) => r.review_status === 'pending' || r.review_status === 'reviewed'
+      );
+
       let lowestCoverage: { name: string; percent: number } | null = null;
-      for (const r of weekRows as any[]) {
+      for (const r of pendingWeekRows) {
         if (r.coverage_percent != null) {
           if (!lowestCoverage || r.coverage_percent < lowestCoverage.percent) {
             lowestCoverage = { name: r.report_title ?? 'Untitled', percent: r.coverage_percent };
