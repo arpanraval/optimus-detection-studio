@@ -273,6 +273,9 @@ export const AISuggestDropdown: React.FC<AISuggestDropdownProps> = ({
           onClick={() => setIsOpen(!isOpen)}
           disabled={isLoading || disabled}
           className={chevronClass}
+          aria-label="Toggle field suggestions"
+          aria-expanded={isOpen}
+          aria-haspopup="listbox"
         >
           <svg className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} viewBox="0 0 12 12" fill="none">
             <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
