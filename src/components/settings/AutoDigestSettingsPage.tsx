@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
 import { Select } from '../ui/Select';
@@ -13,6 +13,15 @@ import { supabase } from '../../lib/supabaseClient';
 
 interface AutoDigestSettingsPageProps {
   onBack?: () => void;
+}
+
+type TabId = 'sources' | 'configuration' | 'activity';
+
+interface TabDef {
+  id: TabId;
+  label: string;
+  icon: string;
+  badge?: string;
 }
 
 // =============================================================================
@@ -58,16 +67,13 @@ function groupByCategory(sources: CuratedFeedSource[]): Record<string, CuratedFe
   return groups;
 }
 
-function formatRelativeTime(dateStr: string | null): string {
-  if (!dateStr) return 'Never';
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+function extractDomain(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.hostname.replace('www.', '');
+  } catch {
+    return url;
+  }
 }
 
 // =============================================================================
@@ -91,81 +97,183 @@ const StatCard: React.FC<{ label: string; value: string | number; icon: string }
 );
 
 // =============================================================================
-// SOURCE ROW
+// SELECTION CARD
 // =============================================================================
 
-const SourceRow: React.FC<{
+const SelectionCard: React.FC<{
   source: CuratedFeedSource;
-  isEnabled: boolean;
+  selected: boolean;
+  index: number;
   onToggle: (source: CuratedFeedSource, enabled: boolean) => void;
-}> = ({ source, isEnabled, onToggle }) => {
-  // Extract display domain from URL
-  const displayUrl = (() => {
-    try {
-      const u = new URL(source.url);
-      return u.hostname.replace('www.', '');
-    } catch { return source.url; }
-  })();
+}> = ({ source, selected, index, onToggle }) => {
+  const domain = extractDomain(source.url);
 
   return (
-    <label className="flex items-start gap-3 px-3 py-3 rounded-xl hover:bg-surface-container-high/40 transition-colors cursor-pointer group">
-      <input
-        type="checkbox"
-        checked={isEnabled}
-        onChange={(e) => onToggle(source, e.target.checked)}
-        className="w-4 h-4 mt-0.5 rounded border-outline-variant/40 text-primary focus:ring-primary/30 bg-surface-container"
-      />
-      <span
-        className={`w-2 h-2 mt-1.5 rounded-full flex-shrink-0 ${isEnabled ? 'bg-emerald-400' : 'bg-outline-variant/30'}`}
-        title={isEnabled ? 'Healthy' : 'Inactive'}
-      />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-on-surface group-hover:text-on-surface font-medium">
-            {source.name}
-          </span>
-          <span className="text-[10px] text-on-surface-variant/40 font-mono truncate">
-            {displayUrl}
-          </span>
+    <button
+      onClick={() => onToggle(source, !selected)}
+      className={`relative text-left p-4 rounded-xl border transition-all duration-200 group ${
+        selected
+          ? 'ring-2 ring-primary bg-primary/5 border-primary/50'
+          : 'border-outline-variant/20 hover:border-outline-variant/60 hover:scale-[1.02] hover:shadow-[0_4px_20px_rgba(0,0,0,0.15)]'
+      }`}
+      style={{ animation: `slideUp 400ms cubic-bezier(0.05, 0.7, 0.1, 1.0) ${index * 40}ms both` }}
+    >
+      {selected && (
+        <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+          <Icon name="check" className="w-3 h-3 text-on-primary" />
         </div>
-        {source.description && (
-          <p className="text-xs text-on-surface-variant/60 mt-0.5 line-clamp-1">
-            {source.description}
-          </p>
-        )}
+      )}
+      <div className="flex items-start gap-3">
+        <div
+          className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
+            selected ? 'bg-primary/15' : 'bg-surface-container-high'
+          }`}
+        >
+          <Icon
+            name="globe"
+            className={`w-5 h-5 ${selected ? 'text-primary' : 'text-on-surface-variant'}`}
+          />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div
+            className={`text-sm font-medium ${
+              selected ? 'text-on-surface' : 'text-on-surface-variant'
+            }`}
+          >
+            {source.name}
+          </div>
+          <div className="text-[11px] text-on-surface-variant/50 font-mono mt-0.5">{domain}</div>
+          {source.description && (
+            <div className="text-xs text-on-surface-variant/60 mt-1 line-clamp-2">
+              {source.description}
+            </div>
+          )}
+        </div>
       </div>
-      <span className="text-xs text-on-surface-variant/60 flex-shrink-0 mt-0.5">
-        ~{source.avg_articles_week}/wk
-      </span>
-    </label>
+      <div className="flex items-center justify-between mt-3 pt-2 border-t border-outline-variant/10">
+        <span className="text-[10px] text-on-surface-variant/40 uppercase tracking-wider font-bold">
+          {source.category === 'government' ? 'Government' : 'Research'}
+        </span>
+        <span className="text-[10px] text-on-surface-variant/40">
+          ~{source.avg_articles_week}/wk
+        </span>
+      </div>
+    </button>
   );
 };
 
 // =============================================================================
-// MAIN COMPONENT
+// TAB: SOURCES
 // =============================================================================
 
-export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ onBack }) => {
-  const { user } = useAppData();
-  const userId = user?.id ?? '';
+const SourcesTab: React.FC<{
+  curatedSources: CuratedFeedSource[];
+  enabledSourceIds: Set<string>;
+  toggleSource: (source: CuratedFeedSource, enabled: boolean) => void;
+}> = ({ curatedSources, enabledSourceIds, toggleSource }) => {
+  const grouped = useMemo(() => groupByCategory(curatedSources), [curatedSources]);
+  const enabledCount = enabledSourceIds.size;
+  const totalCount = curatedSources.length;
+  const allSelected = totalCount > 0 && enabledCount === totalCount;
 
-  const {
-    settings,
-    curatedSources,
-    enabledSourceIds,
-    isLoading,
-    saveSettings,
-    toggleSource,
-  } = useAutoDigestSettings(userId);
+  const handleSelectAll = () => {
+    for (const source of curatedSources) {
+      if (!enabledSourceIds.has(source.id)) {
+        toggleSource(source, true);
+      }
+    }
+  };
 
-  // Local form state
+  const handleDeselectAll = () => {
+    for (const source of curatedSources) {
+      if (enabledSourceIds.has(source.id)) {
+        toggleSource(source, false);
+      }
+    }
+  };
+
+  if (curatedSources.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <div className="w-14 h-14 rounded-2xl bg-surface-container-high flex items-center justify-center mb-4">
+          <Icon name="globe" className="w-7 h-7 text-on-surface-variant/40" />
+        </div>
+        <p className="text-sm text-on-surface-variant">
+          No curated sources available. Run the database seed to populate sources.
+        </p>
+      </div>
+    );
+  }
+
+  // Track a global index across categories for stagger animation
+  let globalIndex = 0;
+
+  return (
+    <div className="space-y-6">
+      {/* Toolbar: Select All / Deselect All + count */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={allSelected ? handleDeselectAll : handleSelectAll}
+            className="text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+          >
+            {allSelected ? 'Deselect All' : 'Select All'}
+          </button>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+            {enabledCount} of {totalCount} sources selected
+          </span>
+        </div>
+      </div>
+
+      {/* Category groups */}
+      {CATEGORY_ORDER.map((cat) => {
+        const sources = grouped[cat];
+        if (!sources || sources.length === 0) return null;
+        return (
+          <div key={cat}>
+            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-3">
+              {CATEGORY_LABELS[cat] ?? cat}
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {sources.map((source) => {
+                const idx = globalIndex++;
+                return (
+                  <SelectionCard
+                    key={source.id}
+                    source={source}
+                    selected={enabledSourceIds.has(source.id)}
+                    index={idx}
+                    onToggle={toggleSource}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// =============================================================================
+// TAB: CONFIGURATION
+// =============================================================================
+
+const ConfigurationTab: React.FC<{
+  settings: {
+    is_enabled: boolean;
+    schedule_hour_utc: number;
+    max_articles_per_day: number;
+    ai_model: string;
+  } | null;
+  saveSettings: (updates: Record<string, unknown>) => Promise<void>;
+}> = ({ settings, saveSettings }) => {
   const [isEnabled, setIsEnabled] = useState(false);
   const [scheduleHour, setScheduleHour] = useState('0');
   const [maxArticles, setMaxArticles] = useState('5');
   const [aiModel, setAiModel] = useState('gemini-3-flash-preview');
   const [isSaving, setIsSaving] = useState(false);
 
-  // Sync from loaded settings
   useEffect(() => {
     if (settings) {
       setIsEnabled(settings.is_enabled);
@@ -174,6 +282,12 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
       setAiModel(settings.ai_model);
     }
   }, [settings]);
+
+  const handleToggle = () => {
+    const newValue = !isEnabled;
+    setIsEnabled(newValue);
+    saveSettings({ is_enabled: newValue });
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -186,81 +300,15 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     setIsSaving(false);
   };
 
-  // Pipeline stats — real data from threat_intel_reports (last 30 days)
-  const [digestedCount, setDigestedCount] = useState(0);
-  const [reviewedCount, setReviewedCount] = useState(0);
-  const [avgCoverage, setAvgCoverage] = useState(0);
-
-  useEffect(() => {
-    if (!userId) return;
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-
-    const fetchStats = async () => {
-      const { data, error } = await supabase
-        .from('threat_intel_reports')
-        .select('id, coverage_percent, review_status')
-        .eq('source', 'auto')
-        .eq('user_id', userId)
-        .gte('created_at', thirtyDaysAgo);
-
-      if (error || !data) return;
-
-      setDigestedCount(data.length);
-      setReviewedCount(data.filter((r) => r.review_status !== 'pending').length);
-
-      const withCoverage = data.filter((r) => r.coverage_percent != null);
-      setAvgCoverage(
-        withCoverage.length > 0
-          ? Math.round(
-              withCoverage.reduce((sum, r) => sum + (r.coverage_percent ?? 0), 0) /
-                withCoverage.length,
-            )
-          : 0,
-      );
-    };
-
-    fetchStats();
-  }, [userId]);
-
-  const grouped = groupByCategory(curatedSources);
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-[40vh]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-on-surface-variant">Loading settings...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6 space-y-8">
+    <div className="rounded-2xl bg-surface-container border border-outline-variant/10 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        {onBack && (
-          <button
-            onClick={onBack}
-            className="w-9 h-9 rounded-xl flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 transition-colors"
-          >
-            <Icon name="arrow-left" className="w-5 h-5" />
-          </button>
-        )}
-        <div>
-          <h1 className="text-xl font-bold text-on-surface">Intelligence Sources</h1>
-          <p className="text-sm text-on-surface-variant mt-0.5">
-            Configure automatic threat intelligence ingestion and processing
-          </p>
-        </div>
+      <div className="px-5 py-3.5 border-b border-outline-variant/10">
+        <h3 className="text-sm font-semibold text-on-surface">Auto-Digest Configuration</h3>
       </div>
 
-      {/* ================================================================== */}
-      {/* Section 1: Configuration */}
-      {/* ================================================================== */}
-      <section className="rounded-2xl bg-surface-container border border-outline-variant/10 p-6 space-y-5">
-        <h2 className="text-base font-semibold text-on-surface">Auto-Digest Configuration</h2>
-
+      {/* Body */}
+      <div className="p-5 space-y-5">
         {/* Toggle */}
         <div className="flex items-center justify-between">
           <div>
@@ -270,23 +318,17 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
             </p>
           </div>
           <button
-            onClick={() => {
-              const newValue = !isEnabled;
-              setIsEnabled(newValue);
-              saveSettings({ is_enabled: newValue });
-            }}
-            className={`
-              relative inline-flex h-7 w-12 items-center rounded-full transition-colors
-              ${isEnabled ? 'bg-primary' : 'bg-outline-variant/30'}
-            `}
+            onClick={handleToggle}
+            className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+              isEnabled ? 'bg-primary' : 'bg-outline-variant/30'
+            }`}
             role="switch"
             aria-checked={isEnabled}
           >
             <span
-              className={`
-                inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform
-                ${isEnabled ? 'translate-x-6' : 'translate-x-1'}
-              `}
+              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                isEnabled ? 'translate-x-6' : 'translate-x-1'
+              }`}
             />
           </button>
         </div>
@@ -315,82 +357,198 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
             size="sm"
           />
         </div>
+      </div>
 
-        {/* Save */}
-        <div className="flex justify-end">
-          <Button
-            color="primary"
-            size="sm"
-            leadingIcon="save"
-            loading={isSaving}
-            onClick={handleSave}
+      {/* Footer */}
+      <div className="px-5 py-3.5 border-t border-outline-variant/10 flex justify-end">
+        <Button
+          color="primary"
+          size="sm"
+          leadingIcon="save"
+          loading={isSaving}
+          onClick={handleSave}
+        >
+          Save Configuration
+        </Button>
+      </div>
+    </div>
+  );
+};
+
+// =============================================================================
+// TAB: ACTIVITY
+// =============================================================================
+
+const ActivityTab: React.FC<{ userId: string }> = ({ userId }) => {
+  const [digestedCount, setDigestedCount] = useState(0);
+  const [reviewedCount, setReviewedCount] = useState(0);
+  const [avgCoverage, setAvgCoverage] = useState(0);
+  const [hasActivity, setHasActivity] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!userId) return;
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    const fetchStats = async () => {
+      const { data, error } = await supabase
+        .from('threat_intel_reports')
+        .select('id, coverage_percent, review_status')
+        .eq('source', 'auto')
+        .eq('user_id', userId)
+        .gte('created_at', thirtyDaysAgo);
+
+      if (error || !data) {
+        setHasActivity(false);
+        return;
+      }
+
+      setDigestedCount(data.length);
+      setReviewedCount(data.filter((r) => r.review_status !== 'pending').length);
+
+      const withCoverage = data.filter((r) => r.coverage_percent != null);
+      setAvgCoverage(
+        withCoverage.length > 0
+          ? Math.round(
+              withCoverage.reduce((sum, r) => sum + (r.coverage_percent ?? 0), 0) /
+                withCoverage.length,
+            )
+          : 0,
+      );
+      setHasActivity(data.length > 0);
+    };
+
+    fetchStats();
+  }, [userId]);
+
+  if (hasActivity === false) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <div className="w-14 h-14 rounded-2xl bg-surface-container-high flex items-center justify-center mb-4">
+          <Icon name="activity" className="w-7 h-7 text-on-surface-variant/40" />
+        </div>
+        <p className="text-sm text-on-surface-variant max-w-xs">
+          No auto-digest activity yet. Enable auto-digest and select sources to get started.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Stats bar */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <StatCard label="Digested reports" value={digestedCount} icon="file-text" />
+        <StatCard label="Reports reviewed" value={reviewedCount} icon="check-circle" />
+        <StatCard label="Avg coverage" value={`${avgCoverage}%`} icon="chart-bar" />
+      </div>
+
+      {/* Feed Activity Log */}
+      <FeedActivityLog userId={userId} />
+    </div>
+  );
+};
+
+// =============================================================================
+// MAIN COMPONENT
+// =============================================================================
+
+export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ onBack }) => {
+  const { user } = useAppData();
+  const userId = user?.id ?? '';
+
+  const {
+    settings,
+    curatedSources,
+    enabledSourceIds,
+    isLoading,
+    saveSettings,
+    toggleSource,
+  } = useAutoDigestSettings(userId);
+
+  const [activeTab, setActiveTab] = useState<TabId>('sources');
+
+  const tabs: TabDef[] = useMemo(
+    () => [
+      {
+        id: 'sources',
+        label: 'Sources',
+        icon: 'globe',
+        badge: enabledSourceIds.size > 0 ? String(enabledSourceIds.size) : undefined,
+      },
+      { id: 'configuration', label: 'Configuration', icon: 'settings' },
+      { id: 'activity', label: 'Activity', icon: 'activity' },
+    ],
+    [enabledSourceIds.size],
+  );
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[40vh]">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-on-surface-variant">Loading settings...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="w-9 h-9 rounded-xl flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 transition-colors"
           >
-            Save Configuration
-          </Button>
-        </div>
-      </section>
-
-      {/* ================================================================== */}
-      {/* Section 2: Vendor Sources */}
-      {/* ================================================================== */}
-      <section className="rounded-2xl bg-surface-container border border-outline-variant/10 p-6 space-y-5">
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-on-surface">Vendor Sources</h2>
-          <Button color="secondary" variant="outlined" size="sm" leadingIcon="plus" disabled title="Custom feeds — coming in a future update">
-            Add Custom Feed
-          </Button>
-        </div>
-
-        {CATEGORY_ORDER.map((cat) => {
-          const sources = grouped[cat];
-          if (!sources || sources.length === 0) return null;
-          return (
-            <div key={cat} className="space-y-1">
-              <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider px-1 mb-2">
-                {CATEGORY_LABELS[cat] ?? cat}
-              </h3>
-              <div className="space-y-0.5">
-                {sources.map((source) => (
-                  <SourceRow
-                    key={source.id}
-                    source={source}
-                    isEnabled={enabledSourceIds.has(source.id)}
-                    onToggle={toggleSource}
-                  />
-                ))}
-              </div>
-            </div>
-          );
-        })}
-
-        {curatedSources.length === 0 && (
-          <p className="text-sm text-on-surface-variant text-center py-6">
-            No curated sources available. Run the database seed to populate sources.
-          </p>
+            <Icon name="arrow-left" className="w-5 h-5" />
+          </button>
         )}
-      </section>
-
-      {/* ================================================================== */}
-      {/* Section 3: Pipeline Stats (last 30 days) */}
-      {/* ================================================================== */}
-      <section className="space-y-3">
-        <h2 className="text-base font-semibold text-on-surface">Pipeline Stats (last 30 days)</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <StatCard label="Digested reports" value={digestedCount} icon="file-text" />
-          <StatCard label="Reports reviewed" value={reviewedCount} icon="check-circle" />
-          <StatCard label="Avg coverage" value={`${avgCoverage}%`} icon="chart-bar" />
+        <div>
+          <h1 className="text-xl font-bold text-on-surface">Intelligence Sources</h1>
+          <p className="text-sm text-on-surface-variant mt-0.5">
+            Configure automatic threat intelligence ingestion and processing
+          </p>
         </div>
-      </section>
+      </div>
 
-      {/* ================================================================== */}
-      {/* Section 4: Feed Activity Log */}
-      {/* ================================================================== */}
-      {userId && (
-        <section className="space-y-3">
-          <h2 className="text-base font-semibold text-on-surface">Feed Activity Log</h2>
-          <FeedActivityLog userId={userId} />
-        </section>
+      {/* Pill Tab Bar */}
+      <div className="flex gap-1 p-1 bg-surface-container rounded-xl">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-all ${
+              activeTab === tab.id
+                ? 'bg-primary text-on-primary shadow-sm rounded-lg'
+                : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface rounded-lg'
+            }`}
+          >
+            <Icon name={tab.icon} className="w-4 h-4" />
+            {tab.label}
+            {tab.badge && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-on-primary/20">
+                {tab.badge}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'sources' && (
+        <SourcesTab
+          curatedSources={curatedSources}
+          enabledSourceIds={enabledSourceIds}
+          toggleSource={toggleSource}
+        />
       )}
+
+      {activeTab === 'configuration' && (
+        <ConfigurationTab settings={settings} saveSettings={saveSettings} />
+      )}
+
+      {activeTab === 'activity' && userId && <ActivityTab userId={userId} />}
     </div>
   );
 };
