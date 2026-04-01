@@ -289,11 +289,49 @@ serve(async (req: Request) => {
               relevance_score: 0,
             };
 
-            const { data: savedReport, error: upsertErr } = await supabase
-              .from('threat_intel_reports')
-              .upsert(reportRow, { onConflict: 'user_id,source_url' })
-              .select('id')
-              .single();
+            // Check if a report already exists for this user + source_url
+            let savedReport: { id: string } | null = null;
+            let upsertErr: any = null;
+
+            if (entry.url) {
+              const { data: existing } = await supabase
+                .from('threat_intel_reports')
+                .select('id')
+                .eq('user_id', job.user_id)
+                .eq('source_url', entry.url)
+                .limit(1)
+                .maybeSingle();
+
+              if (existing) {
+                // Update existing report
+                const { data, error } = await supabase
+                  .from('threat_intel_reports')
+                  .update(reportRow)
+                  .eq('id', existing.id)
+                  .select('id')
+                  .single();
+                savedReport = data;
+                upsertErr = error;
+              } else {
+                // Insert new report
+                const { data, error } = await supabase
+                  .from('threat_intel_reports')
+                  .insert(reportRow)
+                  .select('id')
+                  .single();
+                savedReport = data;
+                upsertErr = error;
+              }
+            } else {
+              // No URL — just insert
+              const { data, error } = await supabase
+                .from('threat_intel_reports')
+                .insert(reportRow)
+                .select('id')
+                .single();
+              savedReport = data;
+              upsertErr = error;
+            }
 
             if (upsertErr || !savedReport) {
               await supabase
@@ -301,7 +339,7 @@ serve(async (req: Request) => {
                 .update({ digest_status: 'digest_failed' })
                 .eq('id', entry.id);
 
-              result.errors.push(`Report upsert ${entryId}: ${upsertErr?.message || 'no data'}`);
+              result.errors.push(`Report save ${entryId}: ${upsertErr?.message || 'no data'}`);
               result.articles_failed += 1;
               continue;
             }

@@ -299,6 +299,7 @@ export async function updateCampaignMerge(
   const coveredTTPs = mergedTTPs.filter(
     (t) => t.hasExistingDetection === true || t.covered === true,
   ).length;
+  const uncoveredTTPs = totalTTPs - coveredTTPs;
   const coveragePercent = totalTTPs > 0 ? Math.round((coveredTTPs / totalTTPs) * 100) : 0;
 
   // --- Update campaign ---
@@ -308,8 +309,13 @@ export async function updateCampaignMerge(
       merged_ttps: mergedTTPs,
       merged_iocs: mergedIoCs,
       merged_rules: mergedRules,
-      total_coverage_percent: coveragePercent,
-      updated_at: new Date().toISOString(),
+      coverage_percent: coveragePercent,
+      total_ttp_count: totalTTPs,
+      covered_ttp_count: coveredTTPs,
+      feasible_gap_count: uncoveredTTPs,
+      infeasible_gap_count: 0,
+      article_count: articles.length,
+      last_updated_at: new Date().toISOString(),
     })
     .eq('id', campaignId);
 }
