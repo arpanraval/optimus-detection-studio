@@ -13,7 +13,11 @@ CREATE TABLE IF NOT EXISTS auto_digest_settings (
     CHECK (schedule_hour_utc BETWEEN 0 AND 23),
   max_articles_per_day integer NOT NULL DEFAULT 3
     CHECK (max_articles_per_day BETWEEN 1 AND 10),
-  ai_model text NOT NULL DEFAULT 'gemini-3-flash-preview',
+  ai_model text NOT NULL DEFAULT 'gemini-3-flash-preview'
+    CHECK (ai_model IN (
+      'gemini-3-flash-preview', 'gemini-3-pro-preview',
+      'gpt-5-mini', 'gpt-5-nano'
+    )),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -93,6 +97,9 @@ CREATE POLICY "Users manage own campaigns" ON auto_digest_campaigns
   FOR ALL USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
+ALTER TABLE auto_digest_campaigns
+  ADD CONSTRAINT review_note_max_length CHECK (char_length(review_note) <= 2000);
+
 -- ----------------------------------------------------------
 -- 4. auto_digest_campaign_articles — junction table
 -- ----------------------------------------------------------
@@ -146,9 +153,8 @@ CREATE TABLE IF NOT EXISTS auto_digest_jobs (
 
 ALTER TABLE auto_digest_jobs ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Users manage own digest jobs" ON auto_digest_jobs
-  FOR ALL USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users read own digest jobs" ON auto_digest_jobs
+  FOR SELECT USING (auth.uid() = user_id);
 
 -- ----------------------------------------------------------
 -- 6. ALTER threat_intel_reports — add auto-digest columns
@@ -165,9 +171,12 @@ ALTER TABLE threat_intel_reports
     )),
   ADD COLUMN IF NOT EXISTS review_note text,
   ADD COLUMN IF NOT EXISTS reviewed_at timestamptz,
-  ADD COLUMN IF NOT EXISTS relevance_score numeric(3,2) DEFAULT 0.0,
+  ADD COLUMN IF NOT EXISTS relevance_score smallint DEFAULT 0,
   ADD COLUMN IF NOT EXISTS feasible_gap_count integer DEFAULT 0,
   ADD COLUMN IF NOT EXISTS infeasible_gap_count integer DEFAULT 0;
+
+ALTER TABLE threat_intel_reports
+  ADD CONSTRAINT report_review_note_max_length CHECK (char_length(review_note) <= 2000);
 
 -- ----------------------------------------------------------
 -- 7. ALTER threat_intel_feeds — add curated source link
@@ -193,7 +202,31 @@ ALTER TABLE threat_intel_feed_entries
   ADD COLUMN IF NOT EXISTS full_content text,
   ADD COLUMN IF NOT EXISTS content_length integer,
   ADD COLUMN IF NOT EXISTS extract_error text,
-  ADD COLUMN IF NOT EXISTS campaign_id uuid REFERENCES auto_digest_campaigns(id) ON DELETE SET NULL;
+  ADD COLUMN IF NOT EXISTS campaign_id uuid REFERENCES auto_digest_campaigns(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS auto_digest_report_id text REFERENCES threat_intel_reports(id),
+  ADD COLUMN IF NOT EXISTS is_processed boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS fetched_at timestamptz DEFAULT now();
+
+-- ---------------------------------------------------------------------------
+-- RLS for existing tables that lacked policies
+-- ---------------------------------------------------------------------------
+ALTER TABLE threat_intel_feeds ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'threat_intel_feeds' AND policyname = 'Users manage own feeds') THEN
+    CREATE POLICY "Users manage own feeds" ON threat_intel_feeds
+      FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  END IF;
+END $$;
+
+ALTER TABLE threat_intel_feed_entries ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'threat_intel_feed_entries' AND policyname = 'Users manage own feed entries') THEN
+    CREATE POLICY "Users manage own feed entries" ON threat_intel_feed_entries
+      FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  END IF;
+END $$;
 
 -- ----------------------------------------------------------
 -- 9. Indexes
