@@ -115,7 +115,7 @@ export const DetectionDetailPage: React.FC = () => {
   }
 
   return (
-    <PageErrorBoundary pageName="Detection Detail" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
+    <PageErrorBoundary pageName="Detection Detail" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
       <DetailPage
         detection={detection}
         onBack={handleBack}

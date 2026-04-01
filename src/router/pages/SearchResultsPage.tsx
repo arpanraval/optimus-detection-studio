@@ -10,7 +10,7 @@ export const SearchResultsPage: React.FC = () => {
   const query = searchParams.get('q') || '';
 
   return (
-    <PageErrorBoundary pageName="Search Results" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
+    <PageErrorBoundary pageName="Search Results" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
       <SearchResults query={query} />
     </PageErrorBoundary>
   );

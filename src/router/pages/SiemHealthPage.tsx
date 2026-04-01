@@ -8,7 +8,7 @@ export function SiemHealthPage() {
   const navigate = useNavigate();
 
   return (
-    <PageErrorBoundary pageName="SIEM Home" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
+    <PageErrorBoundary pageName="SIEM Home" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
       <div className="px-4 lg:px-6 py-4 pb-16">
         <SiemLandingPage />
       </div>

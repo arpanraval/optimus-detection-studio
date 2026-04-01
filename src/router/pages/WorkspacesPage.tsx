@@ -12,7 +12,7 @@ export const WorkspacesPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Workspaces" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
+    <PageErrorBoundary pageName="Workspaces" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
       <WorkspacesListPage onSelectWorkspace={handleSelectWorkspace} />
     </PageErrorBoundary>
   );

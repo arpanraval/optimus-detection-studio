@@ -4,15 +4,9 @@ export const ROUTES = {
   // Command Center (new default)
   COMMAND_CENTER: '/',
 
-  // Dashboard (classic)
-  DASHBOARD: '/dashboard/classic',
-
   // Enterprise Dashboard
   ENTERPRISE_DASHBOARD: '/dashboard/enterprise',
   ENTERPRISE_DASHBOARD_DETAIL: '/dashboard/enterprise/:dashboardId',
-
-  // Intelligence Globe
-  INTEL_GLOBE: '/dashboard/globe',
 
   // Detection Library
   LIBRARY: '/library',
@@ -144,9 +138,7 @@ export const routeHelpers = {
 export const viewToRoute: Record<string, string> = {
   'dashboard': ROUTES.COMMAND_CENTER,
   'command-center': ROUTES.COMMAND_CENTER,
-  'dashboard-classic': ROUTES.DASHBOARD,
   'enterprise-dashboard': ROUTES.ENTERPRISE_DASHBOARD,
-  'intel-globe': ROUTES.INTEL_GLOBE,
   'library': ROUTES.LIBRARY,
   'detail': ROUTES.DETECTION_DETAIL,
   'form': ROUTES.DETECTION_NEW,
@@ -215,9 +207,7 @@ export const viewToRoute: Record<string, string> = {
 // Page headers for each route
 export const routeHeaders: Record<string, { title: string; description?: string }> = {
   [ROUTES.COMMAND_CENTER]: { title: 'Command Center', description: 'Detection engineering command center' },
-  [ROUTES.DASHBOARD]: { title: 'Dashboard', description: 'Overview of your detection engineering program' },
   [ROUTES.ENTERPRISE_DASHBOARD]: { title: 'Enterprise Dashboard', description: 'Customizable drag-and-drop dashboard with widgets' },
-  [ROUTES.INTEL_GLOBE]: { title: 'Intelligence Globe', description: 'Interactive threat actor and software relationship map' },
   [ROUTES.LIBRARY]: { title: 'Detection Library', description: 'Browse and manage your security detections' },
   [ROUTES.DETECTION_NEW]: { title: 'New Detection', description: 'Create a new detection rule' },
   [ROUTES.DETECTION_DETAIL]: { title: 'Detection Details', description: undefined },

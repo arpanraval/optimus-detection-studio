@@ -18,7 +18,7 @@ export const SubmissionsPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="My Submissions" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
+    <PageErrorBoundary pageName="My Submissions" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
       <MySubmissions
         userId={user?.id || ''}
         onNavigateToDetection={handleNavigateToDetection}

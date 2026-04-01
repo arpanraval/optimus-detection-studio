@@ -9,7 +9,7 @@ export const IntegrationDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
 
   return (
-    <PageErrorBoundary pageName="Integration Detail" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
+    <PageErrorBoundary pageName="Integration Detail" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
       <IntegrationDetail
         integrationId={id!}
         onBack={() => navigate(ROUTES.INTEGRATIONS)}
