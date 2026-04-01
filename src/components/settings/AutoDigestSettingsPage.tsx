@@ -98,28 +98,48 @@ const SourceRow: React.FC<{
   source: CuratedFeedSource;
   isEnabled: boolean;
   onToggle: (source: CuratedFeedSource, enabled: boolean) => void;
-}> = ({ source, isEnabled, onToggle }) => (
-  <label className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-surface-container-high/40 transition-colors cursor-pointer group">
-    <input
-      type="checkbox"
-      checked={isEnabled}
-      onChange={(e) => onToggle(source, e.target.checked)}
-      className="w-4 h-4 rounded border-outline-variant/40 text-primary focus:ring-primary/30 bg-surface-container"
-    />
-    <span
-      className={`w-2 h-2 rounded-full flex-shrink-0 ${isEnabled ? 'bg-emerald-400' : 'bg-outline-variant/30'}`}
-      title={isEnabled ? 'Healthy' : 'Inactive'}
-    />
-    <div className="flex-1 min-w-0">
-      <span className="text-sm text-on-surface group-hover:text-on-surface font-medium">
-        {source.name}
+}> = ({ source, isEnabled, onToggle }) => {
+  // Extract display domain from URL
+  const displayUrl = (() => {
+    try {
+      const u = new URL(source.url);
+      return u.hostname.replace('www.', '');
+    } catch { return source.url; }
+  })();
+
+  return (
+    <label className="flex items-start gap-3 px-3 py-3 rounded-xl hover:bg-surface-container-high/40 transition-colors cursor-pointer group">
+      <input
+        type="checkbox"
+        checked={isEnabled}
+        onChange={(e) => onToggle(source, e.target.checked)}
+        className="w-4 h-4 mt-0.5 rounded border-outline-variant/40 text-primary focus:ring-primary/30 bg-surface-container"
+      />
+      <span
+        className={`w-2 h-2 mt-1.5 rounded-full flex-shrink-0 ${isEnabled ? 'bg-emerald-400' : 'bg-outline-variant/30'}`}
+        title={isEnabled ? 'Healthy' : 'Inactive'}
+      />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-on-surface group-hover:text-on-surface font-medium">
+            {source.name}
+          </span>
+          <span className="text-[10px] text-on-surface-variant/40 font-mono truncate">
+            {displayUrl}
+          </span>
+        </div>
+        {source.description && (
+          <p className="text-xs text-on-surface-variant/60 mt-0.5 line-clamp-1">
+            {source.description}
+          </p>
+        )}
+      </div>
+      <span className="text-xs text-on-surface-variant/60 flex-shrink-0 mt-0.5">
+        ~{source.avg_articles_week}/wk
       </span>
-    </div>
-    <span className="text-xs text-on-surface-variant/60 flex-shrink-0">
-      ~{source.avg_articles_week}/wk
-    </span>
-  </label>
-);
+    </label>
+  );
+};
 
 // =============================================================================
 // MAIN COMPONENT
