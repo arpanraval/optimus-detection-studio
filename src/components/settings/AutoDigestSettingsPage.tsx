@@ -5,6 +5,7 @@ import { Select } from '../ui/Select';
 import { useAutoDigestSettings, CuratedFeedSource } from '../../hooks/useAutoDigestSettings';
 import { FeedActivityLog } from '../threatintel/FeedActivityLog';
 import { useAppData } from '../../router/AppDataContext';
+import { supabase } from '../../lib/supabaseClient';
 
 // =============================================================================
 // TYPES
@@ -132,7 +133,6 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     settings,
     curatedSources,
     enabledSourceIds,
-    recentJobs,
     isLoading,
     saveSettings,
     toggleSource,
@@ -166,20 +166,41 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     setIsSaving(false);
   };
 
-  // Pipeline stats (placeholder — derived from recentJobs)
-  const digestedCount = recentJobs.filter((j) => j.status === 'completed').length;
-  const detectionsCreated = recentJobs.reduce(
-    (sum, j) => sum + (j.result_summary?.detections_created ?? 0),
-    0,
-  );
-  const avgCoverage = recentJobs.length > 0
-    ? Math.round(
-        recentJobs.reduce(
-          (sum, j) => sum + (j.result_summary?.coverage_pct ?? 0),
-          0,
-        ) / recentJobs.length,
-      )
-    : 0;
+  // Pipeline stats — real data from threat_intel_reports (last 30 days)
+  const [digestedCount, setDigestedCount] = useState(0);
+  const [reviewedCount, setReviewedCount] = useState(0);
+  const [avgCoverage, setAvgCoverage] = useState(0);
+
+  useEffect(() => {
+    if (!userId) return;
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    const fetchStats = async () => {
+      const { data, error } = await supabase
+        .from('threat_intel_reports')
+        .select('id, coverage_percent, review_status')
+        .eq('source', 'auto')
+        .eq('user_id', userId)
+        .gte('created_at', thirtyDaysAgo);
+
+      if (error || !data) return;
+
+      setDigestedCount(data.length);
+      setReviewedCount(data.filter((r) => r.review_status !== 'pending').length);
+
+      const withCoverage = data.filter((r) => r.coverage_percent != null);
+      setAvgCoverage(
+        withCoverage.length > 0
+          ? Math.round(
+              withCoverage.reduce((sum, r) => sum + (r.coverage_percent ?? 0), 0) /
+                withCoverage.length,
+            )
+          : 0,
+      );
+    };
+
+    fetchStats();
+  }, [userId]);
 
   const grouped = groupByCategory(curatedSources);
 
@@ -229,7 +250,11 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
             </p>
           </div>
           <button
-            onClick={() => setIsEnabled(!isEnabled)}
+            onClick={() => {
+              const newValue = !isEnabled;
+              setIsEnabled(newValue);
+              saveSettings({ is_enabled: newValue });
+            }}
             className={`
               relative inline-flex h-7 w-12 items-center rounded-full transition-colors
               ${isEnabled ? 'bg-primary' : 'bg-outline-variant/30'}
@@ -291,7 +316,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
       <section className="rounded-2xl bg-surface-container border border-outline-variant/10 p-6 space-y-5">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-on-surface">Vendor Sources</h2>
-          <Button color="secondary" variant="outlined" size="sm" leadingIcon="plus" disabled>
+          <Button color="secondary" variant="outlined" size="sm" leadingIcon="plus" disabled title="Custom feeds — coming in a future update">
             Add Custom Feed
           </Button>
         </div>
@@ -332,7 +357,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
         <h2 className="text-base font-semibold text-on-surface">Pipeline Stats (last 30 days)</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <StatCard label="Digested reports" value={digestedCount} icon="file-text" />
-          <StatCard label="Detections created" value={detectionsCreated} icon="shield" />
+          <StatCard label="Reports reviewed" value={reviewedCount} icon="check-circle" />
           <StatCard label="Avg coverage" value={`${avgCoverage}%`} icon="bar-chart" />
         </div>
       </section>
