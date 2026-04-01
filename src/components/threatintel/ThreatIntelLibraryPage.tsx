@@ -47,13 +47,13 @@ const LIST_COLUMN_OPTIONS: ColumnConfig[] = [
   { key: 'reportTitle', label: 'Title', minWidth: '200px', flex: 1 },
   { key: 'threatLevel', label: 'Severity', minWidth: '90px' },
   { key: 'attackType', label: 'Type', minWidth: '100px' },
-  { key: 'organization', label: 'Source', minWidth: '100px' },
+  { key: 'organization', label: 'Vendor', minWidth: '100px' },
   { key: 'attribution', label: 'Actor', minWidth: '100px' },
   { key: 'ttpCount', label: 'TTPs', minWidth: '60px' },
   { key: 'iocCount', label: 'IoCs', minWidth: '60px' },
   { key: 'ruleCount', label: 'Rules', minWidth: '60px' },
   { key: 'coveragePercent', label: 'Coverage', minWidth: '80px' },
-  { key: 'source', label: 'Source', minWidth: '90px' },
+  { key: 'source', label: 'Origin', minWidth: '90px' },
   { key: 'reviewStatus', label: 'Status', minWidth: '80px' },
   { key: 'updatedAt', label: 'Updated', minWidth: '90px' },
 ];
@@ -575,7 +575,13 @@ export const ThreatIntelLibraryPage: React.FC = () => {
   const [showColModal, setShowColModal] = useState(false);
   const [isMigrating, setIsMigrating] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(() => {
+    return sessionStorage.getItem('autoDigestBannerDismissed') === 'true';
+  });
+  const dismissBanner = useCallback(() => {
+    setBannerDismissed(true);
+    sessionStorage.setItem('autoDigestBannerDismissed', 'true');
+  }, []);
 
   // Auto-digest computed values
   const pendingReports = useMemo(
@@ -859,9 +865,8 @@ export const ThreatIntelLibraryPage: React.FC = () => {
               onView={() => {
                 setVisibleFilters(prev => prev.includes('reviewStatus') ? prev : [...prev, 'reviewStatus']);
                 setFilters(prev => ({ ...prev, reviewStatus: ['pending'] }));
-                setBannerDismissed(true);
               }}
-              onDismiss={() => setBannerDismissed(true)}
+              onDismiss={dismissBanner}
             />
           )}
 
