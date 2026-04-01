@@ -13,7 +13,7 @@ export const SoftwarePage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Software Library" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
+    <PageErrorBoundary pageName="Software Library" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
       <SoftwareLibrary onSelectSoftware={handleSelectSoftware} />
     </PageErrorBoundary>
   );

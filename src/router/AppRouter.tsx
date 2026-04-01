@@ -62,8 +62,6 @@ const initialPendingAction = detectPendingAuthAction();
 import { CommandCenterPage } from './pages';
 
 // Lazy-load all other pages
-const DashboardPage = lazy(() => import('./pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
-const IntelGlobePage = lazy(() => import('./pages/IntelGlobePage').then(m => ({ default: m.IntelGlobePage })));
 const DetectionLibraryPage = lazy(() => import('./pages/DetectionLibraryPage').then(m => ({ default: m.DetectionLibraryPage })));
 const DetectionDetailPage = lazy(() => import('./pages/DetectionDetailPage').then(m => ({ default: m.DetectionDetailPage })));
 const DetectionFormPage = lazy(() => import('./pages/DetectionFormPage').then(m => ({ default: m.DetectionFormPage })));
@@ -184,15 +182,9 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       // Command Center (default)
       { index: true, element: <CommandCenterPage /> },
 
-      // Classic Dashboard
-      { path: 'dashboard/classic', element: <DashboardPage /> },
-
       // Enterprise Dashboard (with optional dashboardId for deep-linking)
       { path: 'dashboard/enterprise', element: <EnterpriseDashboardPage /> },
       { path: 'dashboard/enterprise/:dashboardId', element: <EnterpriseDashboardPage /> },
-
-      // Intelligence Globe
-      { path: 'dashboard/globe', element: <IntelGlobePage /> },
 
       // Detection Library
       { path: 'library', element: <DetectionLibraryPage /> },

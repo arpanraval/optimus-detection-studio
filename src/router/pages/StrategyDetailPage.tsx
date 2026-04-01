@@ -51,7 +51,7 @@ export const StrategyDetailPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Strategy Detail" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
+    <PageErrorBoundary pageName="Strategy Detail" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
       <DetectionStrategyDetailPage
         strategyStixId={id}
         onBack={handleBack}

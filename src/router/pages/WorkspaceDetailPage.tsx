@@ -29,7 +29,7 @@ export const WorkspaceDetailPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Workspace Detail" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
+    <PageErrorBoundary pageName="Workspace Detail" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
       <DetailPage
         onBack={handleBack}
         onSelectDetection={handleSelectDetection}

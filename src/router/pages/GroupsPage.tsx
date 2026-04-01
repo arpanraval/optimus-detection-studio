@@ -13,7 +13,7 @@ export const GroupsPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Threat Groups" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
+    <PageErrorBoundary pageName="Threat Groups" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
       <GroupsLibrary onSelectGroup={handleSelectGroup} />
     </PageErrorBoundary>
   );

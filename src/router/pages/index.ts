@@ -1,7 +1,5 @@
 // Page components barrel export
 export { CommandCenterPage } from './CommandCenterPage';
-export { DashboardPage } from './DashboardPage';
-export { IntelGlobePage } from './IntelGlobePage';
 export { DetectionLibraryPage } from './DetectionLibraryPage';
 export { DetectionDetailPage } from './DetectionDetailPage';
 export { DetectionFormPage } from './DetectionFormPage';
