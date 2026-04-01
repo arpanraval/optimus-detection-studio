@@ -124,6 +124,8 @@ export function createMITREFocusPreset(
     wi(WIDGET_TYPE.COVERAGE_TREND),
     wi(WIDGET_TYPE.THREAT_ACTORS),
     wi(WIDGET_TYPE.CAMPAIGN),
+    wi(WIDGET_TYPE.TACTIC_COVERAGE_BARS),
+    wi(WIDGET_TYPE.GAP_DISTRIBUTION),
   ];
 
   const lg = [
@@ -134,6 +136,8 @@ export function createMITREFocusPreset(
     { i: widgets[4].id, x: 6, y: 13, w: 6, h: 3, minW: 3, minH: 2 },
     { i: widgets[5].id, x: 0, y: 16, w: 6, h: 4, minW: 2, minH: 2 },
     { i: widgets[6].id, x: 6, y: 16, w: 6, h: 4, minW: 2, minH: 2 },
+    { i: widgets[7].id, x: 0, y: 20, w: 6, h: 5, minW: 3, minH: 3 },
+    { i: widgets[8].id, x: 6, y: 20, w: 6, h: 3, minW: 3, minH: 2 },
   ];
 
   const md = lg.map(l => ({ ...l, w: Math.min(l.w, 8), x: Math.min(l.x, 8 - Math.min(l.w, 8)) }));
@@ -405,6 +409,76 @@ export function createBlankCanvasPreset(
 }
 
 // ---------------------------------------------------------------------------
+// Coverage & Posture — defensive readiness + gap analysis
+// ---------------------------------------------------------------------------
+
+export function createCoveragePosturePreset(
+  _dashboardId: string,
+): Omit<DashboardDefinition, 'id' | 'createdAt' | 'updatedAt'> {
+  const widgets: WidgetInstance[] = [
+    wi(WIDGET_TYPE.READINESS_BADGE),
+    wi(WIDGET_TYPE.POSTURE_GAUGES),
+    wi(WIDGET_TYPE.TACTIC_COVERAGE_BARS),
+    wi(WIDGET_TYPE.GAP_DISTRIBUTION),
+    wi(WIDGET_TYPE.PLATFORM_COVERAGE),
+    wi(WIDGET_TYPE.PRIORITY_GAPS_TABLE),
+    wi(WIDGET_TYPE.QUICK_WINS),
+    wi(WIDGET_TYPE.STRATEGY_GAP_STATS),
+    wi(WIDGET_TYPE.STRATEGY_GAP_TABLE),
+  ];
+
+  const lg = [
+    /* row 0  */ { i: widgets[0].id, x: 0, y: 0, w: 4, h: 4, minW: 2, minH: 2 },
+    /* row 0  */ { i: widgets[1].id, x: 4, y: 0, w: 8, h: 4, minW: 4, minH: 2 },
+    /* row 4  */ { i: widgets[2].id, x: 0, y: 4, w: 6, h: 5, minW: 3, minH: 3 },
+    /* row 4  */ { i: widgets[3].id, x: 6, y: 4, w: 6, h: 5, minW: 3, minH: 2 },
+    /* row 9  */ { i: widgets[4].id, x: 0, y: 9, w: 6, h: 4, minW: 2, minH: 2 },
+    /* row 9  */ { i: widgets[5].id, x: 6, y: 9, w: 6, h: 4, minW: 4, minH: 3 },
+    /* row 13 */ { i: widgets[6].id, x: 0, y: 13, w: 12, h: 2, minW: 6, minH: 2 },
+    /* row 15 */ { i: widgets[7].id, x: 0, y: 15, w: 12, h: 2, minW: 6, minH: 2 },
+    /* row 17 */ { i: widgets[8].id, x: 0, y: 17, w: 12, h: 4, minW: 6, minH: 3 },
+  ];
+
+  const md = lg.map(l => ({ ...l, w: Math.min(l.w, 8), x: Math.min(l.x, 8 - Math.min(l.w, 8)) }));
+  const sm = lg.map(l => ({ ...l, w: Math.min(l.w, 4), x: 0 }));
+  const xs = lg.map(l => ({ ...l, w: 2, x: 0 }));
+
+  return { name: 'Coverage & Posture', isDefault: false, widgets, layouts: { lg, md, sm, xs } };
+}
+
+// ---------------------------------------------------------------------------
+// MITRE ATT&CK Framework Explorer — static framework reference
+// ---------------------------------------------------------------------------
+
+export function createMitreExplorerPreset(
+  _dashboardId: string,
+): Omit<DashboardDefinition, 'id' | 'createdAt' | 'updatedAt'> {
+  const widgets: WidgetInstance[] = [
+    wi(WIDGET_TYPE.MITRE_OVERVIEW_STATS),
+    wi(WIDGET_TYPE.MITRE_TACTIC_GRID),
+    wi(WIDGET_TYPE.MITRE_PLATFORMS),
+    wi(WIDGET_TYPE.MITRE_TACTICS_BY_PLATFORM),
+    wi(WIDGET_TYPE.MITRE_TOP_ADVERSARIES),
+    wi(WIDGET_TYPE.MITRE_TOP_MALWARE),
+  ];
+
+  const lg = [
+    /* row 0  */ { i: widgets[0].id, x: 0, y: 0,  w: 12, h: 2, minW: 6, minH: 2 },   // Overview Stats
+    /* row 2  */ { i: widgets[1].id, x: 0, y: 2,  w: 12, h: 3, minW: 6, minH: 2 },   // Tactic Grid
+    /* row 5  */ { i: widgets[2].id, x: 0, y: 5,  w: 6,  h: 4, minW: 3, minH: 3 },   // Platforms
+    /* row 5  */ { i: widgets[3].id, x: 6, y: 5,  w: 6,  h: 5, minW: 4, minH: 3 },   // Tactics by Platform
+    /* row 9  */ { i: widgets[4].id, x: 0, y: 9,  w: 6,  h: 5, minW: 3, minH: 3 },   // Top Adversaries
+    /* row 10 */ { i: widgets[5].id, x: 6, y: 10, w: 6,  h: 5, minW: 3, minH: 3 },   // Top Malware
+  ];
+
+  const md = lg.map(l => ({ ...l, w: Math.min(l.w, 8), x: Math.min(l.x, 8 - Math.min(l.w, 8)) }));
+  const sm = lg.map(l => ({ ...l, w: Math.min(l.w, 4), x: 0 }));
+  const xs = lg.map(l => ({ ...l, w: 2, x: 0 }));
+
+  return { name: 'MITRE ATT&CK Framework Explorer', isDefault: false, widgets, layouts: { lg, md, sm, xs } };
+}
+
+// ---------------------------------------------------------------------------
 // Presets list
 // ---------------------------------------------------------------------------
 
@@ -450,6 +524,18 @@ export const DASHBOARD_PRESETS: DashboardPreset[] = [
     name: 'Executive Summary',
     description: 'High-level KPIs, readiness, funnel, and coverage for leadership',
     create: createExecutiveSummaryPreset,
+  },
+  {
+    id: 'coverage-posture',
+    name: 'Coverage & Posture',
+    description: 'Defensive readiness, tactic coverage, gap analysis, and strategy gaps',
+    create: createCoveragePosturePreset,
+  },
+  {
+    id: 'mitre-explorer',
+    name: 'MITRE ATT&CK Framework Explorer',
+    description: 'ATT&CK framework reference — techniques, tactics, adversaries, and malware',
+    create: createMitreExplorerPreset,
   },
   {
     id: 'blank-canvas',
