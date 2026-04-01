@@ -170,7 +170,7 @@ export const CampaignDetailPage: React.FC = () => {
       if (reportIds.length > 0) {
         const { data: reports } = await supabase
           .from('threat_intel_reports')
-          .select('id, title, created_at, summary')
+          .select('id, report_title, created_at, summary')
           .in('id', reportIds);
 
         (reports || []).forEach((r: any) => {
@@ -182,7 +182,7 @@ export const CampaignDetailPage: React.FC = () => {
         const report = reportMap.get(a.report_id);
         return {
           ...a,
-          report_title: report?.title || 'Untitled Report',
+          report_title: report?.report_title || 'Untitled Report',
           report_date: report?.created_at || null,
           report_summary: typeof report?.summary === 'object'
             ? report?.summary?.executiveSummary || ''

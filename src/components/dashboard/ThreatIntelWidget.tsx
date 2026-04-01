@@ -46,10 +46,10 @@ export const ThreatIntelWidget: React.FC<ThreatIntelWidgetProps> = ({ userId }) 
           .eq('source', 'auto')
           .eq('review_status', 'pending')
           .eq('user_id', userId),
-        // 2. Deferred — oldest first
+        // 2. Deferred — count + oldest in one query
         supabase
           .from('threat_intel_reports')
-          .select('id, created_at')
+          .select('id, created_at', { count: 'exact', head: false })
           .eq('review_status', 'deferred')
           .eq('user_id', userId)
           .order('created_at', { ascending: true })
@@ -67,24 +67,13 @@ export const ThreatIntelWidget: React.FC<ThreatIntelWidgetProps> = ({ userId }) 
 
       const pendingCount = pendingRes.count ?? 0;
 
+      const totalDeferred = deferredRes.count ?? 0;
       const deferredRows = deferredRes.data ?? [];
-      const deferredCount = deferredRows.length;
       let oldestDeferredDays = 0;
-      if (deferredCount > 0 && deferredRows[0]?.created_at) {
+      if (deferredRows.length > 0 && deferredRows[0]?.created_at) {
         const oldest = new Date(deferredRows[0].created_at);
         oldestDeferredDays = Math.floor((Date.now() - oldest.getTime()) / (1000 * 60 * 60 * 24));
       }
-
-      // For deferred count we need the total count, not just the oldest row
-      const deferredCountRes = await supabase
-        .from('threat_intel_reports')
-        .select('*', { count: 'exact', head: true })
-        .eq('review_status', 'deferred')
-        .eq('user_id', userId);
-
-      if (cancelled) return;
-
-      const totalDeferred = deferredCountRes.count ?? 0;
 
       const weekRows = weekRes.data ?? [];
       const weekDigested = weekRows.length;
