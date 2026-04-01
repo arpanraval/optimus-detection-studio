@@ -71,8 +71,8 @@ function EntryItem({ entry }: { entry: FeedEntry }) {
         <span className="mt-1.5 w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <Icon name="zap" className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-xs font-medium text-emerald-400">Digested</span>
+            <Icon name="check-circle" className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="text-xs font-medium text-emerald-400">Digest Complete</span>
           </div>
           <p className="text-sm text-on-surface truncate mt-0.5">
             {feedName}: {entry.title}
@@ -126,7 +126,9 @@ function EntryItem({ entry }: { entry: FeedEntry }) {
           </p>
           {entry.extract_error && (
             <p className="text-xs text-red-400/70 mt-0.5">
-              Error: {entry.extract_error}
+              Error: {entry.extract_error.length > 200
+                ? 'Processing failed — check feed health in settings'
+                : entry.extract_error}
             </p>
           )}
           <p className="text-xs text-on-surface-variant/40 mt-0.5">
