@@ -1,8 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { Icon } from '../Icon';
+import { Breadcrumb } from '../ui';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { AddDetectionsToWorkspaceModal } from './AddDetectionsToWorkspaceModal';
 import { WorkspaceDetectionWithDetails, SyncStatus } from '../../types';
+import { ROUTES } from '../../router/routes';
 
 interface WorkspaceDetailPageProps {
   onBack: () => void;
@@ -105,6 +107,13 @@ export const WorkspaceDetailPage: React.FC<WorkspaceDetailPageProps> = ({ onBack
         <div className="absolute inset-0 bg-gradient-to-br from-secondary/10 via-transparent to-primary/10" />
         
         <div className="relative px-8 py-6">
+          <Breadcrumb
+            items={[
+              { label: 'Workspaces', href: ROUTES.WORKSPACES },
+              { label: currentWorkspace?.name || 'Workspace' },
+            ]}
+            className="mb-4"
+          />
           {/* Back Button and Title */}
           <div className="flex items-center gap-4 mb-6">
             <button

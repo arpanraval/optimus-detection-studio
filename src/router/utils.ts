@@ -74,6 +74,30 @@ export function matchRouteToNavItem(pathname: string): string | null {
   if (pathname === ROUTES.SUBMISSIONS) return 'my_submissions';
   if (pathname === ROUTES.DETECTION_NEW) return 'add_selection';
 
+  // Arsenal sub-items
+  if (pathname === ROUTES.PLAYBOOKS) return 'playbooks';
+  if (pathname === ROUTES.IMPORT_HISTORY) return 'bulk_import';
+  if (pathname === ROUTES.BULK_IMPORT) return 'bulk_import';
+
+  // Settings sub-items
+  if (pathname === ROUTES.AUDIT_LOG) return 'audit_log';
+  if (pathname === ROUTES.ENVIRONMENT_PROFILE) return 'environment_profile';
+  if (pathname === ROUTES.INTELLIGENCE_SOURCES) return 'intelligence_sources';
+  if (pathname.startsWith('/settings/integrations/')) return 'integrations';
+
+  // SIEM
+  if (pathname === ROUTES.SIEM_HEALTH || pathname.startsWith('/siem/')) return 'siem-health';
+
+  // Exercises
+  if (pathname === ROUTES.EXERCISES_STATE_SPONSORED) return 'exercises-state-sponsored';
+
+  // Detection Board
+  if (pathname === ROUTES.DETECTION_BOARD) return 'detection-board';
+
+  // Threat intel feeds & reports (sidebar highlighting only)
+  if (pathname === ROUTES.THREAT_INTEL_FEEDS) return 'threat-intel-feeds';
+  if (pathname === ROUTES.REPORTS || pathname.startsWith('/intelligence/reports/')) return 'analysis-reports';
+
   // Onboarding
   if (pathname === ROUTES.ONBOARDING) return 'onboarding';
 

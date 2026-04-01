@@ -10,6 +10,8 @@ import { IntegrationLogo } from './IntegrationLogo';
 import type { Integration, ConnectionTestResult } from '../../types';
 import { hasPermission } from '../../types';
 import { usePermissions } from '../../context/PermissionsContext';
+import { Breadcrumb } from '../ui';
+import { ROUTES } from '../../router/routes';
 
 // =============================================================================
 // Types
@@ -148,6 +150,15 @@ export const IntegrationDetail: React.FC<IntegrationDetailProps> = ({
   return (
     <div className="h-full overflow-y-auto scrollbar-page">
       <div className="max-w-[1200px] mx-auto px-6 lg:px-8 py-6">
+        <Breadcrumb
+          items={[
+            { label: 'Integrations', href: ROUTES.INTEGRATIONS, icon: 'settings' },
+            { label: integration?.provider
+              ? (getProviderMeta(integration.provider)?.name ?? 'Integration')
+              : 'Integration' },
+          ]}
+          className="mb-3"
+        />
         {/* Back button */}
         <button
           onClick={onBack}

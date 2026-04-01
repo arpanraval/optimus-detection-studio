@@ -492,7 +492,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
       icon: 'library',
       items: [
         { id: 'library' as View, label: 'Detection Library' },
-        { id: 'detection-board' as View, label: 'Detection Board', url: '/library/board' },
+        { id: 'detection-board' as View, label: 'Detection Board', url: ROUTES.DETECTION_BOARD },
         { id: 'packs' as View, label: 'Detection Packs' },
         { id: 'onboarding' as View, label: 'Detection Onboarding' },
         ...(isAdmin ? [{ id: 'approval_queue' as View, label: 'Approval Queue', badge: pendingCount }] : []),
@@ -512,7 +512,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
       label: 'Exercises',
       icon: 'crosshairs',
       items: [
-        { id: 'exercises-state-sponsored' as View, label: 'State Sponsored Attack', url: '/exercises/state-sponsored' },
+        { id: 'exercises-state-sponsored' as View, label: 'State Sponsored Attack', url: ROUTES.EXERCISES_STATE_SPONSORED },
       ],
       activeClass: 'bg-[#3a1a1a] text-red-200',
     },
@@ -530,7 +530,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
         { id: 'software' as View, label: 'Software' },
         { id: 'mitigations' as View, label: 'Mitigations' },
         { id: 'threat-intel' as View, label: 'Intelligence Reports' },
-        { id: 'intelligence_sources' as View, label: 'Auto-Digest Sources', url: '/settings/intelligence' },
+        { id: 'intelligence_sources' as View, label: 'Auto-Digest Sources', url: ROUTES.INTELLIGENCE_SOURCES },
         { id: 'analysis-reports' as View, label: 'Analysis Reports' },
       ],
       activeClass: 'bg-[#1a3a3a] text-teal-200',
@@ -554,9 +554,9 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
       icon: 'settings',
       items: [
         { id: 'integrations' as View, label: 'Integrations' },
-        { id: 'siem-health' as View, label: 'SIEM Home', url: '/siem' },
+        { id: 'siem-health' as View, label: 'SIEM Home', url: ROUTES.SIEM_HEALTH },
         { id: 'environment_profile' as View, label: 'Environment' },
-        { id: 'intelligence_sources' as View, label: 'Intelligence Sources', url: '/settings/intelligence' },
+        { id: 'intelligence_sources' as View, label: 'Intelligence Sources', url: ROUTES.INTELLIGENCE_SOURCES },
         { id: 'scoring_settings' as View, label: 'Defense Impact Intelligence' },
         ...(isAdmin ? [{ id: 'users' as View, label: 'User Management' }] : []),
         ...(isAdmin ? [{ id: 'mitre_data_sync' as View, label: 'Data Sync' }] : []),

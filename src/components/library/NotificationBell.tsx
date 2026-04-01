@@ -58,9 +58,16 @@ const getNotificationConfig = (type: string): { icon: string; color: string; bgC
 
 // G1: Get navigation target from notification
 const getNotificationTarget = (notification: UserNotification): { type: 'detection' | 'url' | 'none'; id?: string; url?: string } => {
-  // If notification has an action_url, use it
+  // If notification has an action_url, validate it's a safe internal path
   if (notification.action_url) {
-    return { type: 'url', url: notification.action_url };
+    const url = notification.action_url;
+    // Only allow relative paths starting with / (no protocol, no //, no javascript:, no data:)
+    if (typeof url === 'string' && url.startsWith('/') && !url.startsWith('//') && !url.includes(':')) {
+      return { type: 'url', url };
+    }
+    // Reject external or malformed URLs silently
+    console.warn('NotificationBell: rejected unsafe action_url', url);
+    return { type: 'none' };
   }
   // If notification has a detection_id, we can navigate to it
   if (notification.detection_id) {
