@@ -9,7 +9,7 @@ import { DASHBOARD_PRESETS } from './presets';
 
 const LS_KEY = 'enterprise-dashboards';
 const PREBUILT_VERSION_KEY = 'enterprise-prebuilt-version';
-const PREBUILT_VERSION = 8; // Bump to force re-seed of prebuilt dashboards
+const PREBUILT_VERSION = 11; // Bump to force re-seed — adds 4 new MITRE Explorer widgets
 const LAST_ACTIVE_KEY = 'enterprise-last-dashboard';
 
 // ---------------------------------------------------------------------------
@@ -103,7 +103,7 @@ export async function loadDashboards(userId: string | null): Promise<DashboardDe
         .order('created_at', { ascending: true });
 
       if (!error && data && data.length > 0) {
-        const dashboards: DashboardDefinition[] = data.map(row => ({
+        let dashboards: DashboardDefinition[] = data.map(row => ({
           ...(row.definition as Omit<DashboardDefinition, 'id' | 'name' | 'isDefault' | 'createdAt' | 'updatedAt'>),
           id: row.id,
           name: row.name,
@@ -115,14 +115,20 @@ export async function loadDashboards(userId: string | null): Promise<DashboardDe
         // Reseed prebuilt dashboards if version changed
         if (needsReseed()) {
           const { kept, added, removed } = reseedPrebuilts(dashboards);
-          dashboards.length = 0;
-          dashboards.push(...kept, ...added);
+          dashboards = [...kept, ...added];
           try {
-            if (removed.length > 0) await supabase.from('user_dashboards').delete().in('id', removed);
-            if (added.length > 0) await supabase.from('user_dashboards').insert(
-              added.map(d => ({ id: d.id, user_id: userId, name: d.name, is_default: d.isDefault, definition: d })),
-            );
-            markSeeded(); // Only mark after Supabase ops succeed
+            // Delete all prebuilt dashboards by name, then upsert fresh copies
+            const prebuiltNames = Array.from(PREBUILT_NAMES);
+            if (prebuiltNames.length > 0) {
+              await supabase.from('user_dashboards').delete().eq('user_id', userId).in('name', prebuiltNames);
+            }
+            if (added.length > 0) {
+              await supabase.from('user_dashboards').upsert(
+                added.map(d => ({ id: d.id, user_id: userId, name: d.name, is_default: d.isDefault, definition: d })),
+                { onConflict: 'user_id,name' }
+              );
+            }
+            markSeeded();
           } catch {
             // Don't mark seeded — retry next load
           }
