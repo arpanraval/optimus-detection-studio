@@ -27,7 +27,8 @@ export const AddDetectionSelection: React.FC<AddDetectionSelectionProps> = ({
 
        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 w-full">
           {/* Card 1: Create Manually */}
-          <div
+          <button
+            type="button"
             onClick={onManualCreate}
             className="bg-surface-container-low border border-outline-variant/30 rounded-[24px] p-6 flex flex-col items-center text-center cursor-pointer transition-all duration-300 hover:scale-[1.03] hover:shadow-xl hover:border-[#783264]/50 hover:bg-surface-container group animate-slide-up"
             style={{ animationDelay: '100ms' }}
@@ -36,16 +37,17 @@ export const AddDetectionSelection: React.FC<AddDetectionSelectionProps> = ({
                className="p-5 rounded-full mb-5 transition-colors"
                style={{ backgroundColor: `${BRAND_COLOR}20` }}
              >
-                <Icon name="plus" className="w-9 h-9" style={{ color: BRAND_COLOR }} />
+                <Icon name="plus" className="w-9 h-9" style={{ color: BRAND_COLOR }} aria-hidden="true" />
              </div>
-             <h3 className="text-lg font-bold text-on-surface mb-2 group-hover:text-[#783264] transition-colors">Create Detection</h3>
+             <h2 className="text-lg font-bold text-on-surface mb-2 group-hover:text-[#783264] transition-colors">Create Detection</h2>
              <p className="text-sm text-on-surface-variant leading-relaxed">
                 Author new rules from scratch with AI assistance.
              </p>
-          </div>
+          </button>
 
           {/* Card 2: Import from Files */}
-          <div
+          <button
+            type="button"
             onClick={onImportFromFile}
             className="bg-surface-container-low border border-outline-variant/30 rounded-[24px] p-6 flex flex-col items-center text-center cursor-pointer transition-all duration-300 hover:scale-[1.03] hover:shadow-xl hover:border-[#783264]/50 hover:bg-surface-container group animate-slide-up"
             style={{ animationDelay: '150ms' }}
@@ -54,16 +56,17 @@ export const AddDetectionSelection: React.FC<AddDetectionSelectionProps> = ({
                className="p-5 rounded-full mb-5 transition-colors"
                style={{ backgroundColor: `${BRAND_COLOR}20` }}
              >
-                <Icon name="file-code" className="w-9 h-9" style={{ color: BRAND_COLOR }} />
+                <Icon name="file-code" className="w-9 h-9" style={{ color: BRAND_COLOR }} aria-hidden="true" />
              </div>
-             <h3 className="text-lg font-bold text-on-surface mb-2 group-hover:text-[#783264] transition-colors">Import from Files</h3>
+             <h2 className="text-lg font-bold text-on-surface mb-2 group-hover:text-[#783264] transition-colors">Import from Files</h2>
              <p className="text-sm text-on-surface-variant leading-relaxed">
                 Upload individual YAML or rule files.
              </p>
-          </div>
+          </button>
 
           {/* Card 3: Import from ZIP */}
-          <div
+          <button
+            type="button"
             onClick={onImportFromZip}
             className="bg-surface-container-low border border-outline-variant/30 rounded-[24px] p-6 flex flex-col items-center text-center cursor-pointer transition-all duration-300 hover:scale-[1.03] hover:shadow-xl hover:border-[#783264]/50 hover:bg-surface-container group animate-slide-up"
             style={{ animationDelay: '200ms' }}
@@ -72,16 +75,17 @@ export const AddDetectionSelection: React.FC<AddDetectionSelectionProps> = ({
                className="p-5 rounded-full mb-5 transition-colors"
                style={{ backgroundColor: `${BRAND_COLOR}20` }}
              >
-                <Icon name="archive" className="w-9 h-9" style={{ color: BRAND_COLOR }} />
+                <Icon name="archive" className="w-9 h-9" style={{ color: BRAND_COLOR }} aria-hidden="true" />
              </div>
-             <h3 className="text-lg font-bold text-on-surface mb-2 group-hover:text-[#783264] transition-colors">Import from ZIP</h3>
+             <h2 className="text-lg font-bold text-on-surface mb-2 group-hover:text-[#783264] transition-colors">Import from ZIP</h2>
              <p className="text-sm text-on-surface-variant leading-relaxed">
                 Bulk import from ZIP archives.
              </p>
-          </div>
+          </button>
 
           {/* Card 4: Import from GitHub */}
-          <div
+          <button
+            type="button"
             onClick={onImportFromGitHub}
             className="bg-surface-container-low border border-outline-variant/30 rounded-[24px] p-6 flex flex-col items-center text-center cursor-pointer transition-all duration-300 hover:scale-[1.03] hover:shadow-xl hover:border-[#783264]/50 hover:bg-surface-container group animate-slide-up"
             style={{ animationDelay: '250ms' }}
@@ -90,13 +94,13 @@ export const AddDetectionSelection: React.FC<AddDetectionSelectionProps> = ({
                className="p-5 rounded-full mb-5 transition-colors"
                style={{ backgroundColor: `${BRAND_COLOR}20` }}
              >
-                <Icon name="github" className="w-9 h-9" style={{ color: BRAND_COLOR }} />
+                <Icon name="github" className="w-9 h-9" style={{ color: BRAND_COLOR }} aria-hidden="true" />
              </div>
-             <h3 className="text-lg font-bold text-on-surface mb-2 group-hover:text-[#783264] transition-colors">Import from GitHub</h3>
+             <h2 className="text-lg font-bold text-on-surface mb-2 group-hover:text-[#783264] transition-colors">Import from GitHub</h2>
              <p className="text-sm text-on-surface-variant leading-relaxed">
                 Connect to SigmaHQ or other repos.
              </p>
-          </div>
+          </button>
        </div>
     </div>
   );
