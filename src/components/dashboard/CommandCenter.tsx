@@ -2,6 +2,7 @@ import React, { useMemo, useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Detection } from '../../types';
 import { useLibrary } from '../../context/LibraryContext';
+import { useAppData } from '../../router/AppDataContext';
 import { useDefensivePosture, useThreatActorWeights } from '../../hooks/useImpactScores';
 import { useCommandCenterData, ThreatLandscapeEntry, CampaignReadiness as CampaignReadinessType, SectorCoverage, OriginCoverage } from '../../hooks/useCommandCenterData';
 import { useMitreMatrix } from '../../hooks/useMitreMatrix';
@@ -35,7 +36,9 @@ interface CommandCenterProps {
 }
 
 export const CommandCenter: React.FC<CommandCenterProps> = ({ detections, scope = 'production', onScopeChange, onNavigate }) => {
-  const { isLoading, userId } = useLibrary();
+  const { isLoading: libraryLoading, userId } = useLibrary();
+  const { isLoading: dataLoading } = useAppData();
+  const isLoading = libraryLoading || dataLoading;
   const location = useLocation();
 
   // Filter detections based on scope toggle — production excludes development library items
@@ -1759,8 +1762,6 @@ const StaleWatchlist: React.FC<{
 const TabSwitcher: React.FC<{ currentPath: string }> = ({ currentPath }) => {
   const tabs = [
     { path: '/', label: 'Command Center' },
-    { path: '/dashboard/classic', label: 'Classic' },
-    { path: '/dashboard/globe', label: 'Intel Globe' },
   ];
   return (
     <div className="flex items-center bg-surface-container-lowest rounded-xl p-1">

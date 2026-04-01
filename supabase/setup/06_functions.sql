@@ -1498,8 +1498,9 @@ CREATE OR REPLACE FUNCTION public.get_defensive_posture(p_user_id uuid, p_scope 
  RETURNS TABLE(total_detections bigint, techniques_covered bigint, total_techniques bigint, technique_coverage_pct numeric, groups_defended bigint, total_groups bigint, group_coverage_pct numeric, campaigns_defended bigint, total_campaigns bigint, campaign_coverage_pct numeric, avg_taw_covered numeric, top_gaps jsonb)
  LANGUAGE sql
  STABLE
+ SECURITY DEFINER
 AS $function$
-  WITH user_techniques AS (
+  WITH user_techniques AS MATERIALIZED (
     -- Get all unique MITRE technique IDs from user's detections
     SELECT DISTINCT unnest(d."mitreAttackIds") AS technique_id
     FROM detections d
@@ -1509,18 +1510,18 @@ AS $function$
       CASE p_scope
         WHEN 'production' THEN d.library_type = 'production' AND d.user_id = p_user_id
         WHEN 'lab' THEN d.library_type = 'development'
-        WHEN 'all' THEN d.library_type = 'production' AND d.user_id = p_user_id OR d.library_type = 'development'
+        WHEN 'all' THEN (d.library_type = 'production' AND d.user_id = p_user_id) OR d.library_type = 'development'
         ELSE d.library_type = 'production' AND d.user_id = p_user_id
       END
     )
   ),
-  covered_techniques AS (
+  covered_techniques AS MATERIALIZED (
     -- Map technique IDs to stix_ids
     SELECT DISTINCT ti.stix_id, ti.mitre_id, ti.name, ti.tis
     FROM user_techniques ut
     JOIN mv_technique_importance ti ON ti.mitre_id = ut.technique_id
   ),
-  detection_count AS (
+  detection_count AS MATERIALIZED (
     SELECT COUNT(*) AS cnt
     FROM detections d
     WHERE d."mitreAttackIds" IS NOT NULL
@@ -1528,29 +1529,29 @@ AS $function$
       CASE p_scope
         WHEN 'production' THEN d.library_type = 'production' AND d.user_id = p_user_id
         WHEN 'lab' THEN d.library_type = 'development'
-        WHEN 'all' THEN d.library_type = 'production' AND d.user_id = p_user_id OR d.library_type = 'development'
+        WHEN 'all' THEN (d.library_type = 'production' AND d.user_id = p_user_id) OR d.library_type = 'development'
         ELSE d.library_type = 'production' AND d.user_id = p_user_id
       END
     )
   ),
-  snapshot AS (
+  snapshot AS MATERIALIZED (
     SELECT * FROM mitre_scoring_snapshot WHERE is_active = true LIMIT 1
   ),
   -- Groups defended: groups that use techniques we detect
-  defended_groups AS (
+  defended_groups AS MATERIALIZED (
     SELECT DISTINCT gt.group_stix_id, taw.taw
     FROM covered_techniques ct
     JOIN mitre_group_techniques gt ON gt.technique_stix_id = ct.stix_id
     JOIN mv_threat_actor_weights taw ON taw.stix_id = gt.group_stix_id
   ),
   -- Campaigns defended: campaigns that use techniques we detect
-  defended_campaigns AS (
+  defended_campaigns AS MATERIALIZED (
     SELECT DISTINCT ct_camp.campaign_stix_id
     FROM covered_techniques ct
     JOIN mitre_campaign_techniques ct_camp ON ct_camp.technique_stix_id = ct.stix_id
   ),
   -- Top gaps: high-TIS techniques without detection coverage
-  technique_gaps AS (
+  technique_gaps AS MATERIALIZED (
     SELECT
       ti.mitre_id,
       ti.name,

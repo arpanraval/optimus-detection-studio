@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { ActivityLogEntry, ActivityAction, ActivityEntityType, Profile, Team } from '../types';
 
@@ -30,6 +30,8 @@ export const useActivityLog = (options: UseActivityLogOptions = {}) => {
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const activitiesRef = useRef(activities);
+  useEffect(() => { activitiesRef.current = activities; }, [activities]);
 
   /**
    * Fetch activity log entries
@@ -78,8 +80,8 @@ export const useActivityLog = (options: UseActivityLogOptions = {}) => {
       }
 
       // Pagination: if appending, offset by current count
-      if (append && activities.length > 0) {
-        query = query.lt('created_at', activities[activities.length - 1].created_at);
+      if (append && activitiesRef.current.length > 0) {
+        query = query.lt('created_at', activitiesRef.current[activitiesRef.current.length - 1].created_at);
       }
 
       const { data, error: queryError } = await query;
@@ -106,7 +108,7 @@ export const useActivityLog = (options: UseActivityLogOptions = {}) => {
     } finally {
       setIsLoading(false);
     }
-  }, [teamId, entityType, entityId, limit, activities]);
+  }, [teamId, entityType, entityId, limit]);
 
   /**
    * Load more activities (pagination)
@@ -292,7 +294,7 @@ export const useActivityLog = (options: UseActivityLogOptions = {}) => {
     if (autoFetch) {
       fetchActivities();
     }
-  }, [autoFetch]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [autoFetch, fetchActivities]);
 
   return {
     // State

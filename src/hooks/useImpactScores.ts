@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Detection } from '../types';
 import { toError } from '../lib/errors';
@@ -155,12 +155,14 @@ export function useTopImpactMitigations(limit: number = 20) {
   const [mitigations, setMitigations] = useState<MitigationImpact[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const activeRequestRef = useRef(0);
 
   useEffect(() => {
     loadMitigations();
   }, [limit]);
 
   async function loadMitigations() {
+    const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError(null);
 
@@ -168,13 +170,15 @@ export function useTopImpactMitigations(limit: number = 20) {
       const { data, error: fetchError } = await supabase
         .rpc('get_top_impact_mitigations', { p_limit: limit });
 
+      if (requestId !== activeRequestRef.current) return;
       if (fetchError) throw fetchError;
       setMitigations(data || []);
     } catch (err) {
+      if (requestId !== activeRequestRef.current) return;
       console.error('Failed to load impact mitigations:', err);
       setError(toError(err));
     } finally {
-      setLoading(false);
+      if (requestId === activeRequestRef.current) setLoading(false);
     }
   }
 
@@ -188,12 +192,14 @@ export function useTopImpactStrategies(limit: number = 20) {
   const [strategies, setStrategies] = useState<StrategyImpact[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const activeRequestRef = useRef(0);
 
   useEffect(() => {
     loadStrategies();
   }, [limit]);
 
   async function loadStrategies() {
+    const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError(null);
 
@@ -201,13 +207,15 @@ export function useTopImpactStrategies(limit: number = 20) {
       const { data, error: fetchError } = await supabase
         .rpc('get_top_impact_strategies', { p_limit: limit });
 
+      if (requestId !== activeRequestRef.current) return;
       if (fetchError) throw fetchError;
       setStrategies(data || []);
     } catch (err) {
+      if (requestId !== activeRequestRef.current) return;
       console.error('Failed to load impact strategies:', err);
       setError(toError(err));
     } finally {
-      setLoading(false);
+      if (requestId === activeRequestRef.current) setLoading(false);
     }
   }
 
@@ -221,6 +229,7 @@ export function useMitigationImpactDetail(mitigationStixId: string | null) {
   const [detail, setDetail] = useState<MitigationImpactDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const activeRequestRef = useRef(0);
 
   useEffect(() => {
     if (mitigationStixId) {
@@ -232,7 +241,8 @@ export function useMitigationImpactDetail(mitigationStixId: string | null) {
 
   async function loadDetail() {
     if (!mitigationStixId) return;
-    
+
+    const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError(null);
 
@@ -240,8 +250,9 @@ export function useMitigationImpactDetail(mitigationStixId: string | null) {
       const { data, error: fetchError } = await supabase
         .rpc('get_mitigation_impact_detail', { p_mitigation_stix_id: mitigationStixId });
 
+      if (requestId !== activeRequestRef.current) return;
       if (fetchError) throw fetchError;
-      
+
       if (data && data.length > 0) {
         const row = data[0];
         setDetail({
@@ -252,10 +263,11 @@ export function useMitigationImpactDetail(mitigationStixId: string | null) {
         setDetail(null);
       }
     } catch (err) {
+      if (requestId !== activeRequestRef.current) return;
       console.error('Failed to load mitigation impact detail:', err);
       setError(toError(err));
     } finally {
-      setLoading(false);
+      if (requestId === activeRequestRef.current) setLoading(false);
     }
   }
 
@@ -269,6 +281,7 @@ export function useStrategyImpactDetail(strategyStixId: string | null) {
   const [detail, setDetail] = useState<StrategyImpactDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const activeRequestRef = useRef(0);
 
   useEffect(() => {
     if (strategyStixId) {
@@ -280,7 +293,8 @@ export function useStrategyImpactDetail(strategyStixId: string | null) {
 
   async function loadDetail() {
     if (!strategyStixId) return;
-    
+
+    const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError(null);
 
@@ -288,8 +302,9 @@ export function useStrategyImpactDetail(strategyStixId: string | null) {
       const { data, error: fetchError } = await supabase
         .rpc('get_strategy_impact_detail', { p_strategy_stix_id: strategyStixId });
 
+      if (requestId !== activeRequestRef.current) return;
       if (fetchError) throw fetchError;
-      
+
       if (data && data.length > 0) {
         const row = data[0];
         setDetail({
@@ -300,10 +315,11 @@ export function useStrategyImpactDetail(strategyStixId: string | null) {
         setDetail(null);
       }
     } catch (err) {
+      if (requestId !== activeRequestRef.current) return;
       console.error('Failed to load strategy impact detail:', err);
       setError(toError(err));
     } finally {
-      setLoading(false);
+      if (requestId === activeRequestRef.current) setLoading(false);
     }
   }
 
@@ -311,12 +327,52 @@ export function useStrategyImpactDetail(strategyStixId: string | null) {
 }
 
 /**
- * Hook to fetch user's defensive posture
+ * Module-level request deduplication for get_defensive_posture.
+ * Multiple hook instances with the same (userId, scope) share ONE in-flight RPC call.
+ */
+const _postureCache = new Map<string, { promise: Promise<DefensivePosture | null>; ts: number }>();
+const POSTURE_CACHE_TTL = 5000; // 5s — prevents re-fetch storms on rapid mount/unmount
+
+async function fetchPostureShared(userId: string, scope: string): Promise<DefensivePosture | null> {
+  const key = `${userId}:${scope}`;
+  const cached = _postureCache.get(key);
+  if (cached && Date.now() - cached.ts < POSTURE_CACHE_TTL) {
+    return cached.promise;
+  }
+
+  // Inject a slight delay to avoid competing with heavy initial data loads
+  const promise = new Promise<void>(resolve => setTimeout(resolve, 800))
+    .then(() => supabase.rpc('get_defensive_posture', { p_user_id: userId, p_scope: scope }))
+    .then(({ data, error }) => {
+      if (error) throw error;
+      if (data && data.length > 0) {
+        const row = data[0];
+        return { ...row, top_gaps: row.top_gaps || [] } as DefensivePosture;
+      }
+      return null;
+    });
+
+  _postureCache.set(key, { promise, ts: Date.now() });
+  // Clean up cache entry after TTL
+  promise.catch(() => {}).finally(() => {
+    setTimeout(() => {
+      const entry = _postureCache.get(key);
+      if (entry && entry.promise === promise) _postureCache.delete(key);
+    }, POSTURE_CACHE_TTL);
+  });
+
+  return promise;
+}
+
+/**
+ * Hook to fetch user's defensive posture.
+ * Safe to call from any number of widgets — requests are deduplicated at the module level.
  */
 export function useDefensivePosture(userId: string | null, scope: 'production' | 'all' = 'production') {
   const [posture, setPosture] = useState<DefensivePosture | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const activeRequestRef = useRef(0);
 
   useEffect(() => {
     if (userId) {
@@ -326,36 +382,31 @@ export function useDefensivePosture(userId: string | null, scope: 'production' |
     }
   }, [userId, scope]);
 
-  async function loadPosture() {
+  async function loadPosture(bustCache = false) {
     if (!userId) return;
 
+    if (bustCache) _postureCache.delete(`${userId}:${scope}`);
+
+    const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError(null);
 
     try {
-      const { data, error: fetchError } = await supabase
-        .rpc('get_defensive_posture', { p_user_id: userId, p_scope: scope });
-
-      if (fetchError) throw fetchError;
-      
-      if (data && data.length > 0) {
-        const row = data[0];
-        setPosture({
-          ...row,
-          top_gaps: row.top_gaps || []
-        });
-      } else {
-        setPosture(null);
-      }
+      const result = await fetchPostureShared(userId, scope);
+      if (requestId !== activeRequestRef.current) return;
+      setPosture(result);
     } catch (err) {
+      if (requestId !== activeRequestRef.current) return;
       console.error('Failed to load defensive posture:', err);
       setError(toError(err));
     } finally {
-      setLoading(false);
+      if (requestId === activeRequestRef.current) {
+        setLoading(false);
+      }
     }
   }
 
-  return { posture, loading, error, refetch: loadPosture };
+  return { posture, loading, error, refetch: () => loadPosture(true) };
 }
 
 /**
@@ -365,12 +416,14 @@ export function useAllMitigationImpacts() {
   const [mitigations, setMitigations] = useState<MitigationImpact[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const activeRequestRef = useRef(0);
 
   useEffect(() => {
     loadMitigations();
   }, []);
 
   async function loadMitigations() {
+    const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError(null);
 
@@ -380,13 +433,15 @@ export function useAllMitigationImpacts() {
         .select('*')
         .order('impact_score', { ascending: false });
 
+      if (requestId !== activeRequestRef.current) return;
       if (fetchError) throw fetchError;
       setMitigations(data || []);
     } catch (err) {
+      if (requestId !== activeRequestRef.current) return;
       console.error('Failed to load mitigation impacts:', err);
       setError(toError(err));
     } finally {
-      setLoading(false);
+      if (requestId === activeRequestRef.current) setLoading(false);
     }
   }
 
@@ -416,12 +471,14 @@ export function useAllStrategyImpacts() {
   const [strategies, setStrategies] = useState<StrategyImpact[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const activeRequestRef = useRef(0);
 
   useEffect(() => {
     loadStrategies();
   }, []);
 
   async function loadStrategies() {
+    const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError(null);
 
@@ -431,13 +488,15 @@ export function useAllStrategyImpacts() {
         .select('*')
         .order('impact_score', { ascending: false });
 
+      if (requestId !== activeRequestRef.current) return;
       if (fetchError) throw fetchError;
       setStrategies(data || []);
     } catch (err) {
+      if (requestId !== activeRequestRef.current) return;
       console.error('Failed to load strategy impacts:', err);
       setError(toError(err));
     } finally {
-      setLoading(false);
+      if (requestId === activeRequestRef.current) setLoading(false);
     }
   }
 
@@ -461,36 +520,68 @@ export function useAllStrategyImpacts() {
 }
 
 /**
- * Hook to fetch threat actor weights
+ * Module-level request deduplication for threat actor weights.
+ */
+let _actorsCache: { promise: Promise<ThreatActorWeight[]>; ts: number } | null = null;
+const ACTORS_CACHE_TTL = 10000; // 10s — actors change rarely
+
+async function fetchActorsShared(): Promise<ThreatActorWeight[]> {
+  if (_actorsCache && Date.now() - _actorsCache.ts < ACTORS_CACHE_TTL) {
+    return _actorsCache.promise;
+  }
+
+  const promise = Promise.resolve(supabase
+    .from('v_threat_actor_weights')
+    .select('*')
+    .order('taw', { ascending: false })
+    .then(({ data, error }) => {
+      if (error) throw error;
+      return (data || []) as ThreatActorWeight[];
+    }));
+
+  _actorsCache = { promise, ts: Date.now() };
+  promise.catch(() => {}).finally(() => {
+    setTimeout(() => {
+      if (_actorsCache?.promise === promise) _actorsCache = null;
+    }, ACTORS_CACHE_TTL);
+  });
+
+  return promise;
+}
+
+/**
+ * Hook to fetch threat actor weights.
+ * Safe to call from any number of widgets — requests are deduplicated.
  */
 export function useThreatActorWeights() {
   const [actors, setActors] = useState<ThreatActorWeight[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const activeRequestRef = useRef(0);
 
   useEffect(() => {
     loadActors();
   }, []);
 
-  async function loadActors() {
+  async function loadActors(bustCache = false) {
+    if (bustCache) _actorsCache = null;
+
+    const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError(null);
 
     try {
-      const { data, error: fetchError } = await supabase
-        .from('v_threat_actor_weights')
-        .select('*')
-        .order('taw', { ascending: false });
-
-      if (fetchError) throw fetchError;
-      setActors(data || []);
+      const result = await fetchActorsShared();
+      if (requestId !== activeRequestRef.current) return;
+      setActors(result);
     } catch (err) {
+      if (requestId !== activeRequestRef.current) return;
       console.error('Failed to load threat actor weights:', err);
       setError(toError(err));
     } finally {
-      setLoading(false);
+      if (requestId === activeRequestRef.current) setLoading(false);
     }
   }
 
-  return { actors, loading, error, refetch: loadActors };
+  return { actors, loading, error, refetch: () => loadActors(true) };
 }

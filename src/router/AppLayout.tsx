@@ -5,7 +5,6 @@ import { User } from '@supabase/supabase-js';
 import { Profile, Detection } from '../types';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
-import { AppLoader } from '../components/AppLoader';
 import { ROUTES, routeHeaders, viewToRoute, routeHelpers } from './routes';
 import { matchRouteToNavItem } from './utils';
 import { ensureLocalDashboardsExist } from '../components/dashboard/enterprise/dashboardPersistence';
@@ -229,8 +228,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
               </Suspense>
             </div>
           </main>
-          {/* Full-screen overlay — same visual as AppRouter loader for seamless transition */}
-          {isLoading && <AppLoader />}
+          {/* Individual pages handle their own loading/skeleton states */}
           <GlobalImportBar />
           <ImportNavigationModal
             isOpen={navigationBlocker.isBlocked}
