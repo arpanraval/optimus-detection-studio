@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Button } from '../ui/Button';
 
 interface BulkTriageBarProps {
@@ -16,6 +16,8 @@ export const BulkTriageBar: React.FC<BulkTriageBarProps> = ({
   onMarkReviewed,
   onClearSelection,
 }) => {
+  const [confirmDismiss, setConfirmDismiss] = useState(false);
+
   if (selectedCount === 0) return null;
 
   return (
@@ -38,9 +40,36 @@ export const BulkTriageBar: React.FC<BulkTriageBarProps> = ({
         <Button variant="text" color="primary" size="sm" onClick={onDefer}>
           Defer
         </Button>
-        <Button variant="tonal" color="error" size="sm" onClick={onDismiss}>
-          Dismiss
-        </Button>
+        {confirmDismiss ? (
+          <>
+            <span className="text-xs text-on-surface-variant">
+              Dismiss {selectedCount} report{selectedCount !== 1 ? 's' : ''}?
+            </span>
+            <Button
+              variant="tonal"
+              color="error"
+              size="sm"
+              onClick={() => {
+                setConfirmDismiss(false);
+                onDismiss();
+              }}
+            >
+              Confirm
+            </Button>
+            <Button
+              variant="text"
+              color="primary"
+              size="sm"
+              onClick={() => setConfirmDismiss(false)}
+            >
+              Cancel
+            </Button>
+          </>
+        ) : (
+          <Button variant="tonal" color="error" size="sm" onClick={() => setConfirmDismiss(true)}>
+            Dismiss
+          </Button>
+        )}
       </div>
     </div>
   );
