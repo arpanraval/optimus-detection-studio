@@ -378,7 +378,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <StatCard label="Digested reports" value={digestedCount} icon="file-text" />
           <StatCard label="Reports reviewed" value={reviewedCount} icon="check-circle" />
-          <StatCard label="Avg coverage" value={`${avgCoverage}%`} icon="bar-chart" />
+          <StatCard label="Avg coverage" value={`${avgCoverage}%`} icon="chart-bar" />
         </div>
       </section>
 
