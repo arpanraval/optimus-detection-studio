@@ -6,7 +6,7 @@ import { Profile, Detection } from '../types';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
 import { AppLoader } from '../components/AppLoader';
-import { ROUTES, routeHeaders, viewToRoute } from './routes';
+import { ROUTES, routeHeaders, viewToRoute, routeHelpers } from './routes';
 import { matchRouteToNavItem } from './utils';
 import { ensureLocalDashboardsExist } from '../components/dashboard/enterprise/dashboardPersistence';
 import { GlobalImportBar } from '../components/global/GlobalImportBar';
@@ -134,26 +134,26 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   const handleSearchNavigation = (type: 'detection' | 'group' | 'software' | 'campaign' | 'technique', id: string) => {
     switch (type) {
       case 'detection':
-        navigate(`/library/detections/${id}`);
+        navigate(routeHelpers.detectionDetail(id));
         break;
       case 'group':
-        navigate(`/intelligence/groups/${id}`);
+        navigate(routeHelpers.groupDetail(id));
         break;
       case 'software':
-        navigate(`/intelligence/software/${id}`);
+        navigate(routeHelpers.softwareDetail(id));
         break;
       case 'campaign':
-        navigate(`/intelligence/campaigns/${id}`);
+        navigate(routeHelpers.campaignDetail(id));
         break;
       case 'technique':
-        navigate(`/library?filter=${encodeURIComponent(id)}`);
+        navigate(routeHelpers.libraryWithFilter(id));
         break;
     }
   };
 
   // Handle detection navigation by ID
   const handleNavigateToDetectionById = async (detectionId: string) => {
-    navigate(`/library/detections/${detectionId}`);
+    navigate(routeHelpers.detectionDetail(detectionId));
   };
 
   // Handle submissions navigation

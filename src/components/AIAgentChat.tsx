@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ROUTES } from '../router/routes';
 import { Icon } from './Icon';
 import { ModelSelector } from './ModelSelector';
 import { generateAIChat, AIFunctionCall, DEFAULT_MODEL } from '../lib/aiService';
@@ -143,6 +145,20 @@ const saveSession = (s: ChatSession) => {
 const deleteSession = (id: string) => { localStorage.removeItem(SESSION_PREFIX + id); saveIndex(loadIndex().filter(s => s.id !== id)); };
 const newSession = (model: string = DEFAULT_MODEL): ChatSession => ({ id: generateId(), name: 'New Session', model, messages: [], createdAt: Date.now(), updatedAt: Date.now(), isGenerating: false });
 
+// Allowlist of route prefixes that the AI is permitted to navigate to.
+// Built from ROUTES constants (excluding param templates) plus known dynamic prefixes.
+const SAFE_ROUTE_PREFIXES: string[] = (Object.values(ROUTES) as string[])
+  .filter(r => !r.includes(':'))
+  .concat([
+    '/library/detections/',
+    '/packs/',
+    '/workspaces/',
+    '/intelligence/',
+    '/settings/integrations/',
+    '/dashboard/enterprise/',
+    '/siem/',
+  ]);
+
 // =============================================================================
 // STYLES
 // =============================================================================
@@ -236,6 +252,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
     const { theme } = useTheme();
     const isDark = theme === 'dark';
     const { showToast } = useToast();
+    const navigate = useNavigate();
     
     const [session, setSession] = useState<ChatSession>(() => newSession());
     const [sessionsIdx, setSessionsIdx] = useState<SessionSummary[]>([]);
@@ -364,9 +381,12 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
     const handleOptimusAction = useCallback((action: OptimusAction) => {
         switch (action.type) {
             case 'navigate':
-                // Navigate to internal routes only — strict regex blocks protocol-relative URLs like //evil.com
-                if (action.payload?.route && /^\/[a-zA-Z0-9]/.test(action.payload.route)) {
-                    window.location.href = action.payload.route;
+                if (action.payload?.route && typeof action.payload.route === 'string') {
+                    const route = action.payload.route;
+                    const isSafe = SAFE_ROUTE_PREFIXES.some(prefix => route === prefix || route.startsWith(prefix));
+                    if (isSafe) {
+                        navigate(route);
+                    }
                 }
                 break;
             case 'draft':
@@ -386,7 +406,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
             default:
                 console.log('Action not implemented:', action);
         }
-    }, []);
+    }, [navigate]);
 
     const handleNew = useCallback(() => {
         if (abortControllerRef.current) abortControllerRef.current.abort();
