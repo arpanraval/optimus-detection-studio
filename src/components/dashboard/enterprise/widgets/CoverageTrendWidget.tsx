@@ -13,9 +13,9 @@ const MONTH_MAP: Record<string, number> = {
 
 const CoverageTrendWidget: React.FC<WidgetComponentProps> = ({ config, timeRange }) => {
   const gradientId = useId();
-  const { detections } = useDashboardDetections();
+  const { detections, scopeFilter } = useDashboardDetections();
   const { userId } = useLibrary();
-  const { posture } = useDefensivePosture(userId);
+  const { posture } = useDefensivePosture(userId, scopeFilter);
   const { actors } = useThreatActorWeights();
   const { coverageTrend: rawData } = useCommandCenterData(actors, detections, posture?.total_techniques);
 

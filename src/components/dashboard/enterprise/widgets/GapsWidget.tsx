@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import type { WidgetComponentProps } from './types';
+import { useDashboardDetections } from '../useDashboardDetections';
 import { useLibrary } from '../../../../context/LibraryContext';
 import { useDefensivePosture } from '../../../../hooks/useImpactScores';
 import WidgetEmptyState from './WidgetEmptyState';
 
 const GapsWidget: React.FC<WidgetComponentProps> = ({ config, onNavigate }) => {
+  const { scopeFilter } = useDashboardDetections();
   const { userId } = useLibrary();
-  const { posture } = useDefensivePosture(userId);
+  const { posture } = useDefensivePosture(userId, scopeFilter);
   const [showAll, setShowAll] = useState(false);
 
   const gaps = posture?.top_gaps ?? [];

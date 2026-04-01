@@ -14,5 +14,5 @@ export function useDashboardDetections() {
     return detections.filter(d => d.library_type !== 'development');
   }, [detections, state.scopeFilter]);
 
-  return { detections: filtered };
+  return { detections: filtered, scopeFilter: state.scopeFilter };
 }

@@ -6,9 +6,9 @@ import { useDefensivePosture } from '../../../../hooks/useImpactScores';
 import WidgetEmptyState from './WidgetEmptyState';
 
 const MaturityRadarWidget: React.FC<WidgetComponentProps> = ({ config, timeRange }) => {
-  const { detections: allDetections } = useDashboardDetections();
+  const { detections: allDetections, scopeFilter } = useDashboardDetections();
   const { userId } = useLibrary();
-  const { posture } = useDefensivePosture(userId);
+  const { posture } = useDefensivePosture(userId, scopeFilter);
 
   const detections = useMemo(() => {
     if (!timeRange.startDate) return allDetections;
