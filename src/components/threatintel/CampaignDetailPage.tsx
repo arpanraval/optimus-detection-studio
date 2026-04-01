@@ -504,7 +504,7 @@ export const CampaignDetailPage: React.FC = () => {
                       {/* Source + date */}
                       <div className="flex items-center gap-2 text-xs text-on-surface-variant">
                         <Icon name="wifi" className="w-3.5 h-3.5" />
-                        <span className="font-medium">{article.source_name || 'Unknown feed'}</span>
+                        <span className="font-medium">{article.source_feed_name || 'Unknown feed'}</span>
                         <span className="opacity-50">|</span>
                         <span>{formatDate(article.report_date)}</span>
                       </div>
