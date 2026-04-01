@@ -27,6 +27,8 @@ import { CircularProgress } from './CircularProgress';
 import { attackRuleMapService } from '@/services/attack-rule-map/AttackRuleMapService';
 import { supabase } from '../lib/supabaseClient';
 import { ConventionHintsPanel } from './patterns/ConventionHintsPanel';
+import { Breadcrumb } from './ui';
+import { ROUTES } from '../router/routes';
 
 interface NewDetectionFormProps {
   onBack?: () => void;
@@ -1266,6 +1268,21 @@ Output JSON only, no markdown.`;
       {/* HEADER */}
       <div className="bg-background border-b border-outline-variant/30 sticky top-0 z-30">
         <div className="px-6 lg:px-8 py-5 max-w-[1600px] mx-auto">
+          <Breadcrumb
+            items={
+              isEditMode && detectionToEdit
+                ? [
+                    { label: 'Detection Library', href: ROUTES.LIBRARY },
+                    { label: detectionToEdit.name || 'Detection', href: `/library/detections/${detectionToEdit.id}` },
+                    { label: 'Edit' },
+                  ]
+                : [
+                    { label: 'Detection Library', href: ROUTES.LIBRARY },
+                    { label: 'New Detection' },
+                  ]
+            }
+            className="mb-3"
+          />
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button 
