@@ -5,7 +5,7 @@
  * Displays side-by-side or unified diff view for rule updates
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../Icon';
 import { ValidatedRule } from '../../services/bulk-import/types';
 
@@ -44,6 +44,27 @@ export function RuleDiffViewer({
   onClose,
 }: RuleDiffViewerProps) {
   const [activeTab, setActiveTab] = useState<'fields' | 'query'>('fields');
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'Tab' && modalRef.current) {
+        const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    const timer = setTimeout(() => modalRef.current?.querySelector<HTMLElement>('button:not([disabled])')?.focus(), 50);
+    return () => { document.removeEventListener('keydown', handleKeyDown); clearTimeout(timer); };
+  }, [isOpen, onClose]);
 
   // Calculate field differences
   const fieldDiffs = useMemo((): DiffLine[] => {
@@ -101,11 +122,11 @@ export function RuleDiffViewer({
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       {/* Modal */}
-      <div className="relative bg-surface-container-high rounded-[28px] w-full max-w-4xl max-h-[90vh] mx-4 shadow-xl border border-outline-variant/20 flex flex-col">
+      <div ref={modalRef} role="dialog" aria-modal="true" aria-labelledby="rule-diff-title" className="relative bg-surface-container-high rounded-[28px] w-full max-w-4xl max-h-[90vh] mx-4 shadow-xl border border-outline-variant/20 flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-outline-variant/20">
           <div>
-            <h2 className="text-xl font-semibold text-on-surface">Rule Comparison</h2>
+            <h2 id="rule-diff-title" className="text-xl font-semibold text-on-surface">Rule Comparison</h2>
             <p className="text-sm text-on-surface-variant mt-1">
               {changeCount} field{changeCount !== 1 ? 's' : ''} changed
               {queryChanged && ', query modified'}
@@ -113,6 +134,7 @@ export function RuleDiffViewer({
           </div>
           <button
             onClick={onClose}
+            aria-label="Close dialog"
             className="p-2 hover:bg-surface-container rounded-full transition-colors"
           >
             <Icon name="x" className="w-5 h-5 text-on-surface-variant" />
