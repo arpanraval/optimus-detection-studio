@@ -138,7 +138,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
   const providers: LLMProvider[] = ['google', 'openai', 'anthropic'];
 
   return (
-    <div className="absolute left-0 top-full mt-1 w-64 bg-surface-container-highest/95 backdrop-blur-xl rounded-xl border border-outline-variant/10 shadow-2xl z-50 overflow-hidden">
+    <div className="absolute right-0 top-full mt-1 w-64 bg-surface-container-highest/95 backdrop-blur-xl rounded-xl border border-outline-variant/10 shadow-2xl z-50 overflow-hidden">
       <div className="py-1 max-h-80 overflow-y-auto ai-scroll">
         {providers.map(provider => {
           const models = modelsByProvider[provider];
