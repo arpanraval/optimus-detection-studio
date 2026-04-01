@@ -65,3 +65,4 @@ nul
 # Vendor Detection Content/ — moved to .internal/
 
 .vercel
+scripts/test-api-keys.ts
