@@ -12,6 +12,8 @@ export interface AutoDigestSettings {
   schedule_hour_utc: number;
   max_articles_per_day: number;
   ai_model: string;
+  classification_model: string;
+  digest_model: string;
   created_at: string;
   updated_at: string;
 }

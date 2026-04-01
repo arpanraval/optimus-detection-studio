@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
 import { Select } from '../ui/Select';
+import { ModelSelector } from '../ModelSelector';
 import { useAutoDigestSettings, CuratedFeedSource } from '../../hooks/useAutoDigestSettings';
 import { FeedActivityLog } from '../threatintel/FeedActivityLog';
 import { useAppData } from '../../router/AppDataContext';
@@ -33,12 +34,6 @@ const MAX_ARTICLES_OPTIONS = Array.from({ length: 10 }, (_, i) => ({
   label: String(i + 1),
 }));
 
-const AI_MODEL_OPTIONS = [
-  { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash (fastest)' },
-  { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro' },
-  { value: 'gpt-5-mini', label: 'GPT-5 Mini' },
-  { value: 'gpt-5-nano', label: 'GPT-5 Nano' },
-];
 
 const CATEGORY_LABELS: Record<string, string> = {
   threat_research: 'Threat Research',
@@ -174,7 +169,8 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     is_enabled: false,
     schedule_hour_utc: 6,
     max_articles_per_day: 3,
-    ai_model: 'gemini-3-flash-preview',
+    classification_model: 'gemini-3-flash-preview',
+    digest_model: 'gemini-3-flash-preview',
   });
 
   // Track which sources are locally toggled (dirty state)
@@ -190,7 +186,8 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
         is_enabled: settings.is_enabled,
         schedule_hour_utc: settings.schedule_hour_utc,
         max_articles_per_day: settings.max_articles_per_day,
-        ai_model: settings.ai_model,
+        classification_model: settings.classification_model || settings.ai_model || 'gemini-3-flash-preview',
+        digest_model: settings.digest_model || settings.ai_model || 'gemini-3-flash-preview',
       });
       setConfigDirty(false);
     }
@@ -261,7 +258,8 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
         is_enabled: settings.is_enabled,
         schedule_hour_utc: settings.schedule_hour_utc,
         max_articles_per_day: settings.max_articles_per_day,
-        ai_model: settings.ai_model,
+        classification_model: settings.classification_model || settings.ai_model || 'gemini-3-flash-preview',
+        digest_model: settings.digest_model || settings.ai_model || 'gemini-3-flash-preview',
       });
     }
     setConfigDirty(false);
@@ -449,7 +447,8 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
               </p>
             </div>
             <div className="p-5 space-y-5">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {/* Schedule & Limits */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Select
                   label="Schedule (UTC)"
                   options={SCHEDULE_OPTIONS}
@@ -464,29 +463,46 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
                   onChange={(v) => updateConfig('max_articles_per_day', Number(v))}
                   size="sm"
                 />
-                <Select
-                  label="AI Model"
-                  options={AI_MODEL_OPTIONS}
-                  value={localConfig.ai_model}
-                  onChange={(v) => updateConfig('ai_model', v)}
-                  size="sm"
-                />
               </div>
 
-              <div className="pt-4 border-t border-outline-variant/10">
+              {/* Model Selection */}
+              <div className="pt-4 border-t border-outline-variant/10 space-y-4">
+                <div>
+                  <p className="text-xs font-bold text-on-surface-variant/50 uppercase tracking-widest mb-3">AI Models</p>
+                </div>
+
+                {/* Classification Model */}
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-on-surface">Classification Gate</p>
                     <p className="text-xs text-on-surface-variant/60 mt-0.5">
-                      AI filters out product announcements, marketing, and event content before digesting
+                      Filters noise — reads RSS titles to skip marketing, events, product announcements. Should be fast and cheap.
                     </p>
                   </div>
-                  <span className="text-[10px] px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-400 font-bold uppercase tracking-wider">
-                    Always On
-                  </span>
+                  <ModelSelector
+                    selectedModelId={localConfig.classification_model}
+                    onModelChange={(v) => updateConfig('classification_model', v)}
+                    requireCapabilities={{ json: true }}
+                  />
+                </div>
+
+                {/* Digest Model */}
+                <div className="flex items-center justify-between pt-4 border-t border-outline-variant/[0.06]">
+                  <div>
+                    <p className="text-sm font-medium text-on-surface">Full Digest Analysis</p>
+                    <p className="text-xs text-on-surface-variant/60 mt-0.5">
+                      Extracts TTPs, rules, IoCs, and MITRE mapping from full articles. Should be capable.
+                    </p>
+                  </div>
+                  <ModelSelector
+                    selectedModelId={localConfig.digest_model}
+                    onModelChange={(v) => updateConfig('digest_model', v)}
+                    requireCapabilities={{ json: true }}
+                  />
                 </div>
               </div>
 
+              {/* Pipeline features */}
               <div className="pt-4 border-t border-outline-variant/10">
                 <div className="flex items-center justify-between">
                   <div>
