@@ -23,6 +23,7 @@ import { RealtimeProvider } from '../context/RealtimeContext';
 import { logAuditEvent } from '../lib/audit';
 import { AppErrorBoundary } from '../components/ErrorBoundary';
 import { AppLoader } from '../components/AppLoader';
+import { NotFoundRedirect } from './pages/NotFoundRedirect';
 
 // ============================================================================
 // Capture auth action from URL hash BEFORE Supabase SDK consumes it.
@@ -282,7 +283,7 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       ] : []),
 
       // Catch-all redirect
-      { path: '*', element: <Navigate to="/" replace /> },
+      { path: '*', element: <NotFoundRedirect /> },
     ],
   },
 ]);

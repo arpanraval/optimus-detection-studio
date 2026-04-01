@@ -223,7 +223,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           <main id="main-content" className="h-full overflow-y-auto scroll-smooth scrollbar-page" role="main">
             <InterruptedImportBanner />
             <div key={location.pathname} className="animate-page-enter h-full">
-              <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
+              <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>}>
                 <Outlet />
               </Suspense>
             </div>
