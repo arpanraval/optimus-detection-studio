@@ -257,14 +257,16 @@ export interface FetchResult {
 export type Provider = 'google' | 'openai' | 'anthropic';
 
 export const MODEL_PROVIDERS: Record<string, Provider> = {
-  'gemini-3-pro-preview': 'google',
+  'gemini-3.1-pro-preview': 'google',
   'gemini-3-flash-preview': 'google',
-  'gpt-5.2': 'openai',
-  'gpt-5-mini': 'openai',
-  'gpt-5-nano': 'openai',
-  'claude-opus-4-5-20251101': 'anthropic',
-  'claude-sonnet-4-5-20250929': 'anthropic',
-  'claude-haiku-4-5-20251001': 'anthropic',
+  'gemini-3.1-flash-lite-preview': 'google',
+  'gemini-3-pro-image-preview': 'google',
+  'gpt-5.4': 'openai',
+  'gpt-5.4-mini': 'openai',
+  'gpt-5.4-nano': 'openai',
+  'claude-opus-4-6': 'anthropic',
+  'claude-sonnet-4-6': 'anthropic',
+  'claude-haiku-4-5': 'anthropic',
 };
 
 export const DEFAULT_MODEL = 'gemini-3-flash-preview';

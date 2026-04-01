@@ -61,8 +61,8 @@ export interface LLMModel {
 export const LLM_MODELS: LLMModel[] = [
   // Google Gemini models
   {
-    id: 'gemini-3-pro-preview',
-    name: 'Gemini 3 Pro',
+    id: 'gemini-3.1-pro-preview',
+    name: 'Gemini 3.1 Pro',
     provider: 'google',
     description: 'Most capable reasoning model, 1M context',
     capabilities: { chat: true, tools: true, json: true }
@@ -74,45 +74,59 @@ export const LLM_MODELS: LLMModel[] = [
     description: 'Fast multimodal with strong reasoning',
     capabilities: { chat: true, tools: true, json: true }
   },
+  {
+    id: 'gemini-3.1-flash-lite-preview',
+    name: 'Gemini 3.1 Flash Lite',
+    provider: 'google',
+    description: 'Lightweight and cost-effective',
+    capabilities: { chat: true, tools: true, json: true }
+  },
+  {
+    id: 'gemini-3-pro-image-preview',
+    name: 'Gemini 3 Pro Image',
+    provider: 'google',
+    description: 'Image generation from text prompts',
+    capabilities: { chat: true, tools: false, json: false }
+  },
   // OpenAI models
   {
-    id: 'gpt-5.2',
-    name: 'GPT-5.2',
+    id: 'gpt-5.4',
+    name: 'GPT-5.4',
     provider: 'openai',
     description: 'Flagship model with reasoning',
     capabilities: { chat: true, tools: true, json: true }
   },
   {
-    id: 'gpt-5-mini',
-    name: 'GPT-5 Mini',
+    id: 'gpt-5.4-mini',
+    name: 'GPT-5.4 Mini',
     provider: 'openai',
     description: 'Balanced performance and cost',
     capabilities: { chat: true, tools: true, json: true }
   },
   {
-    id: 'gpt-5-nano',
-    name: 'GPT-5 Nano',
+    id: 'gpt-5.4-nano',
+    name: 'GPT-5.4 Nano',
     provider: 'openai',
     description: 'Fast and affordable',
     capabilities: { chat: true, tools: true, json: true }
   },
   // Anthropic models
   {
-    id: 'claude-opus-4-5-20251101',
-    name: 'Claude Opus 4.5',
+    id: 'claude-opus-4-6',
+    name: 'Claude Opus 4.6',
     provider: 'anthropic',
     description: 'Most intelligent, best for coding & agents',
     capabilities: { chat: true, tools: true, json: true }
   },
   {
-    id: 'claude-sonnet-4-5-20250929',
-    name: 'Claude Sonnet 4.5',
+    id: 'claude-sonnet-4-6',
+    name: 'Claude Sonnet 4.6',
     provider: 'anthropic',
     description: 'Balanced intelligence and speed',
     capabilities: { chat: true, tools: true, json: true }
   },
   {
-    id: 'claude-haiku-4-5-20251001',
+    id: 'claude-haiku-4-5',
     name: 'Claude Haiku 4.5',
     provider: 'anthropic',
     description: 'Fast and cost-effective',
