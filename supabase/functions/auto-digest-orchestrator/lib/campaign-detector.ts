@@ -112,8 +112,8 @@ export async function detectAndMergeCampaign(
       {
         campaign_id: campaignId,
         report_id: reportId,
-        source_name: report.source_feed_name || null,
-        source_url: report.source_article_url || null,
+        source_feed_name: report.source_feed_name || null,
+        article_url: report.source_article_url || null,
         ttp_count: Array.isArray(report.ttps) ? report.ttps.length : 0,
         ioc_count: Array.isArray(report.iocs) ? report.iocs.length : 0,
         rule_count: Array.isArray(report.rules) ? report.rules.length : 0,
@@ -127,9 +127,12 @@ export async function detectAndMergeCampaign(
   }
 
   // 7. Create a new campaign
-  const primaryActor = actors[0];
+  // Sanitize actor name from AI/untrusted content
+  const safePrimaryActor = (actors[0] || 'Unknown')
+    .replace(/[^\w\s\-\.]/g, '')
+    .slice(0, 100);
   const monthYear = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  const campaignName = `${primaryActor} Campaign (${monthYear})`;
+  const campaignName = `${safePrimaryActor} Campaign (${monthYear})`;
 
   const allActors = new Set<string>(actorsLower);
   for (const r of matchingReports) {
@@ -167,8 +170,8 @@ export async function detectAndMergeCampaign(
   const articleRows = allReports.map((r: any) => ({
     campaign_id: campaignId,
     report_id: r.id,
-    source_name: r.source_feed_name || null,
-    source_url: r.source_article_url || null,
+    source_feed_name: r.source_feed_name || null,
+    article_url: r.source_article_url || null,
     ttp_count: Array.isArray(r.ttps) ? r.ttps.length : 0,
     ioc_count: Array.isArray(r.iocs) ? r.iocs.length : 0,
     rule_count: Array.isArray(r.rules) ? r.rules.length : 0,
@@ -204,7 +207,7 @@ export async function updateCampaignMerge(
   // Fetch all article links for this campaign
   const { data: articles, error: artErr } = await supabase
     .from('auto_digest_campaign_articles')
-    .select('report_id, source_name')
+    .select('report_id, source_feed_name')
     .eq('campaign_id', campaignId);
 
   if (artErr || !articles || articles.length === 0) return;
@@ -214,7 +217,7 @@ export async function updateCampaignMerge(
   // Build source lookup: report_id → source_name
   const sourceByReport: Record<string, string> = {};
   for (const a of articles) {
-    if (a.source_name) sourceByReport[a.report_id] = a.source_name;
+    if (a.source_feed_name) sourceByReport[a.report_id] = a.source_feed_name;
   }
 
   // Fetch all linked reports
