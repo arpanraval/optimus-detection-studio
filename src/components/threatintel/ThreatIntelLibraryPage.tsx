@@ -818,13 +818,15 @@ export const ThreatIntelLibraryPage: React.FC = () => {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <button
+              <Button
+                variant="tonal"
+                color="secondary"
+                size="sm"
+                leadingIcon="settings"
                 onClick={() => navigate(ROUTES.INTELLIGENCE_SOURCES)}
-                className="p-2 rounded-lg hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors"
-                title="Auto-Digest Settings"
               >
-                <Icon name="settings" className="w-5 h-5" />
-              </button>
+                Auto-Digest Sources
+              </Button>
               <Button color="primary" leadingIcon="plus" onClick={() => setShowModal(true)}>
                 Analyze Report
               </Button>

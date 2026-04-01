@@ -1,0 +1,120 @@
+<h2>Guided Onboarding — Orchestrator Flow</h2>
+<p class="subtitle">The main onboarding page that ties all 4 steps together</p>
+
+<div class="section">
+  <h3>Overall Layout</h3>
+  <div class="mockup">
+    <div class="mockup-header">Guided Setup — /setup (or /getting-started)</div>
+    <div class="mockup-body" style="padding: 0;">
+      <!-- Top progress stepper -->
+      <div style="display: flex; align-items: center; justify-content: center; gap: 8px; padding: 24px 32px; background: rgba(120,50,100,0.06); border-bottom: 1px solid rgba(120,50,100,0.1);">
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <div style="width: 32px; height: 32px; border-radius: 50%; background: #783264; color: white; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px;">✓</div>
+          <span style="font-size: 13px; font-weight: 600; color: #783264;">Environment</span>
+        </div>
+        <div style="width: 40px; height: 2px; background: #783264;"></div>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <div style="width: 32px; height: 32px; border-radius: 50%; background: #783264; color: white; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px;">2</div>
+          <span style="font-size: 13px; font-weight: 600; color: #783264;">Detections</span>
+        </div>
+        <div style="width: 40px; height: 2px; background: rgba(0,0,0,0.15);"></div>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(0,0,0,0.12); color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px;">3</div>
+          <span style="font-size: 13px; color: rgba(0,0,0,0.45);">SIEM</span>
+        </div>
+        <div style="width: 40px; height: 2px; background: rgba(0,0,0,0.15);"></div>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(0,0,0,0.12); color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px;">4</div>
+          <span style="font-size: 13px; color: rgba(0,0,0,0.45);">Action Plan</span>
+        </div>
+      </div>
+
+      <!-- Current step content area -->
+      <div style="padding: 40px 48px; text-align: center;">
+        <div style="font-size: 28px; font-weight: 700; margin-bottom: 8px; color: #1a1a1a;">Import Detection Content</div>
+        <div style="font-size: 15px; color: rgba(0,0,0,0.55); max-width: 520px; margin: 0 auto 32px;">
+          Build your detection library from trusted vendor sources — Sigma HQ, Splunk, Elastic, and more. We'll parse, validate, and score each rule.
+        </div>
+
+        <!-- Step card -->
+        <div style="background: white; border: 2px solid rgba(120,50,100,0.15); border-radius: 16px; padding: 32px; max-width: 480px; margin: 0 auto; text-align: left;">
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+            <div style="width: 40px; height: 40px; border-radius: 12px; background: rgba(120,50,100,0.08); display: flex; align-items: center; justify-content: center; font-size: 20px;">📥</div>
+            <div>
+              <div style="font-weight: 600; font-size: 15px;">Detection Onboarding</div>
+              <div style="font-size: 12px; color: rgba(0,0,0,0.45);">~5 minutes • 6 vendor sources available</div>
+            </div>
+          </div>
+          <ul style="font-size: 13px; color: rgba(0,0,0,0.6); margin: 0 0 24px 16px; padding: 0; list-style: disc;">
+            <li style="margin-bottom: 4px;">Select from Sigma HQ, Splunk, Elastic, Chronicle, Sentinel, Defender</li>
+            <li style="margin-bottom: 4px;">Choose folders/categories to import</li>
+            <li style="margin-bottom: 4px;">Rules are parsed, validated, and quality-scored automatically</li>
+          </ul>
+          <div style="display: flex; gap: 12px;">
+            <button style="flex: 1; padding: 10px 20px; background: #783264; color: white; border: none; border-radius: 12px; font-weight: 600; font-size: 14px; cursor: pointer;">Start Import →</button>
+            <button style="padding: 10px 20px; background: transparent; color: rgba(0,0,0,0.45); border: 1px solid rgba(0,0,0,0.15); border-radius: 12px; font-size: 14px; cursor: pointer;">Skip for now</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 32px;">
+  <h3>Step Completion States</h3>
+  <p class="subtitle">How each step card looks when complete vs pending</p>
+  <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+
+    <!-- Completed step -->
+    <div style="flex: 1; min-width: 280px; background: rgba(77,124,111,0.06); border: 2px solid rgba(77,124,111,0.25); border-radius: 16px; padding: 20px;">
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+        <div style="width: 28px; height: 28px; border-radius: 50%; background: #4D7C6F; color: white; display: flex; align-items: center; justify-content: center; font-size: 14px;">✓</div>
+        <span style="font-weight: 600; font-size: 14px; color: #4D7C6F;">Environment Profile</span>
+      </div>
+      <div style="font-size: 12px; color: rgba(0,0,0,0.5); margin-bottom: 12px;">
+        Financial Services • Splunk Enterprise • 12 log sources • 4 crown jewels
+      </div>
+      <button style="padding: 6px 14px; background: transparent; color: #4D7C6F; border: 1px solid rgba(77,124,111,0.3); border-radius: 8px; font-size: 12px; cursor: pointer;">Edit Profile →</button>
+    </div>
+
+    <!-- Active step -->
+    <div style="flex: 1; min-width: 280px; background: rgba(120,50,100,0.04); border: 2px solid rgba(120,50,100,0.2); border-radius: 16px; padding: 20px; box-shadow: 0 2px 12px rgba(120,50,100,0.08);">
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+        <div style="width: 28px; height: 28px; border-radius: 50%; background: #783264; color: white; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600;">2</div>
+        <span style="font-weight: 600; font-size: 14px; color: #783264;">Detection Import</span>
+        <span style="font-size: 11px; background: rgba(120,50,100,0.1); color: #783264; padding: 2px 8px; border-radius: 6px; font-weight: 500;">Current</span>
+      </div>
+      <div style="font-size: 12px; color: rgba(0,0,0,0.5);">
+        Import rules from 6 vendor sources
+      </div>
+    </div>
+
+    <!-- Pending step -->
+    <div style="flex: 1; min-width: 280px; background: rgba(0,0,0,0.02); border: 2px dashed rgba(0,0,0,0.1); border-radius: 16px; padding: 20px; opacity: 0.7;">
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+        <div style="width: 28px; height: 28px; border-radius: 50%; background: rgba(0,0,0,0.08); color: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600;">3</div>
+        <span style="font-weight: 600; font-size: 14px; color: rgba(0,0,0,0.35);">SIEM Integration</span>
+      </div>
+      <div style="font-size: 12px; color: rgba(0,0,0,0.3);">
+        Connect your SIEM and fetch existing rules
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 32px;">
+  <h3>User Flow</h3>
+  <div style="background: rgba(0,0,0,0.03); border-radius: 12px; padding: 24px; font-size: 13px; line-height: 2; font-family: monospace;">
+    <div><strong style="color: #783264;">First visit (empty library):</strong></div>
+    <div>→ Auto-redirect to /setup</div>
+    <div>→ Step 1: Navigate to Environment Wizard → complete → return to /setup</div>
+    <div>→ Step 2: Navigate to Detection Onboarding → complete → return to /setup</div>
+    <div>→ Step 3a: Navigate to SIEM Integration → connect → return to /setup</div>
+    <div>→ Step 3b: Fetch existing rules from connected SIEM</div>
+    <div>→ Step 4: Navigate to Action Plan (now with full context)</div>
+    <div style="margin-top: 12px;"><strong style="color: #4D7C6F;">Returning user (some steps done):</strong></div>
+    <div>→ Auto-detect: env profile exists ✓, detections &gt; 0 ✓, no SIEM ✗</div>
+    <div>→ Show /setup with steps 1-2 pre-completed</div>
+    <div>→ Highlight step 3 as "next"</div>
+  </div>
+</div>

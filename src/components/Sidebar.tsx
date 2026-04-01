@@ -530,7 +530,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
         { id: 'software' as View, label: 'Software' },
         { id: 'mitigations' as View, label: 'Mitigations' },
         { id: 'threat-intel' as View, label: 'Intelligence Reports' },
-        { id: 'threat-intel-feeds' as View, label: 'Feeds' },
+        { id: 'intelligence_sources' as View, label: 'Auto-Digest Sources', url: '/settings/intelligence' },
         { id: 'analysis-reports' as View, label: 'Analysis Reports' },
       ],
       activeClass: 'bg-[#1a3a3a] text-teal-200',

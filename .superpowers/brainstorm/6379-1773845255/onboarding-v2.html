@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guided Setup — Optimus</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700&family=Roboto:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --primary: rgb(120, 50, 100);
+    --primary-container: rgb(148, 72, 120);
+    --on-primary: #fff;
+    --on-primary-container: rgb(245, 230, 240);
+    --secondary: rgb(185, 200, 220);
+    --secondary-container: rgb(60, 75, 95);
+    --surface: rgb(8, 8, 10);
+    --surface-container-lowest: rgb(15, 15, 18);
+    --surface-container-low: rgb(22, 22, 26);
+    --surface-container: rgb(30, 30, 35);
+    --surface-container-high: rgb(40, 40, 46);
+    --surface-container-highest: rgb(50, 50, 56);
+    --on-surface: rgb(230, 225, 230);
+    --on-surface-variant: rgb(160, 155, 165);
+    --outline: rgb(90, 85, 95);
+    --outline-variant: rgb(55, 52, 60);
+    --emerald: rgb(52, 211, 153);
+    --error: rgb(186, 26, 26);
+    --amber: rgb(251, 191, 36);
+    --teal: rgb(45, 212, 191);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Roboto', sans-serif;
+    background: var(--surface);
+    color: var(--on-surface);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  .brand { font-family: 'Orbitron', sans-serif; }
+
+  /* Page container */
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 48px 32px;
+    animation: pageEnter 0.4s cubic-bezier(0.2, 0, 0, 1) both;
+  }
+  @keyframes pageEnter {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 40px;
+  }
+  .header h1 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    color: var(--on-surface);
+  }
+  .header p {
+    font-size: 13px;
+    color: var(--on-surface-variant);
+    margin-top: 4px;
+  }
+  .skip-btn {
+    font-size: 12px;
+    padding: 6px 16px;
+    border-radius: 12px;
+    border: 1px solid var(--outline-variant);
+    background: transparent;
+    color: var(--on-surface-variant);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .skip-btn:hover { border-color: var(--outline); color: var(--on-surface); }
+
+  /* Stepper */
+  .stepper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-width: 640px;
+    margin: 0 auto 48px;
+  }
+  .step-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    position: relative;
+  }
+  .step-circle {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.3s;
+  }
+  .step-circle.completed {
+    background: var(--emerald);
+    color: #000;
+  }
+  .step-circle.active {
+    background: var(--primary);
+    color: var(--on-primary);
+    box-shadow: 0 0 20px rgba(120, 50, 100, 0.5);
+  }
+  .step-circle.pending {
+    background: var(--surface-container);
+    color: var(--on-surface-variant);
+    opacity: 0.5;
+  }
+  .step-label {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+  }
+  .step-label.completed { color: var(--emerald); }
+  .step-label.active { color: rgb(200, 160, 190); }
+  .step-label.pending { color: var(--on-surface-variant); opacity: 0.35; }
+  .step-line {
+    flex: 1;
+    height: 2px;
+    margin: 0 12px;
+    border-radius: 1px;
+    margin-bottom: 24px;
+  }
+  .step-line.done { background: var(--emerald); }
+  .step-line.active { background: linear-gradient(90deg, var(--emerald), var(--primary)); }
+  .step-line.pending { background: var(--outline-variant); opacity: 0.3; }
+
+  /* Step cards grid */
+  .steps-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  /* Step card */
+  .step-card {
+    border-radius: 20px;
+    padding: 28px;
+    transition: all 0.3s cubic-bezier(0.2, 0, 0, 1);
+    position: relative;
+    overflow: hidden;
+  }
+  .step-card.completed {
+    background: var(--surface-container-low);
+    border: 1px solid rgba(52, 211, 153, 0.15);
+  }
+  .step-card.active {
+    background: var(--surface-container);
+    border: 1px solid rgba(120, 50, 100, 0.35);
+    box-shadow: 0 4px 32px rgba(120, 50, 100, 0.12), 0 0 0 1px rgba(120, 50, 100, 0.08);
+  }
+  .step-card.active::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--primary), transparent);
+  }
+  .step-card.pending {
+    background: var(--surface-container-lowest);
+    border: 1px dashed var(--outline-variant);
+    opacity: 0.45;
+  }
+
+  .card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .card-header-left {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .card-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+  .card-icon.env { background: rgba(45, 212, 191, 0.12); }
+  .card-icon.det { background: rgba(120, 50, 100, 0.15); }
+  .card-icon.siem { background: rgba(46, 98, 140, 0.15); }
+  .card-icon.action { background: rgba(251, 191, 36, 0.12); }
+
+  .card-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--on-surface);
+    margin-bottom: 2px;
+  }
+  .card-subtitle {
+    font-size: 11px;
+    color: var(--on-surface-variant);
+  }
+
+  .card-badge {
+    font-size: 10px;
+    font-weight: 500;
+    padding: 3px 10px;
+    border-radius: 8px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .card-badge.done {
+    background: rgba(52, 211, 153, 0.12);
+    color: var(--emerald);
+  }
+  .card-badge.current {
+    background: rgba(120, 50, 100, 0.2);
+    color: rgb(200, 160, 190);
+  }
+  .card-badge.locked {
+    background: var(--surface-container);
+    color: var(--on-surface-variant);
+  }
+
+  .card-summary {
+    font-size: 12px;
+    color: var(--on-surface-variant);
+    line-height: 1.6;
+    margin-bottom: 20px;
+  }
+  .card-summary strong {
+    color: var(--on-surface);
+    font-weight: 500;
+  }
+
+  /* Completed card mini stats */
+  .mini-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .mini-stat {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    background: var(--surface-container);
+    color: var(--on-surface-variant);
+  }
+  .mini-stat .val { color: var(--on-surface); font-weight: 500; }
+
+  /* Buttons */
+  .btn-primary {
+    padding: 10px 24px;
+    border-radius: 14px;
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: rgba(120, 50, 100, 0.12);
+    border: 1px solid rgba(120, 50, 100, 0.35);
+    color: rgb(200, 160, 190);
+  }
+  .btn-primary:hover {
+    background: rgba(120, 50, 100, 0.2);
+    box-shadow: 0 0 20px rgba(120, 50, 100, 0.2);
+  }
+  .btn-secondary {
+    padding: 8px 16px;
+    border-radius: 12px;
+    border: 1px solid var(--outline-variant);
+    background: transparent;
+    font-size: 12px;
+    color: var(--on-surface-variant);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-secondary:hover { border-color: var(--outline); color: var(--on-surface); }
+
+  .card-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+
+  /* Description list for active step */
+  .step-details {
+    margin-bottom: 20px;
+  }
+  .step-details li {
+    font-size: 12px;
+    color: var(--on-surface-variant);
+    margin-bottom: 6px;
+    padding-left: 16px;
+    position: relative;
+    line-height: 1.5;
+  }
+  .step-details li::before {
+    content: '›';
+    position: absolute;
+    left: 0;
+    color: var(--primary);
+    font-weight: 600;
+  }
+
+  /* Checkmark SVG */
+  .check-svg {
+    width: 16px; height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* Full-width action plan card */
+  .step-card.full-width {
+    grid-column: 1 / -1;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <h1 class="brand">GUIDED SETUP</h1>
+      <p>Configure your environment, import detections, and connect your SIEM</p>
+    </div>
+    <button class="skip-btn">Skip setup →</button>
+  </div>
+
+  <!-- Stepper -->
+  <div class="stepper">
+    <div class="step-node">
+      <div class="step-circle completed">
+        <svg class="check-svg"><polyline points="4 12 9 17 20 6"></polyline></svg>
+      </div>
+      <span class="step-label completed">Environment</span>
+    </div>
+    <div class="step-line active"></div>
+    <div class="step-node">
+      <div class="step-circle active">2</div>
+      <span class="step-label active">Detections</span>
+    </div>
+    <div class="step-line pending"></div>
+    <div class="step-node">
+      <div class="step-circle pending">3</div>
+      <span class="step-label pending">SIEM</span>
+    </div>
+    <div class="step-line pending"></div>
+    <div class="step-node">
+      <div class="step-circle pending">4</div>
+      <span class="step-label pending">Action Plan</span>
+    </div>
+  </div>
+
+  <!-- Step Cards Grid -->
+  <div class="steps-grid">
+
+    <!-- Step 1: Completed -->
+    <div class="step-card completed">
+      <div class="card-header">
+        <div class="card-header-left">
+          <div class="card-icon env">🛡</div>
+          <div>
+            <div class="card-title">Environment Profile</div>
+            <div class="card-subtitle">Your detection intelligence context</div>
+          </div>
+        </div>
+        <span class="card-badge done">✓ Complete</span>
+      </div>
+      <div class="mini-stats">
+        <span class="mini-stat"><span class="val">Financial Services</span></span>
+        <span class="mini-stat">Splunk Enterprise</span>
+        <span class="mini-stat"><span class="val">12</span> log sources</span>
+        <span class="mini-stat"><span class="val">4</span> crown jewels</span>
+      </div>
+      <div class="card-actions">
+        <button class="btn-secondary">Edit Profile</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Active -->
+    <div class="step-card active">
+      <div class="card-header">
+        <div class="card-header-left">
+          <div class="card-icon det">📥</div>
+          <div>
+            <div class="card-title">Detection Library</div>
+            <div class="card-subtitle">Import from vendor sources</div>
+          </div>
+        </div>
+        <span class="card-badge current">Next Step</span>
+      </div>
+      <ul class="step-details">
+        <li>Select from <strong>Sigma HQ</strong>, <strong>Splunk</strong>, <strong>Elastic</strong>, <strong>Chronicle</strong>, <strong>Sentinel</strong>, <strong>Defender</strong></li>
+        <li>Choose folders and rule categories to import</li>
+        <li>Automatic parsing, validation, and quality scoring</li>
+        <li>~6,900 community detection rules available</li>
+      </ul>
+      <div class="card-actions">
+        <button class="btn-primary">Start Import →</button>
+        <button class="btn-secondary">Skip for now</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Pending -->
+    <div class="step-card pending">
+      <div class="card-header">
+        <div class="card-header-left">
+          <div class="card-icon siem">🔗</div>
+          <div>
+            <div class="card-title">SIEM Integration</div>
+            <div class="card-subtitle">Connect & fetch existing rules</div>
+          </div>
+        </div>
+      </div>
+      <div class="card-summary">
+        Connect your SIEM platform, then fetch your existing deployed detection rules for a complete coverage picture.
+      </div>
+    </div>
+
+    <!-- Step 4: Pending (full-width) -->
+    <div class="step-card pending full-width">
+      <div class="card-header">
+        <div class="card-header-left">
+          <div class="card-icon action">⚡</div>
+          <div>
+            <div class="card-title">Action Plan</div>
+            <div class="card-subtitle">Intelligence-driven recommendations from all three steps</div>
+          </div>
+        </div>
+      </div>
+      <div class="card-summary">
+        Gap analysis, priority detections, threat landscape, and deployment recommendations — computed from your environment, library, and SIEM coverage.
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

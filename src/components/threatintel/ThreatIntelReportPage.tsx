@@ -1858,10 +1858,10 @@ export const ThreatIntelReportPage: React.FC = () => {
                       {/* Threat Groups */}
                       {(report.mitreMapping?.matchedGroups?.length ?? 0) > 0 && (
                         <div>
-                          <p className="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2 flex items-center gap-1.5">
+                          <div className="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2 flex items-center gap-1.5">
                             <Icon name="users" className="w-3 h-3 text-[#A63D40]" />
                             Threat Groups
-                          </p>
+                          </div>
                           <div className="flex flex-wrap gap-1.5">
                             {report.mitreMapping.matchedGroups.map((group: MitreEntityMatch) => (
                               <Link
@@ -1881,10 +1881,10 @@ export const ThreatIntelReportPage: React.FC = () => {
                       {/* Software/Malware - Orange per design system */}
                       {(report.mitreMapping?.matchedSoftware?.length ?? 0) > 0 && (
                         <div>
-                          <p className="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2 flex items-center gap-1.5">
+                          <div className="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2 flex items-center gap-1.5">
                             <Icon name="package" className="w-3 h-3 text-orange-500" />
                             Software/Malware
-                          </p>
+                          </div>
                           <div className="flex flex-wrap gap-1.5">
                             {report.mitreMapping.matchedSoftware.map((sw: MitreEntityMatch) => (
                               <Link
@@ -1904,10 +1904,10 @@ export const ThreatIntelReportPage: React.FC = () => {
                       {/* Campaigns - Sky Blue per design system */}
                       {(report.mitreMapping?.matchedCampaigns?.length ?? 0) > 0 && (
                         <div>
-                          <p className="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2 flex items-center gap-1.5">
+                          <div className="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2 flex items-center gap-1.5">
                             <Icon name="flag" className="w-3 h-3 text-[#0284C7]" />
                             Campaigns
-                          </p>
+                          </div>
                           <div className="flex flex-wrap gap-1.5">
                             {report.mitreMapping.matchedCampaigns.map((campaign: MitreEntityMatch) => (
                               <Link
