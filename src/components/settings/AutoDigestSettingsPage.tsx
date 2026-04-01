@@ -21,7 +21,7 @@ type TabId = 'sources' | 'configuration' | 'activity';
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'sources', label: 'Sources', icon: 'globe' },
   { id: 'configuration', label: 'Configuration', icon: 'settings' },
-  { id: 'activity', label: 'Activity', icon: 'activity' },
+  { id: 'activity', label: 'Activity', icon: 'trending-up' },
 ];
 
 const SCHEDULE_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
@@ -317,25 +317,9 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
   // ─────────────────────────────────────────────────────────────
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 animate-page-enter">
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        {onBack && (
-          <button
-            onClick={onBack}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 transition-colors"
-          >
-            <Icon name="arrow-left" className="w-4 h-4" />
-          </button>
-        )}
-        <div className="flex-1">
-          <h1 className="text-lg font-bold text-on-surface">Intelligence Sources</h1>
-          <p className="text-xs text-on-surface-variant mt-0.5">
-            Configure automatic threat intelligence ingestion and processing
-          </p>
-        </div>
-
-        {/* Enable toggle — always visible in header */}
+    <div className="max-w-5xl mx-auto px-4 py-4 animate-page-enter">
+      {/* Auto-Digest toggle — inline, no duplicate header (shell provides the page title) */}
+      <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-2">
           <span className="text-xs text-on-surface-variant">Auto-Digest</span>
           <button
@@ -439,7 +423,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
       {activeTab === 'configuration' && (
         <div className="space-y-6">
           {/* Pipeline settings */}
-          <div className="rounded-xl border border-outline-variant/10 overflow-hidden">
+          <div className="rounded-xl border border-outline-variant/10">
             <div className="px-5 py-3 border-b border-outline-variant/10 bg-surface-container-high/20">
               <h3 className="text-sm font-semibold text-on-surface">Pipeline Settings</h3>
               <p className="text-xs text-on-surface-variant/60 mt-0.5">
