@@ -127,8 +127,7 @@ const LIGHTWEIGHT_COLUMNS = [
   'library_type', 'promotion_status', 'external_id', 'source_rule_id',
   'team_id',
   'assigned_to', 'assigned_by', 'assigned_at',
-  'review_status', 'reviewer_id', 'review_requested_at', 'reviewed_at',
-  'auditLog',
+  'review_status', 'reviewer_id', 'review_requested_at', 'reviewed_at'
 ].join(',');
 
 export const AppDataProvider: React.FC<AppDataProviderProps> = ({ children, user, profile }) => {
@@ -141,40 +140,48 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({ children, user
   const PAGE_SIZE = 1000; // Supabase max rows per request
 
   useEffect(() => {
-    const fetchAllDetections = async (): Promise<Detection[]> => {
-      // Fetch production + development library detections (lightweight columns only)
-      const { data: first, error, count } = await supabase
-        .from('detections')
-        .select(LIGHTWEIGHT_COLUMNS, { count: 'exact' })
-        .or(`or(library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null),and(user_id.eq.${user.id},library_type.eq.${LIBRARY_DEVELOPMENT})`)
-        .order('updatedDate', { ascending: false })
-        .range(0, PAGE_SIZE - 1);
+    // Paginate a single-filter query without count: 'exact' to avoid CPU spikes
+    const fetchPaginated = async (
+      filter: (q: any) => any
+    ): Promise<any[]> => {
+      let offset = 0;
+      let hasMore = true;
+      const allResults: any[] = [];
 
-      if (error) throw error;
-      if (!first) return [];
+      while (hasMore) {
+        const { data, error } = await filter(
+          supabase.from('detections').select(LIGHTWEIGHT_COLUMNS)
+        )
+          .order('updatedDate', { ascending: false })
+          .range(offset, offset + PAGE_SIZE - 1);
 
-      const total = count ?? first.length;
-      if (total <= PAGE_SIZE) return sanitizeDetectionData(first);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
 
-      // Fetch remaining pages in parallel
-      const pages: Promise<any[]>[] = [];
-      for (let offset = PAGE_SIZE; offset < total; offset += PAGE_SIZE) {
-        pages.push(
-          Promise.resolve(supabase
-            .from('detections')
-            .select(LIGHTWEIGHT_COLUMNS)
-            .or(`or(library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null),and(user_id.eq.${user.id},library_type.eq.${LIBRARY_DEVELOPMENT})`)
-            .order('updatedDate', { ascending: false })
-            .range(offset, offset + PAGE_SIZE - 1)
-            .then(({ data, error }) => {
-              if (error) throw error;
-              return data ?? [];
-            }))
-        );
+        allResults.push(...data);
+        
+        if (data.length < PAGE_SIZE) {
+          hasMore = false;
+        } else {
+          offset += PAGE_SIZE;
+        }
       }
+      return allResults;
+    };
 
-      const remaining = (await Promise.all(pages)).flat();
-      return sanitizeDetectionData([...first, ...remaining]);
+    const fetchAllDetections = async (): Promise<Detection[]> => {
+      // Split into two simple queries so each uses the composite index cleanly
+      // instead of a complex OR that prevents index usage and causes statement timeouts.
+      const [prodRows, devRows] = await Promise.all([
+        fetchPaginated(q => q.or(`library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null`)),
+        fetchPaginated(q => q.eq('library_type', LIBRARY_DEVELOPMENT).eq('user_id', user.id)),
+      ]);
+
+      // Merge and sort by updatedDate descending
+      const all = [...prodRows, ...devRows].sort(
+        (a, b) => (b.updatedDate || '').localeCompare(a.updatedDate || '')
+      );
+      return sanitizeDetectionData(all);
     };
 
     const fetchAllData = async () => {
