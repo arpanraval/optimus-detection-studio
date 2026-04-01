@@ -11,9 +11,9 @@ CREATE TABLE IF NOT EXISTS auto_digest_settings (
   is_enabled boolean NOT NULL DEFAULT false,
   schedule_hour_utc integer NOT NULL DEFAULT 6
     CHECK (schedule_hour_utc BETWEEN 0 AND 23),
-  max_articles_per_day integer NOT NULL DEFAULT 5
+  max_articles_per_day integer NOT NULL DEFAULT 3
     CHECK (max_articles_per_day BETWEEN 1 AND 10),
-  ai_model text NOT NULL DEFAULT 'gemini-2.0-flash',
+  ai_model text NOT NULL DEFAULT 'gemini-3-flash-preview',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -33,9 +33,9 @@ CREATE TABLE IF NOT EXISTS curated_feed_sources (
   vendor text NOT NULL,
   url text NOT NULL,
   feed_type text NOT NULL DEFAULT 'rss',
-  category text NOT NULL DEFAULT 'vendor_blog'
+  category text NOT NULL DEFAULT 'threat_research'
     CHECK (category IN (
-      'vendor_blog', 'government', 'research', 'news', 'osint'
+      'threat_research', 'government', 'community'
     )),
   description text,
   is_active boolean NOT NULL DEFAULT true,
@@ -68,17 +68,23 @@ CREATE TABLE IF NOT EXISTS auto_digest_campaigns (
   merged_ttps jsonb NOT NULL DEFAULT '[]'::jsonb,
   merged_iocs jsonb NOT NULL DEFAULT '[]'::jsonb,
   merged_rules jsonb NOT NULL DEFAULT '[]'::jsonb,
-  total_coverage_percent integer DEFAULT 0,
-  feasible_coverage_percent integer DEFAULT 0,
-  relevance_score numeric(3,2) DEFAULT 0.0,
-  environment_match_reasons text[] DEFAULT '{}',
+  coverage_percent integer DEFAULT 0,
+  total_ttp_count integer DEFAULT 0,
+  covered_ttp_count integer DEFAULT 0,
+  feasible_gap_count integer DEFAULT 0,
+  infeasible_gap_count integer DEFAULT 0,
+  relevance_score smallint DEFAULT 0,
+  relevance_tags text[] DEFAULT '{}',
   review_status text NOT NULL DEFAULT 'pending'
     CHECK (review_status IN (
       'pending', 'reviewed', 'actioned', 'deferred', 'dismissed'
     )),
   review_note text,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  reviewed_at timestamptz,
+  reviewed_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  article_count integer DEFAULT 0,
+  first_seen_at timestamptz NOT NULL DEFAULT now(),
+  last_updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 ALTER TABLE auto_digest_campaigns ENABLE ROW LEVEL SECURITY;
@@ -94,8 +100,10 @@ CREATE TABLE IF NOT EXISTS auto_digest_campaign_articles (
   campaign_id uuid NOT NULL REFERENCES auto_digest_campaigns(id) ON DELETE CASCADE,
   report_id text NOT NULL REFERENCES threat_intel_reports(id) ON DELETE CASCADE,
   feed_entry_id uuid,
-  source_name text,
-  source_url text,
+  source_feed_name text,
+  article_url text,
+  article_title text,
+  digested_at timestamptz,
   ttp_count integer DEFAULT 0,
   ioc_count integer DEFAULT 0,
   rule_count integer DEFAULT 0,
@@ -127,7 +135,7 @@ CREATE TABLE IF NOT EXISTS auto_digest_jobs (
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   status text NOT NULL DEFAULT 'pending'
     CHECK (status IN (
-      'pending', 'running', 'completed', 'failed', 'cancelled'
+      'pending', 'processing', 'completed', 'failed', 'timeout_partial'
     )),
   started_at timestamptz,
   completed_at timestamptz,
@@ -174,10 +182,10 @@ ALTER TABLE threat_intel_feeds
 -- 8. ALTER threat_intel_feed_entries — add pipeline columns
 -- ----------------------------------------------------------
 ALTER TABLE threat_intel_feed_entries
-  ADD COLUMN IF NOT EXISTS digest_status text DEFAULT 'new'
+  ADD COLUMN IF NOT EXISTS digest_status text DEFAULT 'harvested'
     CHECK (digest_status IN (
-      'new', 'fetching', 'fetched', 'classifying', 'classified',
-      'skipped', 'queued', 'digesting', 'digested', 'failed'
+      'harvested', 'classified', 'skipped', 'queued', 'digesting',
+      'ready', 'digest_failed', 'extract_failed'
     )),
   ADD COLUMN IF NOT EXISTS classification jsonb,
   ADD COLUMN IF NOT EXISTS skip_reason text,
@@ -199,6 +207,10 @@ CREATE INDEX IF NOT EXISTS idx_reports_auto_digest
 CREATE INDEX IF NOT EXISTS idx_campaigns_review
   ON auto_digest_campaigns (user_id, review_status);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_user_source_url
+  ON threat_intel_reports(user_id, source_url)
+  WHERE source_url IS NOT NULL;
+
 -- ----------------------------------------------------------
 -- 10. Seed data — curated feed sources
 -- ----------------------------------------------------------
@@ -209,7 +221,7 @@ VALUES
     'The DFIR Report',
     'https://thedfirreport.com/feed/',
     'rss',
-    'research',
+    'threat_research',
     'Deep-dive intrusion analyses with full kill-chain TTPs and timelines',
     1.0,
     'jina_reader',
@@ -220,7 +232,7 @@ VALUES
     'Mandiant / Google Cloud',
     'https://www.mandiant.com/resources/blog/rss.xml',
     'rss',
-    'vendor_blog',
+    'threat_research',
     'APT research, malware analysis, and incident response findings',
     3.0,
     'jina_reader',
@@ -231,7 +243,7 @@ VALUES
     'Sophos',
     'https://news.sophos.com/en-us/category/threat-research/feed/',
     'rss',
-    'vendor_blog',
+    'threat_research',
     'Threat research covering ransomware, exploits, and attacker tradecraft',
     2.0,
     'jina_reader',
@@ -242,7 +254,7 @@ VALUES
     'Microsoft',
     'https://www.microsoft.com/en-us/security/blog/feed/',
     'rss',
-    'vendor_blog',
+    'threat_research',
     'Threat intelligence from Microsoft MSTIC, Defender, and Sentinel teams',
     3.0,
     'jina_reader',
@@ -253,7 +265,7 @@ VALUES
     'Palo Alto Networks',
     'https://unit42.paloaltonetworks.com/feed/',
     'rss',
-    'vendor_blog',
+    'threat_research',
     'Threat research on APTs, ransomware, vulnerabilities, and campaigns',
     2.5,
     'jina_reader',
@@ -264,7 +276,7 @@ VALUES
     'CrowdStrike',
     'https://www.crowdstrike.com/blog/feed/',
     'rss',
-    'vendor_blog',
+    'threat_research',
     'Threat intelligence and adversary tracking from CrowdStrike Falcon',
     2.0,
     'jina_reader',
@@ -275,7 +287,7 @@ VALUES
     'Cisco Talos',
     'https://blog.talosintelligence.com/rss/',
     'rss',
-    'vendor_blog',
+    'threat_research',
     'Vulnerability research, malware campaigns, and threat landscape updates',
     3.0,
     'jina_reader',
@@ -286,7 +298,7 @@ VALUES
     'SentinelOne',
     'https://www.sentinelone.com/labs/feed/',
     'rss',
-    'vendor_blog',
+    'threat_research',
     'Malware analysis, threat actor tracking, and detection research',
     2.0,
     'jina_reader',
@@ -297,7 +309,7 @@ VALUES
     'Elastic',
     'https://www.elastic.co/security-labs/rss/feed.xml',
     'rss',
-    'vendor_blog',
+    'threat_research',
     'Detection engineering research, malware analysis, and rule development',
     1.5,
     'direct',
@@ -308,7 +320,7 @@ VALUES
     'Red Canary',
     'https://redcanary.com/blog/feed/',
     'rss',
-    'vendor_blog',
+    'threat_research',
     'Detection-focused threat research and Atomic Red Team testing insights',
     2.0,
     'jina_reader',
@@ -319,7 +331,7 @@ VALUES
     'Huntress',
     'https://www.huntress.com/blog/rss.xml',
     'rss',
-    'vendor_blog',
+    'threat_research',
     'SMB-focused threat research, ransomware tracking, and incident analysis',
     2.5,
     'jina_reader',
@@ -341,7 +353,7 @@ VALUES
     'Google',
     'https://blog.google/threat-analysis-group/rss/',
     'rss',
-    'vendor_blog',
+    'threat_research',
     'State-sponsored threat actor research and zero-day exploit tracking',
     1.0,
     'jina_reader',
@@ -369,7 +381,7 @@ SELECT cron.schedule(
     );
 
   -- Call the edge function to process pending jobs
-  SELECT net.http_post(
+  PERFORM net.http_post(
     url := current_setting('app.settings.supabase_url') || '/functions/v1/auto-digest-orchestrator',
     headers := jsonb_build_object(
       'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key'),
