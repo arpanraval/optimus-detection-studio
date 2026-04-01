@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
 import { useToast } from '../../hooks/useToast';
-import { ROUTES } from '../../router/routes';
+import { ROUTES, routeHelpers } from '../../router/routes';
 import {
   threatLevelColors,
   badgeSizes,
@@ -53,8 +53,8 @@ interface CampaignArticle {
   campaign_id: string;
   report_id: string;
   feed_entry_id?: string;
-  source_name?: string;
-  source_url?: string;
+  source_feed_name?: string;
+  article_url?: string;
   ttp_count: number;
   ioc_count: number;
   rule_count: number;
@@ -75,10 +75,12 @@ interface AutoDigestCampaign {
   merged_ttps: CampaignMergedTTP[];
   merged_iocs: CampaignMergedIoC[];
   merged_rules: CampaignMergedRule[];
-  total_coverage_percent: number;
-  feasible_coverage_percent: number;
+  coverage_percent: number;
+  total_ttp_count: number;
+  covered_ttp_count: number;
+  feasible_gap_count: number;
   relevance_score: number;
-  environment_match_reasons: string[];
+  relevance_tags: string[];
   review_status: ReviewStatus;
   review_note?: string;
   created_at: string;
@@ -130,6 +132,8 @@ export const CampaignDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabType>('sources');
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [triageModal, setTriageModal] = useState<{ action: 'deferred' | 'dismissed' } | null>(null);
+  const [triageNote, setTriageNote] = useState('');
 
   // Fetch campaign + articles
   useEffect(() => {
@@ -229,16 +233,12 @@ export const CampaignDetailPage: React.FC = () => {
   }, [campaignId, campaign, showToast]);
 
   const handleDefer = useCallback(() => {
-    const note = window.prompt('Add a note for deferral (optional):');
-    if (note === null) return; // cancelled
-    handleUpdateStatus('deferred', note || undefined);
-  }, [handleUpdateStatus]);
+    setTriageModal({ action: 'deferred' });
+  }, []);
 
   const handleDismiss = useCallback(() => {
-    const note = window.prompt('Reason for dismissing (optional):');
-    if (note === null) return; // cancelled
-    handleUpdateStatus('dismissed', note || undefined);
-  }, [handleUpdateStatus]);
+    setTriageModal({ action: 'dismissed' });
+  }, []);
 
   // Copy to clipboard
   const handleCopy = useCallback((value: string) => {
@@ -276,7 +276,7 @@ export const CampaignDetailPage: React.FC = () => {
       total: ttps.length,
       covered: covered.length,
       gaps: gaps.length,
-      coveragePercent: campaign?.total_coverage_percent || 0,
+      coveragePercent: campaign?.coverage_percent || 0,
     };
   }, [campaign]);
 
@@ -350,7 +350,7 @@ export const CampaignDetailPage: React.FC = () => {
 
   const statusConfig = reviewStatusConfig[campaign.review_status];
   const sevColor = getSeverityColor(campaign.severity);
-  const relevanceHigh = campaign.relevance_score >= 0.7;
+  const relevanceHigh = campaign.relevance_score >= 3; // Score is smallint 0-6, 3+ is high
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
@@ -408,9 +408,9 @@ export const CampaignDetailPage: React.FC = () => {
           }`}>
             {relevanceHigh ? 'HIGH' : 'LOW'} RELEVANCE
           </span>
-          {campaign.environment_match_reasons.length > 0 && (
+          {(campaign.relevance_tags?.length ?? 0) > 0 && (
             <span className="text-xs text-on-surface-variant">
-              targets {campaign.environment_match_reasons.join(', ')}
+              targets {campaign.relevance_tags.join(', ')}
             </span>
           )}
         </div>
@@ -490,7 +490,7 @@ export const CampaignDetailPage: React.FC = () => {
           <div className="space-y-4 animate-fade-in">
             <p className="text-sm text-on-surface-variant">
               {articles.length} article{articles.length !== 1 ? 's' : ''} from{' '}
-              {new Set(articles.map(a => a.source_name || 'Unknown')).size} vendor{new Set(articles.map(a => a.source_name || 'Unknown')).size !== 1 ? 's' : ''} covering this campaign
+              {new Set(articles.map(a => a.source_feed_name || 'Unknown')).size} vendor{new Set(articles.map(a => a.source_feed_name || 'Unknown')).size !== 1 ? 's' : ''} covering this campaign
             </p>
 
             <div className="space-y-3">
@@ -548,7 +548,7 @@ export const CampaignDetailPage: React.FC = () => {
 
                     {/* Open link */}
                     <button
-                      onClick={() => navigate(`/intelligence/threat-digest/${article.report_id}`)}
+                      onClick={() => navigate(routeHelpers.threatIntelDetail(article.report_id))}
                       className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors shrink-0 pt-1"
                     >
                       <span className="font-medium">Open Full Digest</span>
@@ -781,6 +781,46 @@ export const CampaignDetailPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* ===== TRIAGE MODAL ===== */}
+      {triageModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-surface-container rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6">
+            <h3 className="text-lg font-semibold text-on-surface mb-3">
+              {triageModal.action === 'dismissed' ? 'Dismiss Campaign' : 'Defer Campaign'}
+            </h3>
+            <p className="text-sm text-on-surface-variant mb-4">
+              {triageModal.action === 'dismissed'
+                ? 'This campaign will be marked as not relevant.'
+                : 'This campaign will be deferred for later review.'}
+            </p>
+            <textarea
+              className="w-full px-3 py-2 rounded-lg bg-surface-container-high border border-outline-variant/20 text-on-surface text-sm resize-none"
+              rows={3}
+              placeholder="Add a note (optional)..."
+              maxLength={2000}
+              value={triageNote}
+              onChange={(e) => setTriageNote(e.target.value)}
+            />
+            <div className="flex justify-end gap-3 mt-4">
+              <Button variant="text" color="surface" onClick={() => { setTriageModal(null); setTriageNote(''); }}>
+                Cancel
+              </Button>
+              <Button
+                variant="filled"
+                color={triageModal.action === 'dismissed' ? 'error' : 'primary'}
+                onClick={() => {
+                  handleUpdateStatus(triageModal.action, triageNote || undefined);
+                  setTriageModal(null);
+                  setTriageNote('');
+                }}
+              >
+                {triageModal.action === 'dismissed' ? 'Dismiss' : 'Defer'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
