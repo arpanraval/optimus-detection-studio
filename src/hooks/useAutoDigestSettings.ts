@@ -57,8 +57,8 @@ export function useAutoDigestSettings(userId: string) {
       .from('auto_digest_settings')
       .select('*')
       .eq('user_id', userId)
-      .single();
-    if (!error && data) {
+      .maybeSingle();
+    if (!error) {
       setSettings(data);
     }
   }, [userId]);
