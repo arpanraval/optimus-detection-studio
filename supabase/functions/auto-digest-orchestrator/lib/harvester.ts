@@ -81,18 +81,49 @@ export async function harvestFeeds(
     }
   }
 
-  return allNewIds;
+  // Also pick up entries stuck in 'harvested' from previous failed classification runs
+  const { data: stuckEntries } = await supabase
+    .from('threat_intel_feed_entries')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('digest_status', 'harvested')
+    .gte('fetched_at', new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString())
+    .limit(50);
+
+  const stuckIds = (stuckEntries || []).map((e: any) => e.id);
+  const allEntryIds = [...new Set([...allNewIds, ...stuckIds])];
+
+  result.articles_harvested = allEntryIds.length;
+  return allEntryIds;
 }
 
 // ---------------------------------------------------------------------------
 // Per-feed processing
 // ---------------------------------------------------------------------------
 
+const MAX_FEED_SIZE = 5 * 1024 * 1024; // 5 MB
+
 async function processFeed(
   supabase: any,
   userId: string,
   feed: FeedRow,
 ): Promise<string[]> {
+  // Validate feed URL (SSRF protection)
+  try {
+    const parsed = new URL(feed.url);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      throw new Error('Only http/https allowed');
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    const blocked = ['localhost', '127.0.0.1', '169.254.169.254', '[::1]'];
+    if (blocked.includes(hostname)) throw new Error('Internal/private URL blocked');
+    if (hostname.startsWith('10.') || hostname.startsWith('172.16.') || hostname.startsWith('192.168.')) {
+      throw new Error('Internal/private URL blocked');
+    }
+  } catch (err: any) {
+    throw new Error(`URL validation failed: ${err.message}`);
+  }
+
   // Fetch XML
   const response = await fetch(feed.url, {
     headers: { 'User-Agent': USER_AGENT },
@@ -103,7 +134,16 @@ async function processFeed(
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
 
+  // Check response size before reading body
+  const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
+  if (contentLength > MAX_FEED_SIZE) {
+    throw new Error(`Response too large (${contentLength} bytes)`);
+  }
+
   const xml = await response.text();
+  if (xml.length > MAX_FEED_SIZE) {
+    throw new Error(`Content too large (${xml.length} chars)`);
+  }
   const items = parseRSS(xml);
 
   // Filter entries older than 72 hours
