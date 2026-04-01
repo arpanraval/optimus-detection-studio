@@ -152,8 +152,8 @@ export async function classifyEntries(
 // ---------------------------------------------------------------------------
 
 const ALLOWED_MODELS = new Set([
-  'gemini-3-flash-preview', 'gemini-3-pro-preview',
-  'gpt-5-mini', 'gpt-5-nano',
+  'gemini-3-flash-preview', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite-preview',
+  'gpt-5.4-mini', 'gpt-5.4-nano',
 ]);
 
 async function callAI(model: string, userPrompt: string): Promise<ClassificationResult> {

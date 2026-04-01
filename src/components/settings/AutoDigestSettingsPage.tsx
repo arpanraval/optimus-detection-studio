@@ -78,53 +78,43 @@ const SourceRow: React.FC<{
   const domain = getDomain(source.url);
 
   return (
-    <button
+    <tr
       onClick={onToggle}
-      className={`w-full flex items-center gap-3 px-4 py-2.5 transition-all duration-150 group text-left
-        ${isEnabled
-          ? 'bg-primary/[0.04] border-l-2 border-l-primary'
-          : 'border-l-2 border-l-transparent hover:bg-surface-container-high/30'
-        }`}
-      style={{ animation: `slideUp 300ms cubic-bezier(0.05, 0.7, 0.1, 1.0) ${index * 25}ms both` }}
+      className={`cursor-pointer border-b border-outline-variant/50 transition-colors group
+        ${isEnabled ? 'bg-primary/[0.05]' : 'hover:bg-surface-container-highest/50'}`}
       title={source.description || undefined}
     >
-      {/* Favicon */}
-      <div className="w-5 h-5 rounded flex-shrink-0 overflow-hidden bg-surface-container-high flex items-center justify-center">
-        {faviconUrl ? (
-          <img
-            src={faviconUrl}
-            alt=""
-            className="w-4 h-4"
-            loading="lazy"
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-          />
-        ) : (
-          <Icon name="globe" className="w-3 h-3 text-on-surface-variant/40" />
-        )}
-      </div>
-
-      {/* Name */}
-      <span className={`text-sm font-medium flex-shrink-0 min-w-[160px] transition-colors ${
-        isEnabled ? 'text-on-surface' : 'text-on-surface-variant group-hover:text-on-surface'
-      }`}>
-        {source.name}
-      </span>
-
-      {/* Domain */}
-      <span className="text-xs text-on-surface-variant/40 font-mono truncate flex-1">
-        {domain}
-      </span>
-
-      {/* Articles/week */}
-      <span className="text-[11px] text-on-surface-variant/50 tabular-nums flex-shrink-0 w-12 text-right">
-        ~{source.avg_articles_week}/wk
-      </span>
-
-      {/* Toggle dot */}
-      <div className={`w-3 h-3 rounded-full flex-shrink-0 transition-colors ${
-        isEnabled ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.4)]' : 'bg-outline-variant/25'
-      }`} />
-    </button>
+      <td className="py-3 pl-5 pr-3 w-12">
+        <div className="w-7 h-7 rounded-lg overflow-hidden bg-surface-container-highest flex items-center justify-center">
+          {faviconUrl ? (
+            <img src={faviconUrl} alt="" className="w-4 h-4" loading="lazy"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+          ) : (
+            <Icon name="globe" className="w-3.5 h-3.5 text-on-surface-variant/50" />
+          )}
+        </div>
+      </td>
+      <td className="py-3 pr-4">
+        <span className={`text-sm font-medium transition-colors ${
+          isEnabled ? 'text-on-surface' : 'text-on-surface-variant group-hover:text-on-surface'
+        }`}>{source.name}</span>
+      </td>
+      <td className="py-3 pr-4">
+        <span className="text-xs text-on-surface-variant/50 font-mono">{domain}</span>
+      </td>
+      <td className="py-3 pr-4 text-right">
+        <span className="text-[11px] text-on-surface-variant/40 tabular-nums">~{source.avg_articles_week}/wk</span>
+      </td>
+      <td className="py-3 pr-5 w-16 text-center">
+        <div className={`relative inline-block w-10 h-[22px] rounded-full transition-colors ${
+          isEnabled ? 'bg-primary' : 'bg-outline-variant'
+        }`} role="switch" aria-checked={isEnabled}>
+          <span className={`absolute top-[3px] w-4 h-4 rounded-full bg-on-primary shadow transition-transform ${
+            isEnabled ? 'translate-x-[20px]' : 'translate-x-[3px]'
+          }`} />
+        </div>
+      </td>
+    </tr>
   );
 };
 
@@ -318,20 +308,24 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-4 animate-page-enter">
-      {/* Auto-Digest toggle — inline, no duplicate header (shell provides the page title) */}
-      <div className="flex items-center justify-between mb-5">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-on-surface-variant">Auto-Digest</span>
+      {/* Page header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-lg font-bold text-on-surface">Auto-Digest Pipeline</h2>
+          <p className="text-sm text-on-surface-variant mt-0.5">Automatic threat intelligence ingestion and analysis</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-on-surface-variant">{localConfig.is_enabled ? 'Active' : 'Paused'}</span>
           <button
             onClick={() => updateConfig('is_enabled', !localConfig.is_enabled)}
-            className={`relative inline-flex h-6 w-10 items-center rounded-full transition-colors ${
-              localConfig.is_enabled ? 'bg-emerald-500' : 'bg-outline-variant/30'
+            className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+              localConfig.is_enabled ? 'bg-primary' : 'bg-outline-variant'
             }`}
             role="switch"
             aria-checked={localConfig.is_enabled}
           >
-            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-              localConfig.is_enabled ? 'translate-x-5' : 'translate-x-1'
+            <span className={`inline-block h-5 w-5 transform rounded-full bg-on-primary shadow-md transition-transform ${
+              localConfig.is_enabled ? 'translate-x-[22px]' : 'translate-x-[3px]'
             }`} />
           </button>
         </div>
@@ -377,21 +371,30 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
             </span>
           </div>
 
-          {/* Source list */}
-          <div className="rounded-xl border border-outline-variant/10 overflow-hidden bg-surface-container/50">
-            {CATEGORY_ORDER.map(cat => {
-              const sources = grouped[cat];
-              if (!sources?.length) return null;
-              return (
-                <div key={cat}>
-                  {/* Category header */}
-                  <div className="px-4 py-2 bg-surface-container-high/30 border-b border-outline-variant/8">
-                    <span className="text-[10px] font-bold text-on-surface-variant/50 uppercase tracking-widest">
-                      {CATEGORY_LABELS[cat] ?? cat}
-                    </span>
-                  </div>
-                  {/* Rows */}
-                  <div className="divide-y divide-outline-variant/[0.06]">
+          {/* Source table */}
+          <div className="rounded-xl border border-outline-variant overflow-hidden shadow-sm">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-surface-container-high text-left">
+                  <th className="py-2.5 pl-5 pr-3 w-12" />
+                  <th className="py-2.5 pr-4 text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">Source</th>
+                  <th className="py-2.5 pr-4 text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">Domain</th>
+                  <th className="py-2.5 pr-4 text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider text-right">Frequency</th>
+                  <th className="py-2.5 pr-5 w-16 text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider text-center">Active</th>
+                </tr>
+              </thead>
+              {CATEGORY_ORDER.map(cat => {
+                const sources = grouped[cat];
+                if (!sources?.length) return null;
+                return (
+                  <tbody key={cat}>
+                    <tr className="bg-surface-container">
+                      <td colSpan={5} className="px-5 py-1.5 border-y border-outline-variant/50">
+                        <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">
+                          {CATEGORY_LABELS[cat] ?? cat}
+                        </span>
+                      </td>
+                    </tr>
                     {sources.map((source, i) => (
                       <SourceRow
                         key={source.id}
@@ -401,10 +404,10 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
                         index={i}
                       />
                     ))}
-                  </div>
-                </div>
-              );
-            })}
+                  </tbody>
+                );
+              })}
+            </table>
 
             {curatedSources.length === 0 && (
               <div className="flex flex-col items-center justify-center py-12 text-center">
