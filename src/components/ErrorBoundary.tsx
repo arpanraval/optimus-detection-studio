@@ -225,7 +225,7 @@ export class AppErrorBoundary extends Component<
               Restart Application
             </button>
             
-            {this.state.error && (
+            {this.state.error && import.meta.env.DEV && (
               <p className="mt-8 text-xs text-outline font-mono">
                 {this.state.error.message}
               </p>
@@ -283,7 +283,9 @@ export class PageErrorBoundary extends Component<
           </h2>
           
           <p className="text-on-surface-variant mb-6 max-w-md">
-            {this.state.error?.message || 'This page encountered an error. You can try again or navigate to another section.'}
+            {import.meta.env.DEV
+              ? (this.state.error?.message || 'This page encountered an error.')
+              : 'This page encountered an error. You can try again or navigate to another section.'}
           </p>
           
           <div className="flex items-center gap-3">
