@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { routeHelpers } from '../../router/routes';
+import { ROUTES, routeHelpers } from '../../router/routes';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
 import { useToast } from '../../hooks/useToast';
@@ -817,9 +817,18 @@ export const ThreatIntelLibraryPage: React.FC = () => {
                 Analyze threat intelligence to extract TTPs, indicators, and detection opportunities
               </p>
             </div>
-            <Button color="primary" leadingIcon="plus" onClick={() => setShowModal(true)}>
-              Analyze Report
-            </Button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigate(ROUTES.INTELLIGENCE_SOURCES)}
+                className="p-2 rounded-lg hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors"
+                title="Auto-Digest Settings"
+              >
+                <Icon name="settings" className="w-5 h-5" />
+              </button>
+              <Button color="primary" leadingIcon="plus" onClick={() => setShowModal(true)}>
+                Analyze Report
+              </Button>
+            </div>
           </div>
 
           {/* Stats Bar */}

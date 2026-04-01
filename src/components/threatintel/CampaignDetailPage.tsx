@@ -111,11 +111,11 @@ function getSeverityColor(severity?: string) {
 }
 
 const reviewStatusConfig: Record<ReviewStatus, { label: string; icon: string; color: string }> = {
-  pending: { label: 'Pending Review', icon: 'schedule', color: 'text-yellow-600 dark:text-yellow-400' },
-  reviewed: { label: 'Reviewed', icon: 'check_circle', color: 'text-[#4D7C6F]' },
-  actioned: { label: 'Actioned', icon: 'task_alt', color: 'text-primary' },
-  deferred: { label: 'Deferred', icon: 'pause_circle', color: 'text-on-surface-variant' },
-  dismissed: { label: 'Dismissed', icon: 'cancel', color: 'text-on-surface-variant/50' },
+  pending: { label: 'Pending Review', icon: 'clock', color: 'text-yellow-600 dark:text-yellow-400' },
+  reviewed: { label: 'Reviewed', icon: 'check-circle', color: 'text-[#4D7C6F]' },
+  actioned: { label: 'Actioned', icon: 'check-circle', color: 'text-primary' },
+  deferred: { label: 'Deferred', icon: 'minus', color: 'text-on-surface-variant' },
+  dismissed: { label: 'Dismissed', icon: 'x-circle', color: 'text-on-surface-variant/50' },
 };
 
 // =============================================================================
@@ -361,7 +361,7 @@ export const CampaignDetailPage: React.FC = () => {
           onClick={() => navigate(ROUTES.THREAT_INTEL)}
           className="flex items-center gap-1.5 text-sm text-on-surface-variant hover:text-on-surface transition-colors"
         >
-          <Icon name="arrow_back" className="w-4 h-4" />
+          <Icon name="arrow-left" className="w-4 h-4" />
           <span>Back to Intelligence Reports</span>
         </button>
 
@@ -431,7 +431,7 @@ export const CampaignDetailPage: React.FC = () => {
             variant="outlined"
             color="surface"
             size="sm"
-            leadingIcon="pause_circle"
+            leadingIcon="minus"
             disabled={updatingStatus}
             onClick={handleDefer}
           >
@@ -441,7 +441,7 @@ export const CampaignDetailPage: React.FC = () => {
             variant="outlined"
             color="surface"
             size="sm"
-            leadingIcon="cancel"
+            leadingIcon="x-circle"
             disabled={updatingStatus}
             onClick={handleDismiss}
           >
@@ -503,7 +503,7 @@ export const CampaignDetailPage: React.FC = () => {
                     <div className="flex-1 min-w-0 space-y-1.5">
                       {/* Source + date */}
                       <div className="flex items-center gap-2 text-xs text-on-surface-variant">
-                        <Icon name="rss_feed" className="w-3.5 h-3.5" />
+                        <Icon name="wifi" className="w-3.5 h-3.5" />
                         <span className="font-medium">{article.source_name || 'Unknown feed'}</span>
                         <span className="opacity-50">|</span>
                         <span>{formatDate(article.report_date)}</span>
@@ -518,13 +518,13 @@ export const CampaignDetailPage: React.FC = () => {
                       <div className="flex items-center gap-3 text-xs text-on-surface-variant">
                         {article.ttp_count > 0 && (
                           <span className="flex items-center gap-1">
-                            <Icon name="security" className="w-3 h-3" />
+                            <Icon name="shield-check" className="w-3 h-3" />
                             {article.ttp_count} TTP{article.ttp_count !== 1 ? 's' : ''}
                           </span>
                         )}
                         {article.ioc_count > 0 && (
                           <span className="flex items-center gap-1">
-                            <Icon name="fingerprint" className="w-3 h-3" />
+                            <Icon name="shield" className="w-3 h-3" />
                             {article.ioc_count} IoC{article.ioc_count !== 1 ? 's' : ''}
                           </span>
                         )}
@@ -552,7 +552,7 @@ export const CampaignDetailPage: React.FC = () => {
                       className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors shrink-0 pt-1"
                     >
                       <span className="font-medium">Open Full Digest</span>
-                      <Icon name="arrow_forward" className="w-3.5 h-3.5" />
+                      <Icon name="chevron-right" className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
@@ -560,7 +560,7 @@ export const CampaignDetailPage: React.FC = () => {
 
               {articles.length === 0 && (
                 <div className="text-center py-12 text-on-surface-variant">
-                  <Icon name="article" className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                  <Icon name="file-text" className="w-8 h-8 mx-auto mb-2 opacity-40" />
                   <p className="text-sm">No articles linked to this campaign yet</p>
                 </div>
               )}
@@ -591,7 +591,7 @@ export const CampaignDetailPage: React.FC = () => {
             {ttpStats.gaps > 0 && (
               <div className="space-y-3">
                 <h3 className="text-sm font-bold text-on-surface flex items-center gap-2">
-                  <Icon name="warning" className="w-4 h-4 text-orange-500" />
+                  <Icon name="alert-triangle" className="w-4 h-4 text-orange-500" />
                   Feasible Gaps
                   <span className="text-xs font-normal text-on-surface-variant">
                     ({ttpStats.gaps} actionable)
@@ -616,7 +616,7 @@ export const CampaignDetailPage: React.FC = () => {
             {ttpStats.covered > 0 && (
               <div className="space-y-3">
                 <h3 className="text-sm font-bold text-on-surface flex items-center gap-2">
-                  <Icon name="verified_user" className="w-4 h-4 text-[#4D7C6F]" />
+                  <Icon name="check-circle" className="w-4 h-4 text-[#4D7C6F]" />
                   Already Covered
                   <span className="text-xs font-normal text-on-surface-variant">
                     ({ttpStats.covered})
@@ -634,7 +634,7 @@ export const CampaignDetailPage: React.FC = () => {
 
             {ttpStats.total === 0 && (
               <div className="text-center py-12 text-on-surface-variant">
-                <Icon name="security" className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                <Icon name="shield-check" className="w-8 h-8 mx-auto mb-2 opacity-40" />
                 <p className="text-sm">No TTPs extracted for this campaign</p>
               </div>
             )}
@@ -693,7 +693,7 @@ export const CampaignDetailPage: React.FC = () => {
                               className="p-1 rounded hover:bg-surface-container transition-colors text-on-surface-variant hover:text-on-surface"
                               title="Copy value"
                             >
-                              <Icon name="content_copy" className="w-3.5 h-3.5" />
+                              <Icon name="copy" className="w-3.5 h-3.5" />
                             </button>
                           </td>
                         </tr>
@@ -704,7 +704,7 @@ export const CampaignDetailPage: React.FC = () => {
               </div>
             ) : (
               <div className="text-center py-12 text-on-surface-variant">
-                <Icon name="fingerprint" className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                <Icon name="shield" className="w-8 h-8 mx-auto mb-2 opacity-40" />
                 <p className="text-sm">No IoCs extracted for this campaign</p>
               </div>
             )}
@@ -757,7 +757,7 @@ export const CampaignDetailPage: React.FC = () => {
                             className="p-1 rounded hover:bg-surface-container transition-colors text-on-surface-variant hover:text-on-surface shrink-0"
                             title="Copy rule"
                           >
-                            <Icon name="content_copy" className="w-3.5 h-3.5" />
+                            <Icon name="copy" className="w-3.5 h-3.5" />
                           </button>
                         </div>
 
@@ -883,7 +883,7 @@ const TTPRow: React.FC<{
           variant="tonal"
           color="primary"
           size="sm"
-          leadingIcon="add"
+          leadingIcon="plus"
           onClick={onCreateDetection}
         >
           Create Detection
