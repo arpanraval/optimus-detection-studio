@@ -16,9 +16,9 @@ const StatTile: React.FC<{ label: string; value: number; total?: number; suffix?
 );
 
 const StatTilesWidget: React.FC<WidgetComponentProps> = ({ onNavigate, timeRange }) => {
-  const { detections } = useDashboardDetections();
+  const { detections, scopeFilter } = useDashboardDetections();
   const { userId } = useLibrary();
-  const { posture, loading } = useDefensivePosture(userId);
+  const { posture, loading } = useDefensivePosture(userId, scopeFilter);
 
   const filtered = useMemo(() => {
     if (!timeRange.startDate) return detections;

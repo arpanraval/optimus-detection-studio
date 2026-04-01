@@ -8,9 +8,9 @@ import WidgetEmptyState from './WidgetEmptyState';
 import { withAlpha } from '../engine/colorUtils';
 
 const CampaignWidget: React.FC<WidgetComponentProps> = ({ config, onNavigate }) => {
-  const { detections } = useDashboardDetections();
+  const { detections, scopeFilter } = useDashboardDetections();
   const { userId } = useLibrary();
-  const { posture } = useDefensivePosture(userId);
+  const { posture } = useDefensivePosture(userId, scopeFilter);
   const { actors } = useThreatActorWeights();
   const { campaignReadiness } = useCommandCenterData(actors, detections, posture?.total_techniques);
 

@@ -8,9 +8,9 @@ import WidgetEmptyState from './WidgetEmptyState';
 import { withAlpha } from '../engine/colorUtils';
 
 const ThreatActorsWidget: React.FC<WidgetComponentProps> = ({ config, onNavigate, timeRange }) => {
-  const { detections: allDetections } = useDashboardDetections();
+  const { detections: allDetections, scopeFilter } = useDashboardDetections();
   const { userId } = useLibrary();
-  const { posture } = useDefensivePosture(userId);
+  const { posture } = useDefensivePosture(userId, scopeFilter);
   const { actors } = useThreatActorWeights();
 
   const detections = useMemo(() => {

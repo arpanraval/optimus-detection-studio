@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { WidgetComponentProps } from './types';
 import { useLibrary } from '../../../../context/LibraryContext';
-import { useDefensivePosture, useThreatActorWeights } from '../../../../hooks/useImpactScores';
-import { useCommandCenterData } from '../../../../hooks/useCommandCenterData';
+import { useDefensivePosture } from '../../../../hooks/useImpactScores';
 import { useDashboardDetections } from '../useDashboardDetections';
 import { AnimatedNumber } from '../../../optimus/AnimatedNumber';
 
@@ -10,11 +9,9 @@ interface BreakdownItem { label: string; value: number; weight: string; }
 
 const ReadinessBadgeWidget: React.FC<WidgetComponentProps> = ({ config }) => {
   const { userId } = useLibrary();
-  const { detections } = useDashboardDetections();
-  const { posture, loading: postureLoading } = useDefensivePosture(userId);
-  const { actors, loading: actorsLoading } = useThreatActorWeights();
-  const { } = useCommandCenterData(actors, detections, posture?.total_techniques);
-  const supaLoading = postureLoading || actorsLoading;
+  const { detections, scopeFilter } = useDashboardDetections();
+  const { posture, loading: postureLoading } = useDefensivePosture(userId, scopeFilter);
+  const supaLoading = postureLoading;
 
   const groups = posture?.groups_defended ?? 0;
   const totalGroups = posture?.total_groups ?? 0;
