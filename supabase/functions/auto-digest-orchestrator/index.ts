@@ -30,6 +30,26 @@ const TIME_BUDGET_MS = 270_000;
 const DIGEST_TIMEOUT_MS = 120_000;
 
 // ---------------------------------------------------------------------------
+// SSRF Protection
+// ---------------------------------------------------------------------------
+
+/** Validate that a URL is safe to fetch (blocks internal/private addresses). */
+function isSafeArticleUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+    const hostname = parsed.hostname.toLowerCase();
+    const blocked = ['localhost', '127.0.0.1', '169.254.169.254', '[::1]'];
+    if (blocked.includes(hostname)) return false;
+    // Block private IP ranges
+    if (hostname.startsWith('10.') || hostname.startsWith('172.16.') || hostname.startsWith('192.168.')) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main Handler
 // ---------------------------------------------------------------------------
 
@@ -39,10 +59,11 @@ serve(async (req: Request) => {
   if (preflight) return preflight;
 
   try {
-    // 2. Auth check
+    // 2. Auth check — must be service_role key (from pg_cron via pg_net)
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return corsErrorResponse('Missing Authorization header', req, 401);
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    if (!authHeader || authHeader !== `Bearer ${serviceRoleKey}`) {
+      return corsErrorResponse('Forbidden — service role required', req, 403);
     }
 
     // 3. Create service-role Supabase client
@@ -73,7 +94,6 @@ serve(async (req: Request) => {
     // 5. Process each job
     const jobSummaries: Array<{
       job_id: string;
-      user_id: string;
       digested: number;
       skipped: number;
       failed: number;
@@ -183,9 +203,17 @@ serve(async (req: Request) => {
 
             const feedName = (entry.threat_intel_feeds as any)?.name || 'Unknown Feed';
 
-            if (!entry.url) {
-              result.errors.push(`Entry ${entryId}: no URL`);
+            // Validate entry URL before passing to digest (SSRF protection)
+            if (!entry.url || !isSafeArticleUrl(entry.url)) {
               result.articles_failed += 1;
+              result.errors.push(`Entry "${entry.title}": unsafe or missing URL`);
+              await supabase
+                .from('threat_intel_feed_entries')
+                .update({
+                  digest_status: 'extract_failed',
+                  extract_error: 'URL blocked by safety check',
+                })
+                .eq('id', entryId);
               continue;
             }
 
@@ -439,7 +467,6 @@ function buildJobSummary(
   result: JobResultSummary,
 ): {
   job_id: string;
-  user_id: string;
   digested: number;
   skipped: number;
   failed: number;
@@ -447,7 +474,6 @@ function buildJobSummary(
 } {
   return {
     job_id: job.id,
-    user_id: job.user_id,
     digested: result.articles_digested,
     skipped: result.articles_skipped,
     failed: result.articles_failed,
