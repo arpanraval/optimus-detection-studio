@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
+import { Breadcrumb } from '../ui';
+import { ROUTES } from '../../router/routes';
 import { IntegrationLogo } from '../integrations/IntegrationLogo';
 import { integrationService } from '../../lib/integrationService';
 import { getProviderMeta } from '../../lib/providerMeta';
@@ -220,7 +222,7 @@ export function SiemHomePage({ integrationId }: SiemHomePageProps) {
           <h3 className="text-lg font-semibold text-on-surface mb-2">Failed to load integration</h3>
           <p className="text-sm text-on-surface-variant mb-6">{error}</p>
           <div className="flex items-center justify-center gap-3">
-            <Button variant="outlined" color="surface" onClick={() => navigate('/siem')}>
+            <Button variant="outlined" color="surface" onClick={() => navigate(ROUTES.SIEM_HEALTH)}>
               Back to SIEM Home
             </Button>
             <Button variant="tonal" color="primary" onClick={refreshData}>
@@ -247,7 +249,7 @@ export function SiemHomePage({ integrationId }: SiemHomePageProps) {
           <p className="text-sm text-on-surface-variant mb-6">
             The integration you are looking for does not exist or has been removed.
           </p>
-          <Button variant="tonal" color="primary" onClick={() => navigate('/siem')}>
+          <Button variant="tonal" color="primary" onClick={() => navigate(ROUTES.SIEM_HEALTH)}>
             Back to SIEM Home
           </Button>
         </div>
@@ -271,9 +273,18 @@ export function SiemHomePage({ integrationId }: SiemHomePageProps) {
 
   return (
     <div className="px-4 lg:px-6 py-4 pb-16 space-y-6">
+      {/* Breadcrumb */}
+      <Breadcrumb
+        items={[
+          { label: 'SIEM Home', href: ROUTES.SIEM_HEALTH },
+          { label: integration.name || 'Integration' },
+        ]}
+        className="mb-2"
+      />
+
       {/* Back navigation */}
       <button
-        onClick={() => navigate('/siem')}
+        onClick={() => navigate(ROUTES.SIEM_HEALTH)}
         className="flex items-center gap-1.5 text-sm text-on-surface-variant hover:text-on-surface transition-colors group"
       >
         <Icon name="arrow-left" className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
@@ -420,7 +431,7 @@ export function SiemHomePage({ integrationId }: SiemHomePageProps) {
           integration={integration}
           onClose={() => setShowSettings(false)}
           onUpdated={refreshData}
-          onDisconnect={() => navigate('/siem')}
+          onDisconnect={() => navigate(ROUTES.SIEM_HEALTH)}
         />
       )}
     </div>

@@ -12,6 +12,7 @@ import { BulkImportProvider, useBulkImportContext } from '../../context/BulkImpo
 import { useGlobalImport } from '../../context/GlobalImportContext';
 import { BulkImportWizard } from './BulkImportWizard';
 import { Icon } from '../Icon';
+import { Breadcrumb } from '../ui';
 import { ROUTES } from '../../router/routes';
 import { ImportSourceType } from '../../services/bulk-import/types';
 
@@ -96,6 +97,13 @@ function BulkImportContent() {
       {(!globalImport.isMinimized || !isActive) && (
         <div className="h-full bg-background">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <Breadcrumb
+              items={[
+                { label: 'Detection Library', href: ROUTES.LIBRARY },
+                { label: 'Bulk Import' },
+              ]}
+              className="mb-4"
+            />
             {/* Header with back and minimize buttons */}
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-4">
