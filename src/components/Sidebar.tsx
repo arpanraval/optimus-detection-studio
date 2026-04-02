@@ -268,9 +268,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onClick={(e) => {
                     if (section.id === 'new-detection') {
                       e.preventDefault();
-                      onNewDetection();
+                      handleMobileNewDetection();
                     } else if (!isModifiedClick(e)) {
                       handleRailClick(section);
+                      onMobileToggle?.();
                     }
                   }}
                   onMouseEnter={() => handleRailItemHover(section)}
@@ -554,7 +555,6 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
         { id: 'integrations' as View, label: 'Integrations' },
         { id: 'siem-health' as View, label: 'SIEM Home', url: ROUTES.SIEM_HEALTH },
         { id: 'environment_profile' as View, label: 'Environment' },
-        { id: 'intelligence_sources' as View, label: 'Intelligence Sources', url: ROUTES.INTELLIGENCE_SOURCES },
         { id: 'scoring_settings' as View, label: 'Defense Impact Intelligence' },
         ...(isAdmin ? [{ id: 'users' as View, label: 'User Management' }] : []),
         ...(isAdmin ? [{ id: 'mitre_data_sync' as View, label: 'Data Sync' }] : []),
