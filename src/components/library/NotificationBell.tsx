@@ -152,7 +152,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   const dropdownContent = isOpen ? ReactDOM.createPortal(
     <div 
       ref={dropdownRef}
-      className="fixed w-96 bg-surface-container/95 backdrop-blur-xl border border-outline-variant/20 rounded-2xl shadow-2xl shadow-black/30 overflow-hidden"
+      className="fixed w-96 bg-surface-container/95 backdrop-blur-xl border border-outline-variant/20 rounded-2xl shadow-2xl shadow-black/30 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200"
       style={{ 
         top: dropdownPosition.top, 
         right: dropdownPosition.right,
@@ -185,14 +185,14 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
       <div className="h-px bg-gradient-to-r from-transparent via-outline-variant/30 to-transparent" />
 
       {/* Notification List */}
-      <div className="max-h-96 overflow-y-auto overscroll-contain">
+      <div className="max-h-96 overflow-y-auto overscroll-contain agent-scroll">
         {notifications.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-on-surface-variant/60">
             <div className="w-12 h-12 rounded-full bg-surface-container-highest flex items-center justify-center mb-3">
               <Icon name="bell-off" className="w-6 h-6" />
             </div>
             <p className="text-sm font-medium">No notifications</p>
-            <p className="text-xs text-on-surface-variant/50 mt-1">You're all caught up!</p>
+            <p className="text-xs text-on-surface-variant/70 mt-1">You're all caught up!</p>
           </div>
         ) : (
           <div className="py-1">
@@ -212,9 +212,9 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
                   key={notification.id}
                   onClick={() => handleNotificationClick(notification)}
                   className={`
-                    w-full flex items-start gap-3 px-4 py-3 text-left 
+                    w-full flex items-start gap-2.5 px-4 py-2.5 text-left
                     transition-all duration-150
-                    ${!notification.is_read ? 'bg-primary/[0.04]' : ''}
+                    ${!notification.is_read ? 'bg-primary/[0.06] border-l-[3px] border-l-primary' : 'border-l-[3px] border-l-transparent'}
                     ${isClickable 
                       ? 'hover:bg-surface-container-highest/70 cursor-pointer' 
                       : 'hover:bg-surface-container-highest/30 cursor-default'
@@ -222,7 +222,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
                   `}
                 >
                   {/* Icon */}
-                  <div className={`flex-shrink-0 w-9 h-9 rounded-full ${config.bgColor} flex items-center justify-center`}>
+                  <div className={`flex-shrink-0 w-8 h-8 rounded-full ${config.bgColor} flex items-center justify-center`}>
                     <Icon name={config.icon} className={`w-4 h-4 ${config.color}`} />
                   </div>
 
@@ -232,21 +232,20 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
                       <span className={`text-sm leading-tight ${!notification.is_read ? 'font-semibold text-on-surface' : 'font-medium text-on-surface/80'}`}>
                         {notification.title}
                       </span>
-                      <span className="text-[10px] text-on-surface-variant/50 flex-shrink-0 mt-0.5">
+                      <span className="text-[11px] text-on-surface-variant/70 flex-shrink-0 mt-0.5">
                         {formatTimeAgo(notification.created_at)}
                       </span>
                     </div>
                     {notification.message && (
-                      <p className="text-xs text-on-surface-variant/70 mt-1 line-clamp-2 leading-relaxed">
+                      <p className="text-xs text-on-surface-variant/80 mt-1 line-clamp-2 leading-relaxed">
                         {notification.message}
                       </p>
                     )}
                     
                     {/* G1: Show clickable hint if navigable */}
                     {isClickable && (
-                      <div className="flex items-center gap-1 mt-2 text-[10px] text-primary/70">
-                        <Icon name="external-link" className="w-3 h-3" />
-                        <span>Click to view detection</span>
+                      <div className="flex items-center gap-1 mt-1.5 text-[11px] text-primary/80">
+                        <span>View detection →</span>
                       </div>
                     )}
                   </div>
@@ -263,13 +262,13 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
                 <>
                   {todayNotifs.length > 0 && (
                     <>
-                      <div className="px-4 py-1.5 text-[10px] font-semibold text-on-surface-variant/50 uppercase tracking-wider">Today</div>
+                      <div className="px-4 py-1.5 text-[10px] font-semibold text-on-surface-variant/70 uppercase tracking-wider">Today</div>
                       {todayNotifs.map(renderItem)}
                     </>
                   )}
                   {earlierNotifs.length > 0 && (
                     <>
-                      <div className="px-4 py-1.5 text-[10px] font-semibold text-on-surface-variant/50 uppercase tracking-wider">Earlier</div>
+                      <div className="px-4 py-1.5 text-[10px] font-semibold text-on-surface-variant/70 uppercase tracking-wider">Earlier</div>
                       {earlierNotifs.slice(0, 20).map(renderItem)}
                     </>
                   )}
