@@ -87,33 +87,40 @@ const FormInput: React.FC<{
   helper?: string;
   icon?: string;
   name?: string;
-}> = ({ label, value, onChange, placeholder, required, helper, icon, name }) => (
-  <div className="space-y-1.5">
-    <label className="block text-sm font-medium text-on-surface-variant">
-      {label}
-      {required && <span className="text-error ml-0.5">*</span>}
-    </label>
-    <div className="relative">
-      {icon && (
-        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sm opacity-50 text-on-surface-variant">
-          <Icon name={icon} className="w-4 h-4" />
-        </div>
+}> = ({ label, value, onChange, placeholder, required, helper, icon, name }) => {
+  const inputId = `form-input-${name || label.toLowerCase().replace(/\s+/g, '-')}`;
+  const helperId = helper ? `${inputId}-helper` : undefined;
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={inputId} className="block text-sm font-medium text-on-surface-variant">
+        {label}
+        {required && <span className="text-error ml-0.5">*</span>}
+      </label>
+      <div className="relative">
+        {icon && (
+          <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sm opacity-50 text-on-surface-variant">
+            <Icon name={icon} className="w-4 h-4" aria-hidden="true" />
+          </div>
+        )}
+        <input
+          id={inputId}
+          type="text"
+          name={name}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          aria-describedby={helperId}
+          aria-required={required}
+          className="w-full h-12 rounded-xl text-sm transition-colors focus:outline-none bg-surface-container-high border border-outline-variant/30 text-on-surface focus:border-primary/50 placeholder-on-surface-variant/60"
+          style={{ paddingLeft: icon ? '2.75rem' : '1rem', paddingRight: '1rem' }}
+        />
+      </div>
+      {helper && (
+        <p id={helperId} className="text-xs text-on-surface-variant/80">{helper}</p>
       )}
-      <input
-        type="text"
-        name={name}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        className="w-full h-12 rounded-xl text-sm transition-colors focus:outline-none bg-surface-container-high border border-outline-variant/30 text-on-surface focus:border-primary/50 placeholder-on-surface-variant/60"
-        style={{ paddingLeft: icon ? '2.75rem' : '1rem', paddingRight: '1rem' }}
-      />
     </div>
-    {helper && (
-      <p className="text-xs text-on-surface-variant/80">{helper}</p>
-    )}
-  </div>
-);
+  );
+};
 
 const FormTextArea: React.FC<{ 
   label: string; 

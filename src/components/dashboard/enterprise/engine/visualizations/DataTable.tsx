@@ -16,11 +16,13 @@ export const DataTable: React.FC<Props> = ({ data }) => {
 
   return (
     <div className="h-full overflow-y-auto">
-      <table className="w-full">
+      <table className="w-full" aria-label="Data metrics">
         <thead>
           <tr className="border-b border-outline-variant/10">
-            <th className="text-left text-[10px] font-bold text-on-surface-variant uppercase tracking-wider py-2 px-2">Label</th>
+            <th scope="col" className="text-left text-[10px] font-bold text-on-surface-variant uppercase tracking-wider py-2 px-2">Label</th>
             <th
+              scope="col"
+              aria-sort={sortDir === 'desc' ? 'descending' : 'ascending'}
               className="text-right text-[10px] font-bold text-on-surface-variant uppercase tracking-wider py-2 px-2 cursor-pointer select-none"
               onClick={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
             >

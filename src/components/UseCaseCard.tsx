@@ -296,7 +296,7 @@ export const UseCaseCard: React.FC<UseCaseCardProps> = ({
                 #{detection.id.substring(0, 8)}
               </p>
             </div>
-            <h3 className="text-xl font-medium text-on-surface group-hover:text-[#783264] transition-colors leading-tight line-clamp-2">
+            <h3 className="text-xl font-medium text-on-surface group-hover:text-[#783264] transition-colors leading-tight line-clamp-2" title={detection.name}>
               {detection.name}
             </h3>
           </div>
@@ -306,7 +306,7 @@ export const UseCaseCard: React.FC<UseCaseCardProps> = ({
 
       {/* === SECTION 2: Description - Fixed Height === */}
       <div className="h-[66px] mb-3">
-        <p className="text-sm text-on-surface-variant line-clamp-3 leading-relaxed font-normal">
+        <p className="text-sm text-on-surface-variant line-clamp-3 leading-relaxed font-normal" title={detection.description}>
           {detection.description}
         </p>
       </div>
