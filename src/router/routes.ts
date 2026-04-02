@@ -81,6 +81,7 @@ export const ROUTES = {
   ACCOUNT: '/account',
   SUBMISSIONS: '/submissions',
   APPROVAL_QUEUE: '/approval-queue',
+  NOTIFICATIONS: '/notifications',
 
   // Search
   SEARCH: '/search',
@@ -183,6 +184,7 @@ export const viewToRoute: Record<string, string> = {
   'account_settings': ROUTES.ACCOUNT,
   'my_submissions': ROUTES.SUBMISSIONS,
   'approval_queue': ROUTES.APPROVAL_QUEUE,
+  'notifications': ROUTES.NOTIFICATIONS,
   'add_selection': ROUTES.DETECTION_NEW,
   // Design System
   'design-system': ROUTES.COMPONENT_SHOWCASE,
@@ -258,6 +260,7 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.ACCOUNT]: { title: 'Account Settings', description: 'Manage your profile and preferences' },
   [ROUTES.SUBMISSIONS]: { title: 'My Submissions', description: 'Track your publication requests' },
   [ROUTES.APPROVAL_QUEUE]: { title: 'Approval Queue', description: 'Review promotion requests for Production Library' },
+  [ROUTES.NOTIFICATIONS]: { title: 'Notifications', description: 'Your notification history' },
   [ROUTES.SEARCH]: { title: 'Search Results' },
   [ROUTES.COMPONENT_SHOWCASE]: { title: 'Design System', description: 'M3 Design System Components' },
   [ROUTES.DESIGN_SYSTEM_BUTTONS]: { title: 'Buttons', description: 'Button components and variants' },

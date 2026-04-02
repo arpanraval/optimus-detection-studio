@@ -112,6 +112,8 @@ const ReportHistoryPage = lazy(() => import('./pages/ReportHistoryPage').then(m 
 const ReportDetailPage = lazy(() => import('./pages/ReportDetailPage').then(m => ({ default: m.ReportDetailPage })));
 const SiemHealthPage = lazy(() => import('./pages/SiemHealthPage').then(m => ({ default: m.SiemHealthPage })));
 const SiemHomePageRoute = lazy(() => import('./pages/SiemHomePageRoute').then(m => ({ default: m.SiemHomePageRoute })));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
+
 
 // Design System Pages
 const DesignOverviewPage = lazy(() => import('../components/design-system/pages/OverviewPage').then(m => ({ default: m.OverviewPage })));
@@ -259,6 +261,7 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       { path: 'account', element: <AccountPage /> },
       { path: 'submissions', element: <SubmissionsPage /> },
       { path: 'approval-queue', element: <ApprovalQueuePage /> },
+        { path: 'notifications', element: <NotificationsPage /> },
 
       // Design System — dev builds only
       ...(import.meta.env.DEV ? [

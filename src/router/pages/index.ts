@@ -31,6 +31,7 @@ export { MitreSyncPage } from './MitreSyncPage';
 export { AccountPage } from './AccountPage';
 export { SubmissionsPage } from './SubmissionsPage';
 export { ApprovalQueuePage } from './ApprovalQueuePage';
+export { NotificationsPage } from './NotificationsPage';
 export { ComponentShowcasePage } from './ComponentShowcasePage';
 export { ThreatIntelPage } from './ThreatIntelPage';
 export { ThreatIntelDetailPage } from './ThreatIntelDetailPage';
