@@ -22,6 +22,7 @@ export interface CoverageMap {
 export function useMitreCoverage(scope: 'production' | 'all' = 'production') {
   const [coverage, setCoverage] = useState<CoverageMap>({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadCoverage();
@@ -29,6 +30,7 @@ export function useMitreCoverage(scope: 'production' | 'all' = 'production') {
 
   async function loadCoverage() {
     setLoading(true);
+    setError(null);
 
     try {
       // Get detections with metadata needed for exports
@@ -70,6 +72,7 @@ export function useMitreCoverage(scope: 'production' | 'all' = 'production') {
       setCoverage(coverageMap);
     } catch (err) {
       console.error('Failed to load coverage:', err);
+      setError('Failed to load coverage data');
     } finally {
       setLoading(false);
     }
@@ -99,5 +102,5 @@ export function useMitreCoverage(scope: 'production' | 'all' = 'production') {
     return 'bg-surface-container-lowest';
   }
 
-  return { coverage, getCoverageColor, loading };
+  return { coverage, getCoverageColor, loading, error };
 }

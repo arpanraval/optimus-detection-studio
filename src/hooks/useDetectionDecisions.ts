@@ -18,15 +18,21 @@ interface CreateDecisionInput {
 export function useDetectionDecisions(detectionId?: string) {
   const [decisions, setDecisions] = useState<DetectionDecision[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchDecisions = useCallback(async () => {
     if (!detectionId) return;
     setLoading(true);
-    const { data } = await supabase
+    setError(null);
+    const { data, error: fetchError } = await supabase
       .from('detection_decisions')
       .select('*')
       .eq('detection_id', detectionId)
       .order('created_at', { ascending: false });
+    if (fetchError) {
+      setError('Failed to load decisions');
+      console.error('fetchDecisions error:', fetchError);
+    }
     setDecisions((data as DetectionDecision[]) || []);
     setLoading(false);
   }, [detectionId]);
@@ -77,5 +83,5 @@ export function useDetectionDecisions(detectionId?: string) {
     if (error) throw error;
   }, []);
 
-  return { decisions, loading, fetchDecisions, createDecision, createBulkDecisions };
+  return { decisions, loading, error, fetchDecisions, createDecision, createBulkDecisions };
 }

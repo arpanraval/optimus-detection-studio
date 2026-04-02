@@ -43,10 +43,13 @@ export function ParsingProgressStep() {
             <div className="flex-1">
               <h3 className="text-lg font-semibold text-error">Processing Failed</h3>
               <p className="text-sm text-on-surface-variant mt-1">
-                {lastError?.message || 'An error occurred during processing.'}
+                {lastError?.message || 'An error occurred during processing. Please try again.'}
               </p>
               {lastError?.code && (
-                <p className="text-xs text-on-surface-variant/70 mt-2 font-mono">[{lastError.code}]</p>
+                <details className="mt-2">
+                  <summary className="text-xs text-on-surface-variant/70 cursor-pointer hover:text-on-surface-variant">Show technical details</summary>
+                  <p className="text-xs text-on-surface-variant/70 mt-1 font-mono">{lastError.code}</p>
+                </details>
               )}
             </div>
           </div>
@@ -58,8 +61,8 @@ export function ParsingProgressStep() {
             <h4 className="text-sm font-medium text-on-surface-variant mb-2">All Issues ({errors.length})</h4>
             <div className="bg-error-container/10 border border-error/20 rounded-[12px] p-4 max-h-48 overflow-y-auto">
               {errors.map((error, index) => (
-                <p key={index} className="text-xs text-error py-1 font-mono">
-                  [{error.code}] {error.message}
+                <p key={index} className="text-xs text-error py-1">
+                  {error.message}
                 </p>
               ))}
             </div>
@@ -191,8 +194,8 @@ export function ParsingProgressStep() {
           </h4>
           <div className="bg-error-container/20 border border-error/20 rounded-[12px] p-4 max-h-40 overflow-y-auto">
             {errors.slice(-5).map((error, index) => (
-              <p key={index} className="text-xs text-error py-1 font-mono">
-                [{error.code}] {error.message}
+              <p key={index} className="text-xs text-error py-1">
+                {error.message}
               </p>
             ))}
           </div>
