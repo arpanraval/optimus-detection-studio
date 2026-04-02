@@ -23,34 +23,22 @@ const formatTimeAgo = (dateString: string): string => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
+// M3 design system colors — matches StatusBadge/SeverityBadge palette
 const getNotificationConfig = (type: string): { icon: string; color: string; bgColor: string } => {
   switch (type) {
     case 'publish_approved':
-      return { icon: 'check', color: 'text-emerald-400', bgColor: 'bg-emerald-500/15' };
-    case 'publish_rejected':
-      return { icon: 'x', color: 'text-red-400', bgColor: 'bg-red-500/15' };
-    case 'publish_approved_as_new':
-      return { icon: 'plus', color: 'text-blue-400', bgColor: 'bg-blue-500/15' };
-    case 'new_publish_request':
-      return { icon: 'send', color: 'text-violet-400', bgColor: 'bg-violet-500/15' };
-    case 'publish_submitted':
-      return { icon: 'clock', color: 'text-sky-400', bgColor: 'bg-sky-500/15' };
-    case 'rule_updated':
-      return { icon: 'refresh-cw', color: 'text-amber-400', bgColor: 'bg-amber-500/15' };
-    case 'assignment':
-      return { icon: 'user-plus', color: 'text-cyan-400', bgColor: 'bg-cyan-500/15' };
-    case 'review_request':
-      return { icon: 'eye', color: 'text-violet-400', bgColor: 'bg-violet-500/15' };
     case 'review_complete':
-      return { icon: 'check-circle', color: 'text-emerald-400', bgColor: 'bg-emerald-500/15' };
+      return { icon: type === 'review_complete' ? 'check-circle' : 'check', color: 'text-[#4D7C6F]', bgColor: 'bg-[#4D7C6F]/12' };
+    case 'publish_rejected':
+      return { icon: 'x', color: 'text-[#A63D40]', bgColor: 'bg-[#A63D40]/12' };
+    case 'publish_approved_as_new':
+    case 'assignment':
+      return { icon: type === 'assignment' ? 'user-plus' : 'plus', color: 'text-secondary', bgColor: 'bg-secondary/12' };
+    case 'publish_submitted':
+    case 'review_request':
+      return { icon: type === 'review_request' ? 'eye' : 'send', color: 'text-tertiary', bgColor: 'bg-tertiary/12' };
     case 'status_change':
-      return { icon: 'arrow-right', color: 'text-blue-400', bgColor: 'bg-blue-500/15' };
-    case 'deploy':
-      return { icon: 'upload-cloud', color: 'text-green-400', bgColor: 'bg-green-500/15' };
-    case 'feed':
-      return { icon: 'rss', color: 'text-orange-400', bgColor: 'bg-orange-500/15' };
-    case 'system':
-      return { icon: 'alert-triangle', color: 'text-amber-400', bgColor: 'bg-amber-500/15' };
+      return { icon: 'arrow-right', color: 'text-primary', bgColor: 'bg-primary/12' };
     default:
       return { icon: 'bell', color: 'text-on-surface-variant', bgColor: 'bg-surface-container-highest' };
   }

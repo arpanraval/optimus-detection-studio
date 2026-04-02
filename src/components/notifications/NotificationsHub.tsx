@@ -16,23 +16,22 @@ const formatTimeAgo = (dateString: string): string => {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
   if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
+// M3 design system colors — no raw Tailwind colors
 const NOTIFICATION_CONFIG: Record<string, { icon: string; color: string; bg: string; label: string }> = {
-  publish_approved: { icon: 'check', color: 'text-emerald-400', bg: 'bg-emerald-500/15', label: 'Approved' },
-  publish_rejected: { icon: 'x', color: 'text-red-400', bg: 'bg-red-500/15', label: 'Rejected' },
-  publish_approved_as_new: { icon: 'plus', color: 'text-blue-400', bg: 'bg-blue-500/15', label: 'New Rule' },
-  new_publish_request: { icon: 'send', color: 'text-violet-400', bg: 'bg-violet-500/15', label: 'Publish Request' },
-  publish_submitted: { icon: 'clock', color: 'text-sky-400', bg: 'bg-sky-500/15', label: 'Submitted' },
-  rule_updated: { icon: 'refresh-cw', color: 'text-amber-400', bg: 'bg-amber-500/15', label: 'Updated' },
-  assignment: { icon: 'user-plus', color: 'text-cyan-400', bg: 'bg-cyan-500/15', label: 'Assignment' },
-  review_request: { icon: 'eye', color: 'text-violet-400', bg: 'bg-violet-500/15', label: 'Review' },
-  review_complete: { icon: 'check-circle', color: 'text-emerald-400', bg: 'bg-emerald-500/15', label: 'Review Done' },
-  status_change: { icon: 'arrow-right', color: 'text-blue-400', bg: 'bg-blue-500/15', label: 'Status' },
-  deploy: { icon: 'upload-cloud', color: 'text-green-400', bg: 'bg-green-500/15', label: 'Deploy' },
-  feed: { icon: 'rss', color: 'text-orange-400', bg: 'bg-orange-500/15', label: 'Intel' },
-  system: { icon: 'alert-triangle', color: 'text-amber-400', bg: 'bg-amber-500/15', label: 'System' },
+  publish_approved:      { icon: 'check',        color: 'text-[#4D7C6F]', bg: 'bg-[#4D7C6F]/12', label: 'Approved' },
+  publish_rejected:      { icon: 'x',            color: 'text-[#A63D40]', bg: 'bg-[#A63D40]/12', label: 'Rejected' },
+  publish_approved_as_new:{ icon: 'plus',         color: 'text-secondary',  bg: 'bg-secondary/12', label: 'New Rule' },
+  publish_submitted:     { icon: 'send',          color: 'text-tertiary',   bg: 'bg-tertiary/12',  label: 'Submitted' },
+  assignment:            { icon: 'user-plus',     color: 'text-secondary',  bg: 'bg-secondary/12', label: 'Assigned' },
+  review_request:        { icon: 'eye',           color: 'text-tertiary',   bg: 'bg-tertiary/12',  label: 'Review' },
+  review_complete:       { icon: 'check-circle',  color: 'text-[#4D7C6F]', bg: 'bg-[#4D7C6F]/12', label: 'Reviewed' },
+  status_change:         { icon: 'arrow-right',   color: 'text-primary',    bg: 'bg-primary/12',   label: 'Status' },
+  welcome:               { icon: 'star',          color: 'text-primary',    bg: 'bg-primary/12',   label: 'Welcome' },
+  role_change:           { icon: 'shield',        color: 'text-tertiary',   bg: 'bg-tertiary/12',  label: 'Role' },
+  team_invite:           { icon: 'users',         color: 'text-secondary',  bg: 'bg-secondary/12', label: 'Team' },
 };
 
 const getConfig = (type: string) => NOTIFICATION_CONFIG[type] || { icon: 'bell', color: 'text-on-surface-variant', bg: 'bg-surface-container-highest', label: type };
@@ -71,113 +70,129 @@ export const NotificationsHub: React.FC<NotificationsHubProps> = ({ onNavigateTo
     { key: 'activity', label: 'Activity' },
   ];
 
+  // Group by date
+  const grouped = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const groups: { label: string; items: UserNotification[] }[] = [];
+    const todayItems = filtered.filter(n => new Date(n.created_at) >= today);
+    const yesterdayItems = filtered.filter(n => { const d = new Date(n.created_at); return d >= yesterday && d < today; });
+    const olderItems = filtered.filter(n => new Date(n.created_at) < yesterday);
+
+    if (todayItems.length > 0) groups.push({ label: 'Today', items: todayItems });
+    if (yesterdayItems.length > 0) groups.push({ label: 'Yesterday', items: yesterdayItems });
+    if (olderItems.length > 0) groups.push({ label: 'Earlier', items: olderItems });
+    return groups;
+  }, [filtered]);
+
   return (
-    <div className="h-full overflow-y-auto scrollbar-minimal bg-background p-6 md:p-10">
-      <div className="max-w-3xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-brand font-bold text-on-surface">Notifications</h1>
-            <p className="text-sm text-on-surface-variant mt-1">
-              {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}
-            </p>
+    <div className="h-full overflow-y-auto scrollbar-minimal bg-background">
+      <div className="max-w-2xl mx-auto px-6 py-6">
+        {/* Filter bar — replaces duplicate header */}
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex gap-1 p-0.5 bg-surface-container rounded-lg">
+            {filters.map(f => (
+              <button
+                key={f.key}
+                onClick={() => setFilter(f.key)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  filter === f.key
+                    ? 'bg-surface-container-highest text-on-surface shadow-sm'
+                    : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+              >
+                {f.label}
+                {f.count !== undefined && f.count > 0 && (
+                  <span className="ml-1.5 px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-primary/15 text-primary">
+                    {f.count}
+                  </span>
+                )}
+              </button>
+            ))}
           </div>
           {unreadCount > 0 && (
             <button
               onClick={markAllAsRead}
-              className="px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10 rounded-xl transition-colors"
+              className="text-xs font-medium text-primary hover:bg-primary/10 px-3 py-1.5 rounded-lg transition-colors"
             >
               Mark all read
             </button>
           )}
         </div>
 
-        {/* Filter tabs */}
-        <div className="flex gap-1 mb-6 p-1 bg-surface-container rounded-xl overflow-x-auto">
-          {filters.map(f => (
-            <button
-              key={f.key}
-              onClick={() => setFilter(f.key)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition-colors ${
-                filter === f.key
-                  ? 'bg-surface-container-highest text-on-surface shadow-sm'
-                  : 'text-on-surface-variant hover:text-on-surface'
-              }`}
-            >
-              {f.label}
-              {f.count !== undefined && f.count > 0 && (
-                <span className={`ml-1.5 px-1.5 py-0.5 text-[10px] rounded-full ${
-                  f.key === 'unread' ? 'bg-primary/15 text-primary' : 'bg-surface-container-highest text-on-surface-variant'
-                }`}>
-                  {f.count}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Notification list */}
+        {/* List */}
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
-            <Icon name="spinner" className="w-6 h-6 text-primary animate-spin" />
+            <Icon name="spinner" className="w-5 h-5 text-primary animate-spin" />
           </div>
-        ) : filtered.length === 0 ? (
+        ) : grouped.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant">
-            <Icon name="bell-off" className="w-10 h-10 mb-3 opacity-30" />
-            <p className="text-sm font-medium">No notifications</p>
-            <p className="text-xs mt-1 opacity-60">
-              {filter === 'unread' ? 'All notifications have been read' : 'Nothing here yet'}
+            <Icon name="inbox" className="w-8 h-8 mb-2 opacity-20" />
+            <p className="text-sm font-medium opacity-70">
+              {filter === 'unread' ? 'All caught up' : 'No notifications'}
             </p>
           </div>
         ) : (
-          <div className="space-y-1">
-            {filtered.map(notification => {
-              const config = getConfig(notification.type);
-              const hasTarget = notification.action_url || notification.detection_id;
-              return (
-                <button
-                  key={notification.id}
-                  onClick={() => handleClick(notification)}
-                  className={`w-full flex items-start gap-3 px-4 py-3 rounded-xl text-left transition-all ${
-                    !notification.is_read
-                      ? 'bg-primary/[0.06] border border-primary/10'
-                      : 'hover:bg-surface-container border border-transparent'
-                  } ${hasTarget ? 'cursor-pointer' : 'cursor-default'}`}
-                >
-                  <div className={`flex-shrink-0 w-9 h-9 rounded-xl ${config.bg} flex items-center justify-center mt-0.5`}>
-                    <Icon name={config.icon} className={`w-4 h-4 ${config.color}`} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <span className={`text-sm ${!notification.is_read ? 'font-semibold text-on-surface' : 'font-medium text-on-surface/90'}`}>
-                          {notification.title}
-                        </span>
-                        <span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded ${config.bg} ${config.color}`}>
-                          {config.label}
-                        </span>
-                      </div>
-                      <span className="text-xs text-on-surface-variant flex-shrink-0">
-                        {formatTimeAgo(notification.created_at)}
-                      </span>
-                    </div>
-                    {notification.message && (
-                      <p className="text-sm text-on-surface-variant mt-1 leading-relaxed">
-                        {notification.message}
-                      </p>
-                    )}
-                    {hasTarget && (
-                      <span className="inline-flex items-center gap-1 mt-2 text-xs text-primary font-medium">
-                        View details <Icon name="arrow-right" className="w-3 h-3" />
-                      </span>
-                    )}
-                  </div>
-                  {!notification.is_read && (
-                    <div className="flex-shrink-0 w-2 h-2 rounded-full bg-primary mt-2" />
-                  )}
-                </button>
-              );
-            })}
+          <div className="space-y-4">
+            {grouped.map(group => (
+              <div key={group.label}>
+                <p className="text-[11px] font-semibold text-on-surface-variant/60 uppercase tracking-wider mb-1.5 px-1">
+                  {group.label}
+                </p>
+                <div className="space-y-px rounded-xl overflow-hidden border border-outline-variant/10">
+                  {group.items.map(notification => {
+                    const config = getConfig(notification.type);
+                    const hasTarget = notification.action_url || notification.detection_id;
+                    return (
+                      <button
+                        key={notification.id}
+                        onClick={() => handleClick(notification)}
+                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
+                          !notification.is_read
+                            ? 'bg-primary/[0.04]'
+                            : 'bg-surface-container-low'
+                        } ${hasTarget ? 'hover:bg-surface-container cursor-pointer' : 'cursor-default'}`}
+                      >
+                        {/* Icon */}
+                        <div className={`flex-shrink-0 w-8 h-8 rounded-lg ${config.bg} flex items-center justify-center`}>
+                          <Icon name={config.icon} className={`w-4 h-4 ${config.color}`} />
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline gap-2">
+                            <span className={`text-[13px] truncate ${!notification.is_read ? 'font-semibold text-on-surface' : 'text-on-surface/85'}`}>
+                              {notification.title}
+                            </span>
+                            <span className={`flex-shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded ${config.bg} ${config.color}`}>
+                              {config.label}
+                            </span>
+                          </div>
+                          {notification.message && (
+                            <p className="text-xs text-on-surface-variant mt-0.5 truncate">
+                              {notification.message}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Time + unread */}
+                        <div className="flex-shrink-0 flex items-center gap-2">
+                          <span className="text-[11px] text-on-surface-variant/60 tabular-nums">
+                            {formatTimeAgo(notification.created_at)}
+                          </span>
+                          {!notification.is_read && (
+                            <div className="w-2 h-2 rounded-full bg-primary" />
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
