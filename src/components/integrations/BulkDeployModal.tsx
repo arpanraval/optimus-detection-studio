@@ -191,7 +191,7 @@ export const BulkDeployModal: React.FC<BulkDeployModalProps> = ({
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        await supabase.from('user_notifications').insert({
+        const { error: notifError } = await supabase.from('user_notifications').insert({
           user_id: user.id,
           type: 'deploy',
           title: `Deployed ${deployResult.succeeded.length}/${compatible.length} to ${selectedIntegration.name}`,
@@ -201,6 +201,7 @@ export const BulkDeployModal: React.FC<BulkDeployModalProps> = ({
           category: 'deploy',
           source_user_id: user.id,
         });
+        if (notifError) throw notifError;
       }
     } catch {
       // Non-critical — swallow notification errors

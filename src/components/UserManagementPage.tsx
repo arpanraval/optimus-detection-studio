@@ -127,7 +127,7 @@ export const UserManagementPage: React.FC = () => {
             const { error: ce } = await supabase.rpc('cleanup_user_data', { target_user_id: deleteModal.userId });
             if (ce) {
                 await supabase.from('activity_log').delete().eq('user_id', deleteModal.userId);
-                await supabase.from('user_notifications').delete().eq('user_id', deleteModal.userId);
+                await supabase.from('user_notifications').delete().or(`user_id.eq.${deleteModal.userId},source_user_id.eq.${deleteModal.userId}`);
                 await supabase.from('detection_comments').delete().eq('user_id', deleteModal.userId);
                 if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(deleteModal.userId)) throw new Error('Invalid user ID');
                 await supabase.from('detection_reviews').delete().or(`reviewer_id.eq.${deleteModal.userId},requested_by.eq.${deleteModal.userId}`);

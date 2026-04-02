@@ -26,12 +26,12 @@ const formatTimeAgo = (dateString: string): string => {
 // M3 design system colors — matches StatusBadge/SeverityBadge palette
 const getNotificationConfig = (type: string): { icon: string; color: string; bgColor: string } => {
   switch (type) {
-    case 'publish_approved':
+    case 'promotion_approved':
     case 'review_complete':
       return { icon: type === 'review_complete' ? 'check-circle' : 'check', color: 'text-[#4D7C6F]', bgColor: 'bg-[#4D7C6F]/12' };
-    case 'publish_rejected':
+    case 'promotion_rejected':
       return { icon: 'x', color: 'text-[#A63D40]', bgColor: 'bg-[#A63D40]/12' };
-    case 'publish_approved_as_new':
+    case 'promotion_approved_as_new':
     case 'assignment':
       return { icon: type === 'assignment' ? 'user-plus' : 'plus', color: 'text-secondary', bgColor: 'bg-secondary/12' };
     case 'publish_submitted':

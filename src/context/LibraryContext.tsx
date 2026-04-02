@@ -818,6 +818,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     try {
       const { data, error } = await supabase.rpc('approve_promotion', {
         p_request_id: requestId,
+        p_admin_id: userId,
         p_action: action,
         p_notes: notes || null
       });
@@ -856,6 +857,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     try {
       const { data, error } = await supabase.rpc('approve_promotion', {
         p_request_id: requestId,
+        p_admin_id: userId,
         p_action: action,
         p_notes: notes || null
       });

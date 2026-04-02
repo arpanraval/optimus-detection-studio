@@ -196,16 +196,16 @@ Deno.serve(async (req: Request) => {
 
         // Notify lead+ users about pending review
         try {
-          const { data: eligibleReviewers } = await supabaseAdmin
-            .from('profiles')
-            .select('id')
+          const { data: teamMembers } = await supabaseAdmin
+            .from('team_members')
+            .select('user_id, profiles!inner(role)')
             .eq('team_id', detection.team_id)
-            .in('role', ['lead', 'admin'])
-            .neq('id', user.id);
+            .in('profiles.role', ['lead', 'admin'])
+            .neq('user_id', user.id);
 
-          if (eligibleReviewers && eligibleReviewers.length > 0) {
-            const reviewNotifications = eligibleReviewers.map((reviewer: { id: string }) => ({
-              user_id: reviewer.id,
+          if (teamMembers && teamMembers.length > 0) {
+            const reviewNotifications = teamMembers.map((reviewer: any) => ({
+              user_id: reviewer.user_id,
               type: 'review_request',
               title: 'Review Requested',
               message: `"${detection.name}" needs review`,
