@@ -29,6 +29,10 @@ scripts/threat-group-enrichment/enrichment-output/
 .claude/
 .mcp.json
 .playwright-mcp/
+.superpowers/
+
+# Supabase local/temp files
+supabase/.temp/
 
 # Backup and temp files
 .backup-*/
