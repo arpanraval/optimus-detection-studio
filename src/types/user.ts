@@ -43,33 +43,8 @@ export interface UserPreferences {
 }
 
 // ============================================
-// TEAM TYPES
+// TEAM MEMBER TYPES (used for user management)
 // ============================================
-
-/** Team/Organization entity */
-export interface Team {
-  id: string;
-  name: string;
-  slug: string;
-  description?: string;
-  logo_url?: string;
-  settings: TeamSettings;
-  created_by?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-/** Team configuration settings */
-export interface TeamSettings {
-  require_review?: boolean;
-  default_assignee?: string;
-  allowed_domains?: string[];
-  notification_preferences?: {
-    assignment?: boolean;
-    review?: boolean;
-    comment?: boolean;
-  };
-}
 
 /** Team membership status */
 export type TeamMemberStatus = 'pending' | 'active' | 'deactivated';
@@ -94,7 +69,6 @@ export interface TeamMember {
   updated_at?: string;
   // Joined fields
   user?: Profile;
-  team?: Team;
 }
 
 /**
@@ -114,7 +88,6 @@ export interface TeamInvitation {
   status?: 'pending' | 'accepted' | 'expired' | 'cancelled';
   created_at: string;
   // Joined fields
-  team?: Team;
   inviter?: Profile;
 }
 

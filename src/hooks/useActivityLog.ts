@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { ActivityLogEntry, ActivityAction, ActivityEntityType, Profile, Team } from '../types';
+import { ActivityLogEntry, ActivityAction, ActivityEntityType, Profile } from '../types';
 
 interface UseActivityLogOptions {
   teamId?: string;
@@ -91,7 +91,6 @@ export const useActivityLog = (options: UseActivityLogOptions = {}) => {
       const transformedData: ActivityLogEntry[] = (data || []).map(d => ({
         ...d,
         user: d.user as unknown as Profile,
-        team: d.team as unknown as Team,
       }));
 
       if (append) {
@@ -212,7 +211,6 @@ export const useActivityLog = (options: UseActivityLogOptions = {}) => {
 
       return (data || []).map(d => ({
         ...d,
-        team: d.team as unknown as Team,
       }));
 
     } catch (err) {

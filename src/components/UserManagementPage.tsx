@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Icon } from './Icon';
 import { Role, Profile, TeamInvitation } from '../types';
 import { useToast } from '../hooks/useToast';
-import { useTeam } from '../context/TeamContext';
+import { useUserManagement } from '../context/UserManagementContext';
 import { usePermissions } from '../context/PermissionsContext';
 import { RoleBadge } from './rbac/RoleBadge';
 import { InviteUserModal } from './rbac/InviteUserModal';
@@ -81,7 +81,7 @@ export const UserManagementPage: React.FC = () => {
         allUsers, invitations, usersLoading, invitationsLoading,
         inviteUser, changeUserRole, deactivateUser, reactivateUser,
         cancelInvitation, refreshAllUsers, refreshInvitations,
-    } = useTeam();
+    } = useUserManagement();
 
     const handleSort = (field: SortField) => setSortConfig(prev => ({ field, direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc' }));
 
@@ -163,7 +163,7 @@ export const UserManagementPage: React.FC = () => {
         try { await cancelInvitation(id); } catch {}
     };
     const handleResendInvitation = async (inv: TeamInvitation) => {
-        try { await cancelInvitation(inv.id); await inviteUser(inv.email, inv.role, inv.team_id || undefined); showToast('success', 'Invitation Resent', `New invitation sent to ${inv.email}`); }
+        try { await cancelInvitation(inv.id); await inviteUser(inv.email, inv.role); showToast('success', 'Invitation Resent', `New invitation sent to ${inv.email}`); }
         catch (err: unknown) { showToast('error', 'Failed', err instanceof Error ? err.message : 'Failed to resend invitation'); }
     };
 

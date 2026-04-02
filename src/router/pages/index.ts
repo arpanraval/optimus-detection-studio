@@ -15,8 +15,6 @@ export { StrategiesPage } from './StrategiesPage';
 export { StrategyDetailPage } from './StrategyDetailPage';
 export { PacksPage } from './PacksPage';
 export { PackDetailPage } from './PackDetailPage';
-export { WorkspacesPage } from './WorkspacesPage';
-export { WorkspaceDetailPage } from './WorkspaceDetailPage';
 export { MitreMatrixPage } from './MitreMatrixPage';
 export { CoveragePage } from './CoveragePage';
 export { DefensivePosturePage } from './DefensivePosturePage';

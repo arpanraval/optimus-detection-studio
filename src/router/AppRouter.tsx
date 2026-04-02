@@ -13,7 +13,7 @@ import { ToastProvider } from '../context/ToastContext';
 import { ThemeProvider } from '../context/ThemeContext';
 import { LibraryProvider } from '../context/LibraryContext';
 import { PermissionsProvider } from '../context/PermissionsContext';
-import { TeamProvider } from '../context/TeamContext';
+import { UserManagementProvider } from '../context/UserManagementContext';
 import { ThreatIntelProvider } from '../context/ThreatIntelContext';
 import { NotificationProvider } from '../context/NotificationContext';
 import { ScoringProvider } from '../context/ScoringContext';
@@ -58,6 +58,8 @@ function detectPendingAuthAction(): PendingAuthAction {
 }
 
 const initialPendingAction = detectPendingAuthAction();
+
+import { NewLandingPage } from '../components/NewLandingPage';
 
 // Eager-load only the landing page (CommandCenterPage)
 import { CommandCenterPage } from './pages';
@@ -148,7 +150,7 @@ const ProtectedLayout: React.FC<{ user: User; profile: Profile }> = ({ user, pro
       <RealtimeProvider userId={user.id}>
         <GlobalImportProvider userId={user.id}>
           <PermissionsProvider userId={user.id}>
-            <TeamProvider userId={user.id}>
+            <UserManagementProvider userId={user.id}>
               <ScoringProvider>
                 <LibraryProvider userId={user.id} userRole={profile.role} refreshTrigger={libraryRefreshTrigger}>
                   <ThreatIntelProvider userId={user.id} refreshTrigger={libraryRefreshTrigger}>
@@ -164,7 +166,7 @@ const ProtectedLayout: React.FC<{ user: User; profile: Profile }> = ({ user, pro
                   </ThreatIntelProvider>
                 </LibraryProvider>
               </ScoringProvider>
-            </TeamProvider>
+            </UserManagementProvider>
           </PermissionsProvider>
         </GlobalImportProvider>
       </RealtimeProvider>
@@ -426,6 +428,8 @@ export const AppRouter: React.FC = () => {
         <ToastProvider>
           {showAuth ? (
             <AuthPage onBack={() => setShowAuth(false)} />
+          ) : window.location.pathname === '/new-landing' ? (
+            <NewLandingPage onSignIn={() => setShowAuth(true)} />
           ) : (
             <LandingPage onSignIn={() => setShowAuth(true)} />
           )}

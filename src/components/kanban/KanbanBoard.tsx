@@ -14,7 +14,7 @@ import { STATUSES } from '../../constants';
 import { useLibrary } from '../../context/LibraryContext';
 import { useRealtime } from '../../context/RealtimeContext';
 import { usePermissions } from '../../context/PermissionsContext';
-import { useTeam } from '../../context/TeamContext';
+import { useUserManagement } from '../../context/UserManagementContext';
 import { useToast } from '../../hooks/useToast';
 import { supabase } from '../../lib/supabaseClient';
 import { KanbanColumn } from './KanbanColumn';
@@ -68,7 +68,7 @@ export const KanbanBoard: React.FC = () => {
   const { subscribe } = useRealtime();
   const { can, hasRoleOrHigher } = usePermissions();
   const { showToast } = useToast();
-  const { allUsers } = useTeam();
+  const { allUsers } = useUserManagement();
 
   // Build user ID → name/email lookup once
   const userLookup = useMemo<UserLookup>(() => {

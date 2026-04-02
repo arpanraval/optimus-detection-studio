@@ -18,10 +18,6 @@ export const ROUTES = {
   PACKS: '/packs',
   PACK_DETAIL: '/packs/:id',
 
-  // Workspaces
-  WORKSPACES: '/workspaces',
-  WORKSPACE_DETAIL: '/workspaces/:id',
-
   // Intelligence
   MITRE_MATRIX: '/intelligence/mitre',
   COVERAGE: '/intelligence/coverage',
@@ -116,7 +112,6 @@ export const routeHelpers = {
   detectionDetail: (id: string) => `/library/detections/${id}`,
   detectionEdit: (id: string) => `/library/detections/${id}/edit`,
   packDetail: (id: string) => `/packs/${id}`,
-  workspaceDetail: (id: string) => `/workspaces/${id}`,
   strategyDetail: (id: string) => `/intelligence/strategies/${id}`,
   groupDetail: (id: string) => `/intelligence/groups/${id}`,
   softwareDetail: (id: string) => `/intelligence/software/${id}`,
@@ -161,8 +156,6 @@ export const viewToRoute: Record<string, string> = {
   'analysis-reports': ROUTES.REPORTS,
   'packs': ROUTES.PACKS,
   'pack-detail': ROUTES.PACK_DETAIL,
-  'workspaces': ROUTES.WORKSPACES,
-  'workspace-detail': ROUTES.WORKSPACE_DETAIL,
   'sigma_converter': ROUTES.SIGMA_CONVERTER,
   'ai_query_gen': ROUTES.AI_QUERY,
   'ai_agent': ROUTES.OPTIMUS,
@@ -216,8 +209,6 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.DETECTION_EDIT]: { title: 'Edit Detection', description: undefined },
   [ROUTES.PACKS]: { title: 'Detection Packs', description: 'Curated collections of detection rules' },
   [ROUTES.PACK_DETAIL]: { title: 'Pack Details', description: undefined },
-  [ROUTES.WORKSPACES]: { title: 'Workspaces', description: 'Manage detection engineering workspaces' },
-  [ROUTES.WORKSPACE_DETAIL]: { title: 'Workspace', description: 'Workspace details and detections' },
   [ROUTES.MITRE_MATRIX]: { title: 'MITRE ATT&CK', description: 'Technique coverage matrix and analysis' },
   [ROUTES.COVERAGE]: { title: 'Coverage Analytics', description: 'Analyze detection coverage across the MITRE ATT&CK framework' },
   [ROUTES.DEFENSIVE_POSTURE]: { title: 'Defensive Posture', description: 'Assess your defensive capabilities' },

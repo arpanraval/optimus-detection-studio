@@ -83,9 +83,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     if (pathname.startsWith('/packs/')) {
       return { title: 'Pack Details', description: undefined };
     }
-    if (pathname.startsWith('/workspaces/')) {
-      return { title: 'Workspace', description: 'Workspace details and detections' };
-    }
     if (pathname.startsWith('/intelligence/strategies/')) {
       return { title: 'Strategy Details', description: undefined };
     }

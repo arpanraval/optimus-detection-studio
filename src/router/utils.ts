@@ -15,9 +15,6 @@ export function matchRouteToSection(pathname: string): string | null {
   // Packs
   if (pathname.startsWith('/packs')) return 'detections';
 
-  // Workspaces
-  if (pathname.startsWith('/workspaces')) return 'workspaces';
-
   // MITRE/Intelligence section
   if (pathname.startsWith('/intelligence')) return 'mitre';
 
@@ -50,7 +47,6 @@ export function matchRouteToNavItem(pathname: string): string | null {
   if (pathname === ROUTES.LIBRARY || pathname.startsWith('/library/detections')) return 'library';
   if (pathname === ROUTES.PACKS || pathname.startsWith('/packs/')) return 'packs';
   if (pathname === ROUTES.APPROVAL_QUEUE) return 'approval_queue';
-  if (pathname === ROUTES.WORKSPACES || pathname.startsWith('/workspaces/')) return 'workspaces';
   if (pathname === ROUTES.MITRE_MATRIX) return 'mitre';
   if (pathname === ROUTES.COVERAGE) return 'coverage';
   if (pathname === ROUTES.DEFENSIVE_POSTURE) return 'defensive-posture';

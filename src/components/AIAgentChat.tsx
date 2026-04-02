@@ -152,7 +152,6 @@ const SAFE_ROUTE_PREFIXES: string[] = (Object.values(ROUTES) as string[])
   .concat([
     '/library/detections/',
     '/packs/',
-    '/workspaces/',
     '/intelligence/',
     '/settings/integrations/',
     '/dashboard/enterprise/',
