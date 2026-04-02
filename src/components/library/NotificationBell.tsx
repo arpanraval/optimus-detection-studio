@@ -185,7 +185,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
       <div className="h-px bg-gradient-to-r from-transparent via-outline-variant/30 to-transparent" />
 
       {/* Notification List */}
-      <div className="max-h-96 overflow-y-auto overscroll-contain agent-scroll">
+      <div className="max-h-96 overflow-y-auto overscroll-contain scrollbar-minimal">
         {notifications.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-on-surface-variant/60">
             <div className="w-12 h-12 rounded-full bg-surface-container-highest flex items-center justify-center mb-3">
