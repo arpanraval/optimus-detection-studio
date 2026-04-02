@@ -37,7 +37,7 @@ const NOTIFICATION_CONFIG: Record<string, { icon: string; color: string; bg: str
 
 const getConfig = (type: string) => NOTIFICATION_CONFIG[type] || { icon: 'bell', color: 'text-on-surface-variant', bg: 'bg-surface-container-highest', label: type };
 
-type FilterType = 'all' | 'unread' | 'approvals' | 'reviews' | 'assignments' | 'system';
+type FilterType = 'all' | 'unread' | 'approvals' | 'reviews' | 'activity';
 
 export const NotificationsHub: React.FC<NotificationsHubProps> = ({ onNavigateToDetection }) => {
   const { notifications, unreadCount, markAsRead, markAllAsRead, isLoading } = useNotifications();
@@ -47,10 +47,9 @@ export const NotificationsHub: React.FC<NotificationsHubProps> = ({ onNavigateTo
   const filtered = useMemo(() => {
     switch (filter) {
       case 'unread': return notifications.filter(n => !n.is_read);
-      case 'approvals': return notifications.filter(n => ['publish_approved', 'publish_rejected', 'publish_approved_as_new', 'new_publish_request', 'publish_submitted'].includes(n.type));
+      case 'approvals': return notifications.filter(n => ['publish_approved', 'publish_rejected', 'publish_approved_as_new', 'publish_submitted'].includes(n.type));
       case 'reviews': return notifications.filter(n => ['review_request', 'review_complete'].includes(n.type));
-      case 'assignments': return notifications.filter(n => ['assignment', 'status_change'].includes(n.type));
-      case 'system': return notifications.filter(n => ['system', 'feed', 'deploy', 'rule_updated'].includes(n.type));
+      case 'activity': return notifications.filter(n => ['assignment', 'status_change', 'welcome', 'role_change', 'team_invite'].includes(n.type));
       default: return notifications;
     }
   }, [notifications, filter]);
@@ -65,12 +64,11 @@ export const NotificationsHub: React.FC<NotificationsHubProps> = ({ onNavigateTo
   };
 
   const filters: { key: FilterType; label: string; count?: number }[] = [
-    { key: 'all', label: 'All', count: notifications.length },
+    { key: 'all', label: 'All' },
     { key: 'unread', label: 'Unread', count: unreadCount },
     { key: 'approvals', label: 'Approvals' },
     { key: 'reviews', label: 'Reviews' },
-    { key: 'assignments', label: 'Assignments' },
-    { key: 'system', label: 'System' },
+    { key: 'activity', label: 'Activity' },
   ];
 
   return (
