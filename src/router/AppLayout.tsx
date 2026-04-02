@@ -189,7 +189,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           detections={detections}
           onNavigate={handleSearchNavigation}
           onNavigateToDetection={handleNavigateToDetectionById}
-          onNavigateToNotifications={() => {/* Future: navigate to notifications page */}}
+          onNavigateToNotifications={() => navigate(ROUTES.APPROVAL_QUEUE)}
           onMobileMenuToggle={() => setIsMobileSidebarOpen(true)}
         />
         <div className="flex-1 overflow-hidden relative">
