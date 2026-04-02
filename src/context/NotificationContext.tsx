@@ -110,7 +110,7 @@ export function NotificationProvider({ userId, children }: NotificationProviderP
       '*',
       (payload) => {
         if (payload.eventType === 'INSERT') {
-          const newNotification = payload.new as UserNotification;
+          const newNotification = payload.new as unknown as UserNotification;
           setNotifications(prev => {
             // Prevent duplicates
             if (prev.some(n => n.id === newNotification.id)) return prev;
@@ -118,11 +118,11 @@ export function NotificationProvider({ userId, children }: NotificationProviderP
           });
           setUnreadCount(prev => prev + 1);
         } else if (payload.eventType === 'UPDATE') {
-          const updatedNotification = payload.new as UserNotification;
+          const updatedNotification = payload.new as unknown as UserNotification;
           setNotifications(prev => prev.map(n => n.id === updatedNotification.id ? updatedNotification : n));
           
           // Re-evaluate unread count based on old vs new state if available
-          const oldNotification = payload.old as UserNotification;
+          const oldNotification = payload.old as unknown as UserNotification;
           if (oldNotification && oldNotification.is_read === false && updatedNotification.is_read === true) {
             setUnreadCount(prev => Math.max(0, prev - 1));
           } else if (oldNotification && oldNotification.is_read === true && updatedNotification.is_read === false) {
