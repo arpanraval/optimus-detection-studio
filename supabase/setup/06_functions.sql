@@ -856,6 +856,22 @@ BEGIN
   SET promotion_status = 'pending', "updatedDate" = now()
   WHERE id = p_detection_id;
 
+  -- Notify admin users about new publish request
+  INSERT INTO user_notifications (id, user_id, type, title, message, detection_id, action_url, category, source_user_id)
+  SELECT
+    gen_random_uuid(),
+    p2.id,
+    'publish_submitted',
+    'New Publish Request',
+    '"' || v_detection.name || '" submitted for production',
+    p_detection_id,
+    '/approval-queue',
+    'approval',
+    p_user_id
+  FROM profiles p2
+  WHERE p2.role IN ('admin', 'lead')
+    AND p2.id != p_user_id;
+
   RETURN json_build_object(
     'success', true,
     'request_id', v_request_id,
@@ -929,6 +945,22 @@ BEGIN
   UPDATE detections
   SET promotion_status = 'pending', "updatedDate" = now()
   WHERE id = p_detection_id;
+
+  -- Notify admin users about new publish request
+  INSERT INTO user_notifications (id, user_id, type, title, message, detection_id, action_url, category, source_user_id)
+  SELECT
+    gen_random_uuid(),
+    p2.id,
+    'publish_submitted',
+    'New Publish Request',
+    '"' || v_detection.name || '" submitted for production',
+    p_detection_id,
+    '/approval-queue',
+    'approval',
+    p_user_id
+  FROM profiles p2
+  WHERE p2.role IN ('admin', 'lead')
+    AND p2.id != p_user_id;
 
   RETURN json_build_object(
     'success', true,

@@ -57,11 +57,21 @@ export function RealtimeProvider({ userId, children }: RealtimeProviderProps) {
       }
     );
 
+    let retryTimeout: ReturnType<typeof setTimeout>;
+
     channel.subscribe((status) => {
       setIsConnected(status === 'SUBSCRIBED');
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        // Retry after 5 seconds
+        retryTimeout = setTimeout(() => {
+          channel.unsubscribe();
+          channel.subscribe();
+        }, 5000);
+      }
     });
 
     return () => {
+      clearTimeout(retryTimeout);
       channel.unsubscribe();
       setIsConnected(false);
     };
