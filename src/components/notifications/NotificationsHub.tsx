@@ -15,26 +15,30 @@ const formatTimeAgo = (dateString: string): string => {
   if (seconds < 60) return 'Just now';
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
-// M3 design system colors — no raw Tailwind colors
-const NOTIFICATION_CONFIG: Record<string, { icon: string; color: string; bg: string; label: string }> = {
-  publish_approved:      { icon: 'check',        color: 'text-[#4D7C6F]', bg: 'bg-[#4D7C6F]/12', label: 'Approved' },
-  publish_rejected:      { icon: 'x',            color: 'text-[#A63D40]', bg: 'bg-[#A63D40]/12', label: 'Rejected' },
-  publish_approved_as_new:{ icon: 'plus',         color: 'text-secondary',  bg: 'bg-secondary/12', label: 'New Rule' },
-  publish_submitted:     { icon: 'send',          color: 'text-tertiary',   bg: 'bg-tertiary/12',  label: 'Submitted' },
-  assignment:            { icon: 'user-plus',     color: 'text-secondary',  bg: 'bg-secondary/12', label: 'Assigned' },
-  review_request:        { icon: 'eye',           color: 'text-tertiary',   bg: 'bg-tertiary/12',  label: 'Review' },
-  review_complete:       { icon: 'check-circle',  color: 'text-[#4D7C6F]', bg: 'bg-[#4D7C6F]/12', label: 'Reviewed' },
-  status_change:         { icon: 'arrow-right',   color: 'text-primary',    bg: 'bg-primary/12',   label: 'Status' },
-  welcome:               { icon: 'star',          color: 'text-primary',    bg: 'bg-primary/12',   label: 'Welcome' },
-  role_change:           { icon: 'shield',        color: 'text-tertiary',   bg: 'bg-tertiary/12',  label: 'Role' },
-  team_invite:           { icon: 'users',         color: 'text-secondary',  bg: 'bg-secondary/12', label: 'Team' },
+const extractDetectionName = (notification: UserNotification): string | null => {
+  if (!notification.message) return null;
+  const match = notification.message.match(/"([^"]+)"/);
+  return match ? match[1] : null;
 };
 
-const getConfig = (type: string) => NOTIFICATION_CONFIG[type] || { icon: 'bell', color: 'text-on-surface-variant', bg: 'bg-surface-container-highest', label: type };
+const NOTIFICATION_STYLES: Record<string, { icon: string; color: string; bg: string }> = {
+  publish_approved:       { icon: 'check',        color: 'text-[#4D7C6F]', bg: 'bg-[#4D7C6F]/10' },
+  publish_rejected:       { icon: 'x',            color: 'text-[#A63D40]', bg: 'bg-[#A63D40]/10' },
+  publish_approved_as_new:{ icon: 'plus',          color: 'text-secondary', bg: 'bg-secondary/10' },
+  publish_submitted:      { icon: 'send',          color: 'text-tertiary',  bg: 'bg-tertiary/10' },
+  assignment:             { icon: 'user-plus',     color: 'text-secondary', bg: 'bg-secondary/10' },
+  review_request:         { icon: 'eye',           color: 'text-tertiary',  bg: 'bg-tertiary/10' },
+  review_complete:        { icon: 'check-circle',  color: 'text-[#4D7C6F]', bg: 'bg-[#4D7C6F]/10' },
+  status_change:          { icon: 'arrow-right',   color: 'text-primary',   bg: 'bg-primary/10' },
+  welcome:                { icon: 'star',          color: 'text-primary',   bg: 'bg-primary/10' },
+  role_change:            { icon: 'shield',        color: 'text-tertiary',  bg: 'bg-tertiary/10' },
+  team_invite:            { icon: 'users',         color: 'text-secondary', bg: 'bg-secondary/10' },
+};
+
+const getStyle = (type: string) => NOTIFICATION_STYLES[type] || { icon: 'bell', color: 'text-on-surface-variant', bg: 'bg-surface-container-highest' };
 
 type FilterType = 'all' | 'unread' | 'approvals' | 'reviews' | 'activity';
 
@@ -70,132 +74,116 @@ export const NotificationsHub: React.FC<NotificationsHubProps> = ({ onNavigateTo
     { key: 'activity', label: 'Activity' },
   ];
 
-  // Group by date
-  const grouped = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    const groups: { label: string; items: UserNotification[] }[] = [];
-    const todayItems = filtered.filter(n => new Date(n.created_at) >= today);
-    const yesterdayItems = filtered.filter(n => { const d = new Date(n.created_at); return d >= yesterday && d < today; });
-    const olderItems = filtered.filter(n => new Date(n.created_at) < yesterday);
-
-    if (todayItems.length > 0) groups.push({ label: 'Today', items: todayItems });
-    if (yesterdayItems.length > 0) groups.push({ label: 'Yesterday', items: yesterdayItems });
-    if (olderItems.length > 0) groups.push({ label: 'Earlier', items: olderItems });
-    return groups;
-  }, [filtered]);
-
   return (
-    <div className="h-full overflow-y-auto scrollbar-minimal bg-background">
-      <div className="max-w-2xl mx-auto px-6 py-6">
-        {/* Filter bar — replaces duplicate header */}
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex gap-1 p-0.5 bg-surface-container rounded-lg">
-            {filters.map(f => (
-              <button
-                key={f.key}
-                onClick={() => setFilter(f.key)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                  filter === f.key
-                    ? 'bg-surface-container-highest text-on-surface shadow-sm'
-                    : 'text-on-surface-variant hover:text-on-surface'
-                }`}
-              >
-                {f.label}
-                {f.count !== undefined && f.count > 0 && (
-                  <span className="ml-1.5 px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-primary/15 text-primary">
-                    {f.count}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-          {unreadCount > 0 && (
+    <div className="h-full overflow-y-auto scrollbar-minimal bg-background p-6 md:p-8">
+      {/* Filter bar + actions — full width */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex gap-0.5 p-0.5 bg-surface-container rounded-lg">
+          {filters.map(f => (
             <button
-              onClick={markAllAsRead}
-              className="text-xs font-medium text-primary hover:bg-primary/10 px-3 py-1.5 rounded-lg transition-colors"
+              key={f.key}
+              onClick={() => setFilter(f.key)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-150 ${
+                filter === f.key
+                  ? 'bg-surface-container-highest text-on-surface shadow-sm'
+                  : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high/50'
+              }`}
             >
-              Mark all read
+              {f.label}
+              {f.count !== undefined && f.count > 0 && (
+                <span className="ml-1 text-[10px] font-bold text-primary">{f.count}</span>
+              )}
             </button>
-          )}
+          ))}
         </div>
-
-        {/* List */}
-        {isLoading ? (
-          <div className="flex items-center justify-center py-20">
-            <Icon name="spinner" className="w-5 h-5 text-primary animate-spin" />
-          </div>
-        ) : grouped.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant">
-            <Icon name="inbox" className="w-8 h-8 mb-2 opacity-20" />
-            <p className="text-sm font-medium opacity-70">
-              {filter === 'unread' ? 'All caught up' : 'No notifications'}
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {grouped.map(group => (
-              <div key={group.label}>
-                <p className="text-[11px] font-semibold text-on-surface-variant/60 uppercase tracking-wider mb-1.5 px-1">
-                  {group.label}
-                </p>
-                <div className="space-y-px rounded-xl overflow-hidden border border-outline-variant/10">
-                  {group.items.map(notification => {
-                    const config = getConfig(notification.type);
-                    const hasTarget = notification.action_url || notification.detection_id;
-                    return (
-                      <button
-                        key={notification.id}
-                        onClick={() => handleClick(notification)}
-                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
-                          !notification.is_read
-                            ? 'bg-primary/[0.04]'
-                            : 'bg-surface-container-low'
-                        } ${hasTarget ? 'hover:bg-surface-container cursor-pointer' : 'cursor-default'}`}
-                      >
-                        {/* Icon */}
-                        <div className={`flex-shrink-0 w-8 h-8 rounded-lg ${config.bg} flex items-center justify-center`}>
-                          <Icon name={config.icon} className={`w-4 h-4 ${config.color}`} />
-                        </div>
-
-                        {/* Content */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-baseline gap-2">
-                            <span className={`text-[13px] truncate ${!notification.is_read ? 'font-semibold text-on-surface' : 'text-on-surface/85'}`}>
-                              {notification.title}
-                            </span>
-                            <span className={`flex-shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded ${config.bg} ${config.color}`}>
-                              {config.label}
-                            </span>
-                          </div>
-                          {notification.message && (
-                            <p className="text-xs text-on-surface-variant mt-0.5 truncate">
-                              {notification.message}
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Time + unread */}
-                        <div className="flex-shrink-0 flex items-center gap-2">
-                          <span className="text-[11px] text-on-surface-variant/60 tabular-nums">
-                            {formatTimeAgo(notification.created_at)}
-                          </span>
-                          {!notification.is_read && (
-                            <div className="w-2 h-2 rounded-full bg-primary" />
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
+        {unreadCount > 0 && (
+          <button
+            onClick={markAllAsRead}
+            className="text-xs font-medium text-primary hover:bg-primary/10 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            Mark all read
+          </button>
         )}
       </div>
+
+      {/* Content — full width */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-24">
+          <Icon name="spinner" className="w-5 h-5 text-primary animate-spin" />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-24">
+          <div className="w-14 h-14 rounded-2xl bg-surface-container flex items-center justify-center mb-4">
+            <Icon name="inbox" className="w-7 h-7 text-on-surface-variant/30" />
+          </div>
+          <p className="text-sm font-medium text-on-surface/70">
+            {filter === 'unread' ? 'All caught up' : 'No notifications yet'}
+          </p>
+        </div>
+      ) : (
+        <div className="bg-surface-container-low rounded-2xl border border-outline-variant/10 overflow-hidden">
+          {/* Table header */}
+          <div className="grid grid-cols-[40px_1fr_180px_100px_80px] gap-3 px-4 py-2.5 border-b border-outline-variant/10 text-[11px] font-semibold text-on-surface-variant/50 uppercase tracking-wider">
+            <span />
+            <span>Detection</span>
+            <span>Action</span>
+            <span>Date</span>
+            <span className="text-right">Status</span>
+          </div>
+
+          {/* Rows */}
+          {filtered.map((notification, i) => {
+            const style = getStyle(notification.type);
+            const hasTarget = notification.action_url || notification.detection_id;
+            const detectionName = extractDetectionName(notification);
+
+            return (
+              <button
+                key={notification.id}
+                onClick={() => handleClick(notification)}
+                className={`w-full grid grid-cols-[40px_1fr_180px_100px_80px] gap-3 items-center px-4 py-3 text-left transition-colors ${
+                  i > 0 ? 'border-t border-outline-variant/5' : ''
+                } ${
+                  !notification.is_read
+                    ? 'bg-primary/[0.03]'
+                    : ''
+                } ${hasTarget ? 'hover:bg-surface-container cursor-pointer' : 'cursor-default'}`}
+              >
+                {/* Icon */}
+                <div className={`w-8 h-8 rounded-lg ${style.bg} flex items-center justify-center`}>
+                  <Icon name={style.icon} className={`w-4 h-4 ${style.color}`} />
+                </div>
+
+                {/* Detection name — primary column */}
+                <div className="min-w-0">
+                  <p className={`text-[13px] truncate ${!notification.is_read ? 'font-medium text-on-surface' : 'text-on-surface/75'}`}>
+                    {detectionName || notification.message || notification.title}
+                  </p>
+                </div>
+
+                {/* Action type */}
+                <span className={`text-[12px] ${style.color} truncate`}>
+                  {notification.title}
+                </span>
+
+                {/* Date */}
+                <span className="text-[12px] text-on-surface-variant/60 tabular-nums">
+                  {formatTimeAgo(notification.created_at)}
+                </span>
+
+                {/* Read status */}
+                <div className="flex justify-end">
+                  {!notification.is_read ? (
+                    <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">New</span>
+                  ) : (
+                    <span className="text-[10px] text-on-surface-variant/40">Read</span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
