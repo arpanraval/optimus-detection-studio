@@ -132,10 +132,15 @@ export const GlobalSearch: React.FC<GlobalSearchProps> = ({ detections, onNaviga
     <div className="relative w-full max-w-2xl group z-50" ref={searchRef}>
       <div className="relative">
         <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none">
-          <Icon name="search" className={`w-5 h-5 transition-colors ${isOpen ? 'text-primary' : 'text-on-surface-variant'}`} />
+          <Icon name="search" className={`w-5 h-5 transition-colors ${isOpen ? 'text-primary' : 'text-on-surface-variant'}`} aria-hidden="true" />
         </div>
         <input
           type="text"
+          role="combobox"
+          aria-expanded={isOpen && !!query.trim()}
+          aria-controls="global-search-results"
+          aria-autocomplete="list"
+          aria-label="Search detections, TTPs, groups, software"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -154,7 +159,7 @@ export const GlobalSearch: React.FC<GlobalSearchProps> = ({ detections, onNaviga
       </div>
 
       {isOpen && query.trim() && (
-        <div className="absolute top-full left-0 w-full mt-2 bg-surface-container-high rounded-2xl shadow-2xl border border-outline-variant/20 overflow-hidden max-h-[80vh] overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200">
+        <div id="global-search-results" role="listbox" className="absolute top-full left-0 w-full mt-2 bg-surface-container-high rounded-2xl shadow-2xl border border-outline-variant/20 overflow-hidden max-h-[80vh] overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200">
           {!hasResults && !isLoading ? (
             <div className="p-8 text-center text-on-surface-variant">
               <p>No results found for "{query}"</p>

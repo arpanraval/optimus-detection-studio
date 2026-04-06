@@ -10,12 +10,12 @@ export const ApprovalQueuePage: React.FC = () => {
   const navigate = useNavigate();
   const { profile } = useAppData();
 
-  if (!hasRoleLevel(profile?.role || 'analyst', 'admin')) {
+  if (!hasRoleLevel(profile?.role || 'analyst', 'lead')) {
     return (
       <div className="p-8">
-        <p className="text-error">Access Denied. Admin privileges required.</p>
+        <p className="text-error">Access Denied. Lead or Admin privileges required.</p>
         <button
-          onClick={() => navigate(ROUTES.DASHBOARD)}
+          onClick={() => navigate(ROUTES.COMMAND_CENTER)}
           className="mt-4 px-4 py-2 bg-primary text-on-primary rounded-lg"
         >
           Go to Dashboard
@@ -29,7 +29,7 @@ export const ApprovalQueuePage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Approval Queue" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
+    <PageErrorBoundary pageName="Approval Queue" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
       <AdminApprovalQueue onNavigateToDetection={handleNavigateToDetection} />
     </PageErrorBoundary>
   );

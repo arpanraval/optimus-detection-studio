@@ -54,23 +54,7 @@ CREATE OR REPLACE TRIGGER trg_user_dashboards_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_user_dashboards_updated_at();
 
--- workspace_detections: set updated_at on row update
-CREATE OR REPLACE TRIGGER workspace_detections_updated_at
-  BEFORE UPDATE ON public.workspace_detections
-  FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
-
--- workspace_members: set updated_at on row update
-CREATE OR REPLACE TRIGGER workspace_members_updated_at
-  BEFORE UPDATE ON public.workspace_members
-  FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
-
--- workspaces: set updated_at on row update
-CREATE OR REPLACE TRIGGER workspaces_updated_at
-  BEFORE UPDATE ON public.workspaces
-  FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
+-- Workspace triggers removed (feature deprecated)
 
 -- ============================================================
 -- Public schema triggers - full-text search

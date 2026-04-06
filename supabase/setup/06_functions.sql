@@ -856,6 +856,22 @@ BEGIN
   SET promotion_status = 'pending', "updatedDate" = now()
   WHERE id = p_detection_id;
 
+  -- Notify admin users about new publish request
+  INSERT INTO user_notifications (id, user_id, type, title, message, detection_id, action_url, category, source_user_id)
+  SELECT
+    gen_random_uuid(),
+    p2.id,
+    'publish_submitted',
+    'New Publish Request',
+    '"' || v_detection.name || '" submitted for production',
+    p_detection_id,
+    '/approval-queue',
+    'approval',
+    p_user_id
+  FROM profiles p2
+  WHERE p2.role IN ('admin', 'lead')
+    AND p2.id != p_user_id;
+
   RETURN json_build_object(
     'success', true,
     'request_id', v_request_id,
@@ -929,6 +945,22 @@ BEGIN
   UPDATE detections
   SET promotion_status = 'pending', "updatedDate" = now()
   WHERE id = p_detection_id;
+
+  -- Notify admin users about new publish request
+  INSERT INTO user_notifications (id, user_id, type, title, message, detection_id, action_url, category, source_user_id)
+  SELECT
+    gen_random_uuid(),
+    p2.id,
+    'publish_submitted',
+    'New Publish Request',
+    '"' || v_detection.name || '" submitted for production',
+    p_detection_id,
+    '/approval-queue',
+    'approval',
+    p_user_id
+  FROM profiles p2
+  WHERE p2.role IN ('admin', 'lead')
+    AND p2.id != p_user_id;
 
   RETURN json_build_object(
     'success', true,
@@ -1498,8 +1530,9 @@ CREATE OR REPLACE FUNCTION public.get_defensive_posture(p_user_id uuid, p_scope 
  RETURNS TABLE(total_detections bigint, techniques_covered bigint, total_techniques bigint, technique_coverage_pct numeric, groups_defended bigint, total_groups bigint, group_coverage_pct numeric, campaigns_defended bigint, total_campaigns bigint, campaign_coverage_pct numeric, avg_taw_covered numeric, top_gaps jsonb)
  LANGUAGE sql
  STABLE
+ SECURITY DEFINER
 AS $function$
-  WITH user_techniques AS (
+  WITH user_techniques AS MATERIALIZED (
     -- Get all unique MITRE technique IDs from user's detections
     SELECT DISTINCT unnest(d."mitreAttackIds") AS technique_id
     FROM detections d
@@ -1509,18 +1542,18 @@ AS $function$
       CASE p_scope
         WHEN 'production' THEN d.library_type = 'production' AND d.user_id = p_user_id
         WHEN 'lab' THEN d.library_type = 'development'
-        WHEN 'all' THEN d.library_type = 'production' AND d.user_id = p_user_id OR d.library_type = 'development'
+        WHEN 'all' THEN (d.library_type = 'production' AND d.user_id = p_user_id) OR d.library_type = 'development'
         ELSE d.library_type = 'production' AND d.user_id = p_user_id
       END
     )
   ),
-  covered_techniques AS (
+  covered_techniques AS MATERIALIZED (
     -- Map technique IDs to stix_ids
     SELECT DISTINCT ti.stix_id, ti.mitre_id, ti.name, ti.tis
     FROM user_techniques ut
     JOIN mv_technique_importance ti ON ti.mitre_id = ut.technique_id
   ),
-  detection_count AS (
+  detection_count AS MATERIALIZED (
     SELECT COUNT(*) AS cnt
     FROM detections d
     WHERE d."mitreAttackIds" IS NOT NULL
@@ -1528,29 +1561,29 @@ AS $function$
       CASE p_scope
         WHEN 'production' THEN d.library_type = 'production' AND d.user_id = p_user_id
         WHEN 'lab' THEN d.library_type = 'development'
-        WHEN 'all' THEN d.library_type = 'production' AND d.user_id = p_user_id OR d.library_type = 'development'
+        WHEN 'all' THEN (d.library_type = 'production' AND d.user_id = p_user_id) OR d.library_type = 'development'
         ELSE d.library_type = 'production' AND d.user_id = p_user_id
       END
     )
   ),
-  snapshot AS (
+  snapshot AS MATERIALIZED (
     SELECT * FROM mitre_scoring_snapshot WHERE is_active = true LIMIT 1
   ),
   -- Groups defended: groups that use techniques we detect
-  defended_groups AS (
+  defended_groups AS MATERIALIZED (
     SELECT DISTINCT gt.group_stix_id, taw.taw
     FROM covered_techniques ct
     JOIN mitre_group_techniques gt ON gt.technique_stix_id = ct.stix_id
     JOIN mv_threat_actor_weights taw ON taw.stix_id = gt.group_stix_id
   ),
   -- Campaigns defended: campaigns that use techniques we detect
-  defended_campaigns AS (
+  defended_campaigns AS MATERIALIZED (
     SELECT DISTINCT ct_camp.campaign_stix_id
     FROM covered_techniques ct
     JOIN mitre_campaign_techniques ct_camp ON ct_camp.technique_stix_id = ct.stix_id
   ),
   -- Top gaps: high-TIS techniques without detection coverage
-  technique_gaps AS (
+  technique_gaps AS MATERIALIZED (
     SELECT
       ti.mitre_id,
       ti.name,
@@ -2440,431 +2473,7 @@ end;
 $function$;
 
 
--- ============================================================
--- WORKSPACE OPERATIONS
--- ============================================================
-
--- Create a new workspace
-CREATE OR REPLACE FUNCTION public.create_workspace(p_name text, p_slug text, p_description text DEFAULT NULL::text, p_icon text DEFAULT '🏢'::text, p_type text DEFAULT 'team'::text)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-DECLARE
-  v_workspace_id uuid;
-  v_user_id uuid := auth.uid();
-BEGIN
-  IF EXISTS (SELECT 1 FROM workspaces WHERE slug = p_slug) THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Workspace slug already exists');
-  END IF;
-
-  INSERT INTO workspaces (name, slug, description, icon, type, created_by)
-  VALUES (p_name, p_slug, p_description, p_icon, p_type, v_user_id)
-  RETURNING id INTO v_workspace_id;
-
-  INSERT INTO workspace_members (workspace_id, user_id, role, status, accepted_at)
-  VALUES (v_workspace_id, v_user_id, 'owner', 'active', now());
-
-  INSERT INTO workspace_activity_log (workspace_id, user_id, action, entity_type, entity_id, details)
-  VALUES (v_workspace_id, v_user_id, 'workspace_created', 'workspace', v_workspace_id::text,
-          jsonb_build_object('name', p_name, 'slug', p_slug));
-
-  RETURN jsonb_build_object('success', true, 'workspace_id', v_workspace_id, 'slug', p_slug);
-END;
-$function$;
-
--- Get all workspaces for a user
-CREATE OR REPLACE FUNCTION public.get_user_workspaces(p_user_id uuid DEFAULT auth.uid())
- RETURNS TABLE(workspace_id uuid, name text, slug text, description text, icon text, type text, user_role text, member_count bigint, detection_count bigint)
- LANGUAGE plpgsql
- STABLE SECURITY DEFINER
-AS $function$
-BEGIN
-  RETURN QUERY
-  SELECT
-    w.id as workspace_id,
-    w.name,
-    w.slug,
-    w.description,
-    w.icon,
-    w.type,
-    wm.role as user_role,
-    (SELECT count(*) FROM workspace_members wm2 WHERE wm2.workspace_id = w.id AND wm2.status = 'active') as member_count,
-    (SELECT count(*) FROM workspace_detections wd WHERE wd.workspace_id = w.id) as detection_count
-  FROM workspaces w
-  JOIN workspace_members wm ON wm.workspace_id = w.id
-  WHERE wm.user_id = p_user_id
-  AND wm.status = 'active'
-  ORDER BY w.name;
-END;
-$function$;
-
--- Get workspace role for a user
-CREATE OR REPLACE FUNCTION public.get_workspace_role(p_workspace_id uuid, p_user_id uuid DEFAULT auth.uid())
- RETURNS text
- LANGUAGE plpgsql
- STABLE SECURITY DEFINER
-AS $function$
-DECLARE
-  v_role text;
-BEGIN
-  SELECT role INTO v_role
-  FROM workspace_members
-  WHERE workspace_id = p_workspace_id
-  AND user_id = p_user_id
-  AND status = 'active';
-
-  RETURN v_role;
-END;
-$function$;
-
--- Check if user has one of the specified workspace roles
-CREATE OR REPLACE FUNCTION public.has_workspace_role(p_workspace_id uuid, p_roles text[], p_user_id uuid DEFAULT auth.uid())
- RETURNS boolean
- LANGUAGE plpgsql
- STABLE SECURITY DEFINER
-AS $function$
-BEGIN
-  RETURN EXISTS (
-    SELECT 1 FROM workspace_members
-    WHERE workspace_id = p_workspace_id
-    AND user_id = p_user_id
-    AND role = ANY(p_roles)
-    AND status = 'active'
-  );
-END;
-$function$;
-
--- Check if user is a member of a workspace
-CREATE OR REPLACE FUNCTION public.is_workspace_member(p_workspace_id uuid, p_user_id uuid DEFAULT auth.uid())
- RETURNS boolean
- LANGUAGE plpgsql
- STABLE SECURITY DEFINER
-AS $function$
-BEGIN
-  RETURN EXISTS (
-    SELECT 1 FROM workspace_members
-    WHERE workspace_id = p_workspace_id
-    AND user_id = p_user_id
-    AND status = 'active'
-  );
-END;
-$function$;
-
--- Get workspace statistics
-CREATE OR REPLACE FUNCTION public.get_workspace_stats(p_workspace_id uuid)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-DECLARE
-  v_stats jsonb;
-BEGIN
-  SELECT jsonb_build_object(
-    'total_detections', count(*),
-    'synced', count(*) FILTER (WHERE sync_status = 'synced'),
-    'outdated', count(*) FILTER (WHERE sync_status = 'outdated'),
-    'modified', count(*) FILTER (WHERE sync_status = 'modified'),
-    'diverged', count(*) FILTER (WHERE sync_status = 'diverged'),
-    'pending_deployment', count(*) FILTER (WHERE deployment_status = 'pending'),
-    'deployed', count(*) FILTER (WHERE deployment_status = 'deployed'),
-    'pending_review', count(*) FILTER (WHERE review_status IN ('requested', 'in_review')),
-    'unassigned', count(*) FILTER (WHERE assigned_to IS NULL)
-  ) INTO v_stats FROM workspace_detections WHERE workspace_id = p_workspace_id;
-
-  v_stats := v_stats || jsonb_build_object(
-    'member_count', (SELECT count(*) FROM workspace_members WHERE workspace_id = p_workspace_id AND status = 'active'),
-    'updates_available', (SELECT count(*) FROM workspace_detections wd JOIN detections d ON d.id = wd.detection_id WHERE wd.workspace_id = p_workspace_id AND d.version > wd.universal_version)
-  );
-
-  RETURN v_stats;
-END;
-$function$;
-
--- Add a detection to a workspace
-CREATE OR REPLACE FUNCTION public.add_detection_to_workspace(p_workspace_id uuid, p_detection_id text, p_user_id uuid DEFAULT auth.uid())
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-DECLARE
-  v_detection record;
-  v_result_id uuid;
-BEGIN
-  IF NOT has_workspace_role(p_workspace_id, ARRAY['owner', 'admin', 'lead', 'analyst'], p_user_id) THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Permission denied');
-  END IF;
-
-  SELECT id, version, name, library_type INTO v_detection
-  FROM detections WHERE id = p_detection_id;
-
-  IF NOT FOUND THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Detection not found');
-  END IF;
-
-  IF v_detection.library_type != 'production' THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Only Production Library detections can be added to workspaces');
-  END IF;
-
-  IF EXISTS (SELECT 1 FROM workspace_detections WHERE workspace_id = p_workspace_id AND detection_id = p_detection_id) THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Detection already in workspace');
-  END IF;
-
-  INSERT INTO workspace_detections (workspace_id, detection_id, universal_version, added_by, sync_status)
-  VALUES (p_workspace_id, p_detection_id, v_detection.version, p_user_id, 'synced')
-  RETURNING id INTO v_result_id;
-
-  INSERT INTO workspace_activity_log (workspace_id, user_id, action, entity_type, entity_id, details)
-  VALUES (p_workspace_id, p_user_id, 'detection_added', 'detection', p_detection_id,
-          jsonb_build_object('detection_name', v_detection.name, 'version', v_detection.version));
-
-  RETURN jsonb_build_object('success', true, 'id', v_result_id);
-END;
-$function$;
-
--- Bulk add detections to a workspace
-CREATE OR REPLACE FUNCTION public.bulk_add_detections_to_workspace(p_workspace_id uuid, p_detection_ids text[], p_user_id uuid DEFAULT auth.uid())
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-DECLARE
-  v_detection_id text;
-  v_added int := 0;
-  v_skipped int := 0;
-  v_errors text[] := '{}';
-BEGIN
-  IF NOT has_workspace_role(p_workspace_id, ARRAY['owner', 'admin', 'lead', 'analyst'], p_user_id) THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Permission denied');
-  END IF;
-
-  FOREACH v_detection_id IN ARRAY p_detection_ids LOOP
-    BEGIN
-      IF NOT EXISTS (SELECT 1 FROM detections WHERE id = v_detection_id AND library_type = 'production') THEN
-        v_skipped := v_skipped + 1;
-        v_errors := array_append(v_errors, format('%s: not in Production Library', v_detection_id));
-        CONTINUE;
-      END IF;
-
-      IF EXISTS (SELECT 1 FROM workspace_detections WHERE workspace_id = p_workspace_id AND detection_id = v_detection_id) THEN
-        v_skipped := v_skipped + 1;
-        CONTINUE;
-      END IF;
-
-      INSERT INTO workspace_detections (workspace_id, detection_id, universal_version, added_by)
-      SELECT p_workspace_id, v_detection_id, version, p_user_id FROM detections WHERE id = v_detection_id;
-
-      v_added := v_added + 1;
-    EXCEPTION WHEN OTHERS THEN
-      v_skipped := v_skipped + 1;
-      v_errors := array_append(v_errors, format('%s: %s', v_detection_id, SQLERRM));
-    END;
-  END LOOP;
-
-  IF v_added > 0 THEN
-    INSERT INTO workspace_activity_log (workspace_id, user_id, action, entity_type, details)
-    VALUES (p_workspace_id, p_user_id, 'bulk_detection_added', 'detection', jsonb_build_object('count', v_added, 'skipped', v_skipped));
-  END IF;
-
-  RETURN jsonb_build_object('success', true, 'added', v_added, 'skipped', v_skipped, 'errors', v_errors);
-END;
-$function$;
-
--- Remove a detection from a workspace
-CREATE OR REPLACE FUNCTION public.remove_detection_from_workspace(p_workspace_id uuid, p_detection_id text, p_user_id uuid DEFAULT auth.uid())
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-DECLARE
-  v_detection_name text;
-BEGIN
-  IF NOT has_workspace_role(p_workspace_id, ARRAY['owner', 'admin', 'lead'], p_user_id) THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Permission denied. Lead role or above required.');
-  END IF;
-
-  SELECT d.name INTO v_detection_name
-  FROM workspace_detections wd
-  JOIN detections d ON d.id = wd.detection_id
-  WHERE wd.workspace_id = p_workspace_id AND wd.detection_id = p_detection_id;
-
-  IF NOT FOUND THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Detection not found in workspace');
-  END IF;
-
-  DELETE FROM workspace_detections
-  WHERE workspace_id = p_workspace_id AND detection_id = p_detection_id;
-
-  INSERT INTO workspace_activity_log (workspace_id, user_id, action, entity_type, entity_id, details)
-  VALUES (p_workspace_id, p_user_id, 'detection_removed', 'detection', p_detection_id,
-          jsonb_build_object('detection_name', v_detection_name));
-
-  RETURN jsonb_build_object('success', true);
-END;
-$function$;
-
--- Save workspace-specific overrides for a detection
-CREATE OR REPLACE FUNCTION public.save_workspace_override(p_workspace_id uuid, p_detection_id text, p_overrides jsonb, p_user_id uuid DEFAULT auth.uid())
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-BEGIN
-  IF NOT has_workspace_role(p_workspace_id, ARRAY['owner', 'admin', 'lead', 'analyst'], p_user_id) THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Permission denied');
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM workspace_detections WHERE workspace_id = p_workspace_id AND detection_id = p_detection_id) THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Detection not found in workspace');
-  END IF;
-
-  UPDATE workspace_detections SET
-    overrides = CASE WHEN p_overrides = '{}'::jsonb THEN NULL ELSE p_overrides END,
-    local_version = local_version + 1,
-    sync_status = CASE WHEN p_overrides IS NULL OR p_overrides = '{}'::jsonb THEN 'synced' ELSE 'modified' END,
-    updated_at = now()
-  WHERE workspace_id = p_workspace_id AND detection_id = p_detection_id;
-
-  INSERT INTO workspace_activity_log (workspace_id, user_id, action, entity_type, entity_id, details)
-  VALUES (p_workspace_id, p_user_id, 'override_saved', 'detection', p_detection_id,
-          jsonb_build_object('fields_modified', (SELECT array_agg(key) FROM jsonb_object_keys(p_overrides) AS key)));
-
-  RETURN jsonb_build_object('success', true);
-END;
-$function$;
-
--- Get a workspace detection with overrides applied
-CREATE OR REPLACE FUNCTION public.get_workspace_detection_with_overrides(p_workspace_id uuid, p_detection_id text)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-DECLARE
-  v_detection jsonb;
-  v_overrides jsonb;
-  v_workspace_data jsonb;
-BEGIN
-  SELECT to_jsonb(d.*) INTO v_detection FROM detections d WHERE d.id = p_detection_id AND d.library_type = 'production';
-  IF v_detection IS NULL THEN RETURN NULL; END IF;
-
-  SELECT jsonb_build_object(
-    'workspace_detection_id', wd.id, 'workspace_id', wd.workspace_id, 'universal_version', wd.universal_version,
-    'local_version', wd.local_version, 'sync_status', wd.sync_status, 'deployment_status', wd.deployment_status,
-    'deployed_at', wd.deployed_at, 'deployed_to', wd.deployed_to, 'assigned_to', wd.assigned_to,
-    'review_status', wd.review_status, 'added_at', wd.added_at
-  ), wd.overrides INTO v_workspace_data, v_overrides
-  FROM workspace_detections wd WHERE wd.workspace_id = p_workspace_id AND wd.detection_id = p_detection_id;
-
-  IF v_workspace_data IS NULL THEN RETURN NULL; END IF;
-
-  RETURN v_detection || COALESCE(v_overrides, '{}'::jsonb) || jsonb_build_object('_workspace', v_workspace_data);
-END;
-$function$;
-
--- Check which workspace detections have updates available
-CREATE OR REPLACE FUNCTION public.check_workspace_updates(p_workspace_id uuid)
- RETURNS TABLE(workspace_detection_id uuid, detection_id text, detection_name text, current_version integer, universal_version integer, sync_status text, has_overrides boolean)
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-BEGIN
-  RETURN QUERY
-  SELECT
-    wd.id as workspace_detection_id,
-    wd.detection_id,
-    d.name as detection_name,
-    wd.universal_version as current_version,
-    d.version as universal_version,
-    CASE
-      WHEN wd.overrides IS NOT NULL AND d.version > wd.universal_version THEN 'diverged'
-      WHEN d.version > wd.universal_version THEN 'outdated'
-      WHEN wd.overrides IS NOT NULL THEN 'modified'
-      ELSE 'synced'
-    END as sync_status,
-    (wd.overrides IS NOT NULL) as has_overrides
-  FROM workspace_detections wd
-  JOIN detections d ON d.id = wd.detection_id
-  WHERE wd.workspace_id = p_workspace_id
-  ORDER BY CASE WHEN d.version > wd.universal_version THEN 0 ELSE 1 END, d.name;
-END;
-$function$;
-
--- Pull a single workspace detection update from universal
-CREATE OR REPLACE FUNCTION public.pull_workspace_update(p_workspace_id uuid, p_detection_id text, p_keep_overrides boolean DEFAULT false, p_user_id uuid DEFAULT auth.uid())
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-DECLARE
-  v_universal_version int;
-  v_detection_name text;
-  v_old_version int;
-BEGIN
-  IF NOT has_workspace_role(p_workspace_id, ARRAY['owner', 'admin', 'lead'], p_user_id) THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Permission denied. Lead role or above required.');
-  END IF;
-
-  SELECT wd.universal_version INTO v_old_version
-  FROM workspace_detections wd
-  WHERE wd.workspace_id = p_workspace_id AND wd.detection_id = p_detection_id;
-
-  IF NOT FOUND THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Detection not found in workspace');
-  END IF;
-
-  SELECT version, name INTO v_universal_version, v_detection_name
-  FROM detections WHERE id = p_detection_id;
-
-  UPDATE workspace_detections SET
-    universal_version = v_universal_version,
-    sync_status = CASE WHEN p_keep_overrides AND overrides IS NOT NULL THEN 'modified' ELSE 'synced' END,
-    overrides = CASE WHEN p_keep_overrides THEN overrides ELSE NULL END,
-    last_synced_at = now(),
-    updated_at = now()
-  WHERE workspace_id = p_workspace_id AND detection_id = p_detection_id;
-
-  INSERT INTO workspace_activity_log (workspace_id, user_id, action, entity_type, entity_id, details)
-  VALUES (p_workspace_id, p_user_id, 'update_pulled', 'detection', p_detection_id,
-          jsonb_build_object('detection_name', v_detection_name, 'old_version', v_old_version, 'new_version', v_universal_version, 'kept_overrides', p_keep_overrides));
-
-  RETURN jsonb_build_object('success', true, 'old_version', v_old_version, 'new_version', v_universal_version);
-END;
-$function$;
-
--- Bulk pull all workspace detection updates from universal
-CREATE OR REPLACE FUNCTION public.bulk_pull_workspace_updates(p_workspace_id uuid, p_keep_overrides boolean DEFAULT false, p_user_id uuid DEFAULT auth.uid())
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-DECLARE
-  v_updated int := 0;
-BEGIN
-  IF NOT has_workspace_role(p_workspace_id, ARRAY['owner', 'admin'], p_user_id) THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Permission denied. Admin role required.');
-  END IF;
-
-  WITH updates AS (
-    UPDATE workspace_detections wd SET
-      universal_version = d.version,
-      sync_status = CASE WHEN p_keep_overrides AND wd.overrides IS NOT NULL THEN 'modified' ELSE 'synced' END,
-      overrides = CASE WHEN p_keep_overrides THEN wd.overrides ELSE NULL END,
-      last_synced_at = now(),
-      updated_at = now()
-    FROM detections d
-    WHERE wd.workspace_id = p_workspace_id AND wd.detection_id = d.id AND d.version > wd.universal_version
-    RETURNING wd.id
-  )
-  SELECT count(*) INTO v_updated FROM updates;
-
-  IF v_updated > 0 THEN
-    INSERT INTO workspace_activity_log (workspace_id, user_id, action, entity_type, details)
-    VALUES (p_workspace_id, p_user_id, 'bulk_update_pulled', 'detection', jsonb_build_object('count', v_updated, 'kept_overrides', p_keep_overrides));
-  END IF;
-
-  RETURN jsonb_build_object('success', true, 'updated', v_updated);
-END;
-$function$;
+-- Workspace functions removed (feature deprecated)
 
 
 -- ============================================================

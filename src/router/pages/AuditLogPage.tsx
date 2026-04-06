@@ -8,7 +8,7 @@ export const AuditLogPage: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <PageErrorBoundary pageName="Audit Log" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
+    <PageErrorBoundary pageName="Audit Log" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
       <AuditLogPageComponent />
     </PageErrorBoundary>
   );

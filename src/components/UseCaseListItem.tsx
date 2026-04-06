@@ -104,7 +104,7 @@ export const UseCaseListItem: React.FC<UseCaseListItemProps> = ({
 
       case 'name':
         return (
-          <span className="text-sm text-on-surface font-medium truncate">
+          <span className="text-sm text-on-surface font-medium truncate" title={detection.name}>
             {detection.name}
           </span>
         );
@@ -147,7 +147,7 @@ export const UseCaseListItem: React.FC<UseCaseListItemProps> = ({
 
       case 'author':
         return (
-          <span className="text-sm text-on-surface-variant truncate">
+          <span className="text-sm text-on-surface-variant truncate" title={detection.author || '-'}>
             {detection.author || '-'}
           </span>
         );

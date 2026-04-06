@@ -1,5 +1,5 @@
 import type { Detection, ReviewRequestStatus } from './detection';
-import type { Profile, Team } from './user';
+import type { Profile } from './user';
 
 // ============================================
 // ASSIGNMENT TYPES
@@ -148,7 +148,6 @@ export interface ActivityLogEntry {
   created_at: string;
   // Joined fields
   user?: Profile;
-  team?: Team;
 }
 
 // ============================================

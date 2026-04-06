@@ -344,6 +344,13 @@ export interface ThreatIntelSession {
   // Actions taken
   createdDetectionIds: string[];
   updatedEntities: UpdatedEntityRecord[];
+
+  // Auto-digest provenance & feasibility (populated from DB for auto-digested reports)
+  source?: 'manual' | 'auto';
+  sourceFeedName?: string;
+  sourceArticleUrl?: string;
+  feasibleGapCount?: number;
+  infeasibleGapCount?: number;
 }
 
 export interface UpdatedEntityRecord {
@@ -367,6 +374,15 @@ export interface ThreatIntelSessionSummary {
   attribution?: string;
   organization?: string;
   coveragePercent?: number;
+  source?: 'manual' | 'auto';
+  sourceFeedName?: string;
+  sourceArticleUrl?: string;
+  reviewStatus?: 'pending' | 'reviewed' | 'actioned' | 'deferred' | 'dismissed';
+  reviewNote?: string;
+  relevanceScore?: number;
+  feasibleGapCount?: number;
+  infeasibleGapCount?: number;
+  campaignId?: string;
 }
 
 // ============================================

@@ -4,7 +4,6 @@ export * from './rbac';
 export * from './detection';
 export * from './user';
 export * from './workflow';
-export * from './workspace';
 export * from './integration';
 export * from './ui-config';
 export * from './environment';

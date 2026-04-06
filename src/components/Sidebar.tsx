@@ -7,7 +7,7 @@ import { useTheme } from '../context/ThemeContext';
 import { viewToRoute, ROUTES } from '../router/routes';
 import { readDashboardSummaries } from './dashboard/enterprise/dashboardPersistence';
 
-type View = 'dashboard' | 'command-center' | 'dashboard-classic' | 'intel-globe' | 'library' | 'detail' | 'form' | 'mitre' | 'coverage' | 'groups' | 'group-detail' | 'software' | 'software-detail' | 'campaigns' | 'campaign-detail' | 'mitigations' | 'mitigation-detail' | 'detection-strategies' | 'strategy-detail' | 'users' | 'add_selection' | 'sigma_converter' | 'ai_query_gen' | 'ai_agent' | 'bulk_import' | 'integrations' | 'approval_queue' | 'my_submissions' | 'account_settings' | 'mitre_data_sync' | 'packs' | 'pack-detail' | 'workspaces' | 'workspace-detail' | 'defensive-posture' | 'scoring_settings' | 'threat-intel' | 'threat-intel-feeds' | 'analysis-reports' | 'siem-health' | 'design-system' | 'design-system-buttons' | 'design-system-inputs' | 'design-system-badges' | 'design-system-cards' | 'design-system-navigation' | 'design-system-modals' | 'design-system-dropdowns' | 'design-system-loading' | 'design-system-misc' | 'design-system-colors' | 'design-system-bulk-import' | 'design-system-logo' | 'design-system-ai-chat-cards' | 'audit_log' | 'environment_profile' | 'pipeline' | 'detection-board' | 'onboarding' | 'action_plan' | 'exercises-state-sponsored';
+type View = 'dashboard' | 'command-center' | 'library' | 'detail' | 'form' | 'mitre' | 'coverage' | 'groups' | 'group-detail' | 'software' | 'software-detail' | 'campaigns' | 'campaign-detail' | 'mitigations' | 'mitigation-detail' | 'detection-strategies' | 'strategy-detail' | 'users' | 'add_selection' | 'sigma_converter' | 'ai_query_gen' | 'ai_agent' | 'bulk_import' | 'integrations' | 'approval_queue' | 'my_submissions' | 'account_settings' | 'mitre_data_sync' | 'packs' | 'pack-detail' | 'defensive-posture' | 'scoring_settings' | 'threat-intel' | 'threat-intel-feeds' | 'analysis-reports' | 'siem-health' | 'design-system' | 'design-system-buttons' | 'design-system-inputs' | 'design-system-badges' | 'design-system-cards' | 'design-system-navigation' | 'design-system-modals' | 'design-system-dropdowns' | 'design-system-loading' | 'design-system-misc' | 'design-system-colors' | 'design-system-bulk-import' | 'design-system-logo' | 'design-system-ai-chat-cards' | 'audit_log' | 'environment_profile' | 'intelligence_sources' | 'pipeline' | 'detection-board' | 'onboarding' | 'action_plan' | 'exercises-state-sponsored';
 
 // Avatar colors
 const AVATAR_COLORS = [
@@ -245,7 +245,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Logo */}
         <div className="flex items-center justify-center pt-3 pb-5">
           <Link
-            to={ROUTES.DASHBOARD}
+            to={ROUTES.COMMAND_CENTER}
             className="cursor-pointer group no-underline text-inherit flex items-center justify-center"
             onClick={(e) => { if (!(e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1)) { onNavigate('dashboard'); setExpandedSection(null); } }}
           >
@@ -268,9 +268,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onClick={(e) => {
                     if (section.id === 'new-detection') {
                       e.preventDefault();
-                      onNewDetection();
+                      handleMobileNewDetection();
                     } else if (!isModifiedClick(e)) {
                       handleRailClick(section);
+                      onMobileToggle?.();
                     }
                   }}
                   onMouseEnter={() => handleRailItemHover(section)}
@@ -451,7 +452,6 @@ function isItemActive(itemId: View, currentView: View, itemUrl?: string, pathnam
   if (itemId === 'mitigations' && currentView === 'mitigation-detail') return true;
   if (itemId === 'detection-strategies' && currentView === 'strategy-detail') return true;
   if (itemId === 'packs' && currentView === 'pack-detail') return true;
-  if (itemId === 'workspaces' && currentView === 'workspace-detail') return true;
   if (itemId === 'add_selection' && currentView === 'form') return true;
   return false;
 }
@@ -472,8 +472,6 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
           label: d.name,
           url: `/dashboard/enterprise/${d.id}`,
         })),
-        { id: 'dashboard-classic' as View, label: 'Classic Dashboard' },
-        { id: 'intel-globe' as View, label: 'Intel Globe' },
       ],
       activeClass: 'bg-secondary-container text-on-secondary-container',
     },
@@ -492,7 +490,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
       icon: 'library',
       items: [
         { id: 'library' as View, label: 'Detection Library' },
-        { id: 'detection-board' as View, label: 'Detection Board', url: '/library/board' },
+        { id: 'detection-board' as View, label: 'Detection Board', url: ROUTES.DETECTION_BOARD },
         { id: 'packs' as View, label: 'Detection Packs' },
         { id: 'onboarding' as View, label: 'Detection Onboarding' },
         ...(isAdmin ? [{ id: 'approval_queue' as View, label: 'Approval Queue', badge: pendingCount }] : []),
@@ -512,7 +510,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
       label: 'Exercises',
       icon: 'crosshairs',
       items: [
-        { id: 'exercises-state-sponsored' as View, label: 'State Sponsored Attack', url: '/exercises/state-sponsored' },
+        { id: 'exercises-state-sponsored' as View, label: 'State Sponsored Attack', url: ROUTES.EXERCISES_STATE_SPONSORED },
       ],
       activeClass: 'bg-[#3a1a1a] text-red-200',
     },
@@ -530,7 +528,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
         { id: 'software' as View, label: 'Software' },
         { id: 'mitigations' as View, label: 'Mitigations' },
         { id: 'threat-intel' as View, label: 'Intelligence Reports' },
-        { id: 'threat-intel-feeds' as View, label: 'Feeds' },
+        { id: 'intelligence_sources' as View, label: 'Auto-Digest Sources', url: ROUTES.INTELLIGENCE_SOURCES },
         { id: 'analysis-reports' as View, label: 'Analysis Reports' },
       ],
       activeClass: 'bg-[#1a3a3a] text-teal-200',
@@ -554,7 +552,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
       icon: 'settings',
       items: [
         { id: 'integrations' as View, label: 'Integrations' },
-        { id: 'siem-health' as View, label: 'SIEM Home', url: '/siem' },
+        { id: 'siem-health' as View, label: 'SIEM Home', url: ROUTES.SIEM_HEALTH },
         { id: 'environment_profile' as View, label: 'Environment' },
         { id: 'scoring_settings' as View, label: 'Defense Impact Intelligence' },
         ...(isAdmin ? [{ id: 'users' as View, label: 'User Management' }] : []),

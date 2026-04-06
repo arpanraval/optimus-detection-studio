@@ -4,15 +4,9 @@ export const ROUTES = {
   // Command Center (new default)
   COMMAND_CENTER: '/',
 
-  // Dashboard (classic)
-  DASHBOARD: '/dashboard/classic',
-
   // Enterprise Dashboard
   ENTERPRISE_DASHBOARD: '/dashboard/enterprise',
   ENTERPRISE_DASHBOARD_DETAIL: '/dashboard/enterprise/:dashboardId',
-
-  // Intelligence Globe
-  INTEL_GLOBE: '/dashboard/globe',
 
   // Detection Library
   LIBRARY: '/library',
@@ -23,10 +17,6 @@ export const ROUTES = {
   // Detection Packs
   PACKS: '/packs',
   PACK_DETAIL: '/packs/:id',
-
-  // Workspaces
-  WORKSPACES: '/workspaces',
-  WORKSPACE_DETAIL: '/workspaces/:id',
 
   // Intelligence
   MITRE_MATRIX: '/intelligence/mitre',
@@ -44,6 +34,7 @@ export const ROUTES = {
   MITIGATION_DETAIL: '/intelligence/mitigations/:id',
   THREAT_INTEL: '/intelligence/threat-digest',
   THREAT_INTEL_DETAIL: '/intelligence/threat-digest/:id',
+  CAMPAIGN_DIGEST_DETAIL: '/intelligence/threat-digest/campaign/:id',
   THREAT_INTEL_FEEDS: '/intelligence/feeds',
   REPORTS: '/intelligence/reports',
   REPORT_DETAIL: '/intelligence/reports/:id',
@@ -76,6 +67,7 @@ export const ROUTES = {
   MITRE_SYNC: '/settings/mitre-sync',
   AUDIT_LOG: '/settings/audit-log',
   ENVIRONMENT_PROFILE: '/settings/environment',
+  INTELLIGENCE_SOURCES: '/settings/intelligence',
 
   // SIEM Home
   SIEM_HEALTH: '/siem',
@@ -85,6 +77,7 @@ export const ROUTES = {
   ACCOUNT: '/account',
   SUBMISSIONS: '/submissions',
   APPROVAL_QUEUE: '/approval-queue',
+  NOTIFICATIONS: '/notifications',
 
   // Search
   SEARCH: '/search',
@@ -119,13 +112,13 @@ export const routeHelpers = {
   detectionDetail: (id: string) => `/library/detections/${id}`,
   detectionEdit: (id: string) => `/library/detections/${id}/edit`,
   packDetail: (id: string) => `/packs/${id}`,
-  workspaceDetail: (id: string) => `/workspaces/${id}`,
   strategyDetail: (id: string) => `/intelligence/strategies/${id}`,
   groupDetail: (id: string) => `/intelligence/groups/${id}`,
   softwareDetail: (id: string) => `/intelligence/software/${id}`,
   campaignDetail: (id: string) => `/intelligence/campaigns/${id}`,
   mitigationDetail: (id: string) => `/intelligence/mitigations/${id}`,
   threatIntelDetail: (id: string) => `/intelligence/threat-digest/${id}`,
+  campaignDigestDetail: (id: string) => `/intelligence/threat-digest/campaign/${id}`,
   reportDetail: (id: string) => `/intelligence/reports/${id}`,
   integrationDetail: (id: string) => `/settings/integrations/${id}`,
   siemHome: (id: string) => `/siem/${id}`,
@@ -141,9 +134,7 @@ export const routeHelpers = {
 export const viewToRoute: Record<string, string> = {
   'dashboard': ROUTES.COMMAND_CENTER,
   'command-center': ROUTES.COMMAND_CENTER,
-  'dashboard-classic': ROUTES.DASHBOARD,
   'enterprise-dashboard': ROUTES.ENTERPRISE_DASHBOARD,
-  'intel-globe': ROUTES.INTEL_GLOBE,
   'library': ROUTES.LIBRARY,
   'detail': ROUTES.DETECTION_DETAIL,
   'form': ROUTES.DETECTION_NEW,
@@ -165,8 +156,6 @@ export const viewToRoute: Record<string, string> = {
   'analysis-reports': ROUTES.REPORTS,
   'packs': ROUTES.PACKS,
   'pack-detail': ROUTES.PACK_DETAIL,
-  'workspaces': ROUTES.WORKSPACES,
-  'workspace-detail': ROUTES.WORKSPACE_DETAIL,
   'sigma_converter': ROUTES.SIGMA_CONVERTER,
   'ai_query_gen': ROUTES.AI_QUERY,
   'ai_agent': ROUTES.OPTIMUS,
@@ -178,6 +167,7 @@ export const viewToRoute: Record<string, string> = {
   'integrations': ROUTES.INTEGRATIONS,
   'scoring_settings': ROUTES.SCORING,
   'environment_profile': ROUTES.ENVIRONMENT_PROFILE,
+  'intelligence_sources': ROUTES.INTELLIGENCE_SOURCES,
   'siem-health': ROUTES.SIEM_HEALTH,
   'action_plan': ROUTES.ACTION_PLAN,
   'exercises-state-sponsored': '/exercises/state-sponsored',
@@ -187,6 +177,7 @@ export const viewToRoute: Record<string, string> = {
   'account_settings': ROUTES.ACCOUNT,
   'my_submissions': ROUTES.SUBMISSIONS,
   'approval_queue': ROUTES.APPROVAL_QUEUE,
+  'notifications': ROUTES.NOTIFICATIONS,
   'add_selection': ROUTES.DETECTION_NEW,
   // Design System
   'design-system': ROUTES.COMPONENT_SHOWCASE,
@@ -211,17 +202,13 @@ export const viewToRoute: Record<string, string> = {
 // Page headers for each route
 export const routeHeaders: Record<string, { title: string; description?: string }> = {
   [ROUTES.COMMAND_CENTER]: { title: 'Command Center', description: 'Detection engineering command center' },
-  [ROUTES.DASHBOARD]: { title: 'Dashboard', description: 'Overview of your detection engineering program' },
   [ROUTES.ENTERPRISE_DASHBOARD]: { title: 'Enterprise Dashboard', description: 'Customizable drag-and-drop dashboard with widgets' },
-  [ROUTES.INTEL_GLOBE]: { title: 'Intelligence Globe', description: 'Interactive threat actor and software relationship map' },
   [ROUTES.LIBRARY]: { title: 'Detection Library', description: 'Browse and manage your security detections' },
   [ROUTES.DETECTION_NEW]: { title: 'New Detection', description: 'Create a new detection rule' },
   [ROUTES.DETECTION_DETAIL]: { title: 'Detection Details', description: undefined },
   [ROUTES.DETECTION_EDIT]: { title: 'Edit Detection', description: undefined },
   [ROUTES.PACKS]: { title: 'Detection Packs', description: 'Curated collections of detection rules' },
   [ROUTES.PACK_DETAIL]: { title: 'Pack Details', description: undefined },
-  [ROUTES.WORKSPACES]: { title: 'Workspaces', description: 'Manage detection engineering workspaces' },
-  [ROUTES.WORKSPACE_DETAIL]: { title: 'Workspace', description: 'Workspace details and detections' },
   [ROUTES.MITRE_MATRIX]: { title: 'MITRE ATT&CK', description: 'Technique coverage matrix and analysis' },
   [ROUTES.COVERAGE]: { title: 'Coverage Analytics', description: 'Analyze detection coverage across the MITRE ATT&CK framework' },
   [ROUTES.DEFENSIVE_POSTURE]: { title: 'Defensive Posture', description: 'Assess your defensive capabilities' },
@@ -237,6 +224,7 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.MITIGATION_DETAIL]: { title: 'Mitigation Details', description: undefined },
   [ROUTES.THREAT_INTEL]: { title: 'Intelligence Reports', description: 'AI-powered threat intelligence extraction' },
   [ROUTES.THREAT_INTEL_DETAIL]: { title: 'Report Analysis', description: undefined },
+  [ROUTES.CAMPAIGN_DIGEST_DETAIL]: { title: 'Campaign Intelligence', description: 'Merged intelligence from multiple sources' },
   [ROUTES.THREAT_INTEL_FEEDS]: { title: 'Threat Intel Feeds', description: 'Subscribe to RSS and TAXII threat intelligence feeds' },
   [ROUTES.REPORTS]: { title: 'Analysis Reports', description: 'Historical analysis reports with trend tracking' },
   [ROUTES.REPORT_DETAIL]: { title: 'Report Detail' },
@@ -255,6 +243,7 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.MITRE_SYNC]: { title: 'Data Sync', description: 'Sync MITRE ATT&CK data and vector embeddings' },
   [ROUTES.AUDIT_LOG]: { title: 'Audit Log', description: 'Enterprise audit trail for compliance and accountability' },
   [ROUTES.ENVIRONMENT_PROFILE]: { title: 'Environment Profile', description: 'Configure your security environment for personalized intelligence' },
+  [ROUTES.INTELLIGENCE_SOURCES]: { title: 'Intelligence Sources', description: 'Configure automatic threat intelligence ingestion' },
   [ROUTES.SIEM_HEALTH]: { title: 'SIEM Home', description: 'Manage your SIEM and EDR integrations' },
   [ROUTES.SIEM_HOME]: { title: 'SIEM Home', description: undefined },
   [ROUTES.ACTION_PLAN]: { title: 'Detection Action Plan', description: 'Prioritized detection deployment roadmap' },
@@ -262,6 +251,7 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.ACCOUNT]: { title: 'Account Settings', description: 'Manage your profile and preferences' },
   [ROUTES.SUBMISSIONS]: { title: 'My Submissions', description: 'Track your publication requests' },
   [ROUTES.APPROVAL_QUEUE]: { title: 'Approval Queue', description: 'Review promotion requests for Production Library' },
+  [ROUTES.NOTIFICATIONS]: { title: 'Notifications', description: 'Your notification history' },
   [ROUTES.SEARCH]: { title: 'Search Results' },
   [ROUTES.COMPONENT_SHOWCASE]: { title: 'Design System', description: 'M3 Design System Components' },
   [ROUTES.DESIGN_SYSTEM_BUTTONS]: { title: 'Buttons', description: 'Button components and variants' },

@@ -61,7 +61,7 @@ export const CampaignDetailPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Campaign Detail" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
+    <PageErrorBoundary pageName="Campaign Detail" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
       <DetailPage
         campaignId={id}
         onBack={handleBack}

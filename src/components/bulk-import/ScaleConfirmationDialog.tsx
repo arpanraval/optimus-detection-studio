@@ -40,6 +40,28 @@ export function ScaleConfirmationDialog({
   mitreCount,
   isResume = false,
 }: ScaleConfirmationDialogProps) {
+  const modalRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+      if (e.key === 'Tab' && modalRef.current) {
+        const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    const timer = setTimeout(() => modalRef.current?.querySelector<HTMLElement>('button:not([disabled])')?.focus(), 50);
+    return () => { document.removeEventListener('keydown', handleKeyDown); clearTimeout(timer); };
+  }, [isOpen, onCancel]);
+
   if (!isOpen) return null;
 
   const isUniversal = targetLibrary === LIBRARY_DEVELOPMENT;
@@ -54,6 +76,10 @@ export function ScaleConfirmationDialog({
 
       {/* Modal */}
       <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="scale-confirm-title"
         className={`relative bg-surface-container-high rounded-[28px] p-6 max-w-lg mx-4 shadow-xl border ${
           isUniversal
             ? 'border-tertiary/30'
@@ -75,7 +101,7 @@ export function ScaleConfirmationDialog({
             />
           </div>
           <div>
-            <h2 className="text-xl font-semibold text-on-surface">
+            <h2 id="scale-confirm-title" className="text-xl font-semibold text-on-surface">
               {isResume ? 'Resume Large Import?' : 'Confirm Large Import'}
             </h2>
             <p className="text-sm text-on-surface-variant mt-1">

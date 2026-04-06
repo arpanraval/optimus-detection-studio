@@ -66,6 +66,15 @@ interface ThreatIntelReportDbRecord {
   ioc_count: number;
   rule_count: number;
   coverage_percent?: number;
+  source?: 'manual' | 'auto';
+  source_feed_name?: string;
+  source_article_url?: string;
+  review_status?: string;
+  review_note?: string;
+  relevance_score?: number;
+  feasible_gap_count?: number;
+  infeasible_gap_count?: number;
+  campaign_id?: string;
 }
 
 interface ReportDetectionLink {
@@ -114,6 +123,13 @@ interface ThreatIntelContextType {
   migrateFromLocalStorage: () => Promise<number>;
   hasPendingMigration: boolean;
 
+  // Review status
+  updateReviewStatus: (
+    reportIds: string[],
+    status: 'reviewed' | 'actioned' | 'deferred' | 'dismissed',
+    note?: string
+  ) => Promise<void>;
+
   // Helper
   getReportById: (id: string) => ThreatIntelSessionSummary | undefined;
 }
@@ -157,6 +173,11 @@ function dbRecordToSession(record: ThreatIntelReportDbRecord): ThreatIntelSessio
     selectedIoCIds: record.selected_ioc_ids || [],
     createdDetectionIds: [],
     updatedEntities: [],
+    source: record.source as 'manual' | 'auto' | undefined,
+    sourceFeedName: record.source_feed_name,
+    sourceArticleUrl: record.source_article_url,
+    feasibleGapCount: record.feasible_gap_count,
+    infeasibleGapCount: record.infeasible_gap_count,
   };
 }
 
@@ -177,6 +198,15 @@ function dbRecordToSummary(record: ThreatIntelReportDbRecord): ThreatIntelSessio
     attribution: record.attribution,
     organization: record.organization,
     coveragePercent: record.coverage_percent ?? 0,
+    source: record.source as 'manual' | 'auto' | undefined,
+    sourceFeedName: record.source_feed_name,
+    sourceArticleUrl: record.source_article_url,
+    reviewStatus: record.review_status as 'pending' | 'reviewed' | 'actioned' | 'deferred' | 'dismissed' | undefined,
+    reviewNote: record.review_note,
+    relevanceScore: record.relevance_score,
+    feasibleGapCount: record.feasible_gap_count,
+    infeasibleGapCount: record.infeasible_gap_count,
+    campaignId: record.campaign_id,
   };
 }
 
@@ -283,7 +313,7 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
       const { data, error } = await withTimeout(
         supabase
           .from('threat_intel_reports')
-          .select('id, name, updated_at, report_title, threat_level, attack_type, attribution, organization, ttp_count, ioc_count, rule_count, coverage_percent, ttps')
+          .select('id, name, updated_at, report_title, threat_level, attack_type, attribution, organization, ttp_count, ioc_count, rule_count, coverage_percent, ttps, source, source_feed_name, source_article_url, review_status, review_note, relevance_score, feasible_gap_count, infeasible_gap_count, campaign_id')
           .eq('user_id', userId)
           .order('updated_at', { ascending: false })
           .limit(100),
@@ -565,6 +595,37 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
   }, [userId, saveReport, showToast]);
 
   // ============================================
+  // REVIEW STATUS
+  // ============================================
+
+  const updateReviewStatus = useCallback(async (
+    reportIds: string[],
+    status: 'reviewed' | 'actioned' | 'deferred' | 'dismissed',
+    note?: string
+  ): Promise<void> => {
+    if (!userId) throw new Error('User not authenticated');
+
+    try {
+      const { error } = await supabase
+        .from('threat_intel_reports')
+        .update({
+          review_status: status,
+          review_note: note || null,
+          reviewed_at: new Date().toISOString(),
+        })
+        .in('id', reportIds);
+
+      if (error) throw error;
+
+      await fetchReports();
+    } catch (err: unknown) {
+      logger.error('Error updating review status:', err);
+      showToast('error', 'Update Failed', err instanceof Error ? err.message : 'Failed to update review status');
+      throw err;
+    }
+  }, [userId, fetchReports, showToast]);
+
+  // ============================================
   // HELPER
   // ============================================
 
@@ -606,11 +667,12 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
     getReportDetections,
     migrateFromLocalStorage,
     hasPendingMigration,
+    updateReviewStatus,
     getReportById,
   }), [
     reports, isLoading, userId, fetchReports, fetchReport, saveReport, updateReport,
     deleteReport, linkDetectionToReport, getReportDetections, migrateFromLocalStorage,
-    hasPendingMigration, getReportById,
+    hasPendingMigration, updateReviewStatus, getReportById,
   ]);
 
   return (

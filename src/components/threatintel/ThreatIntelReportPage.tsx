@@ -1719,6 +1719,25 @@ export const ThreatIntelReportPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Auto-digest provenance bar */}
+          {session?.source === 'auto' && (
+            <div className="flex items-center gap-2 px-4 py-2 bg-primary/5 border border-primary/10 rounded-xl mb-1 mt-2 text-sm">
+              <Icon name="zap" className="w-4 h-4 text-primary" />
+              <span className="text-on-surface-variant">
+                Auto-digested from <strong className="text-on-surface">{session.sourceFeedName || report.summary?.organization}</strong>
+                {session.sourceArticleUrl && (
+                  <>
+                    {' \u2022 '}
+                    <a href={session.sourceArticleUrl} target="_blank" rel="noopener noreferrer"
+                       className="text-primary hover:underline">
+                      Original article ↗
+                    </a>
+                  </>
+                )}
+              </span>
+            </div>
+          )}
+
           {/* Row 2: Title + Metadata inline (with inline editing) */}
           <div className="py-3 flex items-center justify-between gap-4">
             {isEditing && editForm ? (
@@ -1839,10 +1858,10 @@ export const ThreatIntelReportPage: React.FC = () => {
                       {/* Threat Groups */}
                       {(report.mitreMapping?.matchedGroups?.length ?? 0) > 0 && (
                         <div>
-                          <p className="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2 flex items-center gap-1.5">
+                          <div className="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2 flex items-center gap-1.5">
                             <Icon name="users" className="w-3 h-3 text-[#A63D40]" />
                             Threat Groups
-                          </p>
+                          </div>
                           <div className="flex flex-wrap gap-1.5">
                             {report.mitreMapping.matchedGroups.map((group: MitreEntityMatch) => (
                               <Link
@@ -1862,10 +1881,10 @@ export const ThreatIntelReportPage: React.FC = () => {
                       {/* Software/Malware - Orange per design system */}
                       {(report.mitreMapping?.matchedSoftware?.length ?? 0) > 0 && (
                         <div>
-                          <p className="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2 flex items-center gap-1.5">
+                          <div className="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2 flex items-center gap-1.5">
                             <Icon name="package" className="w-3 h-3 text-orange-500" />
                             Software/Malware
-                          </p>
+                          </div>
                           <div className="flex flex-wrap gap-1.5">
                             {report.mitreMapping.matchedSoftware.map((sw: MitreEntityMatch) => (
                               <Link
@@ -1885,10 +1904,10 @@ export const ThreatIntelReportPage: React.FC = () => {
                       {/* Campaigns - Sky Blue per design system */}
                       {(report.mitreMapping?.matchedCampaigns?.length ?? 0) > 0 && (
                         <div>
-                          <p className="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2 flex items-center gap-1.5">
+                          <div className="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2 flex items-center gap-1.5">
                             <Icon name="flag" className="w-3 h-3 text-[#0284C7]" />
                             Campaigns
-                          </p>
+                          </div>
                           <div className="flex flex-wrap gap-1.5">
                             {report.mitreMapping.matchedCampaigns.map((campaign: MitreEntityMatch) => (
                               <Link
@@ -2119,6 +2138,17 @@ export const ThreatIntelReportPage: React.FC = () => {
           {/* ===== TTPs TAB (Campaign-style) ===== */}
           {activeTab === 'ttps' && (
             <div className="space-y-8 animate-fade-in">
+              {/* Feasibility summary (auto-digest reports) */}
+              {(session?.feasibleGapCount != null || session?.infeasibleGapCount != null) && (
+                <div className="flex items-center gap-4 mb-4 text-sm text-on-surface-variant">
+                  <span>
+                    Gaps you <strong className="text-emerald-400">can</strong> detect: <strong>{session.feasibleGapCount ?? 0}</strong>
+                  </span>
+                  <span>
+                    Gaps needing new log sources: <strong>{session.infeasibleGapCount ?? 0}</strong>
+                  </span>
+                </div>
+              )}
               {(report.ttps || []).length === 0 ? (
                 <EmptyStateWithRetry
                   icon="target"

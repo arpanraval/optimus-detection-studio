@@ -1,7 +1,5 @@
 // Page components barrel export
 export { CommandCenterPage } from './CommandCenterPage';
-export { DashboardPage } from './DashboardPage';
-export { IntelGlobePage } from './IntelGlobePage';
 export { DetectionLibraryPage } from './DetectionLibraryPage';
 export { DetectionDetailPage } from './DetectionDetailPage';
 export { DetectionFormPage } from './DetectionFormPage';
@@ -17,8 +15,6 @@ export { StrategiesPage } from './StrategiesPage';
 export { StrategyDetailPage } from './StrategyDetailPage';
 export { PacksPage } from './PacksPage';
 export { PackDetailPage } from './PackDetailPage';
-export { WorkspacesPage } from './WorkspacesPage';
-export { WorkspaceDetailPage } from './WorkspaceDetailPage';
 export { MitreMatrixPage } from './MitreMatrixPage';
 export { CoveragePage } from './CoveragePage';
 export { DefensivePosturePage } from './DefensivePosturePage';
@@ -33,6 +29,7 @@ export { MitreSyncPage } from './MitreSyncPage';
 export { AccountPage } from './AccountPage';
 export { SubmissionsPage } from './SubmissionsPage';
 export { ApprovalQueuePage } from './ApprovalQueuePage';
+export { NotificationsPage } from './NotificationsPage';
 export { ComponentShowcasePage } from './ComponentShowcasePage';
 export { ThreatIntelPage } from './ThreatIntelPage';
 export { ThreatIntelDetailPage } from './ThreatIntelDetailPage';

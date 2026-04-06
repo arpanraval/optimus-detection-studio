@@ -13,7 +13,7 @@ import { ToastProvider } from '../context/ToastContext';
 import { ThemeProvider } from '../context/ThemeContext';
 import { LibraryProvider } from '../context/LibraryContext';
 import { PermissionsProvider } from '../context/PermissionsContext';
-import { TeamProvider } from '../context/TeamContext';
+import { UserManagementProvider } from '../context/UserManagementContext';
 import { ThreatIntelProvider } from '../context/ThreatIntelContext';
 import { NotificationProvider } from '../context/NotificationContext';
 import { ScoringProvider } from '../context/ScoringContext';
@@ -23,6 +23,7 @@ import { RealtimeProvider } from '../context/RealtimeContext';
 import { logAuditEvent } from '../lib/audit';
 import { AppErrorBoundary } from '../components/ErrorBoundary';
 import { AppLoader } from '../components/AppLoader';
+import { NotFoundRedirect } from './pages/NotFoundRedirect';
 
 // ============================================================================
 // Capture auth action from URL hash BEFORE Supabase SDK consumes it.
@@ -58,12 +59,12 @@ function detectPendingAuthAction(): PendingAuthAction {
 
 const initialPendingAction = detectPendingAuthAction();
 
+import { NewLandingPage } from '../components/NewLandingPage';
+
 // Eager-load only the landing page (CommandCenterPage)
 import { CommandCenterPage } from './pages';
 
 // Lazy-load all other pages
-const DashboardPage = lazy(() => import('./pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
-const IntelGlobePage = lazy(() => import('./pages/IntelGlobePage').then(m => ({ default: m.IntelGlobePage })));
 const DetectionLibraryPage = lazy(() => import('./pages/DetectionLibraryPage').then(m => ({ default: m.DetectionLibraryPage })));
 const DetectionDetailPage = lazy(() => import('./pages/DetectionDetailPage').then(m => ({ default: m.DetectionDetailPage })));
 const DetectionFormPage = lazy(() => import('./pages/DetectionFormPage').then(m => ({ default: m.DetectionFormPage })));
@@ -97,6 +98,7 @@ const ImportHistoryPage = lazy(() => import('./pages/ImportHistoryPage').then(m 
 const SearchResultsPage = lazy(() => import('./pages/SearchResultsPage').then(m => ({ default: m.SearchResultsPage })));
 const AuditLogPage = lazy(() => import('./pages/AuditLogPage').then(m => ({ default: m.AuditLogPage })));
 const EnvironmentProfilePage = lazy(() => import('./pages/EnvironmentProfilePage').then(m => ({ default: m.EnvironmentProfilePage })));
+const AutoDigestSettingsPage = lazy(() => import('./pages/AutoDigestSettingsPage').then(m => ({ default: m.AutoDigestSettingsPage })));
 const BulkImportPage = lazy(() => import('./pages/BulkImportPage').then(m => ({ default: m.BulkImportPage })));
 const EnterpriseDashboardPage = lazy(() => import('./pages/EnterpriseDashboardPage').then(m => ({ default: m.EnterpriseDashboardPage })));
 const AIQueryPage = lazy(() => import('./pages/AIQueryPage').then(m => ({ default: m.AIQueryPage })));
@@ -106,11 +108,14 @@ const PlaybooksPage = lazy(() => import('./pages/PlaybooksPage').then(m => ({ de
 const PipelinePage = lazy(() => import('./pages/PipelinePage').then(m => ({ default: m.PipelinePage })));
 const DetectionActionPlanPage = lazy(() => import('./pages/DetectionActionPlanPage').then(m => ({ default: m.DetectionActionPlanPage })));
 const StateSponsoredReportPage = lazy(() => import('./pages/StateSponsoredReportPage').then(m => ({ default: m.StateSponsoredReportPage })));
+const DigestCampaignDetailPage = lazy(() => import('./pages/DigestCampaignDetailPage').then(m => ({ default: m.DigestCampaignDetailPage })));
 const ThreatIntelFeedsPage = lazy(() => import('./pages/ThreatIntelFeedsPage').then(m => ({ default: m.ThreatIntelFeedsPage })));
 const ReportHistoryPage = lazy(() => import('./pages/ReportHistoryPage').then(m => ({ default: m.ReportHistoryPage })));
 const ReportDetailPage = lazy(() => import('./pages/ReportDetailPage').then(m => ({ default: m.ReportDetailPage })));
 const SiemHealthPage = lazy(() => import('./pages/SiemHealthPage').then(m => ({ default: m.SiemHealthPage })));
 const SiemHomePageRoute = lazy(() => import('./pages/SiemHomePageRoute').then(m => ({ default: m.SiemHomePageRoute })));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
+
 
 // Design System Pages
 const DesignOverviewPage = lazy(() => import('../components/design-system/pages/OverviewPage').then(m => ({ default: m.OverviewPage })));
@@ -145,7 +150,7 @@ const ProtectedLayout: React.FC<{ user: User; profile: Profile }> = ({ user, pro
       <RealtimeProvider userId={user.id}>
         <GlobalImportProvider userId={user.id}>
           <PermissionsProvider userId={user.id}>
-            <TeamProvider userId={user.id}>
+            <UserManagementProvider userId={user.id}>
               <ScoringProvider>
                 <LibraryProvider userId={user.id} userRole={profile.role} refreshTrigger={libraryRefreshTrigger}>
                   <ThreatIntelProvider userId={user.id} refreshTrigger={libraryRefreshTrigger}>
@@ -161,7 +166,7 @@ const ProtectedLayout: React.FC<{ user: User; profile: Profile }> = ({ user, pro
                   </ThreatIntelProvider>
                 </LibraryProvider>
               </ScoringProvider>
-            </TeamProvider>
+            </UserManagementProvider>
           </PermissionsProvider>
         </GlobalImportProvider>
       </RealtimeProvider>
@@ -182,15 +187,9 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       // Command Center (default)
       { index: true, element: <CommandCenterPage /> },
 
-      // Classic Dashboard
-      { path: 'dashboard/classic', element: <DashboardPage /> },
-
       // Enterprise Dashboard (with optional dashboardId for deep-linking)
       { path: 'dashboard/enterprise', element: <EnterpriseDashboardPage /> },
       { path: 'dashboard/enterprise/:dashboardId', element: <EnterpriseDashboardPage /> },
-
-      // Intelligence Globe
-      { path: 'dashboard/globe', element: <IntelGlobePage /> },
 
       // Detection Library
       { path: 'library', element: <DetectionLibraryPage /> },
@@ -217,6 +216,7 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       { path: 'intelligence/mitigations', element: <MitigationsPage /> },
       { path: 'intelligence/mitigations/:id', element: <MitigationDetailPage /> },
       { path: 'intelligence/threat-digest', element: <ThreatIntelPage /> },
+      { path: 'intelligence/threat-digest/campaign/:id', element: <DigestCampaignDetailPage /> },
       { path: 'intelligence/threat-digest/:id', element: <ThreatIntelDetailPage /> },
       { path: 'intelligence/feeds', element: <ThreatIntelFeedsPage /> },
       { path: 'intelligence/reports', element: <ReportHistoryPage /> },
@@ -238,6 +238,7 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       { path: 'settings/mitre-sync', element: <MitreSyncPage /> },
       { path: 'settings/audit-log', element: <AuditLogPage /> },
       { path: 'settings/environment', element: <EnvironmentProfilePage /> },
+      { path: 'settings/intelligence', element: <AutoDigestSettingsPage /> },
 
       // SIEM Home
       { path: 'siem', element: <SiemHealthPage /> },
@@ -262,6 +263,7 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       { path: 'account', element: <AccountPage /> },
       { path: 'submissions', element: <SubmissionsPage /> },
       { path: 'approval-queue', element: <ApprovalQueuePage /> },
+        { path: 'notifications', element: <NotificationsPage /> },
 
       // Design System — dev builds only
       ...(import.meta.env.DEV ? [
@@ -286,7 +288,7 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       ] : []),
 
       // Catch-all redirect
-      { path: '*', element: <Navigate to="/" replace /> },
+      { path: '*', element: <NotFoundRedirect /> },
     ],
   },
 ]);
@@ -426,6 +428,8 @@ export const AppRouter: React.FC = () => {
         <ToastProvider>
           {showAuth ? (
             <AuthPage onBack={() => setShowAuth(false)} />
+          ) : window.location.pathname === '/new-landing' ? (
+            <NewLandingPage onSignIn={() => setShowAuth(true)} />
           ) : (
             <LandingPage onSignIn={() => setShowAuth(true)} />
           )}

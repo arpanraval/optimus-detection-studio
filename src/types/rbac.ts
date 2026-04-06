@@ -61,9 +61,6 @@ export type Permission =
   | 'user:invite'
   | 'user:manage'
   | 'user:view'
-  // Team management permissions
-  | 'team:settings'
-  | 'team:delete'
   // Activity & audit permissions
   | 'activity:view:own'
   | 'activity:view:team'
@@ -80,7 +77,6 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'review:request', 'review:perform', 'review:view',
     'comment:create', 'comment:edit:own', 'comment:delete:own', 'comment:resolve',
     'user:invite', 'user:manage', 'user:view',
-    'team:settings', 'team:delete',
     'activity:view:own', 'activity:view:team', 'activity:export',
   ],
   admin: [
@@ -92,7 +88,6 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'review:request', 'review:perform', 'review:view',
     'comment:create', 'comment:edit:own', 'comment:delete:own', 'comment:resolve',
     'user:invite', 'user:manage', 'user:view',
-    'team:settings',
     'activity:view:own', 'activity:view:team', 'activity:export',
   ],
   lead: [

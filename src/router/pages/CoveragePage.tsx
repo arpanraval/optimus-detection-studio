@@ -54,7 +54,7 @@ export const CoveragePage: React.FC = () => {
         navigate(ROUTES.COVERAGE);
         break;
       default:
-        navigate(ROUTES.DASHBOARD);
+        navigate(ROUTES.COMMAND_CENTER);
     }
   };
 
@@ -96,7 +96,7 @@ export const CoveragePage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Coverage Analytics" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
+    <PageErrorBoundary pageName="Coverage Analytics" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
       <CoverageAnalytics
         detections={detections}
         scope={scope}

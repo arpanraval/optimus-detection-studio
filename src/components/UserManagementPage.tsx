@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Icon } from './Icon';
 import { Role, Profile, TeamInvitation } from '../types';
 import { useToast } from '../hooks/useToast';
-import { useTeam } from '../context/TeamContext';
+import { useUserManagement } from '../context/UserManagementContext';
 import { usePermissions } from '../context/PermissionsContext';
 import { RoleBadge } from './rbac/RoleBadge';
 import { InviteUserModal } from './rbac/InviteUserModal';
@@ -81,7 +81,7 @@ export const UserManagementPage: React.FC = () => {
         allUsers, invitations, usersLoading, invitationsLoading,
         inviteUser, changeUserRole, deactivateUser, reactivateUser,
         cancelInvitation, refreshAllUsers, refreshInvitations,
-    } = useTeam();
+    } = useUserManagement();
 
     const handleSort = (field: SortField) => setSortConfig(prev => ({ field, direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc' }));
 
@@ -127,7 +127,7 @@ export const UserManagementPage: React.FC = () => {
             const { error: ce } = await supabase.rpc('cleanup_user_data', { target_user_id: deleteModal.userId });
             if (ce) {
                 await supabase.from('activity_log').delete().eq('user_id', deleteModal.userId);
-                await supabase.from('user_notifications').delete().eq('user_id', deleteModal.userId);
+                await supabase.from('user_notifications').delete().or(`user_id.eq.${deleteModal.userId},source_user_id.eq.${deleteModal.userId}`);
                 await supabase.from('detection_comments').delete().eq('user_id', deleteModal.userId);
                 if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(deleteModal.userId)) throw new Error('Invalid user ID');
                 await supabase.from('detection_reviews').delete().or(`reviewer_id.eq.${deleteModal.userId},requested_by.eq.${deleteModal.userId}`);
@@ -163,7 +163,7 @@ export const UserManagementPage: React.FC = () => {
         try { await cancelInvitation(id); } catch {}
     };
     const handleResendInvitation = async (inv: TeamInvitation) => {
-        try { await cancelInvitation(inv.id); await inviteUser(inv.email, inv.role, inv.team_id || undefined); showToast('success', 'Invitation Resent', `New invitation sent to ${inv.email}`); }
+        try { await cancelInvitation(inv.id); await inviteUser(inv.email, inv.role); showToast('success', 'Invitation Resent', `New invitation sent to ${inv.email}`); }
         catch (err: unknown) { showToast('error', 'Failed', err instanceof Error ? err.message : 'Failed to resend invitation'); }
     };
 

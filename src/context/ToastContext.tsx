@@ -21,9 +21,10 @@ export const ToastContext = createContext<ToastContextType | undefined>(undefine
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  const showToast = useCallback((type: ToastType, title: string, message?: string, duration = 5000) => {
+  const showToast = useCallback((type: ToastType, title: string, message?: string, duration?: number) => {
+    const effectiveDuration = duration ?? (type === 'error' ? 10000 : 5000);
     const id = crypto.randomUUID();
-    const newToast: ToastMessage = { id, type, title, message, duration };
+    const newToast: ToastMessage = { id, type, title, message, duration: effectiveDuration };
 
     // Add to top of stack
     setToasts(prev => [newToast, ...prev]);

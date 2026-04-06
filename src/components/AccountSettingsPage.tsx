@@ -744,11 +744,6 @@ const SecuritySection: React.FC<SecuritySectionProps> = ({
 // =============================================================================
 
 const NotificationsSection: React.FC = () => {
-    const [emailNotifications, setEmailNotifications] = useState(true);
-    const [reviewNotifications, setReviewNotifications] = useState(true);
-    const [assignmentNotifications, setAssignmentNotifications] = useState(true);
-    const [commentNotifications, setCommentNotifications] = useState(true);
-
     return (
         <div className="space-y-8">
             {/* Section Header */}
@@ -759,49 +754,22 @@ const NotificationsSection: React.FC = () => {
                 </p>
             </div>
 
-            {/* Email Notifications */}
-            <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6 space-y-4">
-                <div className="flex items-center justify-between">
+            {/* In-App Notifications Info */}
+            <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6">
+                <div className="flex items-start gap-3">
+                    <Icon name="bell" className="w-5 h-5 text-primary mt-0.5" />
                     <div>
-                        <h3 className="text-base font-medium text-on-surface">Email Notifications</h3>
-                        <p className="text-sm text-on-surface-variant/60 mt-1">
-                            Receive email notifications for important updates
+                        <h3 className="text-base font-medium text-on-surface">In-App Notifications</h3>
+                        <p className="text-sm text-on-surface-variant mt-1">
+                            You receive real-time notifications for review requests, assignments, status changes, and promotion decisions.
+                            View all notifications from the bell icon in the header.
+                        </p>
+                        <p className="text-xs text-on-surface-variant/60 mt-3">
+                            Email notifications coming in a future update.
                         </p>
                     </div>
-                    <ToggleSwitch checked={emailNotifications} onChange={setEmailNotifications} />
                 </div>
             </div>
-
-            {/* Activity Notifications */}
-            <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6">
-                <h3 className="text-base font-medium text-on-surface mb-4">Activity Notifications</h3>
-
-                <div className="space-y-4">
-                    <NotificationToggle
-                        label="Review Requests"
-                        description="When someone requests a review on a detection"
-                        checked={reviewNotifications}
-                        onChange={setReviewNotifications}
-                    />
-                    <NotificationToggle
-                        label="Assignments"
-                        description="When a detection is assigned to you"
-                        checked={assignmentNotifications}
-                        onChange={setAssignmentNotifications}
-                    />
-                    <NotificationToggle
-                        label="Comments"
-                        description="When someone comments on your detections"
-                        checked={commentNotifications}
-                        onChange={setCommentNotifications}
-                    />
-                </div>
-            </div>
-
-            {/* Note */}
-            <p className="text-xs text-on-surface-variant/40 italic">
-                Note: Notification preferences are stored locally. Backend integration coming soon.
-            </p>
         </div>
     );
 };

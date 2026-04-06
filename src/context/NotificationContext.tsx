@@ -62,29 +62,37 @@ export function NotificationProvider({ userId, children }: NotificationProviderP
 
   const markAsRead = useCallback(async (id: string) => {
     try {
+      // Optimistic update
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+
       const { error } = await supabase.rpc('mark_notifications_read', {
         p_user_id: userId,
         p_notification_ids: [id]
       });
 
       if (error) throw error;
-      await refreshNotifications();
     } catch (err) {
       logger.error('Error marking notification read:', err);
+      refreshNotifications(); // Revert on error
     }
   }, [userId, refreshNotifications]);
 
   const markAllAsRead = useCallback(async () => {
     try {
+      // Optimistic update
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+      setUnreadCount(0);
+
       const { error } = await supabase.rpc('mark_notifications_read', {
         p_user_id: userId,
         p_notification_ids: null
       });
 
       if (error) throw error;
-      await refreshNotifications();
     } catch (err) {
       logger.error('Error marking all notifications read:', err);
+      refreshNotifications(); // Revert on error
     }
   }, [userId, refreshNotifications]);
 
@@ -93,18 +101,45 @@ export function NotificationProvider({ userId, children }: NotificationProviderP
     refreshNotifications();
   }, [refreshNotifications]);
 
-  // Subscribe to Realtime INSERT events on user_notifications
+  // Subscribe to Realtime events on user_notifications
   useEffect(() => {
     if (!userId) return;
 
     const unsubscribe = subscribe(
       'user_notifications',
-      'INSERT',
+      '*',
       (payload) => {
-        const newNotification = payload.new as UserNotification;
-        // Prepend new notification and bump unread count
-        setNotifications(prev => [newNotification, ...prev].slice(0, 50));
-        setUnreadCount(prev => prev + 1);
+        if (payload.eventType === 'INSERT') {
+          const newNotification = payload.new as unknown as UserNotification;
+          setNotifications(prev => {
+            // Prevent duplicates
+            if (prev.some(n => n.id === newNotification.id)) return prev;
+            return [newNotification, ...prev].slice(0, 50);
+          });
+          setUnreadCount(prev => prev + 1);
+        } else if (payload.eventType === 'UPDATE') {
+          const updatedNotification = payload.new as unknown as UserNotification;
+          setNotifications(prev => prev.map(n => n.id === updatedNotification.id ? updatedNotification : n));
+          
+          // Re-evaluate unread count based on old vs new state if available
+          const oldNotification = payload.old as unknown as UserNotification;
+          if (oldNotification && oldNotification.is_read === false && updatedNotification.is_read === true) {
+            setUnreadCount(prev => Math.max(0, prev - 1));
+          } else if (oldNotification && oldNotification.is_read === true && updatedNotification.is_read === false) {
+            setUnreadCount(prev => prev + 1);
+          }
+        } else if (payload.eventType === 'DELETE') {
+           const deletedId = (payload.old as any)?.id;
+           if (deletedId) {
+             setNotifications(prev => {
+                const target = prev.find(n => n.id === deletedId);
+                if (target && !target.is_read) {
+                  setUnreadCount(c => Math.max(0, c - 1));
+                }
+                return prev.filter(n => n.id !== deletedId);
+             });
+           }
+        }
       },
       `user_id=eq.${userId}`
     );

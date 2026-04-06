@@ -263,48 +263,4 @@ CREATE INDEX IF NOT EXISTS idx_user_dashboards_user_id ON public.user_dashboards
 CREATE INDEX IF NOT EXISTS idx_user_notifications_unread ON public.user_notifications USING btree (user_id, is_read) WHERE (is_read = false);
 CREATE INDEX IF NOT EXISTS idx_user_notifications_user ON public.user_notifications USING btree (user_id);
 
--- ------------------------------------------------------------
--- workspace_activity_log
--- ------------------------------------------------------------
-CREATE INDEX IF NOT EXISTS idx_workspace_activity_action ON public.workspace_activity_log USING btree (action);
-CREATE INDEX IF NOT EXISTS idx_workspace_activity_created ON public.workspace_activity_log USING btree (created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_workspace_activity_entity ON public.workspace_activity_log USING btree (entity_type, entity_id);
-CREATE INDEX IF NOT EXISTS idx_workspace_activity_user ON public.workspace_activity_log USING btree (user_id);
-CREATE INDEX IF NOT EXISTS idx_workspace_activity_workspace ON public.workspace_activity_log USING btree (workspace_id);
-
--- ------------------------------------------------------------
--- workspace_detections
--- ------------------------------------------------------------
-CREATE INDEX IF NOT EXISTS idx_workspace_detections_assigned ON public.workspace_detections USING btree (assigned_to);
-CREATE INDEX IF NOT EXISTS idx_workspace_detections_deployment ON public.workspace_detections USING btree (deployment_status);
-CREATE INDEX IF NOT EXISTS idx_workspace_detections_detection ON public.workspace_detections USING btree (detection_id);
-CREATE INDEX IF NOT EXISTS idx_workspace_detections_review ON public.workspace_detections USING btree (review_status);
-CREATE INDEX IF NOT EXISTS idx_workspace_detections_sync ON public.workspace_detections USING btree (sync_status);
-CREATE INDEX IF NOT EXISTS idx_workspace_detections_workspace ON public.workspace_detections USING btree (workspace_id);
-CREATE UNIQUE INDEX IF NOT EXISTS workspace_detections_workspace_id_detection_id_key ON public.workspace_detections USING btree (workspace_id, detection_id);
-
--- ------------------------------------------------------------
--- workspace_invitations
--- ------------------------------------------------------------
-CREATE INDEX IF NOT EXISTS idx_workspace_invitations_email ON public.workspace_invitations USING btree (email);
-CREATE INDEX IF NOT EXISTS idx_workspace_invitations_status ON public.workspace_invitations USING btree (status);
-CREATE INDEX IF NOT EXISTS idx_workspace_invitations_token ON public.workspace_invitations USING btree (token);
-CREATE INDEX IF NOT EXISTS idx_workspace_invitations_workspace ON public.workspace_invitations USING btree (workspace_id);
-CREATE UNIQUE INDEX IF NOT EXISTS workspace_invitations_token_key ON public.workspace_invitations USING btree (token);
-
--- ------------------------------------------------------------
--- workspace_members
--- ------------------------------------------------------------
-CREATE INDEX IF NOT EXISTS idx_workspace_members_role ON public.workspace_members USING btree (role);
-CREATE INDEX IF NOT EXISTS idx_workspace_members_status ON public.workspace_members USING btree (status);
-CREATE INDEX IF NOT EXISTS idx_workspace_members_user ON public.workspace_members USING btree (user_id);
-CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace ON public.workspace_members USING btree (workspace_id);
-CREATE UNIQUE INDEX IF NOT EXISTS workspace_members_workspace_id_user_id_key ON public.workspace_members USING btree (workspace_id, user_id);
-
--- ------------------------------------------------------------
--- workspaces
--- ------------------------------------------------------------
-CREATE INDEX IF NOT EXISTS idx_workspaces_created_by ON public.workspaces USING btree (created_by);
-CREATE INDEX IF NOT EXISTS idx_workspaces_slug ON public.workspaces USING btree (slug);
-CREATE INDEX IF NOT EXISTS idx_workspaces_type ON public.workspaces USING btree (type);
-CREATE UNIQUE INDEX IF NOT EXISTS workspaces_slug_key ON public.workspaces USING btree (slug);
+-- Workspace indexes removed (feature deprecated)

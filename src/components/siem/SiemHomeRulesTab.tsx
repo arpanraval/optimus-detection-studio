@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -8,6 +9,7 @@ import { usePermissions } from '../../context/PermissionsContext';
 import { hasPermission } from '../../types';
 import { useToast } from '../../hooks/useToast';
 import { supabase } from '../../lib/supabaseClient';
+import { routeHelpers } from '../../router/routes';
 import type { Integration, VendorRule, DeploymentRecord } from '../../types';
 
 // ---------------------------------------------------------------------------
@@ -124,6 +126,7 @@ function RuleRow({
   canSync: boolean;
   canConfigure: boolean;
 }) {
+  const navigate = useNavigate();
   const severityKey = rule.severity?.toLowerCase() ?? '';
   const severityStyle = SEVERITY_STYLES[severityKey] ?? SEVERITY_STYLES.informational;
 
@@ -240,7 +243,9 @@ function RuleRow({
                   size="sm"
                   leadingIcon="external-link"
                   onClick={() => {
-                    window.location.href = `/library/detections/${rule.optimusDetectionId}`;
+                    if (rule.optimusDetectionId) {
+                      navigate(routeHelpers.detectionDetail(rule.optimusDetectionId));
+                    }
                   }}
                 >
                   View in Library

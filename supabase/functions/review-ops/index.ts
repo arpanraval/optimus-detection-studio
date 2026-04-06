@@ -194,6 +194,35 @@ Deno.serve(async (req: Request) => {
           },
         });
 
+        // Notify lead+ users about pending review
+        try {
+          const { data: teamMembers } = await supabaseAdmin
+            .from('team_members')
+            .select('user_id, profiles!inner(role)')
+            .eq('team_id', detection.team_id)
+            .in('profiles.role', ['lead', 'admin'])
+            .neq('user_id', user.id);
+
+          if (teamMembers && teamMembers.length > 0) {
+            const reviewNotifications = teamMembers.map((reviewer: any) => ({
+              user_id: reviewer.user_id,
+              type: 'review_request',
+              title: 'Review Requested',
+              message: `"${detection.name}" needs review`,
+              detection_id: detectionId,
+              action_url: '/approval-queue',
+              category: 'review',
+              source_user_id: user.id,
+            }));
+
+            await supabaseAdmin
+              .from('user_notifications')
+              .insert(reviewNotifications);
+          }
+        } catch (notifError) {
+          console.error('Failed to send review request notifications:', notifError);
+        }
+
         // Audit trail
         try {
           await supabaseAdmin.from('audit_events').insert({

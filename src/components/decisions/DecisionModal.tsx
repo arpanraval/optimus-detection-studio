@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface DecisionModalProps {
   isOpen: boolean;
@@ -32,6 +32,7 @@ export const DecisionModal: React.FC<DecisionModalProps> = ({
 }) => {
   const [reasoning, setReasoning] = useState('');
   const [quickReason, setQuickReason] = useState<string | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
 
   // Reset form state when modal opens so stale values don't persist across re-opens
   useEffect(() => {
@@ -40,6 +41,26 @@ export const DecisionModal: React.FC<DecisionModalProps> = ({
       setQuickReason(null);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'Tab' && modalRef.current) {
+        const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    const timer = setTimeout(() => modalRef.current?.querySelector<HTMLElement>('button:not([disabled]), textarea, select')?.focus(), 50);
+    return () => { document.removeEventListener('keydown', handleKeyDown); clearTimeout(timer); };
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -64,10 +85,10 @@ export const DecisionModal: React.FC<DecisionModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-surface-container rounded-xl border border-outline/10 shadow-2xl w-full max-w-md mx-4">
+      <div ref={modalRef} role="dialog" aria-modal="true" aria-labelledby="decision-modal-title" className="bg-surface-container rounded-xl border border-outline/10 shadow-2xl w-full max-w-md mx-4">
         {/* Header */}
         <div className="px-6 pt-5 pb-3">
-          <h3 className="text-lg font-semibold text-on-surface">{title}</h3>
+          <h3 id="decision-modal-title" className="text-lg font-semibold text-on-surface">{title}</h3>
           <p className="text-sm text-on-surface-variant mt-1">{description}</p>
         </div>
 

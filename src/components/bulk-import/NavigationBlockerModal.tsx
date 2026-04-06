@@ -29,6 +29,28 @@ export function NavigationBlockerModal({
   message = 'Import in progress. Leaving this page will cancel the current operation.',
   progress,
 }: NavigationBlockerModalProps) {
+  const modalRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onStay();
+      if (e.key === 'Tab' && modalRef.current) {
+        const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    const timer = setTimeout(() => modalRef.current?.querySelector<HTMLElement>('button:not([disabled])')?.focus(), 50);
+    return () => { document.removeEventListener('keydown', handleKeyDown); clearTimeout(timer); };
+  }, [isOpen, onStay]);
+
   if (!isOpen) return null;
 
   return (
@@ -40,7 +62,7 @@ export function NavigationBlockerModal({
       />
 
       {/* Modal */}
-      <div className="relative bg-surface-container-high rounded-[28px] p-6 max-w-md mx-4 shadow-xl border border-outline-variant/20">
+      <div ref={modalRef} role="alertdialog" aria-modal="true" aria-labelledby="nav-blocker-title" className="relative bg-surface-container-high rounded-[28px] p-6 max-w-md mx-4 shadow-xl border border-outline-variant/20">
         {/* Warning icon */}
         <div className="flex items-center justify-center mb-4">
           <div className="p-4 rounded-full bg-tertiary-container/30">
@@ -49,7 +71,7 @@ export function NavigationBlockerModal({
         </div>
 
         {/* Title */}
-        <h2 className="text-xl font-semibold text-on-surface text-center mb-2">
+        <h2 id="nav-blocker-title" className="text-xl font-semibold text-on-surface text-center mb-2">
           Import in Progress
         </h2>
 

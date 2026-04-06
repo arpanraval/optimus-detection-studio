@@ -4,7 +4,7 @@
 
 Optimus Detection Studio is a comprehensive, AI-augmented platform purpose-built for security detection engineering. It addresses the core industry challenge: detection content is abundant (10,000+ public rules exist), but choosing the right detections, building new ones for emerging threats, ensuring quality, and operationalizing the entire lifecycle remains broken across the industry. Optimus solves this end-to-end.
 
-The platform combines intelligent library management, deep MITRE ATT&CK integration, multi-model AI capabilities, collaborative workflows, and bulk vendor import into a single detection engineering workspace that actually works on the ground.
+The platform combines intelligent library management, deep MITRE ATT&CK integration, multi-model AI capabilities, collaborative workflows, and bulk vendor import into a single detection engineering platform that actually works on the ground.
 
 ---
 
@@ -679,7 +679,6 @@ optimus-detection-studio/
 │   ├── mitigations/               # MITRE Mitigations
 │   ├── packs/                     # Detection packs
 │   ├── strategies/                # Detection strategies
-│   └── workspaces/                # Workspace management
 ├── context/                       # React Context providers (8)
 ├── hooks/                         # Custom React hooks (28)
 ├── router/                        # Routing and page components

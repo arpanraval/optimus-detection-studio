@@ -12,7 +12,7 @@ export const ScoringPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Scoring Settings" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
+    <PageErrorBoundary pageName="Scoring Settings" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
       <ScoringDocumentationPage onBack={handleBack} />
     </PageErrorBoundary>
   );

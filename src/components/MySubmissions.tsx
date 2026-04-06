@@ -102,7 +102,7 @@ export const MySubmissions: React.FC<MySubmissionsProps> = ({
   // Re-submit a rejected detection
   const handleResubmit = async (detectionId: string) => {
     try {
-      const { data, error } = await supabase.rpc('submit_for_publish', {
+      const { data, error } = await supabase.rpc('submit_for_promotion', {
         p_detection_id: detectionId,
         p_user_id: userId
       });

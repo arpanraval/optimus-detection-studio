@@ -78,13 +78,17 @@ export const useAssignment = (options: UseAssignmentOptions = {}) => {
 
       // Create notification for assignee
       if (assigneeId !== user.id) {
-        await supabase.from('user_notifications').insert({
+        const { error: notifError } = await supabase.from('user_notifications').insert({
           user_id: assigneeId,
           type: 'assignment',
           title: 'Detection Assigned',
           message: `You have been assigned to "${detection.name}"`,
           detection_id: detection.id,
+          source_user_id: user.id,
         });
+        if (notifError) {
+          console.error('Failed to create assignment notification:', notifError);
+        }
       }
 
       showToast('success', 'Assigned', 'Detection assigned successfully');

@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Detection, DetectionComment, DetectionReview, TeamMember, Profile, ReviewStatus, CommentType } from '../../../types';
+import { Detection, DetectionComment, DetectionReview, Profile, ReviewStatus, CommentType } from '../../../types';
 import { Icon } from '../../Icon';
 import { useAssignment } from '../../../hooks/useAssignment';
 import { useReview } from '../../../hooks/useReview';
 import { useDetectionComments } from '../../../hooks/useDetectionComments';
-import { useTeam } from '../../../context/TeamContext';
+import { useUserManagement } from '../../../context/UserManagementContext';
 import { supabase } from '../../../lib/supabaseClient';
 import { ReviewStatusBadge } from '../../rbac/ReviewStatusBadge';
 import { DetailCard } from '../DetailCard';
@@ -109,7 +109,7 @@ const AssignmentPanel: React.FC<AssignmentPanelProps> = ({
     assigneeProfile,
     onDetectionUpdate,
 }) => {
-    const { members } = useTeam();
+    const { allUsers } = useUserManagement();
     const { assignDetection, selfAssign, unassignDetection, isAssigning } = useAssignment({
         onAssignmentChange: onDetectionUpdate,
     });
@@ -120,19 +120,19 @@ const AssignmentPanel: React.FC<AssignmentPanelProps> = ({
     const isAssignedToMe = detection.assigned_to === currentUserId;
     const hasAssignee = !!detection.assigned_to;
 
-    // Filter members for dropdown
-    const filteredMembers = useMemo(() => {
-        if (!searchQuery.trim()) return members.filter(m => m.status === 'active');
+    // Filter users for dropdown
+    const filteredUsers = useMemo(() => {
+        if (!searchQuery.trim()) return allUsers.filter(u => u.status === 'active');
         const q = searchQuery.toLowerCase();
-        return members.filter(m =>
-            m.status === 'active' &&
-            (m.user?.full_name?.toLowerCase().includes(q) ||
-             m.user?.email?.toLowerCase().includes(q))
+        return allUsers.filter(u =>
+            u.status === 'active' &&
+            (u.full_name?.toLowerCase().includes(q) ||
+             u.email?.toLowerCase().includes(q))
         );
-    }, [members, searchQuery]);
+    }, [allUsers, searchQuery]);
 
-    const handleAssign = async (userId: string) => {
-        await assignDetection(detection, userId);
+    const handleAssign = async (targetUserId: string) => {
+        await assignDetection(detection, targetUserId);
         setShowAssignDropdown(false);
         setSearchQuery('');
     };
@@ -217,26 +217,26 @@ const AssignmentPanel: React.FC<AssignmentPanelProps> = ({
                                         />
                                     </div>
                                     <div className="max-h-48 overflow-y-auto">
-                                        {filteredMembers.length === 0 ? (
+                                        {filteredUsers.length === 0 ? (
                                             <p className="px-3 py-4 text-sm text-on-surface-variant text-center">
                                                 No members found
                                             </p>
                                         ) : (
-                                            filteredMembers.map((member) => (
+                                            filteredUsers.map((user) => (
                                                 <button
-                                                    key={member.user_id}
-                                                    onClick={() => handleAssign(member.user_id)}
+                                                    key={user.id}
+                                                    onClick={() => handleAssign(user.id)}
                                                     className="w-full flex items-center gap-3 px-3 py-2 hover:bg-surface-container-highest transition-colors text-left"
                                                 >
                                                     <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium">
-                                                        {getInitials(member.user?.full_name, member.user?.email)}
+                                                        {getInitials(user.full_name, user.email)}
                                                     </div>
                                                     <div className="flex-1 min-w-0">
                                                         <p className="text-sm font-medium text-on-surface truncate">
-                                                            {member.user?.full_name || member.user?.email?.split('@')[0]}
+                                                            {user.full_name || user.email?.split('@')[0]}
                                                         </p>
                                                         <p className="text-xs text-on-surface-variant truncate">
-                                                            {member.role}
+                                                            {user.role}
                                                         </p>
                                                     </div>
                                                 </button>

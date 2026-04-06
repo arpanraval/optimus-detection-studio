@@ -47,21 +47,31 @@ export function RealtimeProvider({ userId, children }: RealtimeProviderProps) {
 
     channel.on(
       'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'user_notifications', filter: `user_id=eq.${userId}` },
+      { event: '*', schema: 'public', table: 'user_notifications', filter: `user_id=eq.${userId}` },
       (payload) => {
         subscriptionsRef.current.forEach((sub) => {
-          if (sub.table === 'user_notifications' && (sub.event === '*' || sub.event === 'INSERT')) {
+          if (sub.table === 'user_notifications' && (sub.event === '*' || sub.event === payload.eventType)) {
             sub.callback(payload);
           }
         });
       }
     );
 
+    let retryTimeout: ReturnType<typeof setTimeout>;
+
     channel.subscribe((status) => {
       setIsConnected(status === 'SUBSCRIBED');
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        // Retry after 5 seconds
+        retryTimeout = setTimeout(() => {
+          channel.unsubscribe();
+          channel.subscribe();
+        }, 5000);
+      }
     });
 
     return () => {
+      clearTimeout(retryTimeout);
       channel.unsubscribe();
       setIsConnected(false);
     };

@@ -60,11 +60,6 @@ export function useAppNavigation() {
     navigate(routeHelpers.packDetail(id));
   }, [navigate]);
 
-  // Navigate to workspace detail
-  const navigateToWorkspace = useCallback((id: string) => {
-    navigate(routeHelpers.workspaceDetail(id));
-  }, [navigate]);
-
   // Cross-entity navigation (for global search etc.)
   const navigateToEntity = useCallback((
     entityType: 'detection' | 'group' | 'software' | 'campaign' | 'technique' | 'strategy' | 'mitigation',
@@ -106,7 +101,6 @@ export function useAppNavigation() {
     navigateToStrategy,
     navigateToMitigation,
     navigateToPack,
-    navigateToWorkspace,
     navigateToEntity,
     goBack,
     getMitreFilter,

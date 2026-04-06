@@ -1,6 +1,8 @@
 import React, { useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useOnboarding } from '../OnboardingContext';
 import { Button } from '../../ui/Button';
+import { ROUTES } from '../../../router/routes';
 
 /**
  * SourceSummary - Fixed bottom bar in the source panel.
@@ -10,6 +12,7 @@ import { Button } from '../../ui/Button';
  */
 export const SourceSummary: React.FC = () => {
   const { phase, sources, initializeOnboarding } = useOnboarding();
+  const navigate = useNavigate();
 
   const { selectedCount, estimatedRules } = useMemo(() => {
     let count = 0;
@@ -58,7 +61,7 @@ export const SourceSummary: React.FC = () => {
           color="primary"
           fullWidth
           className="font-brand"
-          onClick={() => { window.location.href = '/onboarding'; }}
+          onClick={() => navigate(ROUTES.ONBOARDING)}
         >
           Add More Sources
         </Button>

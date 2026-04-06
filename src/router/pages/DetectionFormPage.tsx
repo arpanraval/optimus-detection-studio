@@ -206,7 +206,7 @@ export const DetectionFormPage: React.FC<DetectionFormPageProps> = ({ mode }) =>
   // Show selection screen for new detections
   if (mode === 'new' && showSelection) {
     return (
-      <PageErrorBoundary pageName="Add Detection" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
+      <PageErrorBoundary pageName="Add Detection" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
         <AddDetectionSelection
           onManualCreate={handleManualCreate}
           onImportFromFile={handleImportFromFile}
@@ -218,7 +218,7 @@ export const DetectionFormPage: React.FC<DetectionFormPageProps> = ({ mode }) =>
   }
 
   return (
-    <PageErrorBoundary pageName="Detection Form" onNavigateHome={() => navigate(ROUTES.DASHBOARD)}>
+    <PageErrorBoundary pageName="Detection Form" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
       <NewUseCaseForm
         detectionToEdit={mode === 'edit' ? detection : null}
         initialDraft={draft}

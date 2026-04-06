@@ -23,34 +23,22 @@ const formatTimeAgo = (dateString: string): string => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
+// M3 design system colors — matches StatusBadge/SeverityBadge palette
 const getNotificationConfig = (type: string): { icon: string; color: string; bgColor: string } => {
   switch (type) {
-    case 'publish_approved':
-      return { icon: 'check', color: 'text-emerald-400', bgColor: 'bg-emerald-500/15' };
-    case 'publish_rejected':
-      return { icon: 'x', color: 'text-red-400', bgColor: 'bg-red-500/15' };
-    case 'publish_approved_as_new':
-      return { icon: 'plus', color: 'text-blue-400', bgColor: 'bg-blue-500/15' };
-    case 'new_publish_request':
-      return { icon: 'send', color: 'text-violet-400', bgColor: 'bg-violet-500/15' };
-    case 'publish_submitted':
-      return { icon: 'clock', color: 'text-sky-400', bgColor: 'bg-sky-500/15' };
-    case 'rule_updated':
-      return { icon: 'refresh-cw', color: 'text-amber-400', bgColor: 'bg-amber-500/15' };
-    case 'assignment':
-      return { icon: 'user-plus', color: 'text-cyan-400', bgColor: 'bg-cyan-500/15' };
-    case 'review_request':
-      return { icon: 'eye', color: 'text-violet-400', bgColor: 'bg-violet-500/15' };
+    case 'promotion_approved':
     case 'review_complete':
-      return { icon: 'check-circle', color: 'text-emerald-400', bgColor: 'bg-emerald-500/15' };
+      return { icon: type === 'review_complete' ? 'check-circle' : 'check', color: 'text-[#4D7C6F]', bgColor: 'bg-[#4D7C6F]/12' };
+    case 'promotion_rejected':
+      return { icon: 'x', color: 'text-[#A63D40]', bgColor: 'bg-[#A63D40]/12' };
+    case 'promotion_approved_as_new':
+    case 'assignment':
+      return { icon: type === 'assignment' ? 'user-plus' : 'plus', color: 'text-secondary', bgColor: 'bg-secondary/12' };
+    case 'publish_submitted':
+    case 'review_request':
+      return { icon: type === 'review_request' ? 'eye' : 'send', color: 'text-tertiary', bgColor: 'bg-tertiary/12' };
     case 'status_change':
-      return { icon: 'arrow-right', color: 'text-blue-400', bgColor: 'bg-blue-500/15' };
-    case 'deploy':
-      return { icon: 'upload-cloud', color: 'text-green-400', bgColor: 'bg-green-500/15' };
-    case 'feed':
-      return { icon: 'rss', color: 'text-orange-400', bgColor: 'bg-orange-500/15' };
-    case 'system':
-      return { icon: 'alert-triangle', color: 'text-amber-400', bgColor: 'bg-amber-500/15' };
+      return { icon: 'arrow-right', color: 'text-primary', bgColor: 'bg-primary/12' };
     default:
       return { icon: 'bell', color: 'text-on-surface-variant', bgColor: 'bg-surface-container-highest' };
   }
@@ -58,9 +46,16 @@ const getNotificationConfig = (type: string): { icon: string; color: string; bgC
 
 // G1: Get navigation target from notification
 const getNotificationTarget = (notification: UserNotification): { type: 'detection' | 'url' | 'none'; id?: string; url?: string } => {
-  // If notification has an action_url, use it
+  // If notification has an action_url, validate it's a safe internal path
   if (notification.action_url) {
-    return { type: 'url', url: notification.action_url };
+    const url = notification.action_url;
+    // Only allow relative paths starting with / (no protocol, no //, no javascript:, no data:)
+    if (typeof url === 'string' && url.startsWith('/') && !url.startsWith('//') && !url.includes(':')) {
+      return { type: 'url', url };
+    }
+    // Reject external or malformed URLs silently
+    console.warn('NotificationBell: rejected unsafe action_url', url);
+    return { type: 'none' };
   }
   // If notification has a detection_id, we can navigate to it
   if (notification.detection_id) {
@@ -143,52 +138,43 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   };
 
   const dropdownContent = isOpen ? ReactDOM.createPortal(
-    <div 
+    <div
       ref={dropdownRef}
-      className="fixed w-96 bg-surface-container/95 backdrop-blur-xl border border-outline-variant/20 rounded-2xl shadow-2xl shadow-black/30 overflow-hidden"
-      style={{ 
-        top: dropdownPosition.top, 
+      role="dialog"
+      aria-modal="false"
+      aria-label="Notifications"
+      className="fixed w-[360px] bg-surface-container border border-outline-variant/15 rounded-2xl shadow-2xl shadow-black/40 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150"
+      style={{
+        top: dropdownPosition.top,
         right: dropdownPosition.right,
-        zIndex: 9999 
+        zIndex: 9999
       }}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-surface-container-high/50">
+      {/* Header — compact */}
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-outline-variant/10">
+        <span className="text-[13px] font-semibold text-on-surface tracking-tight">Notifications</span>
         <div className="flex items-center gap-2">
-          <Icon name="bell" className="w-4 h-4 text-primary" />
-          <span className="text-sm font-semibold text-on-surface">Notifications</span>
           {unreadCount > 0 && (
-            <span className="px-1.5 py-0.5 text-[10px] font-bold bg-primary/15 text-primary rounded-full">
-              {unreadCount} new
-            </span>
+            <button
+              onClick={handleMarkAllRead}
+              aria-label="Mark all notifications as read"
+              className="text-[11px] text-primary/90 hover:text-primary font-medium px-2 py-1 rounded-md hover:bg-primary/10 transition-colors"
+            >
+              Mark all read
+            </button>
           )}
         </div>
-        {unreadCount > 0 && (
-          <button
-            onClick={handleMarkAllRead}
-            aria-label="Mark all notifications as read"
-            className="text-xs text-primary hover:text-primary/80 font-medium transition-colors"
-          >
-            Mark all read
-          </button>
-        )}
       </div>
 
-      {/* Divider */}
-      <div className="h-px bg-gradient-to-r from-transparent via-outline-variant/30 to-transparent" />
-
       {/* Notification List */}
-      <div className="max-h-96 overflow-y-auto overscroll-contain">
+      <div className="max-h-[420px] overflow-y-auto scrollbar-minimal">
         {notifications.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-on-surface-variant/60">
-            <div className="w-12 h-12 rounded-full bg-surface-container-highest flex items-center justify-center mb-3">
-              <Icon name="bell-off" className="w-6 h-6" />
-            </div>
-            <p className="text-sm font-medium">No notifications</p>
-            <p className="text-xs text-on-surface-variant/50 mt-1">You're all caught up!</p>
+          <div className="flex flex-col items-center justify-center py-14 text-on-surface-variant">
+            <Icon name="inbox" className="w-8 h-8 mb-2 opacity-20" />
+            <p className="text-[13px] font-medium opacity-60">No notifications</p>
           </div>
         ) : (
-          <div className="py-1">
+          <>
             {(() => {
               const todayMidnight = new Date();
               todayMidnight.setHours(0, 0, 0, 0);
@@ -196,97 +182,82 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
               const earlierNotifs = notifications.filter(n => new Date(n.created_at) < todayMidnight);
 
               const renderItem = (notification: UserNotification) => {
-              const config = getNotificationConfig(notification.type);
-              const target = getNotificationTarget(notification);
-              const isClickable = target.type === 'url' || (target.type === 'detection' && !!onNavigateToDetection);
-              
-              return (
-                <button
-                  key={notification.id}
-                  onClick={() => handleNotificationClick(notification)}
-                  className={`
-                    w-full flex items-start gap-3 px-4 py-3 text-left 
-                    transition-all duration-150
-                    ${!notification.is_read ? 'bg-primary/[0.04]' : ''}
-                    ${isClickable 
-                      ? 'hover:bg-surface-container-highest/70 cursor-pointer' 
-                      : 'hover:bg-surface-container-highest/30 cursor-default'
-                    }
-                  `}
-                >
-                  {/* Icon */}
-                  <div className={`flex-shrink-0 w-9 h-9 rounded-full ${config.bgColor} flex items-center justify-center`}>
-                    <Icon name={config.icon} className={`w-4 h-4 ${config.color}`} />
-                  </div>
+                const config = getNotificationConfig(notification.type);
+                const target = getNotificationTarget(notification);
+                const isClickable = target.type === 'url' || (target.type === 'detection' && !!onNavigateToDetection);
 
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <span className={`text-sm leading-tight ${!notification.is_read ? 'font-semibold text-on-surface' : 'font-medium text-on-surface/80'}`}>
-                        {notification.title}
-                      </span>
-                      <span className="text-[10px] text-on-surface-variant/50 flex-shrink-0 mt-0.5">
-                        {formatTimeAgo(notification.created_at)}
-                      </span>
+                return (
+                  <button
+                    key={notification.id}
+                    onClick={() => handleNotificationClick(notification)}
+                    className={`
+                      w-full flex items-start gap-2.5 px-3.5 py-2.5 text-left transition-colors
+                      ${!notification.is_read
+                        ? 'bg-primary/[0.05] border-l-2 border-l-primary'
+                        : 'border-l-2 border-l-transparent'}
+                      ${isClickable
+                        ? 'hover:bg-surface-container-highest/60 cursor-pointer'
+                        : 'cursor-default'
+                      }
+                    `}
+                  >
+                    {/* Compact icon */}
+                    <div className={`flex-shrink-0 w-7 h-7 rounded-lg ${config.bgColor} flex items-center justify-center mt-0.5`}>
+                      <Icon name={config.icon} className={`w-3.5 h-3.5 ${config.color}`} />
                     </div>
-                    {notification.message && (
-                      <p className="text-xs text-on-surface-variant/70 mt-1 line-clamp-2 leading-relaxed">
-                        {notification.message}
-                      </p>
-                    )}
-                    
-                    {/* G1: Show clickable hint if navigable */}
-                    {isClickable && (
-                      <div className="flex items-center gap-1 mt-2 text-[10px] text-primary/70">
-                        <Icon name="external-link" className="w-3 h-3" />
-                        <span>Click to view detection</span>
-                      </div>
-                    )}
-                  </div>
 
-                  {/* Unread indicator */}
-                  {!notification.is_read && (
-                    <div className="flex-shrink-0 w-2 h-2 rounded-full bg-primary mt-1.5" />
-                  )}
-                </button>
-              );
-            };
+                    {/* Content */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className={`text-[13px] leading-snug ${!notification.is_read ? 'font-semibold text-on-surface' : 'text-on-surface/85'}`}>
+                          {notification.title}
+                        </span>
+                        <span className="text-[11px] text-on-surface-variant/60 flex-shrink-0 tabular-nums">
+                          {formatTimeAgo(notification.created_at)}
+                        </span>
+                      </div>
+                      {notification.message && (
+                        <p className="text-[12px] text-on-surface-variant/75 mt-0.5 line-clamp-1 leading-snug">
+                          {notification.message}
+                        </p>
+                      )}
+                    </div>
+                  </button>
+                );
+              };
 
               return (
                 <>
                   {todayNotifs.length > 0 && (
                     <>
-                      <div className="px-4 py-1.5 text-[10px] font-semibold text-on-surface-variant/50 uppercase tracking-wider">Today</div>
+                      <div className="px-3.5 pt-2 pb-1 text-[10px] font-bold text-on-surface-variant/50 uppercase tracking-widest">Today</div>
                       {todayNotifs.map(renderItem)}
                     </>
                   )}
                   {earlierNotifs.length > 0 && (
                     <>
-                      <div className="px-4 py-1.5 text-[10px] font-semibold text-on-surface-variant/50 uppercase tracking-wider">Earlier</div>
+                      <div className="px-3.5 pt-2.5 pb-1 text-[10px] font-bold text-on-surface-variant/50 uppercase tracking-widest border-t border-outline-variant/10">Earlier</div>
                       {earlierNotifs.slice(0, 20).map(renderItem)}
                     </>
                   )}
                 </>
               );
             })()}
-          </div>
+          </>
         )}
       </div>
 
-      {/* G2: Footer with View All button */}
+      {/* Footer */}
       {notifications.length > 0 && (
-        <>
-          <div className="h-px bg-gradient-to-r from-transparent via-outline-variant/30 to-transparent" />
-          <div className="px-4 py-3 bg-surface-container-high/30">
-            <button 
-              onClick={handleViewAll}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-primary hover:text-primary/80 hover:bg-primary/5 rounded-lg transition-colors"
-            >
-              <span>View All Notifications</span>
-              <Icon name="arrow-right" className="w-4 h-4" />
-            </button>
-          </div>
-        </>
+        <div className="border-t border-outline-variant/10">
+          <button
+            onClick={handleViewAll}
+            className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 text-[12px] font-semibold text-primary hover:bg-primary/5 transition-colors"
+          >
+            View All Notifications
+            <Icon name="chevron-right" className="w-3.5 h-3.5" />
+          </button>
+        </div>
       )}
     </div>,
     document.body

@@ -5,8 +5,7 @@ import { User } from '@supabase/supabase-js';
 import { Profile, Detection } from '../types';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
-import { AppLoader } from '../components/AppLoader';
-import { ROUTES, routeHeaders, viewToRoute } from './routes';
+import { ROUTES, routeHeaders, viewToRoute, routeHelpers } from './routes';
 import { matchRouteToNavItem } from './utils';
 import { ensureLocalDashboardsExist } from '../components/dashboard/enterprise/dashboardPersistence';
 import { GlobalImportBar } from '../components/global/GlobalImportBar';
@@ -84,9 +83,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     if (pathname.startsWith('/packs/')) {
       return { title: 'Pack Details', description: undefined };
     }
-    if (pathname.startsWith('/workspaces/')) {
-      return { title: 'Workspace', description: 'Workspace details and detections' };
-    }
     if (pathname.startsWith('/intelligence/strategies/')) {
       return { title: 'Strategy Details', description: undefined };
     }
@@ -134,26 +130,26 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   const handleSearchNavigation = (type: 'detection' | 'group' | 'software' | 'campaign' | 'technique', id: string) => {
     switch (type) {
       case 'detection':
-        navigate(`/library/detections/${id}`);
+        navigate(routeHelpers.detectionDetail(id));
         break;
       case 'group':
-        navigate(`/intelligence/groups/${id}`);
+        navigate(routeHelpers.groupDetail(id));
         break;
       case 'software':
-        navigate(`/intelligence/software/${id}`);
+        navigate(routeHelpers.softwareDetail(id));
         break;
       case 'campaign':
-        navigate(`/intelligence/campaigns/${id}`);
+        navigate(routeHelpers.campaignDetail(id));
         break;
       case 'technique':
-        navigate(`/library?filter=${encodeURIComponent(id)}`);
+        navigate(routeHelpers.libraryWithFilter(id));
         break;
     }
   };
 
   // Handle detection navigation by ID
   const handleNavigateToDetectionById = async (detectionId: string) => {
-    navigate(`/library/detections/${detectionId}`);
+    navigate(routeHelpers.detectionDetail(detectionId));
   };
 
   // Handle submissions navigation
@@ -190,7 +186,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           detections={detections}
           onNavigate={handleSearchNavigation}
           onNavigateToDetection={handleNavigateToDetectionById}
-          onNavigateToNotifications={() => {/* Future: navigate to notifications page */}}
+          onNavigateToNotifications={() => navigate(ROUTES.NOTIFICATIONS)}
           onMobileMenuToggle={() => setIsMobileSidebarOpen(true)}
         />
         <div className="flex-1 overflow-hidden relative">
@@ -224,13 +220,12 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           <main id="main-content" className="h-full overflow-y-auto scroll-smooth scrollbar-page" role="main">
             <InterruptedImportBanner />
             <div key={location.pathname} className="animate-page-enter h-full">
-              <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
+              <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>}>
                 <Outlet />
               </Suspense>
             </div>
           </main>
-          {/* Full-screen overlay — same visual as AppRouter loader for seamless transition */}
-          {isLoading && <AppLoader />}
+          {/* Individual pages handle their own loading/skeleton states */}
           <GlobalImportBar />
           <ImportNavigationModal
             isOpen={navigationBlocker.isBlocked}
