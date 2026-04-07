@@ -59,8 +59,6 @@ function detectPendingAuthAction(): PendingAuthAction {
 
 const initialPendingAction = detectPendingAuthAction();
 
-import { NewLandingPage } from '../components/NewLandingPage';
-
 // Eager-load only the landing page (CommandCenterPage)
 import { CommandCenterPage } from './pages';
 
@@ -428,8 +426,6 @@ export const AppRouter: React.FC = () => {
         <ToastProvider>
           {showAuth ? (
             <AuthPage onBack={() => setShowAuth(false)} />
-          ) : window.location.pathname === '/new-landing' ? (
-            <NewLandingPage onSignIn={() => setShowAuth(true)} />
           ) : (
             <LandingPage onSignIn={() => setShowAuth(true)} />
           )}
