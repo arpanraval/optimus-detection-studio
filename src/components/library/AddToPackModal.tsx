@@ -27,6 +27,7 @@ export const AddToPackModal: React.FC<AddToPackModalProps> = ({ isOpen, onClose,
     if (!isOpen) return;
     setSelectedPackId('');
     setSearch('');
+    let cancelled = false;
     const load = async () => {
       setLoading(true);
       const { data } = await supabase
@@ -34,6 +35,7 @@ export const AddToPackModal: React.FC<AddToPackModalProps> = ({ isOpen, onClose,
         .select('*')
         .eq('is_active', true)
         .order('name');
+      if (cancelled) return;
       setPacks((data || []) as DetectionPack[]);
       setLoading(false);
       // Count dev-library detections in the incoming selection so we can warn the user upfront.
@@ -42,13 +44,18 @@ export const AddToPackModal: React.FC<AddToPackModalProps> = ({ isOpen, onClose,
           .from('detections')
           .select('id, library_type')
           .in('id', detectionIds);
+        if (cancelled) return;
         const labs = (details || []).filter((d: { library_type?: string }) => d.library_type !== 'production').length;
         setLabCount(labs);
       } else {
+        if (cancelled) return;
         setLabCount(0);
       }
     };
     load();
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen, detectionIds]);
 
   const filtered = packs.filter(p =>
@@ -130,7 +137,7 @@ export const AddToPackModal: React.FC<AddToPackModalProps> = ({ isOpen, onClose,
         </div>
 
         {labCount > 0 && (
-          <div className="px-6 py-3 border-b border-outline-variant/10 bg-amber-500/5">
+          <div role="alert" className="px-6 py-3 border-b border-outline-variant/10 bg-amber-500/5">
             <div className="flex items-start gap-2">
               <Icon name="alert-triangle" className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
               <p className="text-xs text-amber-200">
