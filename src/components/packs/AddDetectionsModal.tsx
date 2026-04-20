@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Icon } from '../Icon';
-import { Detection } from '../../types';
+import { Detection, LibraryType } from '../../types';
 import { supabase } from '../../lib/supabaseClient';
 
 interface AddDetectionsModalProps {
@@ -17,10 +17,12 @@ type SortDirection = 'asc' | 'desc';
 const SEVERITY_ORDER: Record<string, number> = { Critical: 4, High: 3, Medium: 2, Low: 1, Informational: 0 };
 const STATUS_ORDER: Record<string, number> = { Production: 6, Testing: 5, Review: 4, Development: 3, Draft: 2, Backlog: 1, Deprecated: 0 };
 
-const LibraryBadge: React.FC<{ libraryType?: string }> = ({ libraryType }) => {
+const LibraryBadge: React.FC<{ libraryType: LibraryType }> = ({ libraryType }) => {
   if (libraryType === 'production') return null;
   return (
     <span
+      role="img"
+      aria-label="Development library detection — will not deploy to SIEM until promoted to Production"
       className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase tracking-wide"
       title="Development library — won't deploy to SIEM until promoted to Production"
     >
