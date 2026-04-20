@@ -29,6 +29,7 @@ interface DeployJobRow {
   succeeded_count: number | null;
   failed_count: number | null;
   skipped_count: number | null;
+  rule_config: Record<string, unknown> | null;
 }
 
 interface DeployItemRow {
@@ -85,19 +86,12 @@ async function isJobCancelled(service: ReturnType<typeof getServiceClient>, jobI
   return data?.status === 'cancelled';
 }
 
-interface PackDeployConfig {
-  severity_override?: string | null;
-  schedule_override?: string | null;
-  enabled?: boolean;
-  notes?: string | null;
-}
-
 async function deployOne(
   service: ReturnType<typeof getServiceClient>,
   userClient: ReturnType<typeof getUserClient>,
   integrationId: string,
   detectionId: string,
-  packConfig: PackDeployConfig,
+  ruleConfig: Record<string, unknown>,
 ): Promise<DeployAttemptResult> {
   try {
     // Read detection via service client so RLS doesn't block worker
@@ -127,22 +121,6 @@ async function deployOne(
 
     if (!primaryQuery.trim()) {
       return { success: false, error: 'Detection has no query text', retryable: false, skip: true };
-    }
-
-    // Build ruleConfig from pack-level overrides. Individual detection settings
-    // are used by integration-ops; overrides here take precedence at the pack level.
-    const ruleConfig: Record<string, unknown> = {};
-    if (packConfig.severity_override) {
-      ruleConfig.severity = packConfig.severity_override;
-    }
-    if (packConfig.schedule_override) {
-      ruleConfig.schedule = packConfig.schedule_override;
-    }
-    if (packConfig.enabled === false) {
-      ruleConfig.enabled = false;
-    }
-    if (packConfig.notes) {
-      ruleConfig.description = packConfig.notes;
     }
 
     // Invoke integration-ops using the user's JWT so user_id filter passes
@@ -197,16 +175,30 @@ async function processJob(jobId: string, userJwt: string) {
 
   const typedJob = job as unknown as DeployJobRow;
 
-  // Fetch the pack's deploy_config (overrides applied to every detection in this job)
-  let packConfig: PackDeployConfig = {};
-  if (typedJob.pack_id) {
+  // Prefer the job-level ruleConfig (captured at deploy time from PackDeployPickerModal
+  // → ProviderRuleConfigForm). Fall back to detection_packs.deploy_config for legacy jobs
+  // created before 20260422.
+  let ruleConfig: Record<string, unknown> = {};
+  if (typedJob.rule_config && typeof typedJob.rule_config === 'object') {
+    ruleConfig = typedJob.rule_config;
+  } else if (typedJob.pack_id) {
     const { data: packData } = await service
       .from('detection_packs')
       .select('deploy_config')
       .eq('id', typedJob.pack_id)
       .maybeSingle();
     if (packData && packData.deploy_config) {
-      packConfig = packData.deploy_config as PackDeployConfig;
+      // Map legacy generic overrides to the ruleConfig shape used by integration-ops.
+      const legacy = packData.deploy_config as {
+        severity_override?: string | null;
+        schedule_override?: string | null;
+        enabled?: boolean;
+        notes?: string | null;
+      };
+      if (legacy.severity_override) ruleConfig.severity = legacy.severity_override;
+      if (legacy.schedule_override) ruleConfig.schedule = legacy.schedule_override;
+      if (legacy.enabled === false) ruleConfig.enabled = false;
+      if (legacy.notes) ruleConfig.description = legacy.notes;
     }
   }
 
@@ -244,7 +236,7 @@ async function processJob(jobId: string, userJwt: string) {
     let result: DeployAttemptResult | null = null;
 
     while (attempt < MAX_RETRIES) {
-      result = await deployOne(service, userClient, typedJob.integration_id, item.detection_id, packConfig);
+      result = await deployOne(service, userClient, typedJob.integration_id, item.detection_id, ruleConfig);
       if (result.success) break;
       if (!result.retryable) break;
       attempt++;
