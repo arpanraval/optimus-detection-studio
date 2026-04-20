@@ -8,7 +8,6 @@ import { PackDeployPickerModal } from './PackDeployPickerModal';
 import { PackPublishDialog } from './PackPublishDialog';
 import { PackVersionTimeline } from './PackVersionTimeline';
 import { PackHealthPanel } from './PackHealthPanel';
-import { PackDeployConfigEditor } from './PackDeployConfigEditor';
 import { PackExportMenu } from './PackExportMenu';
 import { usePackDeploymentStatus } from '../../hooks/usePackDeploymentStatus';
 import { PackDeploymentStatusBadge } from './PackDeploymentStatusBadge';
@@ -67,7 +66,6 @@ export const DetectionPackDetailPage: React.FC<DetectionPackDetailPageProps> = (
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [showBulkDeploy, setShowBulkDeploy] = useState(false);
   const [showPublishDialog, setShowPublishDialog] = useState(false);
-  const [showDeployConfig, setShowDeployConfig] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
 
   const { showToast } = useToast();
@@ -463,17 +461,6 @@ export const DetectionPackDetailPage: React.FC<DetectionPackDetailPageProps> = (
                 >
                   <Icon name="upload" className="w-4 h-4" />
                   Deploy Pack
-                </button>
-              )}
-              {/* Deploy Config Button */}
-              {canManagePacks && (
-                <button
-                  onClick={() => setShowDeployConfig(true)}
-                  className="px-5 py-3 bg-surface-container text-on-surface text-sm font-bold rounded-xl hover:bg-surface-container-high transition-colors border border-outline-variant/30 flex items-center gap-2"
-                  title="Configure pack-level deploy overrides"
-                >
-                  <Icon name="settings" className="w-4 h-4" />
-                  Deploy Config
                 </button>
               )}
               {/* Regenerate Button (only for auto-generated packs) */}
@@ -940,16 +927,6 @@ export const DetectionPackDetailPage: React.FC<DetectionPackDetailPageProps> = (
         variant="warning"
         confirmLabel="Remove"
       />
-
-      {/* Pack Deploy Config Editor */}
-      {pack && (
-        <PackDeployConfigEditor
-          isOpen={showDeployConfig}
-          onClose={() => setShowDeployConfig(false)}
-          pack={pack}
-          onSaved={() => { refetch(); }}
-        />
-      )}
 
       {/* Pack Publish Dialog — create immutable version snapshot */}
       <PackPublishDialog

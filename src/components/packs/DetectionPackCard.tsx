@@ -8,9 +8,10 @@ interface DetectionPackCardProps {
   pack: DetectionPack;
   to: string;
   onClick?: () => void;
+  deploymentStatus?: { deployed: number; total: number };
 }
 
-export const DetectionPackCard: React.FC<DetectionPackCardProps> = ({ pack, to, onClick }) => {
+export const DetectionPackCard: React.FC<DetectionPackCardProps> = ({ pack, to, onClick, deploymentStatus }) => {
   const sourceConfig: Record<string, { 
     gradient: string; 
     badge: string; 
@@ -110,6 +111,20 @@ export const DetectionPackCard: React.FC<DetectionPackCardProps> = ({ pack, to, 
           <p className="text-sm text-on-surface-variant/80 line-clamp-2 mb-5 leading-relaxed">
             {pack.description}
           </p>
+        )}
+
+        {/* Deployment Status Indicator */}
+        {deploymentStatus && deploymentStatus.total > 0 && (
+          <div className="flex items-center gap-1.5 mb-3 text-xs">
+            <div className={`w-1.5 h-1.5 rounded-full ${
+              deploymentStatus.deployed === deploymentStatus.total ? 'bg-emerald-400'
+              : deploymentStatus.deployed > 0 ? 'bg-yellow-400'
+              : 'bg-on-surface-variant/30'
+            }`} />
+            <span className="text-on-surface-variant/70 tabular-nums">
+              {deploymentStatus.deployed}/{deploymentStatus.total} deployed to SIEM
+            </span>
+          </div>
         )}
 
         {/* Stats Grid - Threat Intel Style */}
