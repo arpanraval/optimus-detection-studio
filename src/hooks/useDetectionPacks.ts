@@ -261,9 +261,11 @@ export const updatePackMitreTechniques = async (packId: string): Promise<void> =
     if (pdError) throw pdError;
 
     if (!packDetections || packDetections.length === 0) {
+      // rule_count is maintained by trg_sync_pack_rule_count; only update
+      // mitre_technique_ids here (no trigger syncs that on membership change).
       const { error: updateError } = await supabase
         .from('detection_packs')
-        .update({ mitre_technique_ids: [], rule_count: 0 })
+        .update({ mitre_technique_ids: [] })
         .eq('id', packId);
       if (updateError) throw updateError;
       return;
@@ -283,11 +285,12 @@ export const updatePackMitreTechniques = async (packId: string): Promise<void> =
       (d.mitreAttackIds || []).forEach((id: string) => allTechniques.add(id));
     });
 
+    // rule_count is maintained by trg_sync_pack_rule_count on INSERT/DELETE
+    // of pack_detections. Only update the MITRE aggregate here.
     const { error: finalUpdateError } = await supabase
       .from('detection_packs')
       .update({
         mitre_technique_ids: Array.from(allTechniques),
-        rule_count: detectionIds.length,
       })
       .eq('id', packId);
 
