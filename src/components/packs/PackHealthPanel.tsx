@@ -47,9 +47,14 @@ function groupIssues(issues: ValidationIssue[]): GroupedIssue[] {
       });
     }
   }
-  // Sort: errors first, then warnings, then info
+  // Sort: errors first, then warnings, then info.
+  // Within each severity, larger groups come first so high-impact issues surface.
   const order: Record<ValidationSeverity, number> = { error: 0, warning: 1, info: 2 };
-  return Array.from(grouped.values()).sort((a, b) => order[a.severity] - order[b.severity]);
+  return Array.from(grouped.values()).sort((a, b) => {
+    const sev = order[a.severity] - order[b.severity];
+    if (sev !== 0) return sev;
+    return b.issues.length - a.issues.length;
+  });
 }
 
 export const PackHealthPanel: React.FC<Props> = ({ pack, detections, onFixed }) => {

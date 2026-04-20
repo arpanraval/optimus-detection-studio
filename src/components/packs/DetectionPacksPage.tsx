@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useDetectionPacks, createPack } from '../../hooks/useDetectionPacks';
-import { DetectionPackCard } from './DetectionPackCard';
+import { DetectionPackCard, type PackCardIntegrationStatus } from './DetectionPackCard';
 import { PackIcon } from './PackIcon';
 import { CreatePackModal } from './CreatePackModal';
 import { GeneratePacksModal } from './GeneratePacksModal';
@@ -43,24 +43,47 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
 
   const canManagePacks = hasRoleOrHigher('lead');
   const [packStatusMap, setPackStatusMap] = useState<Map<string, { deployed: number; total: number }>>(new Map());
+  const [packIntegrationStatusMap, setPackIntegrationStatusMap] = useState<Map<string, PackCardIntegrationStatus[]>>(new Map());
 
   // Fetch deployment status for all visible packs
   useEffect(() => {
     if (!packs || packs.length === 0) return;
     const load = async () => {
       const packIds = packs.map(p => p.id);
-      const { data } = await supabase
-        .from('v_pack_deployment_status')
-        .select('pack_id, deployed_count, total_detections')
-        .in('pack_id', packIds);
-      const map = new Map<string, { deployed: number; total: number }>();
-      for (const row of (data || [])) {
-        const existing = map.get(row.pack_id);
+      const [statusRes, integrationsRes] = await Promise.all([
+        supabase
+          .from('v_pack_deployment_status')
+          .select('pack_id, integration_id, deployed_count, total_detections, failed_count')
+          .in('pack_id', packIds),
+        supabase.from('integrations').select('id, name'),
+      ]);
+
+      const integrationMap = new Map<string, string>();
+      (integrationsRes.data || []).forEach((i: { id: string; name: string }) =>
+        integrationMap.set(i.id, i.name)
+      );
+
+      const aggMap = new Map<string, { deployed: number; total: number }>();
+      const perIntegrationMap = new Map<string, PackCardIntegrationStatus[]>();
+      for (const row of (statusRes.data || [])) {
+        // Aggregate (max-deployed-per-pack) for the legacy single-dot indicator
+        const existing = aggMap.get(row.pack_id);
         if (!existing || row.deployed_count > existing.deployed) {
-          map.set(row.pack_id, { deployed: row.deployed_count, total: row.total_detections });
+          aggMap.set(row.pack_id, { deployed: row.deployed_count, total: row.total_detections });
         }
+        // Per-integration list for the mini-matrix strip
+        const list = perIntegrationMap.get(row.pack_id) || [];
+        list.push({
+          integration_id: row.integration_id,
+          integration_name: integrationMap.get(row.integration_id),
+          total_detections: row.total_detections,
+          deployed_count: row.deployed_count,
+          failed_count: row.failed_count ?? 0,
+        });
+        perIntegrationMap.set(row.pack_id, list);
       }
-      setPackStatusMap(map);
+      setPackStatusMap(aggMap);
+      setPackIntegrationStatusMap(perIntegrationMap);
     };
     load();
   }, [packs]);
@@ -503,6 +526,7 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
                 to={routeHelpers.packDetail(pack.id)}
                 onClick={() => onSelectPack(pack.id)}
                 deploymentStatus={packStatusMap.get(pack.id)}
+                integrationStatuses={packIntegrationStatusMap.get(pack.id)}
               />
             ))}
           </div>

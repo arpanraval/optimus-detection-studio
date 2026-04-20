@@ -23,6 +23,7 @@ export function usePackDeploymentStatus(packId: string | null) {
   const [totals, setTotals] = useState<PackTotals | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const fetch = useCallback(async () => {
     if (!packId) return;
@@ -50,6 +51,7 @@ export function usePackDeploymentStatus(packId: string | null) {
 
       setStatuses(enriched);
       setTotals(totalsRes.data as PackTotals | null);
+      setLastUpdated(new Date());
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to load pack status'));
     } finally {
@@ -59,7 +61,7 @@ export function usePackDeploymentStatus(packId: string | null) {
 
   useEffect(() => { fetch(); }, [fetch]);
 
-  return { statuses, totals, loading, error, refetch: fetch };
+  return { statuses, totals, loading, error, refetch: fetch, lastUpdated };
 }
 
 /**

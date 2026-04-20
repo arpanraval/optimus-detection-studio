@@ -3,6 +3,15 @@ import { Icon } from '../Icon';
 import { Detection, LibraryType } from '../../types';
 import { supabase } from '../../lib/supabaseClient';
 
+/**
+ * AddDetectionsModal — shown on the pack detail page to add one or more
+ * detections FROM the library TO this pack.
+ *
+ * See also: AddToPackModal (src/components/library) — similar concept but
+ * launched from the library page for a bulk selection of detections that
+ * the user wants to drop into an existing pack.
+ */
+
 interface AddDetectionsModalProps {
   isOpen: boolean;
   onClose: () => void;

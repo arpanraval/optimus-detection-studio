@@ -6,6 +6,14 @@ import { useToast } from '../../hooks/useToast';
 import { usePermissions } from '../../context/PermissionsContext';
 import type { DetectionPack } from '../../types';
 
+/**
+ * AddToPackModal — shown on the library page when the user has a bulk
+ * selection and wants to add them to an existing pack.
+ *
+ * See also: AddDetectionsModal (src/components/packs) — the inverse flow
+ * launched from inside a pack to pull detections in from the library.
+ */
+
 interface AddToPackModalProps {
   isOpen: boolean;
   onClose: () => void;

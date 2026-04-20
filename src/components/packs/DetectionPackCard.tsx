@@ -4,14 +4,23 @@ import { DetectionPack } from '../../types';
 import { Icon } from '../Icon';
 import { PackIcon } from './PackIcon';
 
+export interface PackCardIntegrationStatus {
+  integration_id: string;
+  integration_name?: string;
+  total_detections: number;
+  deployed_count: number;
+  failed_count: number;
+}
+
 interface DetectionPackCardProps {
   pack: DetectionPack;
   to: string;
   onClick?: () => void;
   deploymentStatus?: { deployed: number; total: number };
+  integrationStatuses?: PackCardIntegrationStatus[];
 }
 
-export const DetectionPackCard: React.FC<DetectionPackCardProps> = ({ pack, to, onClick, deploymentStatus }) => {
+export const DetectionPackCard: React.FC<DetectionPackCardProps> = ({ pack, to, onClick, deploymentStatus, integrationStatuses }) => {
   const sourceConfig: Record<string, { 
     gradient: string; 
     badge: string; 
@@ -103,6 +112,25 @@ export const DetectionPackCard: React.FC<DetectionPackCardProps> = ({ pack, to, 
             <h3 className="text-xl font-brand font-bold text-on-surface truncate group-hover:text-primary transition-colors leading-tight">
               {pack.name}
             </h3>
+            {integrationStatuses && integrationStatuses.length > 0 && (
+              <div className="flex items-center gap-0.5 mt-1.5" title="SIEM deployment status">
+                {integrationStatuses.map(s => {
+                  const color =
+                    s.total_detections > 0 && s.deployed_count === s.total_detections && s.failed_count === 0
+                      ? 'bg-emerald-500'
+                      : s.deployed_count > 0
+                      ? 'bg-yellow-500'
+                      : 'bg-surface-container-highest';
+                  return (
+                    <div
+                      key={s.integration_id}
+                      className={`w-1.5 h-3.5 rounded-sm ${color}`}
+                      title={`${s.integration_name || 'SIEM'}: ${s.deployed_count}/${s.total_detections} deployed`}
+                    />
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 

@@ -53,7 +53,7 @@ export const DetectionPackDetailPage: React.FC<DetectionPackDetailPageProps> = (
   onSelectDetection,
 }) => {
   const { pack, loading, error, refetch } = usePackDetail(packId);
-  const { statuses: deploymentStatuses, totals: packTotals, refetch: refetchStatus } = usePackDeploymentStatus(packId);
+  const { statuses: deploymentStatuses, totals: packTotals, refetch: refetchStatus, lastUpdated: statusLastUpdated } = usePackDeploymentStatus(packId);
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAddDetectionsModalOpen, setIsAddDetectionsModalOpen] = useState(false);
@@ -615,7 +615,7 @@ export const DetectionPackDetailPage: React.FC<DetectionPackDetailPageProps> = (
                     : 'text-on-surface-variant border-transparent hover:text-on-surface hover:bg-surface-container/50'
                 }`}
               >
-                {tab}
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
                 {tab === 'detections' && (
                   <span className="ml-2 px-2 py-0.5 text-[10px] bg-primary/10 text-primary rounded-full">
                     {pack.detection_count}
@@ -695,9 +695,23 @@ export const DetectionPackDetailPage: React.FC<DetectionPackDetailPageProps> = (
                 {/* Deployment Status per SIEM */}
                 {deploymentStatuses.length > 0 && (
                   <div className="bg-surface-container rounded-2xl border border-outline-variant/20 p-5">
-                    <h3 className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-3">
-                      Deployment Status
-                    </h3>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-xs font-bold text-on-surface-variant uppercase tracking-widest">
+                        Deployment Status
+                      </h3>
+                      <div className="flex items-center gap-2 text-[10px] text-on-surface-variant/60">
+                        <span>
+                          {statusLastUpdated ? `as of ${statusLastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+                        </span>
+                        <button
+                          onClick={refetchStatus}
+                          className="text-primary hover:underline"
+                          title="Refresh deployment status"
+                        >
+                          <Icon name="refresh" className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
                     <div className="flex flex-col gap-2">
                       {deploymentStatuses.map(s => (
                         <PackDeploymentStatusBadge key={s.integration_id} status={s} />

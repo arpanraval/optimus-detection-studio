@@ -38,10 +38,14 @@ export const PackDeploymentStatusBadge: React.FC<Props> = ({ status }) => {
   }
 
   return (
-    <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium ${bg} ${color}`}>
-      <Icon name={iconName} className="w-3.5 h-3.5" />
-      <span>{integration_name || 'SIEM'}: {label}</span>
-      <span className="text-on-surface-variant/50 tabular-nums">({deployed_count}/{total_detections})</span>
+    <div
+      className={`inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 px-2 py-1 rounded-md text-xs font-medium min-w-0 max-w-full ${bg} ${color}`}
+      title={`${integration_name || 'SIEM'}: ${label} (${deployed_count}/${total_detections})`}
+    >
+      <Icon name={iconName} className="w-3.5 h-3.5 flex-shrink-0" />
+      <span className="hidden sm:inline truncate min-w-0">{integration_name || 'SIEM'}:</span>
+      <span className="truncate min-w-0">{label}</span>
+      <span className="text-on-surface-variant/50 tabular-nums flex-shrink-0">({deployed_count}/{total_detections})</span>
     </div>
   );
 };
