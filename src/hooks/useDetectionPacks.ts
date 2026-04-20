@@ -72,22 +72,7 @@ export const useDetectionPacks = () => {
 
       if (fetchError) throw fetchError;
 
-      // For each pack, count actual detections from pack_detections
-      const packsWithCounts = await Promise.all(
-        (data || []).map(async (pack) => {
-          const { count } = await supabase
-            .from('pack_detections')
-            .select('*', { count: 'exact', head: true })
-            .eq('pack_id', pack.id);
-          
-          return {
-            ...pack,
-            rule_count: count || 0,
-          };
-        })
-      );
-
-      setPacks(packsWithCounts);
+      setPacks(data || []);
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to fetch packs'));
     } finally {
@@ -137,27 +122,17 @@ export const usePackDetail = (packId: string) => {
 
       if (packError) throw packError;
 
-      // Fetch pack detections via junction table
+      // Fetch pack detections via junction table with nested select
       const { data: packDetections, error: pdError } = await supabase
         .from('pack_detections')
-        .select('detection_id')
+        .select('detection_id, detections(*)')
         .eq('pack_id', packId);
 
       if (pdError) throw pdError;
 
-      const detectionIds = packDetections?.map(pd => pd.detection_id) || [];
-
-      let detections: Detection[] = [];
-      
-      if (detectionIds.length > 0) {
-        const { data: detectionsData, error: detError } = await supabase
-          .from('detections')
-          .select('*')
-          .in('id', detectionIds);
-
-        if (detError) throw detError;
-        detections = detectionsData || [];
-      }
+      const detections: Detection[] = (packDetections || [])
+        .map(pd => pd.detections as unknown as Detection)
+        .filter(Boolean);
 
       // Compute technique count
       const allTechniques = new Set<string>();
@@ -236,15 +211,6 @@ export const updatePack = async (packId: string, updates: Partial<DetectionPack>
 };
 
 export const deletePack = async (packId: string): Promise<void> => {
-  // First delete all pack_detections entries
-  const { error: pdError } = await supabase
-    .from('pack_detections')
-    .delete()
-    .eq('pack_id', packId);
-
-  if (pdError) throw pdError;
-
-  // Then delete the pack itself
   const { error } = await supabase
     .from('detection_packs')
     .delete()
@@ -285,37 +251,177 @@ export const removeDetectionFromPack = async (packId: string, detectionId: strin
 };
 
 export const updatePackMitreTechniques = async (packId: string): Promise<void> => {
-  // Fetch all detections in pack
-  const { data: packDetections } = await supabase
-    .from('pack_detections')
-    .select('detection_id')
-    .eq('pack_id', packId);
+  try {
+    // Fetch all detections in pack
+    const { data: packDetections, error: pdError } = await supabase
+      .from('pack_detections')
+      .select('detection_id')
+      .eq('pack_id', packId);
 
-  if (!packDetections || packDetections.length === 0) {
-    await supabase
+    if (pdError) throw pdError;
+
+    if (!packDetections || packDetections.length === 0) {
+      const { error: updateError } = await supabase
+        .from('detection_packs')
+        .update({ mitre_technique_ids: [], rule_count: 0 })
+        .eq('id', packId);
+      if (updateError) throw updateError;
+      return;
+    }
+
+    const detectionIds = packDetections.map(pd => pd.detection_id);
+
+    const { data: detections, error: detError } = await supabase
+      .from('detections')
+      .select('mitreAttackIds')
+      .in('id', detectionIds);
+
+    if (detError) throw detError;
+
+    const allTechniques = new Set<string>();
+    (detections || []).forEach(d => {
+      (d.mitreAttackIds || []).forEach((id: string) => allTechniques.add(id));
+    });
+
+    const { error: finalUpdateError } = await supabase
       .from('detection_packs')
-      .update({ mitre_technique_ids: [], rule_count: 0 })
+      .update({
+        mitre_technique_ids: Array.from(allTechniques),
+        rule_count: detectionIds.length,
+      })
       .eq('id', packId);
-    return;
+
+    if (finalUpdateError) throw finalUpdateError;
+  } catch (err) {
+    console.error('Failed to update pack MITRE techniques:', err);
+    throw err instanceof Error ? err : new Error('Failed to update pack MITRE techniques');
   }
+};
 
-  const detectionIds = packDetections.map(pd => pd.detection_id);
+// =============================================================================
+// PACK VERSIONING
+// =============================================================================
 
-  const { data: detections } = await supabase
-    .from('detections')
-    .select('mitreAttackIds')
-    .in('id', detectionIds);
+export interface PackVersion {
+  id: string;
+  pack_id: string | null;
+  pack_name: string;
+  version_number: number;
+  label: string | null;
+  notes: string | null;
+  snapshot: Record<string, unknown>;
+  created_by: string | null;
+  created_at: string;
+}
 
-  const allTechniques = new Set<string>();
-  (detections || []).forEach(d => {
-    (d.mitreAttackIds || []).forEach((id: string) => allTechniques.add(id));
+/**
+ * Create an immutable snapshot of a pack at its current state.
+ *
+ * Implementation: calls the publish_pack_version Postgres function which uses
+ * pg_advisory_xact_lock to serialize concurrent publishes on the same pack,
+ * eliminating the MAX(version_number) TOCTOU race. The RPC returns the newly
+ * inserted pack_versions row.
+ */
+export const publishPackVersion = async (
+  packId: string,
+  label?: string,
+  notes?: string
+): Promise<PackVersion> => {
+  const { data, error } = await supabase.rpc('publish_pack_version', {
+    p_pack_id: packId,
+    p_label: label ?? null,
+    p_notes: notes ?? null,
   });
 
-  await supabase
+  if (error) throw error;
+  if (!data) throw new Error('publish_pack_version returned no row');
+
+  return data as PackVersion;
+};
+
+/**
+ * Rollback a pack to a specific version. Replaces current detection list with
+ * detection IDs from that version's snapshot.
+ *
+ * Implementation: calls the rollback_pack_to_version Postgres function which
+ * runs pre-rollback snapshot + delete + re-insert atomically in one transaction.
+ * Partial failure leaves the pack untouched instead of empty. Missing detections
+ * (deleted since the snapshot was taken) are silently skipped.
+ */
+export const rollbackToVersion = async (packId: string, versionId: string): Promise<void> => {
+  const { error } = await supabase.rpc('rollback_pack_to_version', {
+    p_pack_id: packId,
+    p_version_id: versionId,
+  });
+
+  if (error) throw error;
+
+  // RPC handles pack_detections but not mitre_technique_ids aggregate.
+  // The trigger that syncs MITRE IDs only fires on detection.mitreAttackIds
+  // changes, not pack_detections membership changes, so recompute manually.
+  await updatePackMitreTechniques(packId);
+};
+
+/**
+ * Fetch all versions for a pack, ordered newest first.
+ */
+export const getPackVersions = async (packId: string): Promise<PackVersion[]> => {
+  const { data, error } = await supabase
+    .from('pack_versions')
+    .select('*')
+    .eq('pack_id', packId)
+    .order('version_number', { ascending: false });
+  if (error) throw error;
+  return (data || []) as PackVersion[];
+};
+
+// =============================================================================
+// PACK EXPORT
+// =============================================================================
+
+/**
+ * Export a pack as a JSON bundle containing pack metadata and all detection definitions.
+ * Returns a filename + downloadable Blob.
+ */
+export const exportPack = async (packId: string): Promise<{ filename: string; blob: Blob }> => {
+  const { data: pack, error: packError } = await supabase
     .from('detection_packs')
-    .update({
-      mitre_technique_ids: Array.from(allTechniques),
-      rule_count: detectionIds.length,
-    })
-    .eq('id', packId);
+    .select('*')
+    .eq('id', packId)
+    .single();
+
+  if (packError) throw packError;
+
+  const { data: junctionData, error: junctionError } = await supabase
+    .from('pack_detections')
+    .select('detections(*)')
+    .eq('pack_id', packId);
+
+  if (junctionError) throw junctionError;
+
+  const detections = (junctionData || [])
+    .map((row: { detections: unknown }) => row.detections)
+    .filter(Boolean);
+
+  const bundle = {
+    version: '1.0',
+    exported_at: new Date().toISOString(),
+    pack: {
+      name: pack.name,
+      description: pack.description,
+      icon: pack.icon,
+      tags: pack.tags,
+      platforms: pack.platforms,
+      source: pack.source,
+      pack_type: pack.pack_type,
+    },
+    detections,
+  };
+
+  const json = JSON.stringify(bundle, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const safeName = pack.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+  const filename = `${safeName}_pack_${new Date().toISOString().split('T')[0]}.json`;
+
+  return { filename, blob };
 };
