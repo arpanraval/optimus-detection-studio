@@ -1,36 +1,45 @@
 -- Pack Deployment Status Views
 --
--- Computes pack deployment status by joining pack_detections with the latest
--- deployment_history row per (detection, integration).
+-- Computes pack deployment status by picking the latest deployment_history
+-- row per (detection, integration) and classifying it by action + status.
+--
+-- "Deployed" = latest action is create/update with status=success.
+-- A later 'delete' makes the detection count as neither deployed nor failed
+-- (rule is no longer in the SIEM). status='failed' counts as failed.
+-- status='in_progress' and 'rolled_back' count as neither.
 --
 -- Used by usePackDeploymentStatus hook to show "X/Y deployed to Splunk" on packs.
 
--- Drop the old view first so we can recreate with the same name but different shape.
 DROP VIEW IF EXISTS v_pack_deployment_status;
 
 CREATE VIEW v_pack_deployment_status AS
-WITH latest_deploy AS (
-  -- One row per (detection, integration) with the most recent deploy action's status.
-  -- We only care about 'deploy' actions; rollback/update/delete don't count as deployed.
+WITH latest_action AS (
+  -- Absolute latest deployment_history row per (detection, integration).
   SELECT DISTINCT ON (dh.detection_id, dh.integration_id)
     dh.detection_id,
     dh.integration_id,
+    dh.action,
     dh.status,
     dh.created_at
   FROM deployment_history dh
-  WHERE dh.action = 'deploy'
   ORDER BY dh.detection_id, dh.integration_id, dh.created_at DESC
 )
 SELECT
   pd.pack_id,
-  ld.integration_id,
+  la.integration_id,
   COUNT(DISTINCT pd.detection_id) AS total_detections,
-  COUNT(DISTINCT CASE WHEN ld.status = 'success' THEN pd.detection_id END) AS deployed_count,
-  COUNT(DISTINCT CASE WHEN ld.status = 'failed' THEN pd.detection_id END) AS failed_count,
-  MAX(ld.created_at) AS last_deployed_at
+  COUNT(DISTINCT CASE
+    WHEN la.action IN ('create', 'update') AND la.status = 'success'
+    THEN pd.detection_id
+  END) AS deployed_count,
+  COUNT(DISTINCT CASE
+    WHEN la.action IN ('create', 'update') AND la.status = 'failed'
+    THEN pd.detection_id
+  END) AS failed_count,
+  MAX(la.created_at) AS last_deployed_at
 FROM pack_detections pd
-INNER JOIN latest_deploy ld ON ld.detection_id = pd.detection_id
-GROUP BY pd.pack_id, ld.integration_id;
+INNER JOIN latest_action la ON la.detection_id = pd.detection_id
+GROUP BY pd.pack_id, la.integration_id;
 
 -- Per-pack totals including quality breakdown
 CREATE OR REPLACE VIEW v_pack_totals AS
