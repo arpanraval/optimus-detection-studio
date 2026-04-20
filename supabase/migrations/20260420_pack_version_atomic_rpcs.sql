@@ -27,8 +27,15 @@ DECLARE
   v_version pack_versions;
   v_user_id uuid := auth.uid();
 BEGIN
-  -- Serialize concurrent publishes on this pack.
-  -- hashtext(uuid::text) produces a stable int for pg_advisory_xact_lock.
+  -- Serialize concurrent publish_pack_version / rollback_pack_to_version RPC
+  -- calls for the same pack to prevent the MAX(version_number) TOCTOU race.
+  -- Note: this does NOT block concurrent pack_detections INSERT/DELETE from
+  -- other code paths — the snapshot reflects whatever rows exist at SELECT time.
+  -- Acceptable because pack_versions is append-only history; any point-in-time
+  -- snapshot is valid.
+  -- hashtext(uuid::text) produces a stable int key for pg_advisory_xact_lock.
+  -- Collisions across unrelated pack_ids can cause benign transient serialization
+  -- of different packs' publishes; no correctness impact.
   PERFORM pg_advisory_xact_lock(hashtext(p_pack_id::text));
 
   -- Load pack (inside the lock so version numbering is consistent)
@@ -110,7 +117,9 @@ DECLARE
   v_snapshot jsonb;
   v_detection_ids text[];  -- detections.id is text in this schema
 BEGIN
-  -- Serialize vs. concurrent publish/rollback
+  -- Serialize vs. concurrent publish/rollback calls for the same pack.
+  -- pg_advisory_xact_lock is re-entrant within the same transaction, so the
+  -- nested publish_pack_version call below reacquires the same key safely.
   PERFORM pg_advisory_xact_lock(hashtext(p_pack_id::text));
 
   -- 1. Auto-publish pre-rollback snapshot. Errors bubble up and the txn aborts.
