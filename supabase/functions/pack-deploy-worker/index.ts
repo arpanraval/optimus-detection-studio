@@ -296,9 +296,12 @@ async function processJob(jobId: string, userJwt: string) {
     finalStatus = 'failed';
   } else if (succeeded > 0 && failed > 0) {
     finalStatus = 'partial';
+  } else if (skipped > 0) {
+    // All items were skipped (e.g., all detections were lab-only or blocked status)
+    finalStatus = 'succeeded';
   } else {
-    // All items were skipped
-    finalStatus = succeeded > 0 ? 'succeeded' : 'failed';
+    // Empty job — nothing was processed at all
+    finalStatus = 'failed';
   }
 
   await updateJobStatus(service, jobId, {
