@@ -935,6 +935,7 @@ export const DetectionPackDetailPage: React.FC<DetectionPackDetailPageProps> = (
         packId={packId}
         packName={pack?.name || ''}
         currentDetectionCount={pack?.detection_count || 0}
+        currentDetectionIds={(pack?.detections || []).map(d => d.id)}
         nextVersionNumber={((pack as unknown as { current_version_number?: number })?.current_version_number || 0) + 1}
         onPublished={() => { refetch(); }}
       />

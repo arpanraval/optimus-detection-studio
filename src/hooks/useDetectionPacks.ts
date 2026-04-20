@@ -324,6 +324,20 @@ export interface PackVersion {
  * pg_advisory_xact_lock to serialize concurrent publishes on the same pack,
  * eliminating the MAX(version_number) TOCTOU race. The RPC returns the newly
  * inserted pack_versions row.
+ *
+ * Snapshot shape (stored in pack_versions.snapshot as jsonb):
+ * {
+ *   pack: {
+ *     name, description, icon, tags, platforms, mitre_technique_ids,
+ *     pack_type, source, auto_generated, generation_criteria
+ *   },
+ *   detections: [<full jsonb of each detections row at snapshot time>],
+ *   published_at: iso timestamp
+ * }
+ *
+ * NOT captured in the snapshot: deploy_config, rule_count (computed),
+ * current_version_number. Rollback restores the pack_detections list but
+ * does NOT restore deploy_config (users configure deploy per-deploy now).
  */
 export const publishPackVersion = async (
   packId: string,

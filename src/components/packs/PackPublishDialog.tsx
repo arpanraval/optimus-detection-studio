@@ -4,7 +4,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { Icon } from '../Icon';
-import { publishPackVersion } from '../../hooks/useDetectionPacks';
+import { publishPackVersion, getPackVersions } from '../../hooks/useDetectionPacks';
+import { computeVersionDiff } from '../../hooks/usePackVersions';
 import { useToast } from '../../hooks/useToast';
 
 interface Props {
@@ -13,6 +14,7 @@ interface Props {
   packId: string;
   packName: string;
   currentDetectionCount: number;
+  currentDetectionIds: string[];
   nextVersionNumber: number;
   onPublished: () => void;
 }
@@ -23,20 +25,51 @@ export const PackPublishDialog: React.FC<Props> = ({
   packId,
   packName,
   currentDetectionCount,
+  currentDetectionIds,
   nextVersionNumber,
   onPublished,
 }) => {
   const [label, setLabel] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [deltaSummary, setDeltaSummary] = useState<string | null>(null);
   const { showToast } = useToast();
 
   useEffect(() => {
-    if (isOpen) {
-      setLabel('');
-      setNotes('');
-    }
-  }, [isOpen]);
+    if (!isOpen) return;
+    setLabel('');
+    setNotes('');
+    setDeltaSummary(null);
+
+    let cancelled = false;
+    const loadDelta = async () => {
+      try {
+        const versions = await getPackVersions(packId);
+        if (cancelled) return;
+        if (versions.length === 0) {
+          setDeltaSummary('First published version.');
+          return;
+        }
+        const latest = versions[0];
+        const currentSnapshot = { snapshot: { detections: currentDetectionIds.map(id => ({ id })) } };
+        const diff = computeVersionDiff(latest, currentSnapshot);
+        if (cancelled) return;
+        if (diff.added.length === 0 && diff.removed.length === 0) {
+          setDeltaSummary(`No detection changes since v${latest.version_number}.`);
+        } else {
+          setDeltaSummary(
+            `Since v${latest.version_number}: ${diff.added.length} added, ${diff.removed.length} removed.`
+          );
+        }
+      } catch {
+        if (!cancelled) setDeltaSummary(null);
+      }
+    };
+    loadDelta();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, packId, currentDetectionIds]);
 
   const handlePublish = async () => {
     setSubmitting(true);
@@ -64,6 +97,12 @@ export const PackPublishDialog: React.FC<Props> = ({
             Create <span className="font-semibold text-on-surface">v{nextVersionNumber}</span> snapshot of "{packName}" — {currentDetectionCount} detection{currentDetectionCount !== 1 ? 's' : ''}
           </p>
         </div>
+
+        {deltaSummary && (
+          <div className="px-6 pt-3 -mb-1">
+            <div className="text-xs text-on-surface-variant italic">{deltaSummary}</div>
+          </div>
+        )}
 
         <div className="px-6 py-4 space-y-4">
           <div>

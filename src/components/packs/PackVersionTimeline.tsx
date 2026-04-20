@@ -4,8 +4,9 @@
 
 import React, { useState } from 'react';
 import { Icon } from '../Icon';
-import { usePackVersions } from '../../hooks/usePackVersions';
+import { usePackVersions, computeVersionDiff } from '../../hooks/usePackVersions';
 import { rollbackToVersion } from '../../hooks/useDetectionPacks';
+import type { PackVersion } from '../../hooks/useDetectionPacks';
 import { useToast } from '../../hooks/useToast';
 import { hasActiveDeployments } from '../../hooks/usePackDeploymentStatus';
 
@@ -136,6 +137,16 @@ export const PackVersionTimeline: React.FC<Props> = ({ packId, onRestored }) => 
                 </p>
               )}
 
+              {/* Diff vs previous version — only when there IS a previous */}
+              {idx < versions.length - 1 && (
+                <details className="mt-2">
+                  <summary className="text-xs text-on-surface-variant/70 hover:text-on-surface cursor-pointer select-none">
+                    Show changes since v{versions[idx + 1].version_number}
+                  </summary>
+                  <VersionDiffDisplay older={versions[idx + 1]} newer={v} />
+                </details>
+              )}
+
               {!isLatest && (
                 <div className="flex items-center gap-2">
                   {showConfirm ? (
@@ -184,6 +195,23 @@ export const PackVersionTimeline: React.FC<Props> = ({ packId, onRestored }) => 
           </div>
         );
       })}
+    </div>
+  );
+};
+
+const VersionDiffDisplay: React.FC<{ older: PackVersion; newer: PackVersion }> = ({ older, newer }) => {
+  const diff = computeVersionDiff(older, newer);
+  if (diff.added.length === 0 && diff.removed.length === 0) {
+    return <div className="mt-2 text-xs text-on-surface-variant/60">No detection changes</div>;
+  }
+  return (
+    <div className="mt-2 text-xs space-y-1">
+      {diff.added.length > 0 && (
+        <div className="text-emerald-300">+ {diff.added.length} detection{diff.added.length !== 1 ? 's' : ''} added</div>
+      )}
+      {diff.removed.length > 0 && (
+        <div className="text-red-300">− {diff.removed.length} detection{diff.removed.length !== 1 ? 's' : ''} removed</div>
+      )}
     </div>
   );
 };
