@@ -16,6 +16,7 @@ interface FormatOption {
   value: ExportFormat;
   label: string;
   description: string;
+  tooltip: string;
   icon: 'file-text' | 'archive' | 'database' | 'cloud';
 }
 
@@ -24,24 +25,28 @@ const FORMATS: FormatOption[] = [
     value: 'json',
     label: 'JSON Bundle',
     description: 'Optimus native format',
+    tooltip: 'Full pack bundle: metadata, detections, MITRE mapping, versioning context. Best for backup or re-import into Optimus.',
     icon: 'file-text',
   },
   {
     value: 'sigma',
     label: 'Sigma ZIP',
     description: 'Universal YAML rules',
+    tooltip: 'ZIP of Sigma YAML rules. Note: detections already in Sigma format may carry indentation quirks — review before sharing with third parties.',
     icon: 'archive',
   },
   {
     value: 'splunk',
     label: 'Splunk conf',
     description: 'savedsearches.conf',
+    tooltip: 'Splunk savedsearches.conf file. SPL queries only. No pack metadata; per-rule settings (cron, severity) use app defaults.',
     icon: 'database',
   },
   {
     value: 'sentinel',
     label: 'Sentinel ARM',
     description: 'ARM template JSON',
+    tooltip: 'Azure Sentinel ARM template JSON. Deploys analytics rules via Azure Resource Manager. KQL queries only.',
     icon: 'cloud',
   },
 ];
@@ -108,6 +113,7 @@ export const PackExportMenu: React.FC<Props> = ({ pack }) => {
             <button
               key={format.value}
               onClick={() => handleExport(format.value)}
+              title={format.tooltip}
               className="w-full px-4 py-3 flex items-center gap-3 hover:bg-surface-container text-left transition-colors"
             >
               <Icon name={format.icon} className="w-4 h-4 text-on-surface-variant flex-shrink-0" />

@@ -90,12 +90,14 @@ export const GeneratePacksModal: React.FC<GeneratePacksModalProps> = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [libraryTruncated, setLibraryTruncated] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
     setSelectedNames(new Set());
     setSearch('');
     setTypeFilter('all');
+    setLibraryTruncated(false);
 
     const analyze = async () => {
       setIsAnalyzing(true);
@@ -131,6 +133,7 @@ export const GeneratePacksModal: React.FC<GeneratePacksModalProps> = ({
         const rawCandidates = generatePacks(detections);
         const enriched = rawCandidates.map(c => enrichCandidate(c, detectionMap));
 
+        setLibraryTruncated(detections.length >= 10000);
         setCandidates(enriched);
         // Pre-select use_case and ransomware packs, deselect the rest
         const autoSelect = new Set(
@@ -190,6 +193,8 @@ export const GeneratePacksModal: React.FC<GeneratePacksModalProps> = ({
 
   const selectAll = () => setSelectedNames(new Set(candidates.map(c => c.name)));
   const selectNone = () => setSelectedNames(new Set());
+  const selectByType = (packType: string) =>
+    setSelectedNames(new Set(candidates.filter(c => c.pack_type === packType).map(c => c.name)));
 
   const handleGenerate = async () => {
     const selected = candidates.filter(c => selectedNames.has(c.name));
@@ -262,6 +267,10 @@ export const GeneratePacksModal: React.FC<GeneratePacksModalProps> = ({
                 <span className="text-on-surface-variant">{selectedCount}/{totalCount}</span>
                 <button onClick={selectAll} className="text-primary hover:underline text-xs font-medium">All</button>
                 <span className="text-on-surface-variant/30">|</span>
+                <button onClick={() => selectByType('use_case')} className="text-on-surface-variant hover:text-on-surface text-xs font-medium">Use cases</button>
+                <span className="text-on-surface-variant/30">|</span>
+                <button onClick={() => selectByType('siem_ready')} className="text-on-surface-variant hover:text-on-surface text-xs font-medium">SIEM-ready</button>
+                <span className="text-on-surface-variant/30">|</span>
                 <button onClick={selectNone} className="text-on-surface-variant hover:text-on-surface text-xs font-medium">None</button>
               </div>
             </div>
@@ -270,6 +279,14 @@ export const GeneratePacksModal: React.FC<GeneratePacksModalProps> = ({
 
         {/* Content */}
         <div className="flex-1 overflow-auto">
+          {libraryTruncated && !isAnalyzing && (
+            <div className="mx-6 mt-3 mb-1 p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-start gap-2">
+              <Icon name="alert-triangle" className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-200">
+                Library has 10,000+ detections. Analysis used only the first 10,000 rows; candidates may not reflect the full catalog.
+              </p>
+            </div>
+          )}
           {isAnalyzing ? (
             <div className="flex flex-col items-center justify-center py-20">
               <Icon name="spinner" className="w-8 h-8 animate-spin text-primary mb-4" />

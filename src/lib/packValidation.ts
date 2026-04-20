@@ -4,7 +4,6 @@
  * Runs entirely client-side. No DB calls. Used by:
  *   - PackHealthPanel (show issues on pack detail page)
  *   - Pre-deploy check (block deploy on errors)
- *   - DeployDedupPreview (cross-pack duplicate transparency)
  */
 
 import type { Detection, DetectionPack } from '../types';

@@ -11,5 +11,4 @@ export { DeployJobProgressPanel } from './DeployJobProgressPanel';
 export { PackPublishDialog } from './PackPublishDialog';
 export { PackVersionTimeline } from './PackVersionTimeline';
 export { PackHealthPanel } from './PackHealthPanel';
-export { DeployDedupPreview } from './DeployDedupPreview';
 export { PackExportMenu } from './PackExportMenu';
