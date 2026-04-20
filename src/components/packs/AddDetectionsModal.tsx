@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Icon } from '../Icon';
 import { Detection } from '../../types';
-import { useLibrary } from '../../context/LibraryContext';
+import { supabase } from '../../lib/supabaseClient';
 
 interface AddDetectionsModalProps {
   isOpen: boolean;
@@ -17,6 +17,18 @@ type SortDirection = 'asc' | 'desc';
 const SEVERITY_ORDER: Record<string, number> = { Critical: 4, High: 3, Medium: 2, Low: 1, Informational: 0 };
 const STATUS_ORDER: Record<string, number> = { Production: 6, Testing: 5, Review: 4, Development: 3, Draft: 2, Backlog: 1, Deprecated: 0 };
 
+const LibraryBadge: React.FC<{ libraryType?: string }> = ({ libraryType }) => {
+  if (libraryType === 'production') return null;
+  return (
+    <span
+      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase tracking-wide"
+      title="Development library — won't deploy to SIEM until promoted to Production"
+    >
+      Lab
+    </span>
+  );
+};
+
 export const AddDetectionsModal: React.FC<AddDetectionsModalProps> = ({
   isOpen,
   onClose,
@@ -24,10 +36,8 @@ export const AddDetectionsModal: React.FC<AddDetectionsModalProps> = ({
   existingDetectionIds,
   packName,
 }) => {
-  const { productionDetections, developmentDetections } = useLibrary();
-  // Combine both libraries for detection picker
-  const allDetections = [...(productionDetections || []), ...(developmentDetections || [])];
-  
+  const [allDetections, setAllDetections] = useState<Detection[]>([]);
+  const [isLoadingDetections, setIsLoadingDetections] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState<string>('');
@@ -37,12 +47,28 @@ export const AddDetectionsModal: React.FC<AddDetectionsModalProps> = ({
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Reset selection when modal opens
+  // Fetch all detections when modal opens
   useEffect(() => {
-    if (isOpen) {
-      setSelectedIds(new Set());
-      setSearch('');
-    }
+    if (!isOpen) return;
+    setSelectedIds(new Set());
+    setSearch('');
+    const fetchAll = async () => {
+      setIsLoadingDetections(true);
+      try {
+        const { data, error } = await supabase
+          .from('detections')
+          .select('id, name, status, severity, technology, queryLanguage, mitreAttackIds, platforms, library_type')
+          .order('name');
+        if (!error && data) {
+          setAllDetections(data as Detection[]);
+        }
+      } catch (err) {
+        console.error('Failed to fetch detections for pack:', err);
+      } finally {
+        setIsLoadingDetections(false);
+      }
+    };
+    fetchAll();
   }, [isOpen]);
 
   // Filter out already-added detections and apply filters
@@ -82,7 +108,11 @@ export const AddDetectionsModal: React.FC<AddDetectionsModalProps> = ({
         }
         return sortDirection === 'asc' ? comparison : -comparison;
       });
-  }, [productionDetections, developmentDetections, existingDetectionIds, search, severityFilter, statusFilter, technologyFilter, sortField, sortDirection]);
+  }, [allDetections, existingDetectionIds, search, severityFilter, statusFilter, technologyFilter, sortField, sortDirection]);
+
+  const selectedLabCount = useMemo(() => {
+    return allDetections.filter(d => selectedIds.has(d.id) && d.library_type !== 'production').length;
+  }, [allDetections, selectedIds]);
 
   // Extract unique values for filters
   const filterOptions = useMemo(() => {
@@ -101,7 +131,7 @@ export const AddDetectionsModal: React.FC<AddDetectionsModalProps> = ({
       statuses: Array.from(statuses).sort((a, b) => (STATUS_ORDER[b] || 0) - (STATUS_ORDER[a] || 0)),
       technologies: Array.from(technologies).sort(),
     };
-  }, [productionDetections, developmentDetections]);
+  }, [allDetections]);
 
   const toggleSelection = (id: string) => {
     const newSelected = new Set(selectedIds);
@@ -260,7 +290,12 @@ export const AddDetectionsModal: React.FC<AddDetectionsModalProps> = ({
 
         {/* Detection List */}
         <div className="flex-1 overflow-y-auto">
-          {availableDetections.length === 0 ? (
+          {isLoadingDetections ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <Icon name="spinner" className="w-8 h-8 text-primary animate-spin mb-3" />
+              <p className="text-on-surface-variant font-medium">Loading detections...</p>
+            </div>
+          ) : availableDetections.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <Icon name="inbox" className="w-12 h-12 text-on-surface-variant/30 mb-3" />
               <p className="text-on-surface-variant font-medium">No detections available</p>
@@ -293,6 +328,7 @@ export const AddDetectionsModal: React.FC<AddDetectionsModalProps> = ({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-on-surface truncate">{detection.name}</span>
+                      <LibraryBadge libraryType={detection.library_type} />
                       {(detection.mitreAttackIds || []).slice(0, 2).map(id => (
                         <span key={id} className="px-1.5 py-0.5 text-[10px] font-mono bg-primary/10 text-primary rounded">
                           {id}
@@ -321,6 +357,16 @@ export const AddDetectionsModal: React.FC<AddDetectionsModalProps> = ({
             </div>
           )}
         </div>
+
+        {selectedLabCount > 0 && (
+          <div className="mx-6 mb-3 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-start gap-2">
+            <Icon name="alert-triangle" className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-200">
+              <span className="font-semibold">{selectedLabCount}</span> selected detection{selectedLabCount !== 1 ? 's are' : ' is'} in the Development library
+              and won't deploy to SIEM until promoted to Production.
+            </p>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="flex-shrink-0 px-6 py-4 border-t border-outline-variant/20 flex items-center justify-between bg-surface-container">
