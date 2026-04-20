@@ -33,6 +33,16 @@ export const PackQualityBar: React.FC<Props> = ({ totals }) => {
           {readinessLabel}
         </span>
       </div>
+      {totals.total_detections > 0 && (
+        <div className="text-xs text-on-surface-variant">
+          {Math.round((production_ready_count / totals.total_detections) * 100)}% production-ready
+          {(draft_count > 0 || totals.total_detections - production_ready_count - draft_count > 0) && (
+            <span className="ml-1 text-amber-300">
+              · {draft_count} draft, {totals.total_detections - production_ready_count - draft_count} other non-production
+            </span>
+          )}
+        </div>
+      )}
       <div className="h-2 w-full bg-surface-container rounded-full overflow-hidden flex">
         {readyPct > 0 && (
           <div

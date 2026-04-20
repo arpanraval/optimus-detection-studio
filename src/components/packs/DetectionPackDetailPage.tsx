@@ -641,6 +641,24 @@ export const DetectionPackDetailPage: React.FC<DetectionPackDetailPageProps> = (
               <PackVersionTimeline packId={packId} onRestored={refetch} />
             </div>
           ) : activeTab === 'overview' ? (
+            (pack.detections?.length || 0) === 0 ? (
+              <div className="flex flex-col items-center justify-center text-center py-20 px-6">
+                <Icon name="package" className="w-12 h-12 text-on-surface-variant/30 mb-3" />
+                <h3 className="text-lg font-semibold text-on-surface mb-2">This pack is empty</h3>
+                <p className="text-sm text-on-surface-variant max-w-md mb-5">
+                  Add detections to see MITRE coverage, health, deployment readiness, and SIEM deployment status.
+                </p>
+                {canManagePacks && (
+                  <button
+                    onClick={() => setIsAddDetectionsModalOpen(true)}
+                    className="px-5 py-2.5 bg-primary text-on-primary font-semibold rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2"
+                  >
+                    <Icon name="plus" className="w-4 h-4" />
+                    Add Detections
+                  </button>
+                )}
+              </div>
+            ) : (
             <div className="grid grid-cols-3 gap-6">
               {/* MITRE Coverage - Main Panel */}
               <div className="col-span-2 bg-surface-container rounded-2xl border border-outline-variant/20 p-6 relative overflow-hidden">
@@ -757,6 +775,7 @@ export const DetectionPackDetailPage: React.FC<DetectionPackDetailPageProps> = (
                 </div>
               </div>
             </div>
+            )
           ) : (
             /* Detections Tab */
             <div className="bg-surface-container rounded-2xl border border-outline-variant/20 overflow-hidden">
