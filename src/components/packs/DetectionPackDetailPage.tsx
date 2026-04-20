@@ -664,7 +664,7 @@ export const DetectionPackDetailPage: React.FC<DetectionPackDetailPageProps> = (
               <div className="space-y-6">
                 {/* Health Check */}
                 {pack && (pack.detections?.length || 0) > 0 && (
-                  <PackHealthPanel pack={pack} detections={pack.detections || []} />
+                  <PackHealthPanel pack={pack} detections={pack.detections || []} onFixed={refetch} />
                 )}
 
                 {/* Deployment Readiness */}

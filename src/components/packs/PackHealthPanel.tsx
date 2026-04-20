@@ -4,14 +4,17 @@
  * Groups issues by code and shows a summary + drill-down.
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Icon } from '../Icon';
-import { validatePack, ValidationIssue, ValidationSeverity } from '../../lib/packValidation';
+import { validatePack, ValidationIssue, ValidationSeverity, AutoFixKind } from '../../lib/packValidation';
+import { removeDetectionFromPack } from '../../hooks/useDetectionPacks';
+import { useToast } from '../../hooks/useToast';
 import type { Detection, DetectionPack } from '../../types';
 
 interface Props {
   pack: DetectionPack;
   detections: Detection[];
+  onFixed?: () => void;
 }
 
 const SEVERITY_STYLE: Record<ValidationSeverity, { bg: string; text: string; icon: 'alert-circle' | 'alert-triangle' | 'info' }> = {
@@ -24,6 +27,7 @@ interface GroupedIssue {
   code: string;
   severity: ValidationSeverity;
   message: string;
+  autoFixKind: AutoFixKind;
   issues: ValidationIssue[];
 }
 
@@ -38,6 +42,7 @@ function groupIssues(issues: ValidationIssue[]): GroupedIssue[] {
         code: issue.code,
         severity: issue.severity,
         message: issue.message,
+        autoFixKind: issue.autoFixKind,
         issues: [issue],
       });
     }
@@ -47,9 +52,36 @@ function groupIssues(issues: ValidationIssue[]): GroupedIssue[] {
   return Array.from(grouped.values()).sort((a, b) => order[a.severity] - order[b.severity]);
 }
 
-export const PackHealthPanel: React.FC<Props> = ({ pack, detections }) => {
+export const PackHealthPanel: React.FC<Props> = ({ pack, detections, onFixed }) => {
   const result = useMemo(() => validatePack(pack, detections), [pack, detections]);
   const grouped = useMemo(() => groupIssues(result.issues), [result.issues]);
+
+  const { showToast } = useToast();
+  const [fixingCode, setFixingCode] = useState<string | null>(null);
+
+  const handleAutoFix = async (group: GroupedIssue) => {
+    if (group.autoFixKind === 'none') return;
+    const ids = group.issues.map(i => i.detectionId).filter((x): x is string => !!x);
+    if (ids.length === 0) return;
+
+    const confirmed = window.confirm(
+      `Remove ${ids.length} detection${ids.length !== 1 ? 's' : ''} from "${pack.name}"?\n\nThis cannot be undone from here. The prior pack state is captured in the current version (use Publish first if you haven't yet).`
+    );
+    if (!confirmed) return;
+
+    setFixingCode(group.code);
+    try {
+      for (const id of ids) {
+        await removeDetectionFromPack(pack.id, id);
+      }
+      showToast('success', 'Detections Removed', `${ids.length} detection${ids.length !== 1 ? 's' : ''} removed from the pack`);
+      if (onFixed) onFixed();
+    } catch (err) {
+      showToast('error', 'Auto-fix failed', err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setFixingCode(null);
+    }
+  };
 
   // Healthy state
   if (result.issues.length === 0) {
@@ -122,6 +154,17 @@ export const PackHealthPanel: React.FC<Props> = ({ pack, detections }) => {
                     <div className="mt-1 text-xs text-on-surface-variant">
                       · {withNames[0].detectionName}, {withNames[1].detectionName}, and {withNames.length - 2} more
                     </div>
+                  )}
+                  {onFixed && group.autoFixKind !== 'none' && group.issues.some(i => i.detectionId) && (
+                    <button
+                      onClick={() => handleAutoFix(group)}
+                      disabled={fixingCode === group.code}
+                      className="mt-2 px-3 py-1.5 text-xs font-medium text-red-300 border border-red-500/30 hover:bg-red-500/10 rounded-lg disabled:opacity-50"
+                    >
+                      {fixingCode === group.code
+                        ? `Removing ${group.issues.length}...`
+                        : `Remove ${group.issues.length} blocked detection${group.issues.length !== 1 ? 's' : ''}`}
+                    </button>
                   )}
                 </div>
               </div>
