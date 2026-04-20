@@ -28,7 +28,7 @@ export const DeployJobProgressPanel: React.FC<Props> = ({ jobId, onDismiss }) =>
       notifiedRef.current = true;
       if (job.succeeded_count === 0 && job.skipped_count > 0) {
         // All items were skipped (e.g., pack of lab-only detections) — nothing failed, but nothing deployed either.
-        showToast('info', 'Nothing to Deploy', `${job.skipped_count} detection${job.skipped_count !== 1 ? 's' : ''} skipped (lab-only or blocked status)`);
+        showToast('warning', 'Nothing to Deploy', `${job.skipped_count} detection${job.skipped_count !== 1 ? 's' : ''} skipped (lab-only or blocked status)`);
       } else {
         showToast('success', 'Deploy Complete', `${job.succeeded_count} rule${job.succeeded_count !== 1 ? 's' : ''} deployed successfully`);
       }
