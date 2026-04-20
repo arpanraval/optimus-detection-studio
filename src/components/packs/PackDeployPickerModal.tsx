@@ -49,13 +49,18 @@ export const PackDeployPickerModal: React.FC<Props> = ({
 
   const loadIntegrations = async () => {
     setLoading(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('integrations')
       .select('*')
       .eq('status', 'connected')
       .eq('category', 'siem')
       .order('name');
-    setIntegrations((data || []) as Integration[]);
+    if (error) {
+      showToast('error', 'Failed to load integrations', error.message);
+      setIntegrations([]);
+    } else {
+      setIntegrations((data || []) as Integration[]);
+    }
     setLoading(false);
   };
 
@@ -175,6 +180,15 @@ export const PackDeployPickerModal: React.FC<Props> = ({
 
           {step === 'configure' && selected && (
             <div className="space-y-4">
+              {deployable.length === 0 && (
+                <div role="alert" className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                  <Icon name="alert-triangle" className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                  <div className="text-xs text-amber-200">
+                    <div className="font-semibold mb-0.5">No deployable detections in this pack</div>
+                    <div>Configuration can still be set, but the deploy button will remain disabled until you promote lab rules to Production or unblock drafts.</div>
+                  </div>
+                </div>
+              )}
               <div className="flex items-start gap-3 p-3 bg-primary/5 border border-primary/20 rounded-lg">
                 <IntegrationLogo provider={getProviderMeta(selected.provider)} size="sm" />
                 <div>
@@ -241,7 +255,9 @@ export const PackDeployPickerModal: React.FC<Props> = ({
             {step === 'configure' && (
               <button
                 onClick={() => setStep('review')}
-                className="px-5 py-2 bg-primary text-on-primary font-bold rounded-lg flex items-center gap-2"
+                disabled={deployable.length === 0}
+                title={deployable.length === 0 ? 'No deployable detections — promote lab rules or unblock drafts first' : undefined}
+                className="px-5 py-2 bg-primary text-on-primary font-bold rounded-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Next: Review
                 <Icon name="arrow-right" className="w-4 h-4" />
