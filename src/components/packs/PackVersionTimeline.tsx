@@ -7,6 +7,7 @@ import { Icon } from '../Icon';
 import { usePackVersions } from '../../hooks/usePackVersions';
 import { rollbackToVersion } from '../../hooks/useDetectionPacks';
 import { useToast } from '../../hooks/useToast';
+import { hasActiveDeployments } from '../../hooks/usePackDeploymentStatus';
 
 interface Props {
   packId: string;
@@ -33,11 +34,26 @@ export const PackVersionTimeline: React.FC<Props> = ({ packId, onRestored }) => 
   const { versions, loading, refresh } = usePackVersions(packId);
   const [rollbackingId, setRollbackingId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [confirmHasDeploys, setConfirmHasDeploys] = useState<boolean>(false);
   const { showToast } = useToast();
+
+  const handleRequestRollback = async (versionId: string) => {
+    setConfirmId(versionId);
+    try {
+      const hasDeploys = await hasActiveDeployments(packId);
+      setConfirmHasDeploys(hasDeploys);
+    } catch {
+      // If the status check fails, default to false — user still sees the
+      // standard confirmation. Better to let them through than to block on
+      // a transient check failure.
+      setConfirmHasDeploys(false);
+    }
+  };
 
   const handleRollback = async (versionId: string, versionNumber: number) => {
     setRollbackingId(versionId);
     setConfirmId(null);
+    setConfirmHasDeploys(false);
     try {
       await rollbackToVersion(packId, versionId);
       showToast('success', 'Rolled Back', `Pack restored to v${versionNumber}`);
@@ -123,25 +139,39 @@ export const PackVersionTimeline: React.FC<Props> = ({ packId, onRestored }) => 
               {!isLatest && (
                 <div className="flex items-center gap-2">
                   {showConfirm ? (
-                    <>
-                      <button
-                        onClick={() => handleRollback(v.id, v.version_number)}
-                        disabled={isRollingBack}
-                        className="text-xs font-semibold px-3 py-1.5 bg-yellow-500/20 text-yellow-400 rounded hover:bg-yellow-500/30 transition-colors"
-                      >
-                        {isRollingBack ? 'Rolling back...' : 'Confirm rollback'}
-                      </button>
-                      <button
-                        onClick={() => setConfirmId(null)}
-                        disabled={isRollingBack}
-                        className="text-xs text-on-surface-variant hover:text-on-surface"
-                      >
-                        Cancel
-                      </button>
-                    </>
+                    <div className="flex flex-col gap-2 w-full">
+                      {confirmHasDeploys && (
+                        <div role="alert" className="flex items-start gap-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                          <Icon name="alert-triangle" className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                          <div className="text-xs text-amber-200">
+                            <div className="font-semibold mb-0.5">This pack has active SIEM deployments</div>
+                            <div>
+                              Rollback only changes the pack's local detection list. Rules already deployed to SIEMs
+                              will stay active until you deploy the pack again.
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleRollback(v.id, v.version_number)}
+                          disabled={isRollingBack}
+                          className="text-xs font-semibold px-3 py-1.5 bg-yellow-500/20 text-yellow-400 rounded hover:bg-yellow-500/30 transition-colors"
+                        >
+                          {isRollingBack ? 'Rolling back...' : 'Confirm rollback'}
+                        </button>
+                        <button
+                          onClick={() => { setConfirmId(null); setConfirmHasDeploys(false); }}
+                          disabled={isRollingBack}
+                          className="text-xs text-on-surface-variant hover:text-on-surface"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
                   ) : (
                     <button
-                      onClick={() => setConfirmId(v.id)}
+                      onClick={() => handleRequestRollback(v.id)}
                       className="text-xs font-medium text-primary hover:underline flex items-center gap-1"
                     >
                       <Icon name="undo" className="w-3 h-3" />
