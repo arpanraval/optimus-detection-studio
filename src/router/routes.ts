@@ -103,6 +103,7 @@ export const ROUTES = {
   DESIGN_SYSTEM_ONBOARDING_ANIMATION: '/design-system/onboarding-animation',
   DESIGN_SYSTEM_INTEL_CARDS: '/design-system/intel-cards',
   DESIGN_SYSTEM_AI_CHAT_CARDS: '/design-system/ai-chat-cards',
+  DESIGN_SYSTEM_PACKS: '/design-system/packs',
 } as const;
 
 export type RoutePath = typeof ROUTES[keyof typeof ROUTES];
@@ -197,6 +198,7 @@ export const viewToRoute: Record<string, string> = {
   'design-system-onboarding-animation': ROUTES.DESIGN_SYSTEM_ONBOARDING_ANIMATION,
   'design-system-intel-cards': ROUTES.DESIGN_SYSTEM_INTEL_CARDS,
   'design-system-ai-chat-cards': ROUTES.DESIGN_SYSTEM_AI_CHAT_CARDS,
+  'design-system-packs': ROUTES.DESIGN_SYSTEM_PACKS,
 };
 
 // Page headers for each route
@@ -269,4 +271,5 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.DESIGN_SYSTEM_MITRE_TOOLTIP]: { title: 'MITRE Tooltip', description: 'Technique tooltip redesign options' },
   [ROUTES.DESIGN_SYSTEM_INTEL_CARDS]: { title: 'Intel Cards', description: 'Intelligence entity card design options' },
   [ROUTES.DESIGN_SYSTEM_AI_CHAT_CARDS]: { title: 'AI Chat Cards', description: 'Optimus Prime AI response card types' },
+  [ROUTES.DESIGN_SYSTEM_PACKS]: { title: 'Pack Cards', description: 'Detection pack card design options' },
 };

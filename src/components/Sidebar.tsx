@@ -582,6 +582,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
         { id: 'design-system-mitre-tooltip' as View, label: 'MITRE Tooltip' },
         { id: 'design-system-intel-cards' as View, label: 'Intel Cards' },
         { id: 'design-system-ai-chat-cards' as View, label: 'AI Chat Cards' },
+        { id: 'design-system-packs' as View, label: 'Pack Cards' },
       ],
       activeClass: 'bg-[#2a2a3a] text-pink-200',
     },

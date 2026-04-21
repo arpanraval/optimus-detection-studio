@@ -135,6 +135,7 @@ const DesignMitreTooltipPage = lazy(() => import('../components/design-system/pa
 const DesignOnboardingAnimationPage = lazy(() => import('../components/design-system/pages/OnboardingAnimationPage').then(m => ({ default: m.OnboardingAnimationPage })));
 const DesignIntelCardsPage = lazy(() => import('../components/design-system/pages/IntelCardsPage').then(m => ({ default: m.IntelCardsPage })));
 const DesignAIChatCardsPage = lazy(() => import('../components/design-system/pages/AIChatCardsPage').then(m => ({ default: m.AIChatCardsPage })));
+const DesignPackCardsPage = lazy(() => import('../components/design-system/pages/PackCardsPage').then(m => ({ default: m.PackCardsPage })));
 
 // Protected layout wrapper that provides AppDataContext
 const ProtectedLayout: React.FC<{ user: User; profile: Profile }> = ({ user, profile }) => {
@@ -286,6 +287,7 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
         { path: 'design-system/onboarding-animation', element: <DesignOnboardingAnimationPage /> },
         { path: 'design-system/intel-cards', element: <DesignIntelCardsPage /> },
         { path: 'design-system/ai-chat-cards', element: <DesignAIChatCardsPage /> },
+        { path: 'design-system/packs', element: <DesignPackCardsPage /> },
       ] : []),
 
       // Catch-all redirect

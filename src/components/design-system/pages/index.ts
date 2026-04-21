@@ -16,3 +16,4 @@ export { MitreTooltipPage } from './MitreTooltipPage';
 export { OnboardingAnimationPage } from './OnboardingAnimationPage';
 export { IntelCardsPage } from './IntelCardsPage';
 export { AIChatCardsPage } from './AIChatCardsPage';
+export { PackCardsPage } from './PackCardsPage';
