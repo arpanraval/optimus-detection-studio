@@ -70,3 +70,13 @@ nul
 
 .vercel
 scripts/test-api-keys.ts
+
+# Unused / work-in-progress artifacts kept on disk but excluded from commits.
+# - current_git_landing.tsx, initial_auth.tsx: scratch files at repo root
+# - enterprise-attack-data.json (root): stale duplicate of public/enterprise-attack-data.json
+# - src/components/NewLandingPage.tsx: in-progress landing page; previously broke
+#   the Vercel build when imported (see commit d456db1) — leave out until routed
+/current_git_landing.tsx
+/initial_auth.tsx
+/enterprise-attack-data.json
+src/components/NewLandingPage.tsx
