@@ -70,8 +70,8 @@ export const DetectionPackCard: React.FC<DetectionPackCardProps> = ({ pack, to, 
     <Link
       to={to}
       onClick={(e) => { if (!(e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1)) onClick?.(); }}
-      className="block no-underline text-inherit group relative bg-surface-container-low border border-outline-variant/30 rounded-2xl overflow-hidden cursor-pointer
-                 hover:border-primary/50 hover:shadow-md transition-all duration-200"
+      className="block no-underline text-inherit group relative bg-surface-container-low border border-outline-variant/60 rounded-[24px] overflow-hidden cursor-pointer
+                 transition-all duration-300 hover:bg-surface-container-highest dark:hover:bg-surface-container-lowest hover:border-[#783264]/50 hover:shadow-lg hover:scale-[1.01]"
     >
       <div className="relative p-6">
         {/* Header */}
@@ -100,7 +100,7 @@ export const DetectionPackCard: React.FC<DetectionPackCardProps> = ({ pack, to, 
                 </span>
               )}
             </div>
-            <h3 className="text-xl font-brand font-bold text-on-surface truncate group-hover:text-primary transition-colors leading-tight">
+            <h3 className="text-xl font-brand font-bold text-on-surface truncate group-hover:text-[#783264] transition-colors leading-tight">
               {pack.name}
             </h3>
             {integrationStatuses && integrationStatuses.length > 0 && (
