@@ -21,8 +21,6 @@ export interface DropdownProps {
   align?: 'start' | 'end';
   panelWidth?: string;
   className?: string;
-  /** Render a custom label on the trigger (e.g. "3 filters"). Overrides the selected option label. */
-  renderTriggerLabel?: (selected: DropdownOption | undefined, value: string | undefined) => React.ReactNode;
 }
 
 /**
@@ -42,7 +40,6 @@ export const Dropdown: React.FC<DropdownProps> = ({
   align = 'start',
   panelWidth = 'w-64',
   className = '',
-  renderTriggerLabel,
 }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -92,9 +89,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
     setOpen(false);
   };
 
-  const triggerLabel = renderTriggerLabel
-    ? renderTriggerLabel(selected, value)
-    : (selected?.label ?? placeholder);
+  const triggerLabel = selected?.label ?? placeholder;
 
   return (
     <div className={`relative ${className}`} ref={containerRef}>
