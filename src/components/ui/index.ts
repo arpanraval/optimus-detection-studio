@@ -42,9 +42,6 @@ export type { EmptyStateProps } from './EmptyState';
 export { Breadcrumb } from './Breadcrumb';
 export type { BreadcrumbProps, BreadcrumbItem } from './Breadcrumb';
 
-export { Dropdown } from './Dropdown';
-export type { DropdownProps, DropdownOption } from './Dropdown';
-
 // Re-export for convenience - you can also just use CSS classes directly:
 // - .scrollbar-minimal : Thin, elegant scrollbar (5px)
 // - .scrollbar-thin    : Slightly wider scrollbar (6px)

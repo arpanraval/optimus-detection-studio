@@ -5,7 +5,7 @@ import { PackIcon } from './PackIcon';
 import { CreatePackModal } from './CreatePackModal';
 import { GeneratePacksModal } from './GeneratePacksModal';
 import { Icon } from '../Icon';
-import { Dropdown } from '../ui';
+import { Select } from '../ui/Select';
 import { useToast } from '../../hooks/useToast';
 import { usePermissions } from '../../context/PermissionsContext';
 import { useLibrary } from '../../context/LibraryContext';
@@ -389,80 +389,83 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
             <div className="flex-1 min-w-[300px] relative">
               <Icon
                 name="search"
-                className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-on-surface-variant pointer-events-none"
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/50 pointer-events-none"
               />
               <input
                 type="text"
                 placeholder="Search packs by name, description, or tags..."
                 value={filters.search}
                 onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                className="w-full pl-12 pr-4 py-3.5 bg-surface-container border border-outline-variant/30 
-                         rounded-xl text-on-surface placeholder-on-surface-variant/70
-                         focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all text-sm"
+                className="w-full h-10 pl-10 pr-4 bg-surface-container-high border border-outline-variant/30
+                         rounded-xl text-on-surface placeholder-on-surface-variant/50 text-sm
+                         focus:outline-none focus:border-[#783264] focus:ring-2 focus:ring-[#783264]/20 transition-all"
               />
             </div>
 
             {/* Source Filter */}
-            <Dropdown
-              triggerIcon="globe"
+            <Select
+              leadingIcon="globe"
               placeholder="All Sources"
-              value={filters.source || undefined}
-              onChange={(v) => setFilters({ ...filters, source: v ?? '' })}
-              includeAllOption={{ label: 'All Sources' }}
-              options={sourceOptions.map((s) => ({
-                value: s,
-                label: s.charAt(0).toUpperCase() + s.slice(1),
-              }))}
+              value={filters.source}
+              onChange={(v) => setFilters({ ...filters, source: v })}
+              options={[
+                { value: '', label: 'All Sources' },
+                ...sourceOptions.map((s) => ({
+                  value: s,
+                  label: s.charAt(0).toUpperCase() + s.slice(1),
+                })),
+              ]}
+              className="min-w-[160px]"
             />
 
             {/* Platform Filter */}
-            <Dropdown
-              triggerIcon="systems"
+            <Select
+              leadingIcon="systems"
               placeholder="All Platforms"
-              value={filters.platform || undefined}
-              onChange={(v) => setFilters({ ...filters, platform: v ?? '' })}
-              includeAllOption={{ label: 'All Platforms' }}
-              options={platformOptions.map((p) => ({ value: p, label: p }))}
+              value={filters.platform}
+              onChange={(v) => setFilters({ ...filters, platform: v })}
+              options={[
+                { value: '', label: 'All Platforms' },
+                ...platformOptions.map((p) => ({ value: p, label: p })),
+              ]}
+              className="min-w-[180px]"
             />
 
             {/* Pack Type Filter */}
-            <Dropdown
-              triggerIcon="tag"
+            <Select
+              leadingIcon="tag"
               placeholder="All Types"
-              value={packTypeFilter === 'all' ? undefined : packTypeFilter}
-              onChange={(v) => setPackTypeFilter((v as PackType | undefined) ?? 'all')}
-              includeAllOption={{ label: 'All Types' }}
-              options={
-                (Object.entries(PACK_TYPE_LABELS) as [PackType | 'all', string][])
-                  .filter(([value]) => value !== 'all')
-                  .map(([value, label]) => ({ value, label }))
-              }
+              value={packTypeFilter}
+              onChange={(v) => setPackTypeFilter(v as PackType | 'all')}
+              options={Object.entries(PACK_TYPE_LABELS).map(([value, label]) => ({ value, label }))}
+              className="min-w-[180px]"
             />
 
             {/* Sort By */}
-            <Dropdown
-              triggerIcon="arrow-up-down"
+            <Select
+              leadingIcon="arrow-up-down"
               placeholder="Sort by"
               value={filters.sortBy}
-              onChange={(v) => setFilters({ ...filters, sortBy: (v ?? 'name') as typeof filters.sortBy })}
+              onChange={(v) => setFilters({ ...filters, sortBy: v as typeof filters.sortBy })}
               options={[
                 { value: 'name', label: 'Sort by Name' },
                 { value: 'rule_count', label: 'Sort by Rule Count' },
                 { value: 'created_at', label: 'Sort by Created' },
                 { value: 'updated_at', label: 'Sort by Updated' },
               ]}
+              className="min-w-[180px]"
             />
 
             {/* Sort Order Toggle */}
             <button
               onClick={() => setFilters({ ...filters, sortOrder: filters.sortOrder === 'asc' ? 'desc' : 'asc' })}
-              className="px-4 py-3.5 bg-surface-container border border-outline-variant/30 rounded-xl 
-                       text-on-surface hover:border-primary transition-colors"
+              className="h-10 px-3 bg-surface-container-high border border-outline-variant/30 rounded-xl
+                       text-on-surface hover:border-[#783264] transition-colors"
               title={filters.sortOrder === 'asc' ? 'Ascending' : 'Descending'}
             >
               <Icon
                 name={filters.sortOrder === 'asc' ? 'arrow-up' : 'arrow-down'}
-                className="w-5 h-5"
+                className="w-4 h-4"
               />
             </button>
           </div>
