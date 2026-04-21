@@ -87,7 +87,7 @@ const IntegrationsPage = lazy(() => import('./pages/IntegrationsPage').then(m =>
 const IntegrationDetailPage = lazy(() => import('./pages/IntegrationDetailPage').then(m => ({ default: m.IntegrationDetailPage })));
 const ScoringPage = lazy(() => import('./pages/ScoringPage').then(m => ({ default: m.ScoringPage })));
 const UsersPage = lazy(() => import('./pages/UsersPage').then(m => ({ default: m.UsersPage })));
-const MitreSyncPage = lazy(() => import('./pages/MitreSyncPage').then(m => ({ default: m.MitreSyncPage })));
+const DataSyncPage = lazy(() => import('./pages/DataSyncPage').then(m => ({ default: m.DataSyncPage })));
 const AccountPage = lazy(() => import('./pages/AccountPage').then(m => ({ default: m.AccountPage })));
 const SubmissionsPage = lazy(() => import('./pages/SubmissionsPage').then(m => ({ default: m.SubmissionsPage })));
 const ApprovalQueuePage = lazy(() => import('./pages/ApprovalQueuePage').then(m => ({ default: m.ApprovalQueuePage })));
@@ -236,7 +236,7 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       { path: 'settings/integrations/:id', element: <IntegrationDetailPage /> },
       { path: 'settings/scoring', element: <ScoringPage /> },
       { path: 'settings/users', element: <UsersPage /> },
-      { path: 'settings/mitre-sync', element: <MitreSyncPage /> },
+      { path: 'settings/data-sync', element: <DataSyncPage /> },
       { path: 'settings/audit-log', element: <AuditLogPage /> },
       { path: 'settings/environment', element: <EnvironmentProfilePage /> },
       { path: 'settings/intelligence', element: <AutoDigestSettingsPage /> },

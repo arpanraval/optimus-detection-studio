@@ -751,7 +751,7 @@ optimus-detection-studio/
 - `/settings/users` - User management
 - `/settings/integrations` - Integration configuration
 - `/settings/scoring` - Quality scoring configuration
-- `/settings/mitre-sync` - MITRE data synchronization
+- `/settings/data-sync` - MITRE ATT&CK and vector embedding synchronization
 
 ---
 

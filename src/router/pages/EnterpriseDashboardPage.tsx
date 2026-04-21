@@ -66,8 +66,8 @@ export const EnterpriseDashboardPage: React.FC = () => {
       navigate(`/intelligence/groups/${filter.id}`);
     } else if (targetView === 'campaign-detail' && filter?.id) {
       navigate(`/intelligence/campaigns/${filter.id}`);
-    } else if (targetView === 'mitre_data_sync') {
-      navigate(ROUTES.MITRE_SYNC);
+    } else if (targetView === 'data_sync') {
+      navigate(ROUTES.DATA_SYNC);
     } else if (targetView === 'coverage') {
       navigate(ROUTES.COVERAGE);
     } else if (targetView === 'mitre') {

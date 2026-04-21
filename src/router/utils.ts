@@ -63,7 +63,7 @@ export function matchRouteToNavItem(pathname: string): string | null {
   if (pathname === ROUTES.INTEGRATIONS) return 'integrations';
   if (pathname === ROUTES.SCORING) return 'scoring_settings';
   if (pathname === ROUTES.USERS) return 'users';
-  if (pathname === ROUTES.MITRE_SYNC) return 'mitre_data_sync';
+  if (pathname === ROUTES.DATA_SYNC) return 'data_sync';
   if (pathname === ROUTES.ACCOUNT) return 'account_settings';
   if (pathname === ROUTES.SUBMISSIONS) return 'my_submissions';
   if (pathname === ROUTES.DETECTION_NEW) return 'add_selection';

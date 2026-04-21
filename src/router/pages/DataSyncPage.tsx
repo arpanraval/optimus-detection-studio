@@ -6,7 +6,7 @@ import { useAppData } from '../AppDataContext';
 import { hasRoleLevel } from '../../types';
 import { ROUTES } from '../routes';
 
-export const MitreSyncPage: React.FC = () => {
+export const DataSyncPage: React.FC = () => {
   const navigate = useNavigate();
   const { profile } = useAppData();
 
@@ -31,4 +31,4 @@ export const MitreSyncPage: React.FC = () => {
   );
 };
 
-export default MitreSyncPage;
+export default DataSyncPage;

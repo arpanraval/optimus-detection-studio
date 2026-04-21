@@ -279,7 +279,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ detections, scope 
               Sync MITRE ATT&CK data to unlock threat actor tracking, campaign readiness, sector coverage, and origin analysis.
             </p>
             <button
-              onClick={() => onNavigate('mitre_data_sync')}
+              onClick={() => onNavigate('data_sync')}
               className="mt-3 text-[11px] font-brand font-bold text-primary hover:text-primary/70 transition-colors tracking-wider uppercase"
             >
               Go to Data Sync →

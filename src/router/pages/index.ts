@@ -25,7 +25,7 @@ export { IntegrationsPage } from './IntegrationsPage';
 export { IntegrationDetailPage } from './IntegrationDetailPage';
 export { ScoringPage } from './ScoringPage';
 export { UsersPage } from './UsersPage';
-export { MitreSyncPage } from './MitreSyncPage';
+export { DataSyncPage } from './DataSyncPage';
 export { AccountPage } from './AccountPage';
 export { SubmissionsPage } from './SubmissionsPage';
 export { ApprovalQueuePage } from './ApprovalQueuePage';

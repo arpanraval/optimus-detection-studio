@@ -218,7 +218,7 @@ export function ResultsStep() {
             {(progress.embeddingErrors ?? 0) > 0 && (
               <span className="text-on-surface-variant">
                 {' '}({progress.embeddingErrors} failed — backfill from{' '}
-                <Link to={ROUTES.MITRE_SYNC} className="underline hover:text-on-surface" style={{ color: COLORS.brand }}>Data Sync</Link>)
+                <Link to={ROUTES.DATA_SYNC} className="underline hover:text-on-surface" style={{ color: COLORS.brand }}>Data Sync</Link>)
               </span>
             )}
           </p>
@@ -232,7 +232,7 @@ export function ResultsStep() {
           <Icon name="zap" className="w-5 h-5 flex-shrink-0" style={{ color: COLORS.brand }} />
           <p className="text-sm text-on-surface">
             Batch embedding job submitted — track progress on the{' '}
-            <Link to={ROUTES.MITRE_SYNC} className="font-medium underline hover:opacity-80" style={{ color: COLORS.brand }}>Data Sync page</Link>
+            <Link to={ROUTES.DATA_SYNC} className="font-medium underline hover:opacity-80" style={{ color: COLORS.brand }}>Data Sync page</Link>
           </p>
         </div>
       )}
@@ -241,7 +241,7 @@ export function ResultsStep() {
           <Icon name="clock" className="w-5 h-5 flex-shrink-0 text-on-surface-variant" />
           <p className="text-sm text-on-surface-variant">
             Embeddings skipped — create them from the{' '}
-            <Link to={ROUTES.MITRE_SYNC} className="font-medium underline hover:text-on-surface" style={{ color: COLORS.brand }}>Data Sync page</Link>
+            <Link to={ROUTES.DATA_SYNC} className="font-medium underline hover:text-on-surface" style={{ color: COLORS.brand }}>Data Sync page</Link>
             {' '}when ready
           </p>
         </div>

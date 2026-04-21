@@ -19,6 +19,8 @@ export interface BatchJob {
   errorMessage?: string;
   createdAt?: string;
   completedAt?: string;
+  /** When the client last successfully polled status. Client-side only. */
+  lastCheckedAt?: number;
 }
 
 export interface BatchSubmitResult {
@@ -80,7 +82,23 @@ export async function checkBatchJob(jobId: string): Promise<BatchJob> {
     processedItems: data.processedItems || 0,
     failedItems: data.failedItems || 0,
     errorMessage: data.errorMessage || data.error,
+    createdAt: data.createdAt,
+    completedAt: data.completedAt,
+    lastCheckedAt: Date.now(),
   };
+}
+
+/**
+ * Cancel an in-flight batch job. Best-effort: attempts to cancel at Gemini
+ * first, then marks the DB row `cancelled` regardless so the UI is unblocked.
+ */
+export async function cancelBatchJob(jobId: string): Promise<{ geminiCancelled: boolean; geminiError: string | null }> {
+  const data = await callBatchFunction({ action: 'cancel', jobId });
+  if (data.error) {
+    throw new Error(data.error);
+  }
+  logger.info(`Batch job cancelled: ${jobId} (gemini_cancelled=${data.geminiCancelled})`);
+  return { geminiCancelled: !!data.geminiCancelled, geminiError: data.geminiError ?? null };
 }
 
 /**
@@ -113,5 +131,6 @@ export async function getActiveBatchJob(): Promise<BatchJob | null> {
     failedItems: data.job.failed_items,
     errorMessage: data.job.error_message,
     createdAt: data.job.created_at,
+    lastCheckedAt: Date.now(),
   };
 }
