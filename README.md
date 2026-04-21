@@ -782,8 +782,6 @@ A built-in design system showcase is available at `/design-system` for developme
 
 ## Roadmap
 
-A high-level summary — the detailed living roadmap (epics, effort estimates, enterprise-readiness scorecard, archived plans) is maintained internally.
-
 ### Shipped
 
 Detection library (12 query languages), MITRE ATT&CK matrix + coverage analytics, Optimus Prime AI agent, AI query gen + autofill + validation, threat intel digest, bulk import, browser-based Sigma conversion, peer review + comments + assignments, five-tier RBAC, publishing workflow, vector search, dashboards, exports, MITRE Navigator layers, threat actor enrichment, activity audit, **detection packs with 3-step deploy wizard + versioning + SIEM integration across 5 providers** (Q2 2026), Realtime notifications, auto-digest intelligence pipeline, ransomware readiness redesign, environment profile, SIEM/XDR Home.
