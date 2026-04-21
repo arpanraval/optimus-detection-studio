@@ -478,8 +478,11 @@ type Variant = {
   metaphor: string;
   notes: string[];
   Component: React.FC<{ entry: MockEntry }>;
-  gridClass: string;
 };
+
+// Exact grid breakpoints from DetectionPacksPage — every variant renders at
+// the real page's card size, not the design-system page's narrower one.
+const REAL_PACKS_GRID = 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4';
 
 const VARIANTS: Variant[] = [
   {
@@ -494,7 +497,6 @@ const VARIANTS: Variant[] = [
       'Bottom: rubber-stamp platform chips with slight rotation',
     ],
     Component: PackCardV1Dossier,
-    gridClass: 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4',
   },
   {
     id: 'v2',
@@ -508,7 +510,6 @@ const VARIANTS: Variant[] = [
       'Hover: dark overlay reveals the description',
     ],
     Component: PackCardV2Album,
-    gridClass: 'grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5',
   },
   {
     id: 'v3',
@@ -522,7 +523,6 @@ const VARIANTS: Variant[] = [
       'Blinking cursor at the bottom',
     ],
     Component: PackCardV3Terminal,
-    gridClass: 'grid-cols-1 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3',
   },
   {
     id: 'v4',
@@ -536,31 +536,28 @@ const VARIANTS: Variant[] = [
       'No description on front, data-dense, dashboard feel',
     ],
     Component: PackCardV4Gauge,
-    gridClass: 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4',
   },
 ];
 
 export const PackCardsPage: React.FC = () => {
   return (
     <DesignSystemPage
+      fullWidth
       title="Pack Cards"
-      description="Four candidate pack card redesigns — each with a distinct visual metaphor. Pick one (or ask for more)."
+      description="Candidate pack card redesigns — rendered at the same grid density the real /packs page uses, so these are the actual sizes you'd see."
     >
       <div className="mb-8 p-4 bg-[#783264]/5 border border-[#783264]/20 rounded-xl text-sm text-on-surface-variant">
-        Each variant below uses a different visual DNA — not the same card with content shuffled. Squint at the page: V1 looks like paper, V2 like an album sleeve, V3 like a terminal window, V4 like a dashboard tile. That&apos;s the spread we want.
-        <div className="mt-2 text-xs">
-          Live page for comparison: <Link to="/packs" className="text-[#783264] underline font-medium">/packs</Link>
-        </div>
+        Each variant renders at the same breakpoints as <Link to="/packs" className="text-[#783264] underline font-medium">/packs</Link> (1 / 2 / 3 / 3 / 4 cols). Resize the window to see how each card behaves at different sizes. Each variant uses a distinct visual metaphor — not the same card with content shuffled.
       </div>
 
-      {VARIANTS.map(({ id, title, metaphor, notes, Component, gridClass }) => (
+      {VARIANTS.map(({ id, title, metaphor, notes, Component }) => (
         <Section key={id} title={title} description={metaphor}>
           <ul className="mb-4 text-xs text-on-surface-variant/80 space-y-1 list-disc list-inside">
             {notes.map((n) => (
               <li key={n}>{n}</li>
             ))}
           </ul>
-          <div className={`grid ${gridClass} gap-4`}>
+          <div className={`grid ${REAL_PACKS_GRID} gap-6`}>
             {MOCK_PACKS.map((entry) => (
               <Component key={entry.pack.id} entry={entry} />
             ))}

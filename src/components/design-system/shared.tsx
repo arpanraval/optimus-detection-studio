@@ -83,15 +83,18 @@ export const CodeSnippet: React.FC<{ code: string }> = ({ code }) => (
     </pre>
 );
 
-// Page layout wrapper for design system pages
+// Page layout wrapper for design system pages.
+// `fullWidth` drops the max-w-6xl cap so previews render at the same width
+// the real page would use. Default keeps the legacy narrow layout.
 export const DesignSystemPage: React.FC<{
     title: string;
     description: string;
-    children: React.ReactNode
-}> = ({ title, description, children }) => (
+    children: React.ReactNode;
+    fullWidth?: boolean;
+}> = ({ title, description, children, fullWidth = false }) => (
     <div className="h-full flex flex-col bg-background">
         <div className="flex-1 overflow-y-auto">
-            <div className="max-w-6xl mx-auto px-6 py-8">
+            <div className={`${fullWidth ? 'w-full' : 'max-w-6xl mx-auto'} px-6 py-8`}>
                 <div className="mb-8">
                     <h1 className="text-2xl font-bold text-on-surface">{title}</h1>
                     <p className="text-sm text-on-surface-variant/70 mt-1">{description}</p>
