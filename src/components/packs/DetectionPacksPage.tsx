@@ -5,6 +5,7 @@ import { PackIcon } from './PackIcon';
 import { CreatePackModal } from './CreatePackModal';
 import { GeneratePacksModal } from './GeneratePacksModal';
 import { Icon } from '../Icon';
+import { Dropdown } from '../ui';
 import { useToast } from '../../hooks/useToast';
 import { usePermissions } from '../../context/PermissionsContext';
 import { useLibrary } from '../../context/LibraryContext';
@@ -402,55 +403,55 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
             </div>
 
             {/* Source Filter */}
-            <select
-              value={filters.source}
-              onChange={(e) => setFilters({ ...filters, source: e.target.value })}
-              className="px-4 py-3.5 bg-surface-container border border-outline-variant/30 rounded-xl 
-                       text-on-surface focus:outline-none focus:border-primary transition-colors text-sm cursor-pointer min-w-[140px]"
-            >
-              <option value="">All Sources</option>
-              {sourceOptions.map(source => (
-                <option key={source} value={source}>{source.charAt(0).toUpperCase() + source.slice(1)}</option>
-              ))}
-            </select>
+            <Dropdown
+              triggerIcon="globe"
+              placeholder="All Sources"
+              value={filters.source || undefined}
+              onChange={(v) => setFilters({ ...filters, source: v ?? '' })}
+              includeAllOption={{ label: 'All Sources' }}
+              options={sourceOptions.map((s) => ({
+                value: s,
+                label: s.charAt(0).toUpperCase() + s.slice(1),
+              }))}
+            />
 
             {/* Platform Filter */}
-            <select
-              value={filters.platform}
-              onChange={(e) => setFilters({ ...filters, platform: e.target.value })}
-              className="px-4 py-3.5 bg-surface-container border border-outline-variant/30 rounded-xl
-                       text-on-surface focus:outline-none focus:border-primary transition-colors text-sm cursor-pointer min-w-[160px]"
-            >
-              <option value="">All Platforms</option>
-              {platformOptions.map(platform => (
-                <option key={platform} value={platform}>{platform}</option>
-              ))}
-            </select>
+            <Dropdown
+              triggerIcon="systems"
+              placeholder="All Platforms"
+              value={filters.platform || undefined}
+              onChange={(v) => setFilters({ ...filters, platform: v ?? '' })}
+              includeAllOption={{ label: 'All Platforms' }}
+              options={platformOptions.map((p) => ({ value: p, label: p }))}
+            />
 
             {/* Pack Type Filter */}
-            <select
-              value={packTypeFilter}
-              onChange={(e) => setPackTypeFilter(e.target.value as PackType | 'all')}
-              className="px-4 py-3.5 bg-surface-container border border-outline-variant/30 rounded-xl
-                       text-on-surface focus:outline-none focus:border-primary transition-colors text-sm cursor-pointer min-w-[160px]"
-            >
-              {Object.entries(PACK_TYPE_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
+            <Dropdown
+              triggerIcon="tag"
+              placeholder="All Types"
+              value={packTypeFilter === 'all' ? undefined : packTypeFilter}
+              onChange={(v) => setPackTypeFilter((v as PackType | undefined) ?? 'all')}
+              includeAllOption={{ label: 'All Types' }}
+              options={
+                (Object.entries(PACK_TYPE_LABELS) as [PackType | 'all', string][])
+                  .filter(([value]) => value !== 'all')
+                  .map(([value, label]) => ({ value, label }))
+              }
+            />
 
             {/* Sort By */}
-            <select
+            <Dropdown
+              triggerIcon="arrow-up-down"
+              placeholder="Sort by"
               value={filters.sortBy}
-              onChange={(e) => setFilters({ ...filters, sortBy: e.target.value as any })}
-              className="px-4 py-3.5 bg-surface-container border border-outline-variant/30 rounded-xl 
-                       text-on-surface focus:outline-none focus:border-primary transition-colors text-sm cursor-pointer min-w-[160px]"
-            >
-              <option value="name">Sort by Name</option>
-              <option value="rule_count">Sort by Rule Count</option>
-              <option value="created_at">Sort by Created</option>
-              <option value="updated_at">Sort by Updated</option>
-            </select>
+              onChange={(v) => setFilters({ ...filters, sortBy: (v ?? 'name') as typeof filters.sortBy })}
+              options={[
+                { value: 'name', label: 'Sort by Name' },
+                { value: 'rule_count', label: 'Sort by Rule Count' },
+                { value: 'created_at', label: 'Sort by Created' },
+                { value: 'updated_at', label: 'Sort by Updated' },
+              ]}
+            />
 
             {/* Sort Order Toggle */}
             <button
