@@ -1,16 +1,96 @@
 import React, { useState } from 'react';
 import { DesignSystemPage, Section, ComponentRow } from '../shared';
 import { Icon } from '../../Icon';
+import { Dropdown } from '../../ui';
 
 export const DropdownsPage: React.FC = () => {
     const [selectedDropdown, setSelectedDropdown] = useState('');
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+
+    // Demo state for the shared Dropdown component
+    const [platform, setPlatform] = useState<string | undefined>();
+    const [source, setSource] = useState<string | undefined>();
+    const [technique, setTechnique] = useState<string | undefined>();
 
     return (
         <DesignSystemPage
             title="Dropdowns & Menus"
             description="Core dropdown patterns for the design system"
         >
+            <Section
+                title="Filter Dropdown (shared component)"
+                description="components/ui/Dropdown — the canonical filter dropdown used in page toolbars. Matches the MITRE filter visual language."
+            >
+                <ComponentRow label="Simple list with All reset" description="Icon-first trigger, secondary-container active state, spark on selected row">
+                    <Dropdown
+                        triggerIcon="systems"
+                        placeholder="All Platforms"
+                        value={platform}
+                        onChange={setPlatform}
+                        includeAllOption={{ label: 'All Platforms' }}
+                        options={[
+                            { value: 'windows', label: 'Windows' },
+                            { value: 'linux', label: 'Linux' },
+                            { value: 'macos', label: 'macOS' },
+                            { value: 'aws', label: 'AWS' },
+                            { value: 'azure', label: 'Azure' },
+                        ]}
+                    />
+                </ComponentRow>
+
+                <ComponentRow label="With leading badges" description="Per-option leading chip — useful for source/type dropdowns">
+                    <Dropdown
+                        triggerIcon="globe"
+                        placeholder="All Sources"
+                        value={source}
+                        onChange={setSource}
+                        includeAllOption={{ label: 'All Sources' }}
+                        options={[
+                            {
+                                value: 'community',
+                                label: 'Community',
+                                leadingBadge: <span className="w-2 h-2 rounded-full bg-primary" />,
+                            },
+                            {
+                                value: 'custom',
+                                label: 'Custom',
+                                leadingBadge: <span className="w-2 h-2 rounded-full bg-tertiary" />,
+                            },
+                            {
+                                value: 'official',
+                                label: 'Official',
+                                leadingBadge: <span className="w-2 h-2 rounded-full bg-secondary" />,
+                            },
+                        ]}
+                    />
+                </ComponentRow>
+
+                <ComponentRow label="Searchable list" description="Search input auto-enables past 10 options, or opt in with `searchable`">
+                    <Dropdown
+                        triggerIcon="matrix"
+                        placeholder="All Techniques"
+                        value={technique}
+                        onChange={setTechnique}
+                        searchable
+                        panelWidth="w-72"
+                        options={[
+                            { value: 'T1566', label: 'T1566 — Phishing' },
+                            { value: 'T1059', label: 'T1059 — Command and Scripting' },
+                            { value: 'T1078', label: 'T1078 — Valid Accounts' },
+                            { value: 'T1071', label: 'T1071 — Application Layer Protocol' },
+                            { value: 'T1055', label: 'T1055 — Process Injection' },
+                            { value: 'T1053', label: 'T1053 — Scheduled Task/Job' },
+                            { value: 'T1021', label: 'T1021 — Remote Services' },
+                            { value: 'T1018', label: 'T1018 — Remote System Discovery' },
+                            { value: 'T1003', label: 'T1003 — OS Credential Dumping' },
+                            { value: 'T1047', label: 'T1047 — Windows Management' },
+                            { value: 'T1105', label: 'T1105 — Ingress Tool Transfer' },
+                            { value: 'T1027', label: 'T1027 — Obfuscated Files' },
+                        ]}
+                    />
+                </ComponentRow>
+            </Section>
+
             <Section title="Dropdowns & Menus" description="Core dropdown patterns for the design system">
 
                 {/* DS Color Reference */}
