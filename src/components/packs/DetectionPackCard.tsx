@@ -87,18 +87,14 @@ export const DetectionPackCard: React.FC<DetectionPackCardProps> = ({ pack, to, 
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-2">
+              {/* Source pill (community / custom / official) — tells the user
+                  where this pack originated. The old ACTIVE pill was removed
+                  because useDetectionPacks already filters is_active=true, so
+                  every visible pack was always shown as active — the pill
+                  communicated nothing. */}
               <span className={`inline-flex items-center px-2.5 py-1 text-[9px] font-black uppercase tracking-widest rounded-full border ${source.badge}`}>
                 {source.label}
               </span>
-              {pack.is_active && (
-                <span className="flex items-center gap-1.5 text-[10px] text-tertiary font-medium">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-tertiary opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-tertiary"></span>
-                  </span>
-                  ACTIVE
-                </span>
-              )}
             </div>
             <h3 className="text-xl font-brand font-bold text-on-surface truncate group-hover:text-[#783264] transition-colors leading-tight">
               {pack.name}
