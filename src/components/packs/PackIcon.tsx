@@ -291,26 +291,13 @@ export const PackIcon: React.FC<PackIconProps> = ({
     .toUpperCase();
 
   return (
-    <div 
+    <div
       className={`relative flex-shrink-0 ${className}`}
       style={{ width: config.size, height: config.size }}
     >
-      {/* Glow effect */}
-      <div 
-        className="absolute inset-0 rounded-2xl blur-xl opacity-50 transition-opacity group-hover:opacity-80"
-        style={{ backgroundColor: palette.glow }}
-      />
-      
       {/* Main container */}
       <div className="relative w-full h-full rounded-2xl bg-surface-container border border-outline-variant/30 overflow-hidden">
-        {/* Background gradient */}
-        <div 
-          className="absolute inset-0 opacity-10"
-          style={{ 
-            background: `radial-gradient(circle at 30% 30%, ${palette.primary[0]}, transparent 70%)` 
-          }}
-        />
-        
+
         {/* SVG Pattern */}
         <svg 
           viewBox={`0 0 ${config.size} ${config.size}`} 
