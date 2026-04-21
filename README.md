@@ -782,41 +782,26 @@ A built-in design system showcase is available at `/design-system` for developme
 
 ## Roadmap
 
-### Completed
+A high-level summary — the detailed living roadmap (epics, effort estimates, enterprise-readiness scorecard, archived plans) is maintained internally.
 
-- [x] Multi-SIEM detection library with 12 query languages
-- [x] MITRE ATT&CK interactive matrix with coverage analytics
-- [x] Optimus Prime AI agent with 8 tools and multi-model support
-- [x] AI Query Generator with 8 target languages
-- [x] Smart Autofill and Logic Validation
-- [x] Threat Intelligence Digest with TTP, IoC, and rule extraction
-- [x] Bulk import from Sigma, Splunk ESCU, Elastic, Chronicle
-- [x] Browser-based Sigma conversion to 14 target platforms
-- [x] Peer review workflow with checklists
-- [x] Comments, threads, and assignment system
-- [x] Five-tier RBAC with 47 granular permissions
-- [x] Publishing workflow (personal → universal library)
-- [x] Vector embeddings and semantic search (pgvector)
-- [x] Dashboard with KPIs and analytics
-- [x] PDF, Excel, and JSON export
-- [x] MITRE Navigator layer generation
-- [x] Threat actor enrichment (MISP integration)
-- [x] Detection packs and collections
-- [x] Activity audit logging
+### Shipped
 
-### Planned
+Detection library (12 query languages), MITRE ATT&CK matrix + coverage analytics, Optimus Prime AI agent, AI query gen + autofill + validation, threat intel digest, bulk import, browser-based Sigma conversion, peer review + comments + assignments, five-tier RBAC, publishing workflow, vector search, dashboards, exports, MITRE Navigator layers, threat actor enrichment, activity audit, **detection packs with 3-step deploy wizard + versioning + SIEM integration across 5 providers** (Q2 2026), Realtime notifications, auto-digest intelligence pipeline, ransomware readiness redesign, environment profile, SIEM/XDR Home.
 
-- [ ] Detection pattern intelligence (learn query conventions from existing library)
-- [ ] Expert analysis workflows (ransomware readiness, APT coverage, sprint planning)
-- [ ] Detection improvement engine (AI-driven suggestions for existing rules)
-- [ ] Persistent knowledge layer (analytical decisions and learnings across sessions)
-- [ ] SIEM deployment APIs (push rules directly to Splunk, Sentinel, Elastic)
-- [ ] Git integration (detection-as-code, GitHub/GitLab sync)
-- [ ] Workspace implementation (multi-team isolation)
-- [ ] Multi-tenancy (MSSP mode)
-- [ ] Automated detection testing framework
-- [ ] Atomic Red Team integration
-- [ ] Row-Level Security enforcement
+### In flight
+
+- **Detection-as-Code (contextual)** — design + rollout plan approved (2026-04-21), Phase 1 pending
+- **Library detail audit** — 12/30 fixes shipped; 18 confirmed + 9 partial remain
+
+### Planned (next up)
+
+- Enterprise auth: SSO (SAML + OIDC), SCIM provisioning
+- Intelligence loop: detection pattern learning, improvement engine, cross-SIEM intelligence
+- Cross-SIEM drift & sync
+- Public REST API + webhooks
+- Observability: Sentry, health checks, job monitoring
+- Billing + multi-tenancy (MSSP mode)
+- Compliance: retention policies, GDPR deletion, SOC 2 documentation
 
 ---
 
