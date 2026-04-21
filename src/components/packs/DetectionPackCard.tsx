@@ -70,10 +70,10 @@ export const DetectionPackCard: React.FC<DetectionPackCardProps> = ({ pack, to, 
     <Link
       to={to}
       onClick={(e) => { if (!(e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1)) onClick?.(); }}
-      className="block no-underline text-inherit group relative bg-surface-container-low border border-outline-variant/60 rounded-[24px] overflow-hidden cursor-pointer
+      className="block no-underline text-inherit group relative bg-surface-container-low border border-outline-variant/60 rounded-[24px] overflow-hidden cursor-pointer flex flex-col
                  transition-all duration-300 hover:bg-surface-container-highest dark:hover:bg-surface-container-lowest hover:border-[#783264]/50 hover:shadow-lg hover:scale-[1.01]"
     >
-      <div className="relative p-6">
+      <div className="relative p-6 flex-1 flex flex-col">
         {/* Header */}
         <div className="flex items-start gap-4 mb-4">
           {/* Generative Pack Icon */}
@@ -125,44 +125,86 @@ export const DetectionPackCard: React.FC<DetectionPackCardProps> = ({ pack, to, 
           </div>
         </div>
 
-        {/* Description */}
-        {pack.description && (
-          <p className="text-sm text-on-surface-variant/80 line-clamp-2 mb-5 leading-relaxed">
-            {pack.description}
-          </p>
-        )}
+        {/* Description — reserved 2-line height so empty descriptions don't
+            shift the rest of the card up. */}
+        <p className="text-sm text-on-surface-variant/80 line-clamp-2 mb-5 leading-relaxed min-h-[2.625rem]">
+          {pack.description || '\u00A0'}
+        </p>
 
-        {/* Deployment Status Indicator */}
-        {deploymentStatus && deploymentStatus.total > 0 && (
-          <div className="flex items-center gap-1.5 mb-3 text-xs">
-            <div className={`w-1.5 h-1.5 rounded-full ${
-              deploymentStatus.deployed === deploymentStatus.total ? 'bg-emerald-400'
-              : deploymentStatus.deployed > 0 ? 'bg-yellow-400'
-              : 'bg-on-surface-variant/30'
-            }`} />
-            <span className="text-on-surface-variant/70 tabular-nums">
-              {deploymentStatus.deployed}/{deploymentStatus.total} deployed to SIEM
-            </span>
-          </div>
-        )}
+        {/* Deployment Status — always shows the EXPLICIT rule ratio against
+            the pack's authoritative rule_count so it's unambiguous how many
+            rules are live (never just "deployed to X" without a number). */}
+        {(() => {
+          const liveSiems = (integrationStatuses || []).filter(s => s.deployed_count > 0);
+          const anyDeployed = liveSiems.length > 0;
+          const totalRules = pack.rule_count;
+          const allFullyDeployed = anyDeployed && liveSiems.every(
+            s => s.deployed_count >= totalRules && s.failed_count === 0
+          );
+          const dotColor = !anyDeployed
+            ? 'bg-on-surface-variant/20'
+            : allFullyDeployed ? 'bg-emerald-400' : 'bg-yellow-400';
 
-        {/* Stats Grid - Threat Intel Style */}
-        <div className="grid grid-cols-3 gap-1 mb-5 bg-surface-container rounded-xl p-1 border border-outline-variant/20">
-          <div className="flex flex-col items-center py-3 px-2 rounded-lg hover:bg-surface-container-high/50 transition-colors">
+          let label: React.ReactNode;
+          if (!anyDeployed) {
+            label = 'Not deployed';
+          } else if (liveSiems.length === 1) {
+            const s = liveSiems[0];
+            label = (
+              <>
+                <span className="tabular-nums">{s.deployed_count}/{totalRules}</span>
+                {' rules live on '}
+                <span className="font-medium text-on-surface">{s.integration_name || 'SIEM'}</span>
+              </>
+            );
+          } else {
+            const parts = liveSiems.slice(0, 2).map((s) => (
+              <span key={s.integration_id}>
+                <span className="font-medium text-on-surface">{s.integration_name || 'SIEM'}</span>{' '}
+                <span className="tabular-nums">{s.deployed_count}/{totalRules}</span>
+              </span>
+            ));
+            const extra = liveSiems.length - 2;
+            label = (
+              <>
+                {parts[0]}
+                {parts[1] && <> · {parts[1]}</>}
+                {extra > 0 && <> · +{extra}</>}
+              </>
+            );
+          }
+
+          return (
+            <div className="flex items-center gap-1.5 mb-3 text-xs">
+              <div className={`w-1.5 h-1.5 rounded-full ${dotColor} flex-shrink-0`} />
+              <span className={`truncate ${anyDeployed ? 'text-on-surface-variant/70' : 'text-on-surface-variant/50'}`}>
+                {label}
+              </span>
+            </div>
+          );
+        })()}
+
+        {/* Stats Grid — uses white/black overlays (not surface tokens) so the
+            panel is ALWAYS distinct from the card, even when the card itself
+            goes to the darkest surface on hover. Default = subtle light tint
+            against the card; hover = strong black overlay so the panel
+            visibly deepens toward black. */}
+        <div className="grid grid-cols-3 gap-1 mb-5 bg-white/[0.04] rounded-xl p-1 border border-outline-variant/20 transition-colors duration-300 group-hover:bg-black/40 group-hover:border-outline-variant/10">
+          <div className="flex flex-col items-center py-3 px-2 rounded-lg">
             <div className="flex items-center gap-1.5 mb-1">
               <Icon name="library" className="w-4 h-4 text-primary" />
             </div>
             <span className="text-2xl font-mono font-black text-on-surface">{pack.rule_count}</span>
             <span className="text-[9px] text-on-surface-variant uppercase tracking-widest font-bold">Rules</span>
           </div>
-          <div className="flex flex-col items-center py-3 px-2 rounded-lg hover:bg-surface-container-high/50 transition-colors border-x border-outline-variant/20">
+          <div className="flex flex-col items-center py-3 px-2 rounded-lg border-x border-outline-variant/20">
             <div className="flex items-center gap-1.5 mb-1">
               <Icon name="matrix" className="w-4 h-4 text-tertiary" />
             </div>
             <span className="text-2xl font-mono font-black text-on-surface">{techniqueCount}</span>
             <span className="text-[9px] text-on-surface-variant uppercase tracking-widest font-bold">TTPs</span>
           </div>
-          <div className="flex flex-col items-center py-3 px-2 rounded-lg hover:bg-surface-container-high/50 transition-colors">
+          <div className="flex flex-col items-center py-3 px-2 rounded-lg">
             <div className="flex items-center gap-1.5 mb-1">
               <Icon name="code" className="w-4 h-4 text-secondary" />
             </div>
@@ -185,13 +227,18 @@ export const DetectionPackCard: React.FC<DetectionPackCardProps> = ({ pack, to, 
           </div>
         </div>
 
+        {/* Spacer — pushes variable-height platform + tag rows to the bottom
+            so the fixed sections (header/description/deployment/stats/coverage)
+            stay aligned across cards in the same row. */}
+        <div className="flex-1 min-h-[1rem]" />
+
         {/* Platforms Row */}
         {(pack.platforms || []).length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-4">
             {pack.platforms!.slice(0, 4).map((platform) => (
               <span
                 key={platform}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-semibold 
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-semibold
                          bg-surface-container text-on-surface-variant rounded-lg border border-outline-variant/20
                          hover:border-primary/30 hover:text-primary transition-colors"
               >
