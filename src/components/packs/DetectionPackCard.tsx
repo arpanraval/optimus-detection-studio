@@ -71,17 +71,8 @@ export const DetectionPackCard: React.FC<DetectionPackCardProps> = ({ pack, to, 
       to={to}
       onClick={(e) => { if (!(e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1)) onClick?.(); }}
       className="block no-underline text-inherit group relative bg-surface-container-low border border-outline-variant/30 rounded-2xl overflow-hidden cursor-pointer
-                 hover:border-primary/50 transition-all duration-300 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-1"
+                 hover:border-primary/50 hover:shadow-md transition-all duration-200"
     >
-      {/* Background Gradient */}
-      <div className={`absolute inset-0 bg-gradient-to-br ${source.gradient} opacity-50`} />
-      
-      {/* Animated Glow Effect on Hover */}
-      <div className={`absolute -top-20 -right-20 w-40 h-40 ${source.glow} rounded-full blur-3xl opacity-0 group-hover:opacity-60 transition-opacity duration-500`} />
-      
-      {/* Top Accent Bar */}
-      <div className={`absolute top-0 left-0 right-0 h-1 ${source.accent}`} />
-
       <div className="relative p-6">
         {/* Header */}
         <div className="flex items-start gap-4 mb-4">
@@ -187,8 +178,8 @@ export const DetectionPackCard: React.FC<DetectionPackCardProps> = ({ pack, to, 
             <span className={`text-sm font-mono font-black ${getThreatLevelColor(coverageScore)}`}>{coverageScore}%</span>
           </div>
           <div className="h-2 bg-surface-container-highest rounded-full overflow-hidden">
-            <div 
-              className="h-full rounded-full transition-all duration-700 ease-out bg-gradient-to-r from-primary via-secondary to-tertiary"
+            <div
+              className="h-full rounded-full transition-all duration-700 ease-out bg-primary"
               style={{ width: `${coverageScore}%` }}
             />
           </div>

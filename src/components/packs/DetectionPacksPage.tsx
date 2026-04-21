@@ -237,34 +237,18 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
 
   return (
     <div className="flex flex-col h-full bg-background">
-      {/* Hero Header */}
-      <div className="flex-shrink-0 relative bg-surface-container-low border-b border-outline-variant/30">
-        {/* Background Effects — clipped to the hero so they don't bleed, but the
-            hero container itself stays non-clipping so filter dropdown panels
-            can overflow below it. */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-tertiary/10" />
-          <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3" />
-          <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-tertiary/5 rounded-full blur-3xl translate-y-1/2 -translate-x-1/3" />
-        </div>
-
-        <div className="relative px-8 pt-8 pb-6">
+      {/* Header */}
+      <div className="flex-shrink-0 bg-background border-b border-outline-variant/30">
+        <div className="px-8 pt-8 pb-6">
           {/* Top Section */}
           <div className="flex items-start justify-between mb-8">
             <div>
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 via-secondary/20 to-tertiary/20 flex items-center justify-center border border-outline-variant/30">
-                  <Icon name="archive" className="w-6 h-6 text-primary" />
-                </div>
-                <div>
-                  <h1 className="text-3xl font-brand font-bold text-on-surface tracking-tight">
-                    Detection Packs
-                  </h1>
-                  <p className="text-sm text-on-surface-variant">
-                    Curated collections of detection rules for comprehensive threat coverage
-                  </p>
-                </div>
-              </div>
+              <h1 className="text-3xl font-brand font-bold text-on-surface tracking-tight mb-1">
+                Detection Packs
+              </h1>
+              <p className="text-sm text-on-surface-variant">
+                Curated collections of detection rules for comprehensive threat coverage
+              </p>
             </div>
 
             <div className="flex items-center gap-3">
