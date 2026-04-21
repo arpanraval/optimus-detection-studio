@@ -34,6 +34,7 @@ interface BulkActionBarProps {
   onCopyToLibrary?: (ids: string[]) => Promise<any>;
   onPublishToUniversal?: (ids: string[]) => Promise<any>;
   onDeploy?: (ids: string[]) => void;
+  onAddToPack?: (ids: string[]) => void;
   // Server-side bulk actions (by filter)
   onDeleteByFilter?: (filters: Record<string, any>) => Promise<any>;
   onChangeStatusByFilter?: (filters: Record<string, any>, status: string) => Promise<any>;
@@ -106,6 +107,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
   onCopyToLibrary,
   onPublishToUniversal,
   onDeploy,
+  onAddToPack,
   onDeleteByFilter,
   onChangeStatusByFilter,
   onChangeSeverityByFilter,
@@ -378,6 +380,17 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
               >
                 <Icon name="upload" className="w-3.5 h-3.5" />
                 <span>Deploy</span>
+              </button>
+            )}
+
+            {/* Add to Pack - not available in select-all-matching mode */}
+            {onAddToPack && !selectAllMatchingMode && (
+              <button
+                onClick={() => onAddToPack(selectedIds)}
+                className="h-8 px-2.5 text-sm font-medium rounded-lg text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface transition-all inline-flex items-center gap-1.5"
+              >
+                <Icon name="archive" className="w-3.5 h-3.5" />
+                <span>Add to Pack</span>
               </button>
             )}
 

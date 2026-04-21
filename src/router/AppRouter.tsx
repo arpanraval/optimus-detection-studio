@@ -20,6 +20,7 @@ import { ScoringProvider } from '../context/ScoringContext';
 import { GlobalImportProvider } from '../context/GlobalImportContext';
 import { NavigationBlockerProvider } from '../context/NavigationBlockerContext';
 import { RealtimeProvider } from '../context/RealtimeContext';
+import { DeployJobProvider } from '../context/DeployJobContext';
 import { logAuditEvent } from '../lib/audit';
 import { AppErrorBoundary } from '../components/ErrorBoundary';
 import { AppLoader } from '../components/AppLoader';
@@ -153,13 +154,15 @@ const ProtectedLayout: React.FC<{ user: User; profile: Profile }> = ({ user, pro
                 <LibraryProvider userId={user.id} userRole={profile.role} refreshTrigger={libraryRefreshTrigger}>
                   <ThreatIntelProvider userId={user.id} refreshTrigger={libraryRefreshTrigger}>
                     <NotificationProvider userId={user.id}>
-                      <AppLayout
-                        user={user}
-                        profile={profile}
-                        detections={detections}
-                        isLoading={isLoading}
-                        onSignOut={handleSignOut}
-                      />
+                      <DeployJobProvider>
+                        <AppLayout
+                          user={user}
+                          profile={profile}
+                          detections={detections}
+                          isLoading={isLoading}
+                          onSignOut={handleSignOut}
+                        />
+                      </DeployJobProvider>
                     </NotificationProvider>
                   </ThreatIntelProvider>
                 </LibraryProvider>

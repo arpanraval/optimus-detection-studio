@@ -178,7 +178,7 @@ export function FilterPanel({
   const isSearching = globalSearch.trim().length > 0;
 
   return (
-    <div data-filter-panel className="flex-shrink-0 w-[280px] bg-surface-container-high rounded-xl
+    <div data-filter-panel role="region" aria-label="Filter detections" className="flex-shrink-0 w-[280px] bg-surface-container-high rounded-xl
                     flex flex-col overflow-hidden">
       {/* Panel header — collapse chevron */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-outline-variant/10">
@@ -212,6 +212,7 @@ export function FilterPanel({
             value={globalSearch}
             onChange={e => setGlobalSearch(e.target.value)}
             placeholder="Search all filters..."
+            aria-label="Search filter options"
             className="w-full pl-8 pr-8 py-1.5 text-xs bg-white/[0.04] rounded-lg
                        border border-outline-variant/15 focus:border-on-surface-variant/30
                        outline-none text-on-surface placeholder:text-on-surface-variant/40"

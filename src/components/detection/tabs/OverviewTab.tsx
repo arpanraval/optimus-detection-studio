@@ -7,6 +7,7 @@ import { getMitreDataById } from '../../../mitre';
 import { StatusBadge } from '../../StatusBadge';
 import { sourceConfig } from '../../card-utils';
 import { DetailCard } from '../DetailCard';
+import { PackMembershipCard } from '../PackMembershipCard';
 
 interface OverviewTabProps {
   detection: Detection;
@@ -370,6 +371,8 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           </div>
         </div>
       </DetailCard>
+
+      <PackMembershipCard detectionId={detection.id} />
 
     </div>
   );

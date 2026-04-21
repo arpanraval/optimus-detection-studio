@@ -292,7 +292,7 @@ export interface PromotionRequest {
 // DETECTION PACK TYPES
 // ============================================
 
-export type PackType = 'tactic' | 'technology' | 'threat_actor' | 'campaign' | 'ransomware';
+export type PackType = 'tactic' | 'technology' | 'threat_actor' | 'campaign' | 'ransomware' | 'siem_ready' | 'use_case';
 
 export interface DetectionPack {
   id: string;
@@ -313,6 +313,10 @@ export interface DetectionPack {
   auto_generated?: boolean;
   generation_criteria?: Record<string, unknown> | null;
   coverage_percent?: number | null;
+  // Versioning
+  current_version_number?: number;
+  // Pack-level deploy overrides (severity_override, schedule_override, enabled, notes)
+  deploy_config?: Record<string, unknown> | null;
   // Joined fields (computed)
   detections?: Detection[];
   creator?: Profile;

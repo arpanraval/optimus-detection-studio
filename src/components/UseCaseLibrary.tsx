@@ -19,6 +19,7 @@ import { batchResolveTechniques } from '../mitre';
 import { supabase } from '../lib/supabaseClient';
 import { useToast } from '../hooks/useToast';
 import { BulkActionBar } from './library/BulkActionBar';
+import { AddToPackModal } from './library/AddToPackModal';
 import { BulkPublishDialog } from './library/BulkPublishDialog';
 import { BulkDeployModal } from './integrations/BulkDeployModal';
 import { FilterPanel, ActiveFilterChips } from './library';
@@ -28,6 +29,7 @@ import { useDetectionPatterns } from '../hooks/useDetectionPatterns';
 import { useClickOutside } from '../hooks/useClickOutside';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { getQualityGrade } from '../lib/utils/formatting';
+import { ErrorBoundary, DefaultErrorFallback } from './ErrorBoundary';
 
 // ============================================================================
 // TYPES
@@ -674,6 +676,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
   const [bulkPublishIds, setBulkPublishIds] = useState<string[]>([]);
   const [showBulkDeploy, setShowBulkDeploy] = useState(false);
   const [bulkDeployIds, setBulkDeployIds] = useState<string[]>([]);
+  const [addToPackIds, setAddToPackIds] = useState<string[] | null>(null);
   const [bulkProcessing, setBulkProcessing] = useState<string | null>(null);
 
   // Apply initial filters from props (e.g. from Dashboard click)
@@ -713,6 +716,17 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
     ALL_FILTER_FIELDS.forEach(f => { labels[f.key] = f.label; });
     return labels;
   }, []);
+
+  // Reset "select all matching" mode when filters change (Finding 12)
+  const filtersInitializedRef = useRef(false);
+  useEffect(() => {
+    if (!filtersInitializedRef.current) {
+      filtersInitializedRef.current = true;
+      return;
+    }
+    setSelectAllMatchingMode(false);
+    clearSelection();
+  }, [filters, debouncedSearch, mitreFilter, createdBefore, missingField]);
 
   // Sync local filter state → serverFilters on context
   useEffect(() => {
@@ -775,6 +789,9 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
   const applyPreset = (p: ViewPreset) => { setFilters(p.filters); if (p.listColumns) setListColumns(p.listColumns); setActivePreset(p.id); };
   
   const handleExport = async (format: ExportFormat, columns: string[]) => {
+    // Snapshot current state to avoid race conditions if filters change during export (Finding 25)
+    const snapshotFilters = { ...serverFilters };
+    const snapshotLibrary = currentLibrary;
     const totalCount = currentPagination.totalCount;
     const pageCount = sortedDetections.length;
 
@@ -787,7 +804,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
     // Need to fetch all matching detections for export
     showToast('info', 'Exporting', `Fetching all ${totalCount.toLocaleString()} detections...`);
     try {
-      const libraryFilter = currentLibrary === LIBRARY_DEVELOPMENT
+      const libraryFilter = snapshotLibrary === LIBRARY_DEVELOPMENT
         ? `library_type.eq.${LIBRARY_DEVELOPMENT}`
         : `library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null`;
 
@@ -796,23 +813,23 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
         .select('*')
         .or(libraryFilter);
 
-      // Apply key server filters
-      if (serverFilters.search) {
+      // Apply key server filters from snapshot
+      if (snapshotFilters.search) {
         const escapeLike = (s: string) => s.replace(/[%_\\]/g, '\\$&');
-        const t = `%${escapeLike(serverFilters.search)}%`;
+        const t = `%${escapeLike(snapshotFilters.search)}%`;
         query = query.or(`name.ilike.${t},description.ilike.${t},id.ilike.${t}`);
       }
-      if (serverFilters.status?.length) query = query.in('status', serverFilters.status);
-      if (serverFilters.severity?.length) query = query.in('severity', serverFilters.severity);
-      if (serverFilters.queryLanguage?.length) query = query.in('queryLanguage', serverFilters.queryLanguage);
-      if (serverFilters.tags?.length) query = query.overlaps('tags', serverFilters.tags);
-      if (serverFilters.mitreTactics?.length) query = query.overlaps('mitreTactics', serverFilters.mitreTactics);
-      if (serverFilters.mitreTechniques?.length) query = query.overlaps('mitreTechniques', serverFilters.mitreTechniques);
-      if (serverFilters.platforms?.length) query = query.overlaps('platforms', serverFilters.platforms);
-      if (serverFilters.detectionType?.length) query = query.in('detectionType', serverFilters.detectionType);
-      if (serverFilters.technology?.length) query = query.in('technology', serverFilters.technology);
-      if (serverFilters.logSource?.length) query = query.in('logSource', serverFilters.logSource);
-      if (serverFilters.author?.length) query = query.in('author', serverFilters.author);
+      if (snapshotFilters.status?.length) query = query.in('status', snapshotFilters.status);
+      if (snapshotFilters.severity?.length) query = query.in('severity', snapshotFilters.severity);
+      if (snapshotFilters.queryLanguage?.length) query = query.in('queryLanguage', snapshotFilters.queryLanguage);
+      if (snapshotFilters.tags?.length) query = query.overlaps('tags', snapshotFilters.tags);
+      if (snapshotFilters.mitreTactics?.length) query = query.overlaps('mitreTactics', snapshotFilters.mitreTactics);
+      if (snapshotFilters.mitreTechniques?.length) query = query.overlaps('mitreTechniques', snapshotFilters.mitreTechniques);
+      if (snapshotFilters.platforms?.length) query = query.overlaps('platforms', snapshotFilters.platforms);
+      if (snapshotFilters.detectionType?.length) query = query.in('detectionType', snapshotFilters.detectionType);
+      if (snapshotFilters.technology?.length) query = query.in('technology', snapshotFilters.technology);
+      if (snapshotFilters.logSource?.length) query = query.in('logSource', snapshotFilters.logSource);
+      if (snapshotFilters.author?.length) query = query.in('author', snapshotFilters.author);
 
       const { data, error } = await query.order('"updatedDate"', { ascending: false });
 
@@ -1062,6 +1079,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
             placeholder="Search rules..."
             value={searchQuery}
             onChange={e => { setSearchQuery(e.target.value); setActivePreset(null); }}
+            aria-label="Search detections"
             className="w-full h-10 pl-10 pr-10 bg-surface-container rounded-xl text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2"
             style={{ '--tw-ring-color': `${SOLID_BLUE}50` } as React.CSSProperties}
           />
@@ -1290,7 +1308,18 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
             </div>
           )}
         </div>
-      ) : viewMode === 'grid' ? (
+      ) : (
+        <ErrorBoundary
+          fallback={
+            <DefaultErrorFallback
+              title="Failed to render detections"
+              description="An error occurred while rendering the detection list. Please try again."
+              variant="section"
+              onReset={() => window.location.reload()}
+            />
+          }
+        >
+        {viewMode === 'grid' ? (
         <div>
           {/* Grid select-all header */}
           <div className="flex items-center gap-3 mb-4 px-1">
@@ -1405,6 +1434,8 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
           ))}
         </div>
       )}
+        </ErrorBoundary>
+      )}
         </div>
       </div>
 
@@ -1465,6 +1496,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
           onCopyToLibrary={currentLibrary === LIBRARY_PRODUCTION ? handleBulkCopyToLibrary : undefined}
           onPublishToUniversal={currentLibrary === LIBRARY_DEVELOPMENT ? handleBulkPublish : undefined}
           onDeploy={(ids) => { setBulkDeployIds(ids); setShowBulkDeploy(true); }}
+          onAddToPack={(ids) => setAddToPackIds(ids)}
           // Server-side bulk actions (by filter)
           onDeleteByFilter={currentLibrary === LIBRARY_PRODUCTION ? bulkDeleteByFilter : undefined}
           onChangeStatusByFilter={currentLibrary === LIBRARY_PRODUCTION ? bulkUpdateStatusByFilter : undefined}
@@ -1488,6 +1520,13 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
           detections={detections.filter(d => bulkDeployIds.includes(d.id))}
           onClose={() => { setShowBulkDeploy(false); setBulkDeployIds([]); }}
           onComplete={() => { setShowBulkDeploy(false); setBulkDeployIds([]); clearSelection(); setSelectionMode(false); }}
+        />
+      )}
+      {addToPackIds && (
+        <AddToPackModal
+          isOpen={true}
+          onClose={() => { setAddToPackIds(null); clearSelection(); setSelectionMode(false); }}
+          detectionIds={addToPackIds}
         />
       )}
     </div>

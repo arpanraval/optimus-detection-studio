@@ -1,4 +1,5 @@
 import React from 'react';
+import { getInitials } from '../../lib/utils/getInitials';
 
 interface UserAvatarProps {
     name?: string | null;
@@ -64,14 +65,6 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
 // =============================================================================
 // HELPERS
 // =============================================================================
-
-function getInitials(name: string): string {
-    const parts = name.trim().split(/\s+/);
-    if (parts.length >= 2) {
-        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    }
-    return name.slice(0, 2).toUpperCase();
-}
 
 function getColorIndex(seed: string): number {
     // Simple hash to get consistent color for same user

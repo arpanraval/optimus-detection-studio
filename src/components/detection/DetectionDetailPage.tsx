@@ -124,7 +124,6 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
     const fetchRejectionReason = async () => {
       if (detection.promotion_status === PROMOTION_REJECTED) {
         try {
-          const { supabase } = await import('../../lib/supabaseClient');
           const { data } = await supabase
             .from('promotion_requests')
             .select('review_notes')
@@ -167,9 +166,9 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
         await refreshProductionLibrary();
       }
       onBack();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Delete error:', error);
-      showToast('error', 'Delete Failed', error.message || 'Could not delete detection.');
+      showToast('error', 'Delete Failed', error instanceof Error ? error.message : 'Could not delete detection.');
     } finally {
       setIsDeleting(false);
     }
@@ -193,8 +192,8 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
         showToast('success', 'Forked to Development', 'Detection forked to Development Library. You can now experiment with it safely.');
         onBack();
       }
-    } catch (error: any) {
-      showToast('error', 'Fork Failed', error.message || 'Could not fork detection.');
+    } catch (error: unknown) {
+      showToast('error', 'Fork Failed', error instanceof Error ? error.message : 'Could not fork detection.');
     } finally {
       setIsCopying(false);
     }
@@ -270,9 +269,9 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
       } else {
         await refreshProductionLibrary();
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('MITRE resolution error:', error);
-      showToast('error', 'Resolution Failed', error.message || 'Could not resolve MITRE data.');
+      showToast('error', 'Resolution Failed', error instanceof Error ? error.message : 'Could not resolve MITRE data.');
     } finally {
       setIsResolvingMitre(false);
     }
