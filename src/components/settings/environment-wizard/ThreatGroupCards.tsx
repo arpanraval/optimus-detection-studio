@@ -243,7 +243,7 @@ export function ThreatGroupCards({
 
   return (
     <div
-      className="rounded-2xl p-5 h-full"
+      className="rounded-2xl p-5 h-full border border-outline-variant"
       style={{ backgroundColor: 'rgb(var(--md-sys-color-surface-container-high))' }}
     >
       {/* Header */}

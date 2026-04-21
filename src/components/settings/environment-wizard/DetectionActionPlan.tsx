@@ -303,7 +303,7 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
             </div>
             <button
               onClick={onEditProfile}
-              className="text-[10px] font-bold text-on-surface-variant hover:text-on-surface border border-outline-variant/30 rounded px-2.5 py-1 transition-colors uppercase tracking-wider"
+              className="text-[10px] font-bold text-on-surface-variant hover:text-on-surface/30 rounded px-2.5 py-1 transition-colors uppercase tracking-wider"
             >
               Edit
             </button>

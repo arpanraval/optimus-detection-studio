@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Detection, AuditEvent } from '../../../types';
 import { LIBRARY_LABELS } from '../../../types/detection';
 import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION, PROMOTION_NONE, PROMOTION_PENDING, PROMOTION_PROMOTED, PROMOTION_REJECTED } from '../../../constants/library';
@@ -6,6 +6,7 @@ import { Icon } from '../../Icon';
 import { useDetectionAudit } from '../../../hooks/useDetectionAudit';
 import { supabase } from '../../../lib/supabaseClient';
 import { DetailCard } from '../DetailCard';
+import { getInitials } from '../../../lib/utils/getInitials';
 
 interface HistoryTabProps {
   detection: Detection;
@@ -24,18 +25,8 @@ const UserDisplay: React.FC<{
   label: string;
   timestamp?: string;
 }> = ({ userId, userInfo, fallback = 'Unknown', label, timestamp }) => {
-  // Get initials from email
-  const getInitials = (email?: string): string => {
-    if (!email) return '?';
-    const parts = email.split('@')[0].split(/[._-]/);
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[1][0]).toUpperCase();
-    }
-    return email.slice(0, 2).toUpperCase();
-  };
-
   const displayName = userInfo?.email || fallback;
-  const initials = getInitials(userInfo?.email);
+  const initials = getInitials({ email: userInfo?.email });
   const isAdmin = userInfo?.role === 'admin';
 
   return (
@@ -150,42 +141,64 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ detection }) => {
   const legacyAuditLog = detection.auditLog || [];
 
   // Audit events from the new audit_events table
+  const AUDIT_PAGE_SIZE = 50;
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [auditPage, setAuditPage] = useState(0);
+  const [hasMoreAuditEvents, setHasMoreAuditEvents] = useState(false);
   const [isLoadingEvents, setIsLoadingEvents] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   // M1: State for user info
   const [createdByInfo, setCreatedByInfo] = useState<UserInfo | null>(null);
   const [updatedByInfo, setUpdatedByInfo] = useState<UserInfo | null>(null);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
 
-  // Fetch audit events from audit_events table
-  useEffect(() => {
-    const fetchAuditEvents = async () => {
-      if (!detection.id) return;
+  // Fetch a page of audit events from audit_events table
+  const fetchAuditPage = useCallback(async (page: number, append: boolean) => {
+    if (!detection.id) return;
+    if (append) {
+      setIsLoadingMore(true);
+    } else {
       setIsLoadingEvents(true);
-      try {
-        const { data, error } = await supabase
-          .from('audit_events')
-          .select('*')
-          .eq('entity_type', 'detection')
-          .eq('entity_id', detection.id)
-          .order('created_at', { ascending: false })
-          .limit(100);
+    }
+    try {
+      const from = page * AUDIT_PAGE_SIZE;
+      const to = from + AUDIT_PAGE_SIZE - 1;
+      const { data, error } = await supabase
+        .from('audit_events')
+        .select('*')
+        .eq('entity_type', 'detection')
+        .eq('entity_id', detection.id)
+        .order('created_at', { ascending: false })
+        .range(from, to);
 
-        if (error) {
-          console.error('Error fetching audit events:', error);
-        } else if (data) {
-          setAuditEvents(data as AuditEvent[]);
-        }
-      } catch (err) {
-        console.error('Error fetching audit events:', err);
-      } finally {
-        setIsLoadingEvents(false);
+      if (error) {
+        console.error('Error fetching audit events:', error);
+      } else if (data) {
+        const events = data as AuditEvent[];
+        setAuditEvents(prev => append ? [...prev, ...events] : events);
+        setHasMoreAuditEvents(events.length === AUDIT_PAGE_SIZE);
       }
-    };
-
-    fetchAuditEvents();
+    } catch (err) {
+      console.error('Error fetching audit events:', err);
+    } finally {
+      setIsLoadingEvents(false);
+      setIsLoadingMore(false);
+    }
   }, [detection.id]);
+
+  // Initial fetch
+  useEffect(() => {
+    setAuditPage(0);
+    setAuditEvents([]);
+    fetchAuditPage(0, false);
+  }, [detection.id, fetchAuditPage]);
+
+  const handleLoadMore = () => {
+    const nextPage = auditPage + 1;
+    setAuditPage(nextPage);
+    fetchAuditPage(nextPage, true);
+  };
 
   // M1: Fetch user info for created_by and updated_by
   useEffect(() => {
@@ -418,6 +431,17 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ detection }) => {
                 );
               })}
             </div>
+            {hasMoreAuditEvents && (
+              <div className="flex justify-center pt-4">
+                <button
+                  onClick={handleLoadMore}
+                  disabled={isLoadingMore}
+                  className="px-4 py-2 text-sm font-medium bg-surface-container-high text-on-surface-variant rounded-lg hover:bg-surface-container-highest border border-outline-variant/20 transition-colors disabled:opacity-50"
+                >
+                  {isLoadingMore ? 'Loading...' : 'Load more'}
+                </button>
+              </div>
+            )}
           </div>
         ) : legacyAuditLog.length > 0 ? (
           /* Fallback to legacy JSONB auditLog */

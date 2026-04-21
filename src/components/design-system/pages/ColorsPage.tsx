@@ -554,6 +554,8 @@ export const ColorsPage: React.FC = () => {
                                     <th className="text-left px-4 py-3 font-semibold text-on-surface">Token</th>
                                     <th className="text-left px-4 py-3 font-semibold text-on-surface">Swatch</th>
                                     <th className="text-left px-4 py-3 font-semibold text-on-surface">CSS Variable</th>
+                                    <th className="text-left px-4 py-3 font-semibold text-on-surface">Light Hex</th>
+                                    <th className="text-left px-4 py-3 font-semibold text-on-surface">Dark Hex</th>
                                     <th className="text-left px-4 py-3 font-semibold text-on-surface">Usage on Action Plan</th>
                                 </tr>
                             </thead>
@@ -562,54 +564,88 @@ export const ColorsPage: React.FC = () => {
                                     <td className="px-4 py-2.5 font-medium">background</td>
                                     <td className="px-4 py-2.5"><span className="inline-block w-6 h-6 rounded border border-outline-variant/30 bg-background"></span></td>
                                     <td className="px-4 py-2.5 font-mono text-xs">--md-sys-color-background</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#ECECEF</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#08080A</td>
                                     <td className="px-4 py-2.5 text-xs text-on-surface-variant">Page background</td>
+                                </tr>
+                                <tr>
+                                    <td className="px-4 py-2.5 font-medium">surface-container-lowest</td>
+                                    <td className="px-4 py-2.5"><span className="inline-block w-6 h-6 rounded border border-outline-variant/30 bg-surface-container-lowest"></span></td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">--md-sys-color-surface-container-lowest</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#F2F2F5</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#040405</td>
+                                    <td className="px-4 py-2.5 text-xs text-on-surface-variant">Subtlest elevation (closest to page bg)</td>
+                                </tr>
+                                <tr>
+                                    <td className="px-4 py-2.5 font-medium">surface-container-low</td>
+                                    <td className="px-4 py-2.5"><span className="inline-block w-6 h-6 rounded border border-outline-variant/30 bg-surface-container-low"></span></td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">--md-sys-color-surface-container-low</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#F6F6F9</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#0B0B0D</td>
+                                    <td className="px-4 py-2.5 text-xs text-on-surface-variant">Low elevation (sidebar, secondary panels)</td>
                                 </tr>
                                 <tr>
                                     <td className="px-4 py-2.5 font-medium">surface-container</td>
                                     <td className="px-4 py-2.5"><span className="inline-block w-6 h-6 rounded border border-outline-variant/30 bg-surface-container"></span></td>
                                     <td className="px-4 py-2.5 font-mono text-xs">--md-sys-color-surface-container</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#FAFAFC</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#121214</td>
                                     <td className="px-4 py-2.5 text-xs text-on-surface-variant">Metrics bar, progress bar track, code blocks, SIEM bar track</td>
                                 </tr>
                                 <tr>
                                     <td className="px-4 py-2.5 font-medium">surface-container-high</td>
                                     <td className="px-4 py-2.5"><span className="inline-block w-6 h-6 rounded border border-outline-variant/30 bg-surface-container-high"></span></td>
                                     <td className="px-4 py-2.5 font-mono text-xs">--md-sys-color-surface-container-high</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#FDFDFF</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#1A1A1D</td>
                                     <td className="px-4 py-2.5 text-xs text-on-surface-variant">Hero funnel bg, card panels, priority queue, gaps list, heatmap, SIEM panel</td>
                                 </tr>
                                 <tr>
                                     <td className="px-4 py-2.5 font-medium">surface-container-highest</td>
                                     <td className="px-4 py-2.5"><span className="inline-block w-6 h-6 rounded border border-outline-variant/30 bg-surface-container-highest"></span></td>
                                     <td className="px-4 py-2.5 font-mono text-xs">--md-sys-color-surface-container-highest</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#FFFFFF</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#232326</td>
                                     <td className="px-4 py-2.5 text-xs text-on-surface-variant">Active sort button, expanded group bg, hover states</td>
                                 </tr>
                                 <tr>
                                     <td className="px-4 py-2.5 font-medium">on-surface</td>
                                     <td className="px-4 py-2.5"><span className="inline-block w-6 h-6 rounded border border-outline-variant/30 bg-on-surface"></span></td>
                                     <td className="px-4 py-2.5 font-mono text-xs">--md-sys-color-on-surface</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#18181A</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#E6E6E8</td>
                                     <td className="px-4 py-2.5 text-xs text-on-surface-variant">Headings, detection names, counts, technique coverage</td>
                                 </tr>
                                 <tr>
                                     <td className="px-4 py-2.5 font-medium">on-surface-variant</td>
                                     <td className="px-4 py-2.5"><span className="inline-block w-6 h-6 rounded border border-outline-variant/30 bg-on-surface-variant"></span></td>
                                     <td className="px-4 py-2.5 font-mono text-xs">--md-sys-color-on-surface-variant</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#444448</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#BEBEC3</td>
                                     <td className="px-4 py-2.5 text-xs text-on-surface-variant">Secondary labels, descriptions, profile tags, edit button</td>
                                 </tr>
                                 <tr>
                                     <td className="px-4 py-2.5 font-medium">outline</td>
                                     <td className="px-4 py-2.5"><span className="inline-block w-6 h-6 rounded border border-outline-variant/30 bg-outline"></span></td>
                                     <td className="px-4 py-2.5 font-mono text-xs">--md-sys-color-outline</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#6E6E73</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#828287</td>
                                     <td className="px-4 py-2.5 text-xs text-on-surface-variant">Tertiary labels ("In Library"), table headers, arrows, "No steps" text</td>
                                 </tr>
                                 <tr>
                                     <td className="px-4 py-2.5 font-medium">outline-variant</td>
                                     <td className="px-4 py-2.5"><span className="inline-block w-6 h-6 rounded border border-outline-variant/30 bg-outline-variant"></span></td>
                                     <td className="px-4 py-2.5 font-mono text-xs">--md-sys-color-outline-variant</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#C8C8CD</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#323237</td>
                                     <td className="px-4 py-2.5 text-xs text-on-surface-variant">Table borders, dividers, edit button border, checkbox borders</td>
                                 </tr>
                                 <tr>
                                     <td className="px-4 py-2.5 font-medium">primary</td>
                                     <td className="px-4 py-2.5"><span className="inline-block w-6 h-6 rounded border border-outline-variant/30 bg-primary"></span></td>
                                     <td className="px-4 py-2.5 font-mono text-xs">--md-sys-color-primary</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#783264</td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#783264</td>
                                     <td className="px-4 py-2.5 text-xs text-on-surface-variant">Progress bar fill, "Create" button in gaps, batch action bar, expanded ring highlight</td>
                                 </tr>
                             </tbody>

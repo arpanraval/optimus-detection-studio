@@ -53,24 +53,39 @@ export const useDetectionComments = ({
         user: c.user as unknown as Profile,
       }));
 
-      // Build thread structure
-      const topLevel: DetectionComment[] = [];
-      const repliesMap = new Map<string, DetectionComment[]>();
+      // Build thread structure: separate parents and replies to avoid ordering issues
+      const parents: DetectionComment[] = [];
+      const replies: DetectionComment[] = [];
 
       transformedComments.forEach(comment => {
         if (comment.parent_id) {
-          const replies = repliesMap.get(comment.parent_id) || [];
           replies.push(comment);
-          repliesMap.set(comment.parent_id, replies);
         } else {
-          topLevel.push(comment);
+          parents.push(comment);
         }
       });
 
-      // Attach replies to parent comments
-      topLevel.forEach(comment => {
-        comment.replies = repliesMap.get(comment.id) || [];
+      // Index parents by id for quick lookup
+      const parentMap = new Map<string, DetectionComment>();
+      parents.forEach(comment => {
+        comment.replies = [];
+        parentMap.set(comment.id, comment);
       });
+
+      // Attach replies to their parents; orphaned replies become top-level
+      replies.forEach(reply => {
+        const parent = parentMap.get(reply.parent_id!);
+        if (parent) {
+          parent.replies!.push(reply);
+        } else {
+          // Parent not found — surface as top-level rather than losing the comment
+          reply.replies = [];
+          parents.push(reply);
+          parentMap.set(reply.id, reply);
+        }
+      });
+
+      const topLevel = parents;
 
       setComments(topLevel);
 

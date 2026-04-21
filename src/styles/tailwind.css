@@ -132,23 +132,25 @@
   --md-sys-color-error-container: 255 218 214;
   --md-sys-color-on-error-container: 65 0 2;
 
-  --md-sys-color-background: 250 252 255;
-  --md-sys-color-on-background: 25 28 30;
+  --md-sys-color-background: 236 236 239;
+  --md-sys-color-on-background: 24 24 26;
 
-  --md-sys-color-surface: 250 252 255;
-  --md-sys-color-on-surface: 25 28 30;
-  --md-sys-color-surface-variant: 222 227 235;
-  --md-sys-color-on-surface-variant: 64 72 85;
+  --md-sys-color-surface: 236 236 239;
+  --md-sys-color-on-surface: 24 24 26;
+  --md-sys-color-surface-variant: 228 228 232;
+  --md-sys-color-on-surface-variant: 68 68 72;
 
-  /* Surface elevation */
-  --md-sys-color-surface-container-lowest: 255 255 255;
-  --md-sys-color-surface-container-low: 245 248 253;
-  --md-sys-color-surface-container: 237 242 248;
-  --md-sys-color-surface-container-high: 231 237 243;
-  --md-sys-color-surface-container-highest: 225 231 238;
+  /* Elevation ladder — INVERTED for light mode: bg is grayest, containers progressively whiter.
+     This matches dark-theme direction (elevation = brighter) and gives every container natural
+     separation from the page without requiring per-component borders. */
+  --md-sys-color-surface-container-lowest: 242 242 245;
+  --md-sys-color-surface-container-low: 246 246 249;
+  --md-sys-color-surface-container: 250 250 252;
+  --md-sys-color-surface-container-high: 253 253 255;
+  --md-sys-color-surface-container-highest: 255 255 255;
 
-  --md-sys-color-outline: 115 120 130;
-  --md-sys-color-outline-variant: 195 200 210;
+  --md-sys-color-outline: 110 110 115;
+  --md-sys-color-outline-variant: 200 200 205;
 
   /* Additional M3 system tokens */
   --md-sys-color-surface-tint: 120 50 100;

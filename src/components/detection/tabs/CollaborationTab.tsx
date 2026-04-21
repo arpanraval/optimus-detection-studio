@@ -9,6 +9,7 @@ import { supabase } from '../../../lib/supabaseClient';
 import { ReviewStatusBadge } from '../../rbac/ReviewStatusBadge';
 import { DetailCard } from '../DetailCard';
 import { formatRelativeTime } from '../../../lib/utils/formatting';
+import { getInitials } from '../../../lib/utils/getInitials';
 
 // =============================================================================
 // TYPES
@@ -19,15 +20,8 @@ interface CollaborationTabProps {
     onDetectionUpdate?: (detection: Detection) => void;
 }
 
-const getInitials = (name?: string, email?: string): string => {
-    if (name) {
-        const parts = name.split(' ');
-        return parts.length > 1
-            ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
-            : name.slice(0, 2).toUpperCase();
-    }
-    return email ? email.slice(0, 2).toUpperCase() : '??';
-};
+// Module-level cache for assignee profiles to avoid redundant fetches
+const profileCache = new Map<string, Profile>();
 
 // =============================================================================
 // MAIN COMPONENT
@@ -49,16 +43,24 @@ export const CollaborationTab: React.FC<CollaborationTabProps> = ({
         getUser();
     }, []);
 
-    // Fetch assignee profile if assigned
+    // Fetch assignee profile if assigned (with module-level cache)
     useEffect(() => {
         const fetchAssignee = async () => {
             if (detection.assigned_to) {
+                const id = detection.assigned_to;
+                if (profileCache.has(id)) {
+                    setAssigneeProfile(profileCache.get(id)!);
+                    return;
+                }
                 const { data } = await supabase
                     .from('profiles')
                     .select('*')
-                    .eq('id', detection.assigned_to)
+                    .eq('id', id)
                     .single();
-                if (data) setAssigneeProfile(data);
+                if (data) {
+                    profileCache.set(id, data);
+                    setAssigneeProfile(data);
+                }
             } else {
                 setAssigneeProfile(null);
             }
@@ -161,7 +163,7 @@ const AssignmentPanel: React.FC<AssignmentPanelProps> = ({
             {hasAssignee && assigneeProfile ? (
                 <div className="flex items-center gap-4 p-4 rounded-xl bg-surface-container border border-outline-variant/20">
                     <div className="w-10 h-10 rounded-full bg-tertiary/10 text-tertiary flex items-center justify-center font-medium text-sm">
-                        {getInitials(assigneeProfile.full_name, assigneeProfile.email)}
+                        {getInitials({ name: assigneeProfile.full_name, email: assigneeProfile.email })}
                     </div>
                     <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-on-surface truncate">
@@ -229,7 +231,7 @@ const AssignmentPanel: React.FC<AssignmentPanelProps> = ({
                                                     className="w-full flex items-center gap-3 px-3 py-2 hover:bg-surface-container-highest transition-colors text-left"
                                                 >
                                                     <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium">
-                                                        {getInitials(user.full_name, user.email)}
+                                                        {getInitials({ name: user.full_name, email: user.email })}
                                                     </div>
                                                     <div className="flex-1 min-w-0">
                                                         <p className="text-sm font-medium text-on-surface truncate">
@@ -736,7 +738,7 @@ const CommentItem: React.FC<CommentItemProps> = ({
         <div className={`rounded-xl p-4 ${comment.is_resolved ? 'opacity-50' : 'bg-surface-container border border-outline-variant/20'}`}>
             <div className="flex gap-3">
                 <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium flex-shrink-0">
-                    {getInitials(comment.user?.full_name, comment.user?.email)}
+                    {getInitials({ name: comment.user?.full_name, email: comment.user?.email })}
                 </div>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
@@ -822,7 +824,7 @@ const CommentItem: React.FC<CommentItemProps> = ({
                             {comment.replies.map((reply) => (
                                 <div key={reply.id} className="flex gap-2">
                                     <div className="w-7 h-7 rounded-full bg-surface-container-highest text-on-surface-variant flex items-center justify-center text-[10px] font-medium flex-shrink-0">
-                                        {getInitials(reply.user?.full_name, reply.user?.email)}
+                                        {getInitials({ name: reply.user?.full_name, email: reply.user?.email })}
                                     </div>
                                     <div>
                                         <div className="flex items-center gap-2">

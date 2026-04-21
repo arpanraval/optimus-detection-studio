@@ -16,7 +16,7 @@ declare const Deno: {
 };
 
 // Allowed origins for CORS
-const ALLOWED_ORIGINS = ['https://detectionstudio.com', 'https://www.detectionstudio.com', 'http://localhost:5173', 'http://localhost:3000'];
+const ALLOWED_ORIGINS = ['https://detectionstudio.com', 'https://www.detectionstudio.com', 'https://optimus-sooty.vercel.app', 'http://localhost:5173', 'http://localhost:3000'];
 
 function getCorsOrigin(req: Request): string {
   const origin = req.headers.get('Origin') || '';
