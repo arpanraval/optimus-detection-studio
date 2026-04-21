@@ -238,12 +238,16 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Hero Header */}
-      <div className="flex-shrink-0 relative overflow-hidden bg-surface-container-low border-b border-outline-variant/30">
-        {/* Background Effects */}
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-tertiary/10" />
-        <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3" />
-        <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-tertiary/5 rounded-full blur-3xl translate-y-1/2 -translate-x-1/3" />
-        
+      <div className="flex-shrink-0 relative bg-surface-container-low border-b border-outline-variant/30">
+        {/* Background Effects — clipped to the hero so they don't bleed, but the
+            hero container itself stays non-clipping so filter dropdown panels
+            can overflow below it. */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-tertiary/10" />
+          <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3" />
+          <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-tertiary/5 rounded-full blur-3xl translate-y-1/2 -translate-x-1/3" />
+        </div>
+
         <div className="relative px-8 pt-8 pb-6">
           {/* Top Section */}
           <div className="flex items-start justify-between mb-8">
@@ -398,7 +402,7 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
                 onChange={(e) => setFilters({ ...filters, search: e.target.value })}
                 className="w-full h-10 pl-10 pr-4 bg-surface-container-high border border-outline-variant/30
                          rounded-xl text-on-surface placeholder-on-surface-variant/50 text-sm
-                         focus:outline-none focus:border-[#783264] focus:ring-2 focus:ring-[#783264]/20 transition-all"
+                         focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
               />
             </div>
 
@@ -460,7 +464,7 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
             <button
               onClick={() => setFilters({ ...filters, sortOrder: filters.sortOrder === 'asc' ? 'desc' : 'asc' })}
               className="h-10 px-3 bg-surface-container-high border border-outline-variant/30 rounded-xl
-                       text-on-surface hover:border-[#783264] transition-colors"
+                       text-on-surface hover:border-primary transition-colors"
               title={filters.sortOrder === 'asc' ? 'Ascending' : 'Descending'}
             >
               <Icon
