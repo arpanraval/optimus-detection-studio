@@ -12,15 +12,36 @@ export interface PackCardIntegrationStatus {
   failed_count: number;
 }
 
+export interface PackCardBreakdown {
+  /** Count of pack rules in each status (e.g. { Production: 23, Testing: 12 }) */
+  status: Record<string, number>;
+  /** Unique query languages present across the pack's rules */
+  languages: string[];
+}
+
+// Color tokens for each detection status — aligned with the rest of the app.
+const STATUS_DOT_COLOR: Record<string, string> = {
+  Production:  '#4D7C6F', // sage green
+  Testing:     '#0284C7', // info blue
+  Review:      '#D97706', // amber
+  Development: '#783264', // magenta
+  Draft:       '#71717a', // zinc-500
+  Backlog:     '#52525b', // zinc-600
+  Deprecated:  '#A63D40', // brick red
+  Archived:    '#3f3f46', // zinc-700
+};
+const STATUS_ORDER = ['Production', 'Testing', 'Review', 'Development', 'Draft', 'Backlog', 'Deprecated', 'Archived'];
+
 interface DetectionPackCardProps {
   pack: DetectionPack;
   to: string;
   onClick?: () => void;
   deploymentStatus?: { deployed: number; total: number };
   integrationStatuses?: PackCardIntegrationStatus[];
+  breakdown?: PackCardBreakdown;
 }
 
-export const DetectionPackCard: React.FC<DetectionPackCardProps> = ({ pack, to, onClick, deploymentStatus, integrationStatuses }) => {
+export const DetectionPackCard: React.FC<DetectionPackCardProps> = ({ pack, to, onClick, deploymentStatus, integrationStatuses, breakdown }) => {
   const sourceConfig: Record<string, { 
     gradient: string; 
     badge: string; 
@@ -180,33 +201,67 @@ export const DetectionPackCard: React.FC<DetectionPackCardProps> = ({ pack, to, 
           );
         })()}
 
-        {/* Stats Grid — uses white/black overlays (not surface tokens) so the
-            panel is ALWAYS distinct from the card, even when the card itself
-            goes to the darkest surface on hover. Default = subtle light tint
-            against the card; hover = strong black overlay so the panel
-            visibly deepens toward black. */}
-        <div className="grid grid-cols-3 gap-1 mb-5 bg-white/[0.04] rounded-xl p-1 border border-outline-variant/20 transition-colors duration-300 group-hover:bg-black/40 group-hover:border-outline-variant/10">
-          <div className="flex flex-col items-center py-3 px-2 rounded-lg">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Icon name="library" className="w-4 h-4 text-primary" />
-            </div>
-            <span className="text-2xl font-mono font-black text-on-surface">{pack.rule_count}</span>
-            <span className="text-[9px] text-on-surface-variant uppercase tracking-widest font-bold">Rules</span>
-          </div>
-          <div className="flex flex-col items-center py-3 px-2 rounded-lg border-x border-outline-variant/20">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Icon name="matrix" className="w-4 h-4 text-tertiary" />
-            </div>
-            <span className="text-2xl font-mono font-black text-on-surface">{techniqueCount}</span>
-            <span className="text-[9px] text-on-surface-variant uppercase tracking-widest font-bold">TTPs</span>
-          </div>
-          <div className="flex flex-col items-center py-3 px-2 rounded-lg">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Icon name="code" className="w-4 h-4 text-secondary" />
-            </div>
-            <span className="text-2xl font-mono font-black text-on-surface">{platformCount}</span>
-            <span className="text-[9px] text-on-surface-variant uppercase tracking-widest font-bold">Platforms</span>
-          </div>
+        {/* Stats panel — spec-sheet layout. Each attribute gets its own row
+            with a muted label on the left and the full-width value on the
+            right, so nothing truncates regardless of how much detail the
+            value has. Reads like a GitHub repo About panel or a Docker image
+            metadata block. */}
+        <div className="mb-5 bg-white/[0.04] rounded-xl px-4 py-3 border border-outline-variant/20 transition-colors duration-300 group-hover:bg-black/40 group-hover:border-outline-variant/10">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+            {/* Rules + status breakdown */}
+            <dt className="text-on-surface-variant/70 uppercase tracking-wider text-[10px] font-bold self-center">Rules</dt>
+            <dd className="flex items-center flex-wrap gap-x-2 gap-y-1 min-w-0">
+              <span className="text-lg font-mono font-black text-on-surface tabular-nums leading-none">{pack.rule_count}</span>
+              {breakdown && Object.keys(breakdown.status).length > 0 && (
+                <span className="flex flex-wrap gap-x-2 gap-y-0.5 text-xs text-on-surface-variant min-w-0">
+                  {STATUS_ORDER.filter(s => breakdown.status[s]).map(s => (
+                    <span key={s} className="inline-flex items-center gap-1">
+                      <span
+                        className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: STATUS_DOT_COLOR[s] || '#71717a' }}
+                      />
+                      <span className="tabular-nums font-semibold text-on-surface">{breakdown.status[s]}</span>
+                      <span>{s}</span>
+                    </span>
+                  ))}
+                </span>
+              )}
+            </dd>
+
+            {/* TTPs */}
+            <dt className="text-on-surface-variant/70 uppercase tracking-wider text-[10px] font-bold self-center">TTPs</dt>
+            <dd className="text-lg font-mono font-black text-on-surface tabular-nums leading-none">{techniqueCount}</dd>
+
+            {/* Platforms — count + first few names, avoids duplicating the
+                big chip row at the bottom of the card. */}
+            <dt className="text-on-surface-variant/70 uppercase tracking-wider text-[10px] font-bold self-center">Platforms</dt>
+            <dd className="flex items-center flex-wrap gap-x-2 gap-y-0.5 min-w-0">
+              <span className="text-lg font-mono font-black text-on-surface tabular-nums leading-none">{platformCount}</span>
+              {(pack.platforms || []).length > 0 && (
+                <span className="text-xs text-on-surface-variant truncate">
+                  {(pack.platforms || []).slice(0, 3).join(', ')}
+                  {(pack.platforms || []).length > 3 && `, +${(pack.platforms || []).length - 3}`}
+                </span>
+              )}
+            </dd>
+
+            {/* Languages — only render when we have data to show */}
+            {breakdown && breakdown.languages.length > 0 && (
+              <>
+                <dt className="text-on-surface-variant/70 uppercase tracking-wider text-[10px] font-bold self-center">Languages</dt>
+                <dd className="flex flex-wrap items-center gap-1.5 min-w-0">
+                  {breakdown.languages.map((lang) => (
+                    <span
+                      key={lang}
+                      className="px-2 py-0.5 text-[11px] font-mono font-medium bg-white/[0.06] border border-outline-variant/20 rounded-md text-on-surface"
+                    >
+                      {lang}
+                    </span>
+                  ))}
+                </dd>
+              </>
+            )}
+          </dl>
         </div>
 
         {/* Coverage Score Meter */}

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useDetectionPacks, createPack } from '../../hooks/useDetectionPacks';
-import { DetectionPackCard, type PackCardIntegrationStatus } from './DetectionPackCard';
+import { DetectionPackCard, type PackCardIntegrationStatus, type PackCardBreakdown } from './DetectionPackCard';
 import { PackIcon } from './PackIcon';
 import { CreatePackModal } from './CreatePackModal';
 import { GeneratePacksModal } from './GeneratePacksModal';
@@ -54,6 +54,41 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
   const canManagePacks = hasRoleOrHigher('lead');
   const [packStatusMap, setPackStatusMap] = useState<Map<string, { deployed: number; total: number }>>(new Map());
   const [packIntegrationStatusMap, setPackIntegrationStatusMap] = useState<Map<string, PackCardIntegrationStatus[]>>(new Map());
+  const [packBreakdownMap, setPackBreakdownMap] = useState<Map<string, PackCardBreakdown>>(new Map());
+
+  // Fetch per-pack rule breakdown (status counts + distinct query languages).
+  // Joins pack_detections -> detections in a single nested Supabase query,
+  // then aggregates client-side into a Map<pack_id, PackCardBreakdown>.
+  useEffect(() => {
+    if (!packs || packs.length === 0) return;
+    const load = async () => {
+      const packIds = packs.map(p => p.id);
+      const { data } = await supabase
+        .from('pack_detections')
+        .select('pack_id, detections(id, status, queryLanguage)')
+        .in('pack_id', packIds);
+
+      const map = new Map<string, PackCardBreakdown>();
+      for (const row of (data || []) as Array<{ pack_id: string; detections: { status?: string; queryLanguage?: string } | null }>) {
+        const det = row.detections;
+        if (!det) continue;
+        const entry = map.get(row.pack_id) ?? { status: {}, languages: [] };
+        if (det.status) {
+          entry.status[det.status] = (entry.status[det.status] ?? 0) + 1;
+        }
+        if (det.queryLanguage && !entry.languages.includes(det.queryLanguage)) {
+          entry.languages.push(det.queryLanguage);
+        }
+        map.set(row.pack_id, entry);
+      }
+      // Sort each pack's languages alphabetically for stable display
+      for (const entry of map.values()) {
+        entry.languages.sort();
+      }
+      setPackBreakdownMap(map);
+    };
+    load();
+  }, [packs]);
 
   // Fetch deployment status for all visible packs
   useEffect(() => {
@@ -462,6 +497,7 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
                 onClick={() => onSelectPack(pack.id)}
                 deploymentStatus={packStatusMap.get(pack.id)}
                 integrationStatuses={packIntegrationStatusMap.get(pack.id)}
+                breakdown={packBreakdownMap.get(pack.id)}
               />
             ))}
           </div>
