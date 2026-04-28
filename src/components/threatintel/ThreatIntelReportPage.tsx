@@ -31,6 +31,7 @@ import {
   ttpCoverageColors,
 } from '../../lib/ui/badges';
 import { FeasibilityEmptyState } from './FeasibilityEmptyState';
+import { RetryWithModelButton } from './RetryWithModelButton';
 
 // =============================================================================
 // TYPES
@@ -779,7 +780,7 @@ const EmptyStateWithRetry: React.FC<{
   section: RetrySectionType;
   isRetrying: boolean;
   retryingSection: RetrySectionType | null;
-  onRetry: (section: RetrySectionType) => void;
+  onRetry: (section: RetrySectionType, model?: string) => void;
   error?: string;
 }> = ({ icon, title, description, section, isRetrying, retryingSection, onRetry, error }) => (
   <div className="text-center py-16 bg-surface-container rounded-2xl border border-outline-variant/30">
@@ -791,11 +792,10 @@ const EmptyStateWithRetry: React.FC<{
         <p className="text-red-500 text-xs font-mono">{error}</p>
       </div>
     )}
-    <RetryButton
-      section={section}
+    <RetryWithModelButton
       isRetrying={isRetrying}
-      retryingSection={retryingSection}
-      onRetry={onRetry}
+      isThisRetrying={retryingSection === section}
+      onRetry={(model) => onRetry(section, model)}
       label="Retry Extraction"
     />
   </div>
@@ -1308,7 +1308,7 @@ export const ThreatIntelReportPage: React.FC = () => {
   }, [fetchUrlDialog, session, report, showToast]);
 
   // Retry a specific section
-  const handleRetrySection = useCallback(async (section: RetrySectionType) => {
+  const handleRetrySection = useCallback(async (section: RetrySectionType, model?: string) => {
     if (!report || !session) return;
 
     // Store previous counts to detect if data was preserved
@@ -1320,7 +1320,7 @@ export const ThreatIntelReportPage: React.FC = () => {
 
     setRetryingSection(section);
     try {
-      const result = await retryReportSection(report, section);
+      const result = await retryReportSection(report, section, model);
 
       if (result.success && result.report) {
         // Update session with new report
