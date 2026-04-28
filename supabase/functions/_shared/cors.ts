@@ -69,7 +69,7 @@ export function getCorsHeaders(req: Request): Record<string, string> {
   const responseOrigin = isOriginAllowed(origin, allowedOrigins) ? origin : '';
 
   if (!responseOrigin && origin) {
-    // Disallowed origin — return response without CORS access grant
+    // Disallowed origin - return response without CORS access grant
     return {
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
       'Vary': 'Origin',

@@ -22,7 +22,7 @@ interface ScoringContextValue {
   /** Any error from fetching profiles */
   error: string | null;
   /** CRUD operations */
-  createProfile: (data: { name: string; description?: string; team_id?: string | null; is_default?: boolean; weights: QualityWeights }) => Promise<ScoringProfile | null>;
+  createProfile: (data: { name: string; description?: string; is_default?: boolean; weights: QualityWeights }) => Promise<ScoringProfile | null>;
   updateProfile: (id: string, data: { name?: string; description?: string; is_default?: boolean; weights?: QualityWeights }) => Promise<boolean>;
   deleteProfile: (id: string) => Promise<boolean>;
   /** Switch active profile by ID */
@@ -48,11 +48,10 @@ export const useScoring = () => useContext(ScoringContext);
 
 interface ScoringProviderProps {
   children: React.ReactNode;
-  teamId?: string | null;
 }
 
-export const ScoringProvider: React.FC<ScoringProviderProps> = ({ children, teamId }) => {
-  const scoring = useScoringProfile(teamId);
+export const ScoringProvider: React.FC<ScoringProviderProps> = ({ children }) => {
+  const scoring = useScoringProfile();
 
   return (
     <ScoringContext.Provider value={scoring}>

@@ -26,7 +26,6 @@ interface AuditEventInput {
   entity_name?: string;
   old_values?: Record<string, unknown>;
   new_values?: Record<string, unknown>;
-  team_id?: string;
   details?: Record<string, unknown>;
   session_id?: string;
 }
@@ -93,7 +92,7 @@ Deno.serve(async (req: Request) => {
     const userEmail = user.email || profile?.full_name || 'unknown';
     const userRole = profile?.role || 'viewer';
 
-    // Parse request body — supports single event or batch
+    // Parse request body - supports single event or batch
     const body = await req.json();
     const events: AuditEventInput[] = Array.isArray(body.events) ? body.events : [body];
 
@@ -142,7 +141,6 @@ Deno.serve(async (req: Request) => {
         old_values: event.old_values || null,
         new_values: event.new_values || null,
         changed_fields: changedFields,
-        team_id: event.team_id || null,
         ip_address: ipAddress,
         user_agent: userAgent,
         session_id: event.session_id || null,

@@ -83,7 +83,6 @@ const sanitizeSingleDetection = (d: any): Detection => ({
   promotion_status: d.promotion_status || 'none',
   promoted_to_id: d.promoted_to_id || null,
   promoted_at: d.promoted_at || null,
-  team_id: d.team_id || null,
   assigned_to: d.assigned_to || null,
   assigned_by: d.assigned_by || null,
   assigned_at: d.assigned_at || null,
@@ -125,7 +124,6 @@ const LIGHTWEIGHT_COLUMNS = [
   'tags', 'source',
   'createdDate', 'updatedDate',
   'library_type', 'promotion_status', 'external_id', 'source_rule_id',
-  'team_id',
   'assigned_to', 'assigned_by', 'assigned_at',
   'review_status', 'reviewer_id', 'review_requested_at', 'reviewed_at'
 ].join(',');

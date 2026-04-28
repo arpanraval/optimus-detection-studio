@@ -95,7 +95,7 @@ export interface DetectionComment {
 // ============================================
 
 /** Entity types that can be logged */
-export type ActivityEntityType = 'detection' | 'user' | 'team' | 'pack' | 'review' | 'comment';
+export type ActivityEntityType = 'detection' | 'user' | 'pack' | 'review' | 'comment';
 
 /** Activity action types */
 export type ActivityAction =
@@ -128,16 +128,11 @@ export type ActivityAction =
   | 'user_added'
   | 'user_deactivated'
   | 'user_reactivated'
-  | 'role_changed'
-  // Team actions
-  | 'team_created'
-  | 'team_updated'
-  | 'team_settings_changed';
+  | 'role_changed';
 
 /** Activity log entry */
 export interface ActivityLogEntry {
   id: string;
-  team_id?: string;
   user_id: string;
   entity_type: ActivityEntityType;
   entity_id: string;
@@ -223,7 +218,6 @@ export interface AuditEvent {
   new_values: Record<string, any> | null;
   changed_fields: string[] | null;
   // CONTEXT
-  team_id: string | null;
   ip_address: string | null;
   user_agent: string | null;
   session_id: string | null;
@@ -240,7 +234,6 @@ export interface AuditEvent {
 /** Scoring profile stored in the scoring_profiles table */
 export interface ScoringProfile {
   id: string;
-  team_id: string | null;
   name: string;
   description: string | null;
   is_default: boolean;

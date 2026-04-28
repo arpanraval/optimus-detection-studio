@@ -282,21 +282,6 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({
     const [currentReview, setCurrentReview] = useState<DetectionReview | null>(null);
     const [reviewNotes, setReviewNotes] = useState('');
     const [showReviewForm, setShowReviewForm] = useState(false);
-    const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
-
-    // Get current user role
-    useEffect(() => {
-        const fetchUserRole = async () => {
-            if (!currentUserId) return;
-            const { data } = await supabase
-                .from('profiles')
-                .select('role')
-                .eq('id', currentUserId)
-                .single();
-            if (data) setCurrentUserRole(data.role);
-        };
-        fetchUserRole();
-    }, [currentUserId]);
 
     // Fetch current review and sync detection status if stale
     useEffect(() => {
@@ -324,15 +309,9 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({
     const isReviewer = currentReview?.reviewer_id === currentUserId;
     const isRequester = currentReview?.requested_by === currentUserId;
     const isDetectionOwner = detection.user_id === currentUserId;
-    const isPersonalDetection = !detection.team_id;
 
     const canRequestReview = isDetectionOwner && (reviewStatus === 'none' || reviewStatus === 'rejected');
-    // Personal detections: owner can self-review; Team detections: lead+ and not requester
-    const canStartReview = reviewStatus === 'requested' && (
-        isPersonalDetection
-            ? isDetectionOwner
-            : (!isRequester && (currentUserRole === 'lead' || currentUserRole === 'admin' || currentUserRole === 'owner'))
-    );
+    const canStartReview = reviewStatus === 'requested' && isDetectionOwner;
     const canCompleteReview = reviewStatus === 'in_review' && isReviewer;
 
     const handleRequestReview = async () => {

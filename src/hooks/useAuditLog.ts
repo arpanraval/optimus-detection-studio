@@ -21,7 +21,6 @@ export interface AuditEventInput {
   entity_name?: string;
   old_values?: Record<string, unknown>;
   new_values?: Record<string, unknown>;
-  team_id?: string;
   details?: Record<string, unknown>;
 }
 
@@ -32,7 +31,6 @@ export interface AuditFilters {
   actions?: string[];
   startDate?: string;
   endDate?: string;
-  teamId?: string;
   search?: string;
   limit?: number;
   offset?: number;
@@ -117,9 +115,6 @@ export function useAuditLog() {
     }
     if (filters.endDate) {
       query = query.lte('created_at', filters.endDate);
-    }
-    if (filters.teamId) {
-      query = query.eq('team_id', filters.teamId);
     }
     if (filters.search) {
       const esc = escapePostgrestFilter(filters.search);

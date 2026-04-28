@@ -63,7 +63,6 @@ export const useAssignment = (options: UseAssignmentOptions = {}) => {
 
       // Log activity
       await supabase.from('activity_log').insert({
-        team_id: detection.team_id,
         user_id: user.id,
         entity_type: 'detection',
         entity_id: detection.id,
@@ -153,7 +152,6 @@ export const useAssignment = (options: UseAssignmentOptions = {}) => {
 
       // Log activity
       await supabase.from('activity_log').insert({
-        team_id: detection.team_id,
         user_id: user.id,
         entity_type: 'detection',
         entity_id: detection.id,
@@ -228,7 +226,6 @@ export const useAssignment = (options: UseAssignmentOptions = {}) => {
 
       // Log activity
       await supabase.from('activity_log').insert({
-        team_id: detection.team_id,
         user_id: user.id,
         entity_type: 'detection',
         entity_id: detection.id,

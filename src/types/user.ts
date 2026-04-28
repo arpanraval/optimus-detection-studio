@@ -43,49 +43,21 @@ export interface UserPreferences {
 }
 
 // ============================================
-// TEAM MEMBER TYPES (used for user management)
+// USER INVITATION
 // ============================================
 
-/** Team membership status */
-export type TeamMemberStatus = 'pending' | 'active' | 'deactivated';
-
 /**
- * User's membership in a team
- * Note: Role is now stored globally in profiles.role, not per-team.
- * The role field here is deprecated and kept for backward compatibility only.
+ * Pending user invitation. Created when an admin invites someone to the app;
+ * the role here becomes the user's global role (profiles.role) on acceptance.
  */
-export interface TeamMember {
+export interface UserInvitation {
   id: string;
-  team_id: string;
-  user_id: string;
-  /** @deprecated Role is now global in profiles.role. This field may be removed. */
-  role?: Role;
-  /** @deprecated Status is tracked in profiles.status. This field may be removed. */
-  status?: TeamMemberStatus;
-  invited_by?: string;
-  invited_at?: string;
-  joined_at?: string;
-  created_at: string;
-  updated_at?: string;
-  // Joined fields
-  user?: Profile;
-}
-
-/**
- * Pending user invitation
- * Note: This is for inviting NEW users to the application.
- * The role field specifies the global role the user will receive in profiles.role.
- */
-export interface TeamInvitation {
-  id: string;
-  team_id?: string;  // Optional - user may be invited without a team
   email: string;
-  role: Role;  // Global role to assign when invitation is accepted
+  role: Role;
   invited_by: string;
   token: string;
   expires_at: string;
   accepted_at?: string;
-  status?: 'pending' | 'accepted' | 'expired' | 'cancelled';
   created_at: string;
   // Joined fields
   inviter?: Profile;
@@ -102,7 +74,7 @@ export type NotificationType =
   | 'rule_updated'
   // New RBAC notification types
   | 'welcome'
-  | 'team_invite'
+  | 'invite'
   | 'role_change'
   | 'assignment'
   | 'review_request'
@@ -126,7 +98,6 @@ export interface UserNotification {
   read_at: string | null;
   created_at: string;
   // New fields
-  team_id?: string;
   action_url?: string;
   category?: string;
   source_user_id?: string;

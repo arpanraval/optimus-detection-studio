@@ -229,7 +229,6 @@ const LIBRARY_COLUMNS = [
   'tags', 'source',
   'createdDate', 'updatedDate',
   'library_type', 'promotion_status', 'external_id', 'source_rule_id',
-  'team_id',
   'assigned_to', 'assigned_by', 'assigned_at',
   'review_status', 'reviewer_id', 'review_requested_at', 'reviewed_at',
   'auditLog',
@@ -293,7 +292,7 @@ interface LibraryContextType {
   // Refresh functions
   refreshProductionLibrary: () => Promise<void>;
   refreshDevelopmentLibrary: () => Promise<void>;
-  refreshAll: () => Promise<void>;
+  refreshAll: (silent?: boolean) => Promise<void>;
 
   // Library operations
   forkToDevelopment: (detectionId: string) => Promise<string | null>;
@@ -529,8 +528,8 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     }
   }, [developmentPagination.page, developmentPagination.pageSize, sortConfig, serverFilters]);
 
-  const refreshAll = useCallback(async () => {
-    setIsLoading(true);
+  const refreshAll = useCallback(async (silent = false) => {
+    if (!silent) setIsLoading(true);
     try {
       await withTimeout(
         Promise.all([
@@ -543,7 +542,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       logger.error('Error refreshing libraries:', err);
       // Continue even if timeout - partial data is better than none
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   }, [refreshProductionLibrary, refreshDevelopmentLibrary]);
 

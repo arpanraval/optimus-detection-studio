@@ -41,12 +41,11 @@ async function getUserClient(req: Request) {
 }
 
 interface RequestBody {
-  action: 'list' | 'create' | 'delete' | 'invite' | 'changeRole' | 'deactivate' | 'reactivate' | 'setPassword' | 'addToTeam' | 'removeFromTeam';
+  action: 'list' | 'create' | 'delete' | 'invite' | 'changeRole' | 'deactivate' | 'reactivate' | 'setPassword';
   email?: string;
   password?: string;
   userId?: string;
   role?: string;
-  teamId?: string;
 }
 
 Deno.serve(async (req: Request) => {
@@ -96,12 +95,12 @@ Deno.serve(async (req: Request) => {
       return currentUserRoleLevel >= (ROLE_HIERARCHY[requiredRole] || 0);
     };
 
-    // Extract client IP once — use last value in XFF chain (closest trusted proxy)
+    // Extract client IP once - use last value in XFF chain (closest trusted proxy)
     const xffHeader = req.headers.get('x-forwarded-for');
     const clientIp = xffHeader ? xffHeader.split(',').pop()?.trim() || null : null;
 
     const body: RequestBody = await req.json();
-    const { action, email, password, userId, role, teamId } = body;
+    const { action, email, password, userId, role } = body;
 
     switch (action) {
       // ==========================================
@@ -216,7 +215,7 @@ Deno.serve(async (req: Request) => {
         const existingUser = existingUsers?.users?.find(u => u.email === email);
         
         if (existingUser) {
-          // Check existing user's role — cannot demote equal or higher role
+          // Check existing user's role - cannot demote equal or higher role
           const { data: existingProfile } = await supabaseAdmin
             .from('profiles')
             .select('role')
@@ -227,32 +226,12 @@ Deno.serve(async (req: Request) => {
             throw new Error('Cannot modify users with same or higher role.');
           }
 
-          // User exists - update their role if needed and optionally add to team
+          // User exists - update their role
           await supabaseAdmin
             .from('profiles')
             .update({ role, updated_at: new Date().toISOString() })
             .eq('id', existingUser.id);
-          
-          // If teamId provided, add to team
-          if (teamId) {
-            const { data: existingMember } = await supabaseAdmin
-              .from('team_members')
-              .select('id')
-              .eq('team_id', teamId)
-              .eq('user_id', existingUser.id)
-              .single();
-            
-            if (!existingMember) {
-              await supabaseAdmin
-                .from('team_members')
-                .insert({
-                  team_id: teamId,
-                  user_id: existingUser.id,
-                  joined_at: new Date().toISOString(),
-                });
-            }
-          }
-          
+
           try {
             await supabaseAdmin.from('audit_events').insert({
               user_id: user.id,
@@ -265,7 +244,7 @@ Deno.serve(async (req: Request) => {
               ip_address: clientIp,
               user_agent: req.headers.get('user-agent') || null,
               source: 'edge_function',
-              details: { email, role, existing_user: true, team_id: teamId || null },
+              details: { email, role, existing_user: true },
             });
           } catch (auditErr) {
             console.error('Audit log error:', auditErr);
@@ -279,47 +258,44 @@ Deno.serve(async (req: Request) => {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
-        
+
         // Create invitation record
         const { data: invitation, error: inviteRecordError } = await supabaseAdmin
-          .from('team_invitations')
+          .from('user_invitations')
           .insert({
-            team_id: teamId || null,
             email,
             role,  // This is the GLOBAL role the user will get
             invited_by: user.id,
           })
           .select()
           .single();
-        
+
         if (inviteRecordError) throw inviteRecordError;
-        
+
         // Send Supabase auth invitation
         const siteUrl = Deno.env.get('SITE_URL') || 'http://localhost:5173';
-        
+
         const { error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
           redirectTo: `${siteUrl}/auth/callback`,
           data: {
             role,  // Pass role in metadata for profile creation trigger
-            team_id: teamId,
           }
         });
-        
+
         if (inviteError) {
           // Cleanup invitation record
           await supabaseAdmin
-            .from('team_invitations')
+            .from('user_invitations')
             .delete()
             .eq('id', invitation.id);
-          
+
           throw inviteError;
         }
-        
+
         // Log activity
         await supabaseAdmin
           .from('activity_log')
           .insert({
-            team_id: teamId || null,
             user_id: user.id,
             entity_type: 'user',
             entity_id: email,
@@ -339,7 +315,7 @@ Deno.serve(async (req: Request) => {
             ip_address: clientIp,
             user_agent: req.headers.get('user-agent') || null,
             source: 'edge_function',
-            details: { email, role, team_id: teamId || null, invitation_id: invitation.id },
+            details: { email, role, invitation_id: invitation.id },
           });
         } catch (auditErr) {
           console.error('Audit log error:', auditErr);
@@ -754,82 +730,6 @@ Deno.serve(async (req: Request) => {
         });
       }
 
-      // ==========================================
-      // ADD USER TO TEAM (Lead+ only) - Just membership, no role
-      // ==========================================
-      case 'addToTeam': {
-        if (!userId) throw new Error('User ID is required.');
-        if (!teamId) throw new Error('Team ID is required.');
-        
-        if (!hasRoleLevel('lead')) {
-          return new Response(JSON.stringify({ error: 'Lead or higher access required.' }), {
-            status: 403,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-        
-        // Check if already a member
-        const { data: existingMember } = await supabaseAdmin
-          .from('team_members')
-          .select('id')
-          .eq('team_id', teamId)
-          .eq('user_id', userId)
-          .single();
-        
-        if (existingMember) {
-          throw new Error('User is already a member of this team.');
-        }
-        
-        // Add to team
-        const { error: insertError } = await supabaseAdmin
-          .from('team_members')
-          .insert({
-            team_id: teamId,
-            user_id: userId,
-            joined_at: new Date().toISOString(),
-          });
-        
-        if (insertError) throw insertError;
-        
-        return new Response(JSON.stringify({ 
-          success: true, 
-          message: 'User added to team.' 
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      // ==========================================
-      // REMOVE USER FROM TEAM (Lead+ only)
-      // ==========================================
-      case 'removeFromTeam': {
-        if (!userId) throw new Error('User ID is required.');
-        if (!teamId) throw new Error('Team ID is required.');
-        
-        if (!hasRoleLevel('lead')) {
-          return new Response(JSON.stringify({ error: 'Lead or higher access required.' }), {
-            status: 403,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-        
-        // Remove from team
-        const { error: deleteError } = await supabaseAdmin
-          .from('team_members')
-          .delete()
-          .eq('team_id', teamId)
-          .eq('user_id', userId);
-        
-        if (deleteError) throw deleteError;
-        
-        return new Response(JSON.stringify({ 
-          success: true, 
-          message: 'User removed from team.' 
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      
       default:
         throw new Error(`Invalid action: ${action}`);
     }

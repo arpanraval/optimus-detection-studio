@@ -3,7 +3,6 @@
 export interface AnalysisReport {
   id: string;
   user_id: string;
-  team_id: string | null;
   report_type: 'playbook' | 'cve_response' | 'threat_digest_coverage' | 'manual';
   playbook_id: string | null;
   title: string;

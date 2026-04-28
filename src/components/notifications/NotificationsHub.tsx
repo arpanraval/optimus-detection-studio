@@ -35,7 +35,7 @@ const NOTIFICATION_STYLES: Record<string, { icon: string; color: string; bg: str
   status_change:          { icon: 'arrow-right',   color: 'text-primary',   bg: 'bg-primary/10' },
   welcome:                { icon: 'star',          color: 'text-primary',   bg: 'bg-primary/10' },
   role_change:            { icon: 'shield',        color: 'text-tertiary',  bg: 'bg-tertiary/10' },
-  team_invite:            { icon: 'users',         color: 'text-secondary', bg: 'bg-secondary/10' },
+  invite:                 { icon: 'users',         color: 'text-secondary', bg: 'bg-secondary/10' },
 };
 
 const getStyle = (type: string) => NOTIFICATION_STYLES[type] || { icon: 'bell', color: 'text-on-surface-variant', bg: 'bg-surface-container-highest' };
@@ -52,7 +52,7 @@ export const NotificationsHub: React.FC<NotificationsHubProps> = ({ onNavigateTo
       case 'unread': return notifications.filter(n => !n.is_read);
       case 'approvals': return notifications.filter(n => ['publish_approved', 'publish_rejected', 'publish_approved_as_new', 'publish_submitted'].includes(n.type));
       case 'reviews': return notifications.filter(n => ['review_request', 'review_complete'].includes(n.type));
-      case 'activity': return notifications.filter(n => ['assignment', 'status_change', 'welcome', 'role_change', 'team_invite'].includes(n.type));
+      case 'activity': return notifications.filter(n => ['assignment', 'status_change', 'welcome', 'role_change', 'invite'].includes(n.type));
       default: return notifications;
     }
   }, [notifications, filter]);
