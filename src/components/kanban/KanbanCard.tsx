@@ -91,7 +91,7 @@ const QualityCircle: React.FC<{ score: number }> = ({ score }) => {
   );
 };
 
-export const KanbanCard: React.FC<KanbanCardProps> = ({
+export const KanbanCard: React.FC<KanbanCardProps> = React.memo(({
   detection,
   isSelected = false,
   onToggleSelect,
@@ -105,7 +105,7 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
   const navigate = useNavigate();
   const { userId, refreshAll } = useLibrary();
   const { can } = usePermissions();
-  const { assignDetection } = useAssignment({ onAssignmentChange: () => refreshAll() });
+  const { assignDetection } = useAssignment({ onAssignmentChange: () => refreshAll(true) });
   const [assigning, setAssigning] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(detection.name);
@@ -435,4 +435,4 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
       </div>
     </div>
   );
-};
+});
