@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
 import { Select } from '../ui/Select';
+import { Toggle } from '../ui/Toggle';
 import { ModelSelector } from '../ModelSelector';
 import { useAutoDigestSettings, CuratedFeedSource } from '../../hooks/useAutoDigestSettings';
 import { FeedActivityLog } from '../threatintel/FeedActivityLog';
@@ -106,11 +107,11 @@ const SourceRow: React.FC<{
         <span className="text-[11px] text-on-surface-variant/40 tabular-nums">~{source.avg_articles_week}/wk</span>
       </td>
       <td className="py-3 pr-5 w-16 text-center">
-        <div className={`relative inline-block w-10 h-[22px] rounded-full transition-colors ${
+        <div className={`relative inline-block w-10 h-[22px] rounded-full transition-colors text-left align-middle ${
           isEnabled ? 'bg-primary' : 'bg-outline-variant'
         }`} role="switch" aria-checked={isEnabled}>
-          <span className={`absolute top-[3px] w-4 h-4 rounded-full bg-on-primary shadow transition-transform ${
-            isEnabled ? 'translate-x-[20px]' : 'translate-x-[3px]'
+          <span className={`absolute top-[3px] left-[3px] w-4 h-4 rounded-full bg-white shadow transition-transform ${
+            isEnabled ? 'translate-x-[18px]' : 'translate-x-0'
           }`} />
         </div>
       </td>
@@ -316,18 +317,12 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-on-surface-variant">{localConfig.is_enabled ? 'Active' : 'Paused'}</span>
-          <button
-            onClick={() => updateConfig('is_enabled', !localConfig.is_enabled)}
-            className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
-              localConfig.is_enabled ? 'bg-primary' : 'bg-outline-variant'
-            }`}
-            role="switch"
-            aria-checked={localConfig.is_enabled}
-          >
-            <span className={`inline-block h-5 w-5 transform rounded-full bg-on-primary shadow-md transition-transform ${
-              localConfig.is_enabled ? 'translate-x-[22px]' : 'translate-x-[3px]'
-            }`} />
-          </button>
+          <Toggle
+            size="md"
+            checked={localConfig.is_enabled}
+            onChange={() => updateConfig('is_enabled', !localConfig.is_enabled)}
+            aria-label={localConfig.is_enabled ? 'Pause auto-digest pipeline' : 'Activate auto-digest pipeline'}
+          />
         </div>
       </div>
 
