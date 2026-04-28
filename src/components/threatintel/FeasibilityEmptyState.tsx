@@ -6,12 +6,6 @@ import { useEnvironmentProfile } from '../../hooks/useEnvironmentProfile';
 
 interface FeasibilityEmptyStateProps {
   uncoveredCount: number;
-  /**
-   * Optional userId. The current `useEnvironmentProfile` hook resolves the
-   * authenticated user internally via Supabase, so this prop is accepted for
-   * forward-compat with callers (e.g. T3) but not forwarded to the hook.
-   */
-  userId?: string;
 }
 
 export const FeasibilityEmptyState: React.FC<FeasibilityEmptyStateProps> = ({ uncoveredCount }) => {
