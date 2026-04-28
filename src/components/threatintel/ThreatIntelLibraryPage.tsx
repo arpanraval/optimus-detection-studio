@@ -541,7 +541,8 @@ const StatTile: React.FC<{
   valueClassName?: string;
   onClick?: () => void;
   title?: string;
-}> = ({ value, label, valueClassName = 'text-on-surface', onClick, title }) => {
+  pressed?: boolean;
+}> = ({ value, label, valueClassName = 'text-on-surface', onClick, title, pressed }) => {
   if (!onClick) {
     return (
       <div className="flex items-center gap-2">
@@ -552,8 +553,10 @@ const StatTile: React.FC<{
   }
   return (
     <button
+      type="button"
       onClick={onClick}
       title={title}
+      aria-pressed={pressed}
       className="flex items-center gap-2 rounded-lg px-2 -mx-2 py-1 hover:bg-surface-container-high focus:bg-surface-container-high focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors"
     >
       <span className={`text-3xl font-mono font-bold ${valueClassName}`}>{value}</span>
@@ -877,6 +880,7 @@ export const ThreatIntelLibraryPage: React.FC = () => {
                   setFilters(prev => ({ ...prev, threatLevel: ['Critical'] }));
                 }}
                 title="Filter to Critical reports"
+                pressed={filters.threatLevel?.includes('Critical') ?? false}
               />
               <StatTile
                 value={stats.high}
@@ -887,6 +891,7 @@ export const ThreatIntelLibraryPage: React.FC = () => {
                   setFilters(prev => ({ ...prev, threatLevel: ['High'] }));
                 }}
                 title="Filter to High reports"
+                pressed={filters.threatLevel?.includes('High') ?? false}
               />
               <div className="w-px h-8 bg-outline-variant/30" />
               <StatTile
@@ -911,6 +916,7 @@ export const ThreatIntelLibraryPage: React.FC = () => {
                   setFilters(prev => ({ ...prev, coverageRange: ['Low (0-39%)'] }));
                 }}
                 title="Filter to Low-coverage reports (<40%)"
+                pressed={filters.coverageRange?.includes('Low (0-39%)') ?? false}
               />
             </div>
           )}
