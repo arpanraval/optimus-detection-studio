@@ -34,6 +34,7 @@ export const MODEL_PRICING: Record<string, ModelRate> = {
   'claude-haiku-4-5':               { provider: 'anthropic', inputPerMtoken: 0.80,  outputPerMtoken: 4.00,  cachedInputPerMtoken: 0.08 },
   // Embeddings (Google)
   'text-embedding-004':             { provider: 'google',    inputPerMtoken: 0.025, outputPerMtoken: 0 },
+  'gemini-embedding-001':           { provider: 'google',    inputPerMtoken: 0.025, outputPerMtoken: 0 },
 };
 
 /**

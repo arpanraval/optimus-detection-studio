@@ -2,6 +2,8 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import { getCorsHeaders, handleCorsPreflight, corsErrorResponse } from '../_shared/cors.ts'
 import { checkRateLimit } from '../_shared/rate-limiter.ts'
+import { withAiTelemetry } from '../_shared/aiTelemetry.ts'
+import { parseGeminiEmbeddingUsage } from '../_shared/aiUsageParsers.ts'
 
 // =============================================================================
 // CONFIGURATION
@@ -21,6 +23,7 @@ interface EmbeddingRequest {
   ids?: string[]
   text?: string
   forceRegenerate?: boolean
+  feature?: string
 }
 
 interface Detection {
@@ -106,42 +109,62 @@ function buildMitreEmbeddingText(obj: MitreObject): string {
 // GEMINI EMBEDDING API
 // =============================================================================
 
-async function generateEmbedding(text: string): Promise<number[]> {
+async function generateEmbedding(
+  text: string,
+  ctx: { userId: string | null; feature: string }
+): Promise<number[]> {
   const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY')
 
   if (!GEMINI_API_KEY) {
     throw new Error('GEMINI_API_KEY not configured')
   }
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:embedContent`,
+  return withAiTelemetry(
     {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': GEMINI_API_KEY!,
-      },
-      body: JSON.stringify({
-        model: `models/${EMBEDDING_MODEL}`,
-        content: {
-          parts: [{ text }]
-        },
-        taskType: 'RETRIEVAL_DOCUMENT',
-        outputDimensionality: EMBEDDING_DIMENSIONS
-      })
+      userId: ctx.userId,
+      feature: ctx.feature,
+      model: EMBEDDING_MODEL,
+      provider: 'google',
+      category: 'embedding',
+    },
+    async () => {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:embedContent`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': GEMINI_API_KEY!,
+          },
+          body: JSON.stringify({
+            model: `models/${EMBEDDING_MODEL}`,
+            content: {
+              parts: [{ text }]
+            },
+            taskType: 'RETRIEVAL_DOCUMENT',
+            outputDimensionality: EMBEDDING_DIMENSIONS
+          })
+        }
+      )
+
+      if (!response.ok) {
+        const error = await response.text()
+        throw new Error(`Gemini API error: ${error}`)
+      }
+
+      const data = await response.json()
+      return {
+        result: data.embedding.values as number[],
+        usage: parseGeminiEmbeddingUsage(data),
+      }
     }
   )
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Gemini API error: ${error}`)
-  }
-
-  const data = await response.json()
-  return data.embedding.values
 }
 
-async function generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
+async function generateBatchEmbeddings(
+  texts: string[],
+  ctx: { userId: string | null; feature: string }
+): Promise<number[][]> {
   const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY')
 
   if (!GEMINI_API_KEY) {
@@ -158,26 +181,40 @@ async function generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
     outputDimensionality: EMBEDDING_DIMENSIONS
   }))
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:batchEmbedContents`,
+  return withAiTelemetry(
     {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': GEMINI_API_KEY!,
-      },
-      body: JSON.stringify({ requests })
+      userId: ctx.userId,
+      feature: ctx.feature,
+      model: EMBEDDING_MODEL,
+      provider: 'google',
+      category: 'embedding',
+    },
+    async () => {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:batchEmbedContents`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': GEMINI_API_KEY!,
+          },
+          body: JSON.stringify({ requests })
+        }
+      )
+
+      if (!response.ok) {
+        const error = await response.text()
+        throw new Error(`Gemini API error: ${error}`)
+      }
+
+      const data = await response.json()
+      // batchEmbedContents returns { embeddings: [{ values: number[] }, ...] }
+      return {
+        result: (data.embeddings as Array<{ values: number[] }>).map(e => e.values),
+        usage: parseGeminiEmbeddingUsage(data),
+      }
     }
   )
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Gemini API error: ${error}`)
-  }
-
-  const data = await response.json()
-  // batchEmbedContents returns { embeddings: [{ values: number[] }, ...] }
-  return data.embeddings.map((e: { values: number[] }) => e.values)
 }
 
 // =============================================================================
@@ -187,7 +224,8 @@ async function generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
 async function handleSingleDetection(
   supabase: any,
   id: string,
-  forceRegenerate: boolean
+  forceRegenerate: boolean,
+  ctx: { userId: string | null; feature: string }
 ): Promise<{ status: string; id: string }> {
   // Fetch detection
   const { data: detection, error } = await supabase
@@ -218,7 +256,7 @@ async function handleSingleDetection(
   }
 
   // Generate embedding
-  const embedding = await generateEmbedding(embeddingText)
+  const embedding = await generateEmbedding(embeddingText, ctx)
 
   // Upsert embedding
   const { error: upsertError } = await supabase
@@ -242,7 +280,8 @@ async function handleSingleDetection(
 async function handleBatchDetections(
   supabase: any,
   ids: string[],
-  forceRegenerate: boolean
+  forceRegenerate: boolean,
+  ctx: { userId: string | null; feature: string }
 ): Promise<{ processed: number; generated: number; unchanged: number; errors: number; errorDetails?: string[] }> {
   const results: { processed: number; generated: number; unchanged: number; errors: number; errorDetails: string[] } =
     { processed: 0, generated: 0, unchanged: 0, errors: 0, errorDetails: [] }
@@ -295,7 +334,7 @@ async function handleBatchDetections(
     const texts = batch.map(b => b.text)
 
     try {
-      const embeddings = await generateBatchEmbeddings(texts)
+      const embeddings = await generateBatchEmbeddings(texts, ctx)
 
       // Prepare upsert data — convert embedding to pgvector string format
       // to avoid JSON-to-vector casting issues in PostgREST
@@ -351,7 +390,8 @@ async function handleBatchDetections(
 async function handleSingleMitre(
   supabase: any,
   stixId: string,
-  forceRegenerate: boolean
+  forceRegenerate: boolean,
+  ctx: { userId: string | null; feature: string }
 ): Promise<{ status: string; id: string }> {
   // Fetch MITRE object
   const { data: mitreObj, error } = await supabase
@@ -382,7 +422,7 @@ async function handleSingleMitre(
   }
 
   // Generate embedding
-  const embedding = await generateEmbedding(embeddingText)
+  const embedding = await generateEmbedding(embeddingText, ctx)
 
   // Upsert embedding
   const { error: upsertError } = await supabase
@@ -407,7 +447,8 @@ async function handleSingleMitre(
 async function handleBatchMitre(
   supabase: any,
   stixIds: string[],
-  forceRegenerate: boolean
+  forceRegenerate: boolean,
+  ctx: { userId: string | null; feature: string }
 ): Promise<{ processed: number; generated: number; unchanged: number; errors: number }> {
   const results = { processed: 0, generated: 0, unchanged: 0, errors: 0 }
 
@@ -457,7 +498,7 @@ async function handleBatchMitre(
     const texts = batch.map(b => b.text)
 
     try {
-      const embeddings = await generateBatchEmbeddings(texts)
+      const embeddings = await generateBatchEmbeddings(texts, ctx)
 
       const upsertData = batch.map((item, idx) => ({
         stix_id: item.obj.stix_id,
@@ -540,6 +581,9 @@ serve(async (req: Request) => {
     const body: EmbeddingRequest = await req.json()
     const { type, id, ids, text, forceRegenerate = false } = body
 
+    // Telemetry context — passed through to every embedding call
+    const ctx = { userId: user.id, feature: body.feature || 'embedding-detection' }
+
     // Validate batch size and UUID format
     const MAX_BATCH_SIZE = 100
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -562,7 +606,7 @@ serve(async (req: Request) => {
         }
         {
           const queryText = safeSlice(text.trim(), MAX_INPUT_LENGTH)
-          const embedding = await generateEmbedding(queryText)
+          const embedding = await generateEmbedding(queryText, ctx)
           result = { embedding }
         }
         break
@@ -574,7 +618,7 @@ serve(async (req: Request) => {
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           )
         }
-        result = await handleSingleDetection(supabase, id, forceRegenerate)
+        result = await handleSingleDetection(supabase, id, forceRegenerate, ctx)
         break
 
       case 'batch_detections':
@@ -584,7 +628,7 @@ serve(async (req: Request) => {
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           )
         }
-        result = await handleBatchDetections(supabase, ids, forceRegenerate)
+        result = await handleBatchDetections(supabase, ids, forceRegenerate, ctx)
         break
 
       case 'mitre':
@@ -594,7 +638,7 @@ serve(async (req: Request) => {
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           )
         }
-        result = await handleSingleMitre(supabase, id, forceRegenerate)
+        result = await handleSingleMitre(supabase, id, forceRegenerate, ctx)
         break
 
       case 'batch_mitre':
@@ -604,7 +648,7 @@ serve(async (req: Request) => {
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           )
         }
-        result = await handleBatchMitre(supabase, ids, forceRegenerate)
+        result = await handleBatchMitre(supabase, ids, forceRegenerate, ctx)
         break
 
       default:
