@@ -489,7 +489,9 @@ const TTPCard: React.FC<{
   onCancelEdit?: () => void;
   onEditChange?: (v: string) => void;
   onRemove?: (id: string) => void;
-}> = ({ ttp, isEditing, editValue, onCreateDetection, onCopy, onStartEdit, onSaveEdit, onCancelEdit, onEditChange, onRemove }) => {
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
+}> = ({ ttp, isEditing, editValue, onCreateDetection, onCopy, onStartEdit, onSaveEdit, onCancelEdit, onEditChange, onRemove, isSelected, onToggleSelect }) => {
   const isCovered = ttp.hasExistingDetection;
   const coverageStyle = isCovered ? coveredColor : gapColor;
   const metaBadge = ttpMetaBadgeColors.sub; // Neutral for all meta badges
@@ -499,6 +501,16 @@ const TTPCard: React.FC<{
       {/* Header row: badges + inline actions */}
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center gap-2 flex-wrap flex-1">
+          {/* Bulk-select checkbox — only for uncovered TTPs (covered ones don't need detections) */}
+          {onToggleSelect && !isCovered && (
+            <input
+              type="checkbox"
+              checked={!!isSelected}
+              onChange={onToggleSelect}
+              className="w-4 h-4 rounded cursor-pointer"
+              aria-label={`Select ${ttp.techniqueName}`}
+            />
+          )}
           {/* MITRE ID - Uses coverage color (green if covered, neutral if gap) */}
           <span className={`${badgeSizes.sm} font-mono font-bold inline-flex items-center ${coverageStyle.bg} ${coverageStyle.text} border ${coverageStyle.border}`}>
             {ttp.mitreId}
@@ -602,7 +614,9 @@ const TTPTacticList: React.FC<{
   onCancelEdit?: () => void;
   onEditChange?: (v: string) => void;
   onRemove?: (id: string) => void;
-}> = ({ ttps, search, editingId, editingValue, onCreateDetection, onCopy, onStartEdit, onSaveEdit, onCancelEdit, onEditChange, onRemove }) => {
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
+}> = ({ ttps, search, editingId, editingValue, onCreateDetection, onCopy, onStartEdit, onSaveEdit, onCancelEdit, onEditChange, onRemove, selectedIds, onToggleSelect }) => {
   const [expandedTactics, setExpandedTactics] = useState<Set<string>>(new Set());
 
   // Group by tactic
@@ -736,6 +750,8 @@ const TTPTacticList: React.FC<{
                     onCancelEdit={onCancelEdit}
                     onEditChange={onEditChange}
                     onRemove={onRemove}
+                    isSelected={selectedIds?.has(ttp.id) ?? false}
+                    onToggleSelect={onToggleSelect ? () => onToggleSelect(ttp.id) : undefined}
                   />
                 ))}
               </div>
@@ -997,6 +1013,18 @@ export const ThreatIntelReportPage: React.FC = () => {
   const [editingTTPValue, setEditingTTPValue] = useState('');
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [editingRuleValue, setEditingRuleValue] = useState('');
+
+  // Bulk-select state for TTPs (used by "Create N Drafts" action)
+  const [selectedTTPIds, setSelectedTTPIds] = useState<Set<string>>(new Set());
+  const toggleTTPSelection = useCallback((id: string) => {
+    setSelectedTTPIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  const clearTTPSelection = useCallback(() => setSelectedTTPIds(new Set()), []);
 
   useEffect(() => {
     const loadReport = async () => {
@@ -2247,6 +2275,8 @@ export const ThreatIntelReportPage: React.FC = () => {
                     onCancelEdit={handleCancelEditTTP}
                     onEditChange={setEditingTTPValue}
                     onRemove={handleRemoveTTP}
+                    selectedIds={selectedTTPIds}
+                    onToggleSelect={toggleTTPSelection}
                   />
                 </>
               )}
