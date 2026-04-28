@@ -535,6 +535,33 @@ const ReportCard: React.FC<ReportCardProps> = ({ report, to, onClick, onDelete }
   );
 };
 
+const StatTile: React.FC<{
+  value: string | number;
+  label: string;
+  valueClassName?: string;
+  onClick?: () => void;
+  title?: string;
+}> = ({ value, label, valueClassName = 'text-on-surface', onClick, title }) => {
+  if (!onClick) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className={`text-3xl font-mono font-bold ${valueClassName}`}>{value}</span>
+        <span className="text-xs text-on-surface-variant uppercase tracking-widest font-bold">{label}</span>
+      </div>
+    );
+  }
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className="flex items-center gap-2 rounded-lg px-2 -mx-2 py-1 hover:bg-surface-container-high focus:bg-surface-container-high focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors"
+    >
+      <span className={`text-3xl font-mono font-bold ${valueClassName}`}>{value}</span>
+      <span className="text-xs text-on-surface-variant uppercase tracking-widest font-bold">{label}</span>
+    </button>
+  );
+};
+
 // =============================================================================
 // MAIN COMPONENT
 // =============================================================================
@@ -836,35 +863,55 @@ export const ThreatIntelLibraryPage: React.FC = () => {
           {/* Stats Bar */}
           {reports.length > 0 && (
             <div className="flex items-center gap-8 mb-6">
-              <div className="flex items-center gap-2">
-                <span className="text-3xl font-mono font-bold text-on-surface">{stats.total}</span>
-                <span className="text-xs text-on-surface-variant uppercase tracking-widest font-bold">Reports</span>
-              </div>
+              <StatTile
+                value={stats.total}
+                label="Reports"
+              />
               <div className="w-px h-8 bg-outline-variant/30" />
-              <div className="flex items-center gap-2">
-                <span className="text-3xl font-mono font-bold text-red-400">{stats.critical}</span>
-                <span className="text-xs text-on-surface-variant uppercase tracking-widest font-bold">Critical</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-3xl font-mono font-bold text-orange-400">{stats.high}</span>
-                <span className="text-xs text-on-surface-variant uppercase tracking-widest font-bold">High</span>
-              </div>
+              <StatTile
+                value={stats.critical}
+                label="Critical"
+                valueClassName="text-red-400"
+                onClick={() => {
+                  setVisibleFilters(prev => prev.includes('threatLevel') ? prev : [...prev, 'threatLevel']);
+                  setFilters(prev => ({ ...prev, threatLevel: ['Critical'] }));
+                }}
+                title="Filter to Critical reports"
+              />
+              <StatTile
+                value={stats.high}
+                label="High"
+                valueClassName="text-orange-400"
+                onClick={() => {
+                  setVisibleFilters(prev => prev.includes('threatLevel') ? prev : [...prev, 'threatLevel']);
+                  setFilters(prev => ({ ...prev, threatLevel: ['High'] }));
+                }}
+                title="Filter to High reports"
+              />
               <div className="w-px h-8 bg-outline-variant/30" />
-              <div className="flex items-center gap-2">
-                <span className="text-3xl font-mono font-bold text-tertiary">{stats.totalTTPs}</span>
-                <span className="text-xs text-on-surface-variant uppercase tracking-widest font-bold">TTPs</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-3xl font-mono font-bold text-secondary">{stats.totalIoCs}</span>
-                <span className="text-xs text-on-surface-variant uppercase tracking-widest font-bold">IoCs</span>
-              </div>
+              <StatTile
+                value={stats.totalTTPs}
+                label="TTPs"
+                valueClassName="text-tertiary"
+              />
+              <StatTile
+                value={stats.totalIoCs}
+                label="IoCs"
+                valueClassName="text-secondary"
+              />
               <div className="w-px h-8 bg-outline-variant/30" />
-              <div className="flex items-center gap-2">
-                <span className={`text-3xl font-mono font-bold ${
+              <StatTile
+                value={`${stats.avgCoverage}%`}
+                label="Avg Coverage"
+                valueClassName={
                   stats.avgCoverage >= 70 ? 'text-green-400' : stats.avgCoverage >= 40 ? 'text-amber-400' : 'text-red-400'
-                }`}>{stats.avgCoverage}%</span>
-                <span className="text-xs text-on-surface-variant uppercase tracking-widest font-bold">Avg Coverage</span>
-              </div>
+                }
+                onClick={() => {
+                  setVisibleFilters(prev => prev.includes('coverageRange') ? prev : [...prev, 'coverageRange']);
+                  setFilters(prev => ({ ...prev, coverageRange: ['Low (0-39%)'] }));
+                }}
+                title="Filter to Low-coverage reports (<40%)"
+              />
             </div>
           )}
 
