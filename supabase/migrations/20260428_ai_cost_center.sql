@@ -1,13 +1,22 @@
 -- 20260428_ai_cost_center.sql
 -- GenAI Cost Center: usage events, daily rollup, budgets, overrides, RPCs, RLS, cron.
 
+-- ----------------------------------------------------------------------------
+-- System sentinel UUID: '00000000-0000-0000-0000-000000000000'
+--   ai_usage_events.user_id is NULL for system/cron AI calls (no end user).
+--   ai_usage_daily.user_id is part of the PK, so it cannot be NULL. We map
+--   NULL user_ids to this sentinel during rollup so system rows aggregate
+--   together. Application code reading ai_usage_daily must treat this
+--   sentinel as "system" when displaying.
+-- ----------------------------------------------------------------------------
+
 -- ============================================================================
 -- ai_usage_events: raw per-call telemetry, retained 90 days
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS ai_usage_events (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at            timestamptz NOT NULL DEFAULT now(),
-  user_id               uuid REFERENCES profiles(id),
+  user_id               uuid REFERENCES profiles(id) ON DELETE SET NULL,
   feature               text NOT NULL,
   model                 text NOT NULL,
   provider              text NOT NULL,
@@ -54,6 +63,9 @@ CREATE TABLE IF NOT EXISTS ai_usage_daily (
   PRIMARY KEY (day, user_id, feature, model, category)
 );
 
+CREATE INDEX IF NOT EXISTS ai_usage_daily_user_day_idx
+  ON ai_usage_daily (user_id, day DESC);
+
 -- ============================================================================
 -- ai_budgets: configured spending limits
 -- ============================================================================
@@ -66,7 +78,7 @@ CREATE TABLE IF NOT EXISTS ai_budgets (
   enabled      boolean NOT NULL DEFAULT true,
   created_at   timestamptz NOT NULL DEFAULT now(),
   updated_at   timestamptz NOT NULL DEFAULT now(),
-  created_by   uuid REFERENCES profiles(id),
+  created_by   uuid REFERENCES profiles(id) ON DELETE SET NULL,
   CHECK (
     (scope = 'org'  AND scope_value IS NULL) OR
     (scope IN ('feature','user','model') AND scope_value IS NOT NULL)
@@ -84,7 +96,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ai_budgets_scoped_unique
 CREATE TABLE IF NOT EXISTS ai_budget_overrides (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   budget_id    uuid NOT NULL REFERENCES ai_budgets(id) ON DELETE CASCADE,
-  granted_by   uuid NOT NULL REFERENCES profiles(id),
+  granted_by   uuid REFERENCES profiles(id) ON DELETE SET NULL,
   granted_at   timestamptz NOT NULL DEFAULT now(),
   expires_at   timestamptz NOT NULL,
   reason       text
@@ -105,10 +117,12 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_window_start timestamptz;
-  v_today        date := (now() AT TIME ZONE 'UTC')::date;
-  v_total        numeric := 0;
+  v_window_start    timestamptz;
+  v_today           date := (now() AT TIME ZONE 'UTC')::date;
+  v_rollup_cutoff   date;
+  v_total           numeric := 0;
 BEGIN
+  -- Resolve window start
   IF p_period = 'daily' THEN
     v_window_start := v_today::timestamptz;
   ELSIF p_period = 'monthly' THEN
@@ -119,10 +133,22 @@ BEGIN
     RAISE EXCEPTION 'invalid period: %', p_period;
   END IF;
 
+  -- Authorization: non-admins may only query their own user-scoped spend.
+  IF NOT EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('owner','admin')) THEN
+    IF p_scope <> 'user' OR p_scope_value IS NULL OR p_scope_value::uuid <> auth.uid() THEN
+      RAISE EXCEPTION 'forbidden: requires owner/admin role for non-self spend queries';
+    END IF;
+  END IF;
+
+  -- Rollup high-water: max day already aggregated. Default v_today (means "no rollup yet").
+  SELECT COALESCE(MAX(day) + 1, v_today) INTO v_rollup_cutoff
+  FROM ai_usage_daily;
+
+  -- Sum from rollup (already-aggregated full days within window)
   SELECT COALESCE(SUM(cost_usd), 0) INTO v_total
   FROM ai_usage_daily
   WHERE day >= v_window_start::date
-    AND day <  v_today
+    AND day <  v_rollup_cutoff
     AND (
       p_scope = 'org' OR
       (p_scope = 'feature' AND feature = p_scope_value) OR
@@ -130,10 +156,11 @@ BEGIN
       (p_scope = 'model'   AND model = p_scope_value)
     );
 
+  -- Sum raw events for everything not yet rolled up (clamped to window start)
   v_total := v_total + COALESCE((
     SELECT SUM(cost_usd)
     FROM ai_usage_events
-    WHERE created_at >= GREATEST(v_window_start, v_today::timestamptz)
+    WHERE created_at >= GREATEST(v_window_start, v_rollup_cutoff::timestamptz)
       AND (
         p_scope = 'org' OR
         (p_scope = 'feature' AND feature = p_scope_value) OR
@@ -145,6 +172,9 @@ BEGIN
   RETURN v_total;
 END;
 $$;
+
+REVOKE EXECUTE ON FUNCTION get_current_spend(text, text, text) FROM PUBLIC;
+GRANT  EXECUTE ON FUNCTION get_current_spend(text, text, text) TO authenticated;
 
 -- ============================================================================
 -- rollup_ai_usage RPC: nightly rollup + 90d prune
@@ -162,7 +192,8 @@ BEGIN
   )
   SELECT
     (created_at AT TIME ZONE 'UTC')::date,
-    user_id, feature, model, category,
+    COALESCE(user_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    feature, model, category,
     COUNT(*),
     SUM(input_tokens), SUM(output_tokens), SUM(cached_input_tokens),
     SUM(image_count), SUM(cost_usd),
@@ -189,6 +220,13 @@ $$;
 -- ============================================================================
 -- RLS
 -- ============================================================================
+-- ----------------------------------------------------------------------------
+-- Telemetry write contract: ai_usage_events and ai_usage_daily are written
+-- exclusively by edge functions using the SUPABASE_SERVICE_ROLE_KEY. No
+-- INSERT/UPDATE/DELETE policies are defined here by design — any client-side
+-- write attempt is silently denied by RLS. If a future refactor moves writes
+-- to the authenticated user role, add explicit policies here.
+-- ----------------------------------------------------------------------------
 ALTER TABLE ai_usage_events     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_usage_daily      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_budgets          ENABLE ROW LEVEL SECURITY;
@@ -220,6 +258,13 @@ CREATE POLICY ai_budgets_user_visible ON ai_budgets
 CREATE POLICY ai_budget_overrides_admin_all ON ai_budget_overrides
   FOR ALL USING (EXISTS (
     SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('owner','admin')
+  ));
+
+CREATE POLICY ai_budget_overrides_user_visible ON ai_budget_overrides
+  FOR SELECT USING (EXISTS (
+    SELECT 1 FROM ai_budgets b
+    WHERE b.id = budget_id
+      AND (b.scope = 'org' OR (b.scope = 'user' AND b.scope_value = auth.uid()::text))
   ));
 
 -- ============================================================================
