@@ -9,6 +9,8 @@ import { ThreatIntelSessionSummary, ThreatLevel, AttackType } from '../../types/
 import { DigestNewReportModal } from './DigestNewReportModal';
 import { AutoDigestBanner } from './AutoDigestBanner';
 import { BulkTriageBar } from './BulkTriageBar';
+import { CampaignCard } from './CampaignCard';
+import { useDigestCampaigns } from '../../hooks/useDigestCampaigns';
 import {
   badgeSizes,
   getThreatLevelConfig,
@@ -484,6 +486,12 @@ const ReportCard: React.FC<ReportCardProps> = ({ report, to, onClick, onDelete }
               {report.attribution}
             </span>
           )}
+          {report.campaignId && (
+            <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md bg-primary/15 text-primary inline-flex items-center gap-1">
+              <Icon name="git-merge" className="w-2.5 h-2.5" />
+              Campaign
+            </span>
+          )}
           {/* Delete - top right */}
           <button
             onClick={(e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); onDelete(); }}
@@ -609,7 +617,8 @@ const getCoverageRange = (percent: number): string => {
 export const ThreatIntelLibraryPage: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const { reports, isLoading: loading, fetchReports, deleteReport, hasPendingMigration, migrateFromLocalStorage, updateReviewStatus } = useThreatIntel();
+  const { reports, userId, isLoading: loading, fetchReports, deleteReport, hasPendingMigration, migrateFromLocalStorage, updateReviewStatus } = useThreatIntel();
+  const { campaigns: digestCampaigns } = useDigestCampaigns(userId);
 
   const [showModal, setShowModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1073,6 +1082,24 @@ export const ThreatIntelLibraryPage: React.FC = () => {
       {/* ========== CONTENT ========== */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
         <div className="max-w-[1920px] mx-auto">
+          {/* Active Campaigns — auto-digest merged-report clusters */}
+          {digestCampaigns.length > 0 && (
+            <div className="mb-8">
+              <div className="flex items-center gap-2 mb-3">
+                <Icon name="git-merge" className="w-4 h-4 text-primary" />
+                <h2 className="text-sm font-semibold uppercase tracking-widest text-on-surface-variant">
+                  Active Campaigns
+                </h2>
+                <span className="text-xs font-mono text-on-surface-variant/60">({digestCampaigns.length})</span>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5 items-stretch">
+                {digestCampaigns.map(c => (
+                  <CampaignCard key={c.id} campaign={c} />
+                ))}
+              </div>
+            </div>
+          )}
+
           {reports.length === 0 ? (
             /* Empty State */
             <div className="flex flex-col items-center justify-center h-full max-w-lg mx-auto text-center py-16">
