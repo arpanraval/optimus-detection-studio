@@ -205,7 +205,6 @@ Return ONLY valid JSON, no markdown code blocks.`
 async function persistReport(
   supabaseClient: any,
   userId: string,
-  teamId: string | null,
   playbookId: string,
   playbookTitle: string,
   reportTemplateDef: any,
@@ -250,7 +249,6 @@ async function persistReport(
       .from('analysis_reports')
       .insert({
         user_id: userId,
-        team_id: teamId,
         report_type: 'playbook',
         playbook_id: playbookId,
         title: playbookTitle,
@@ -387,13 +385,6 @@ serve(async (req: Request) => {
     // Persist report to analysis_reports table
     const runStatus = stepResults.every(s => s.status === 'completed') ? 'completed' : 'partial'
 
-    // Get user's team_id (if any)
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('team_id')
-      .eq('id', user.id)
-      .maybeSingle()
-
     // Get playbook title from a PLAYBOOK_TITLES map or default
     const PLAYBOOK_TITLES: Record<string, string> = {
       'ransomware-readiness': 'Ransomware Readiness Assessment',
@@ -408,7 +399,6 @@ serve(async (req: Request) => {
     const reportId = await persistReport(
       supabase,
       user.id,
-      profile?.team_id || null,
       playbookId,
       PLAYBOOK_TITLES[playbookId] || playbookId,
       null, // reportTemplate - will be passed by client-side playbook defs later

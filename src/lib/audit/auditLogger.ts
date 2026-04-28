@@ -15,7 +15,6 @@ export interface AuditEventInput {
   entity_name?: string;
   old_values?: Record<string, unknown>;
   new_values?: Record<string, unknown>;
-  team_id?: string;
   details?: Record<string, unknown>;
 }
 

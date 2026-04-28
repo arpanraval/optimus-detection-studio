@@ -198,7 +198,6 @@ export interface Detection {
   promoted_at: string | null;
 
   // === RBAC FIELDS (NEW) ===
-  team_id?: string;                  // Team that owns this detection
   assigned_to?: string;              // User currently assigned
   assigned_by?: string;              // Who assigned it
   assigned_at?: string;              // When assigned
@@ -216,7 +215,7 @@ export interface Detection {
 // HELPER: Create empty detection
 // ============================================
 
-export const createEmptyDetection = (userId: string, teamId?: string): Partial<Detection> => ({
+export const createEmptyDetection = (userId: string): Partial<Detection> => ({
   id: crypto.randomUUID(),  // Generate ID since DB doesn't have default
   user_id: userId,
   version: 1,
@@ -271,7 +270,6 @@ export const createEmptyDetection = (userId: string, teamId?: string): Partial<D
   promoted_to_id: null,
   promoted_at: null,
   // RBAC fields
-  team_id: teamId,
   assigned_to: undefined,
   assigned_by: undefined,
   assigned_at: undefined,

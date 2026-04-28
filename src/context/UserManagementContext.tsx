@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { Role, Profile, TeamInvitation } from '../types';
+import { Role, Profile, UserInvitation } from '../types';
 import { useToast } from '../hooks/useToast';
 import { logger } from '../lib/logger';
 
@@ -14,7 +14,7 @@ interface UserManagementContextType {
   usersLoading: boolean;
 
   // Pending invitations
-  invitations: TeamInvitation[];
+  invitations: UserInvitation[];
   invitationsLoading: boolean;
 
   // Refresh actions
@@ -52,7 +52,7 @@ export const UserManagementProvider: React.FC<UserManagementProviderProps> = ({
   const [allUsers, setAllUsers] = useState<Profile[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
 
-  const [invitations, setInvitations] = useState<TeamInvitation[]>([]);
+  const [invitations, setInvitations] = useState<UserInvitation[]>([]);
   const [invitationsLoading, setInvitationsLoading] = useState(false);
 
   const USERS_PAGE_SIZE = 200;
@@ -84,7 +84,7 @@ export const UserManagementProvider: React.FC<UserManagementProviderProps> = ({
     setInvitationsLoading(true);
     try {
       const { data, error } = await supabase
-        .from('team_invitations')
+        .from('user_invitations')
         .select('*')
         .is('accepted_at', null)
         .gt('expires_at', new Date().toISOString())
@@ -206,7 +206,7 @@ export const UserManagementProvider: React.FC<UserManagementProviderProps> = ({
   ): Promise<{ success: boolean; error?: string }> => {
     try {
       const { error } = await supabase
-        .from('team_invitations')
+        .from('user_invitations')
         .delete()
         .eq('id', invitationId);
 

@@ -38,11 +38,7 @@ interface PermissionsContextType {
   
   // Refresh permissions
   refreshPermissions: () => Promise<void>;
-  
-  // Current team context (for filtering, not permissions)
-  currentTeamId: string | null;
-  setCurrentTeamId: (teamId: string | null) => void;
-  
+
   // User info
   userId: string | null;
   userRole: Role;
@@ -57,18 +53,15 @@ const PermissionsContext = createContext<PermissionsContextType | undefined>(und
 interface PermissionsProviderProps {
   children: React.ReactNode;
   userId: string;
-  initialTeamId?: string;
 }
 
-export const PermissionsProvider: React.FC<PermissionsProviderProps> = ({ 
-  children, 
+export const PermissionsProvider: React.FC<PermissionsProviderProps> = ({
+  children,
   userId,
-  initialTeamId 
 }) => {
   const [permissions, setPermissions] = useState<UserPermissions | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [currentTeamId, setCurrentTeamId] = useState<string | null>(initialTeamId || null);
 
   // Fetch permissions from profiles.role (GLOBAL role)
   const fetchPermissions = useCallback(async () => {
@@ -96,33 +89,16 @@ export const PermissionsProvider: React.FC<PermissionsProviderProps> = ({
       // Get global role from profiles.role
       const globalRole = (profile?.role as Role) || 'viewer';
 
-      // If no team specified, try to get user's first team (for team context, not permissions)
-      let teamId = currentTeamId;
-      if (!teamId) {
-        const { data: membership } = await supabase
-          .from('team_members')
-          .select('team_id')
-          .eq('user_id', userId)
-          .limit(1)
-          .single();
-
-        if (membership) {
-          teamId = membership.team_id;
-          setCurrentTeamId(teamId);
-        }
-      }
-
       // Build permissions object from GLOBAL role
       const rolePermissions = ROLE_PERMISSIONS[globalRole] || ROLE_PERMISSIONS.viewer;
       const permissionsMap: Record<string, boolean> = {};
-      
+
       rolePermissions.forEach(perm => {
         permissionsMap[perm] = true;
       });
 
       setPermissions({
         user_id: userId,
-        team_id: teamId || undefined,
         role: globalRole,
         is_global_admin: globalRole === 'owner' || globalRole === 'admin',
         permissions: permissionsMap,
@@ -131,11 +107,10 @@ export const PermissionsProvider: React.FC<PermissionsProviderProps> = ({
     } catch (err) {
       logger.error('Error fetching permissions:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch permissions');
-      
+
       // Set default viewer permissions on error
       setPermissions({
         user_id: userId,
-        team_id: undefined,
         role: 'viewer',
         is_global_admin: false,
         permissions: {},
@@ -143,7 +118,7 @@ export const PermissionsProvider: React.FC<PermissionsProviderProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [userId, currentTeamId]);
+  }, [userId]);
 
   // Fetch on mount and when dependencies change
   useEffect(() => {
@@ -247,8 +222,6 @@ export const PermissionsProvider: React.FC<PermissionsProviderProps> = ({
     canAssignDetection,
     canReviewDetection,
     refreshPermissions: fetchPermissions,
-    currentTeamId,
-    setCurrentTeamId,
     userId,
     userRole: permissions?.role || 'viewer',
   }), [
@@ -265,7 +238,6 @@ export const PermissionsProvider: React.FC<PermissionsProviderProps> = ({
     canAssignDetection,
     canReviewDetection,
     fetchPermissions,
-    currentTeamId,
     userId,
   ]);
 

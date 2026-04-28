@@ -10,7 +10,6 @@ import { QualityWeights, DEFAULT_WEIGHTS } from '../lib/quality';
 
 export interface ScoringProfile {
   id: string;
-  team_id: string | null;
   name: string;
   description: string | null;
   is_default: boolean;
@@ -36,7 +35,6 @@ interface UseScoringProfileReturn {
 interface CreateProfileInput {
   name: string;
   description?: string;
-  team_id?: string | null;
   is_default?: boolean;
   weights: QualityWeights;
 }
@@ -48,7 +46,7 @@ interface UpdateProfileInput {
   weights?: QualityWeights;
 }
 
-export function useScoringProfile(teamId?: string | null): UseScoringProfileReturn {
+export function useScoringProfile(): UseScoringProfileReturn {
   const [profiles, setProfiles] = useState<ScoringProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -82,20 +80,13 @@ export function useScoringProfile(teamId?: string | null): UseScoringProfileRetu
     fetchProfiles();
   }, [fetchProfiles]);
 
-  // Resolve active profile: team-specific default → global default → first profile
+  // Resolve active profile: explicit selection → default → first profile
   const activeProfile = (() => {
     if (activeProfileId) {
       return profiles.find(p => p.id === activeProfileId) || null;
     }
-    // Team-specific default
-    if (teamId) {
-      const teamDefault = profiles.find(p => p.team_id === teamId && p.is_default);
-      if (teamDefault) return teamDefault;
-    }
-    // Global default
-    const globalDefault = profiles.find(p => p.team_id === null && p.is_default);
-    if (globalDefault) return globalDefault;
-    // Fallback to first profile
+    const defaultProfile = profiles.find(p => p.is_default);
+    if (defaultProfile) return defaultProfile;
     return profiles[0] || null;
   })();
 
@@ -109,7 +100,6 @@ export function useScoringProfile(teamId?: string | null): UseScoringProfileRetu
         .insert({
           name: data.name,
           description: data.description || null,
-          team_id: data.team_id || null,
           is_default: data.is_default || false,
           weights: data.weights,
         })

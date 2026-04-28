@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Icon } from './Icon';
-import { Role, Profile, TeamInvitation } from '../types';
+import { Role, Profile, UserInvitation } from '../types';
 import { useToast } from '../hooks/useToast';
 import { useUserManagement } from '../context/UserManagementContext';
 import { usePermissions } from '../context/PermissionsContext';
@@ -131,8 +131,7 @@ export const UserManagementPage: React.FC = () => {
                 await supabase.from('detection_comments').delete().eq('user_id', deleteModal.userId);
                 if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(deleteModal.userId)) throw new Error('Invalid user ID');
                 await supabase.from('detection_reviews').delete().or(`reviewer_id.eq.${deleteModal.userId},requested_by.eq.${deleteModal.userId}`);
-                await supabase.from('team_invitations').delete().eq('invited_by', deleteModal.userId);
-                await supabase.from('team_members').delete().eq('user_id', deleteModal.userId);
+                await supabase.from('user_invitations').delete().eq('invited_by', deleteModal.userId);
                 await supabase.from('detections').update({ assigned_to: null }).eq('assigned_to', deleteModal.userId);
                 await supabase.from('detections').update({ user_id: currentUserId }).eq('user_id', deleteModal.userId);
             }
@@ -162,7 +161,7 @@ export const UserManagementPage: React.FC = () => {
         if (!window.confirm(`Cancel invitation for ${email}?`)) return;
         try { await cancelInvitation(id); } catch {}
     };
-    const handleResendInvitation = async (inv: TeamInvitation) => {
+    const handleResendInvitation = async (inv: UserInvitation) => {
         try { await cancelInvitation(inv.id); await inviteUser(inv.email, inv.role); showToast('success', 'Invitation Resent', `New invitation sent to ${inv.email}`); }
         catch (err: unknown) { showToast('error', 'Failed', err instanceof Error ? err.message : 'Failed to resend invitation'); }
     };
@@ -661,8 +660,8 @@ const RoleDropdown: React.FC<{ currentRole: Role; isLoading: boolean; onChange: 
 // =============================================================================
 
 const InvitationsTable: React.FC<{
-    invitations: TeamInvitation[]; isLoading: boolean;
-    onCancel: (id: string, email: string) => void; onResend: (inv: TeamInvitation) => void;
+    invitations: UserInvitation[]; isLoading: boolean;
+    onCancel: (id: string, email: string) => void; onResend: (inv: UserInvitation) => void;
     fmtDate: (d: string | null | undefined) => string; fmtDateTime: (d: string | null | undefined) => string;
     isExpired: (d: string) => boolean;
 }> = ({ invitations, isLoading, onCancel, onResend, fmtDate, fmtDateTime, isExpired }) => {
@@ -677,7 +676,7 @@ const InvitationsTable: React.FC<{
         </div>
     );
 
-    const copyLink = (inv: TeamInvitation) => {
+    const copyLink = (inv: UserInvitation) => {
         if (inv.token) { navigator.clipboard.writeText(`${window.location.origin}/invite/${inv.token}`); showToast('success', 'Link Copied', 'Invitation link copied to clipboard'); }
     };
 

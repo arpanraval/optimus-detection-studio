@@ -108,7 +108,7 @@ Deno.serve(async (req: Request) => {
     const currentUserRole = currentUserProfile?.role || 'viewer';
     const currentUserName = currentUserProfile?.full_name || 'Unknown';
 
-    // Extract client IP once — use last value in XFF chain (closest trusted proxy)
+    // Extract client IP once - use last value in XFF chain (closest trusted proxy)
     const xffHeader = req.headers.get('x-forwarded-for');
     const clientIp = xffHeader ? xffHeader.split(',').pop()?.trim() || null : null;
 
@@ -123,7 +123,7 @@ Deno.serve(async (req: Request) => {
     // Get detection details
     const { data: detection, error: detectionError } = await supabaseAdmin
       .from('detections')
-      .select('id, name, user_id, assigned_to, team_id, review_status')
+      .select('id, name, user_id, assigned_to, review_status')
       .eq('id', detectionId)
       .single();
 
@@ -183,7 +183,6 @@ Deno.serve(async (req: Request) => {
 
         // Log activity
         await supabaseAdmin.from('activity_log').insert({
-          team_id: detection.team_id,
           user_id: user.id,
           entity_type: 'review',
           entity_id: review.id,
@@ -196,16 +195,15 @@ Deno.serve(async (req: Request) => {
 
         // Notify lead+ users about pending review
         try {
-          const { data: teamMembers } = await supabaseAdmin
-            .from('team_members')
-            .select('user_id, profiles!inner(role)')
-            .eq('team_id', detection.team_id)
-            .in('profiles.role', ['lead', 'admin'])
-            .neq('user_id', user.id);
+          const { data: leads } = await supabaseAdmin
+            .from('profiles')
+            .select('id')
+            .in('role', ['lead', 'admin', 'owner'])
+            .neq('id', user.id);
 
-          if (teamMembers && teamMembers.length > 0) {
-            const reviewNotifications = teamMembers.map((reviewer: any) => ({
-              user_id: reviewer.user_id,
+          if (leads && leads.length > 0) {
+            const reviewNotifications = leads.map((reviewer: { id: string }) => ({
+              user_id: reviewer.id,
               type: 'review_request',
               title: 'Review Requested',
               message: `"${detection.name}" needs review`,
@@ -319,7 +317,6 @@ Deno.serve(async (req: Request) => {
 
         // Log activity
         await supabaseAdmin.from('activity_log').insert({
-          team_id: detection.team_id,
           user_id: user.id,
           entity_type: 'review',
           entity_id: review.id,
@@ -435,7 +432,6 @@ Deno.serve(async (req: Request) => {
 
         // Log activity
         await supabaseAdmin.from('activity_log').insert({
-          team_id: detection.team_id,
           user_id: user.id,
           entity_type: 'review',
           entity_id: review.id,
@@ -530,7 +526,6 @@ Deno.serve(async (req: Request) => {
 
         // Log activity
         await supabaseAdmin.from('activity_log').insert({
-          team_id: detection.team_id,
           user_id: user.id,
           entity_type: 'detection',
           entity_id: detectionId,

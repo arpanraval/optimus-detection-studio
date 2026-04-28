@@ -131,7 +131,6 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
 /** User's resolved permissions */
 export interface UserPermissions {
   user_id: string;
-  team_id?: string;
   role: TeamRole;
   is_global_admin: boolean;
   permissions: Record<string, boolean>;
@@ -140,7 +139,6 @@ export interface UserPermissions {
 /** Permission check result from database */
 export interface PermissionCheckResult {
   user_id: string;
-  team_id: string | null;
   role: TeamRole;
   is_global_admin: boolean;
   permissions: Record<string, boolean>;

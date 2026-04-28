@@ -276,7 +276,6 @@ export const CLOUD_SERVICES: Record<string, string[]> = {
 // ── Interface (v2) ──
 export interface EnvironmentProfile {
   id: string;
-  team_id?: string;
   user_id: string;
   industry: string | null;
   sectors: string[];
