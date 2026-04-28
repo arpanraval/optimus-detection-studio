@@ -2149,9 +2149,7 @@ export const ThreatIntelReportPage: React.FC = () => {
             <div className="space-y-8 animate-fade-in">
               {/* Feasibility summary — only render when computation actually ran */}
               {(() => {
-                const totalTTPs = report.ttps?.length ?? 0;
-                const coveredTTPs = (report.ttps ?? []).filter(t => t.hasExistingDetection === true).length;
-                const uncoveredTTPs = totalTTPs - coveredTTPs;
+                const uncoveredTTPs = stats.gaps;
                 const feasible = session?.feasibleGapCount ?? 0;
                 const infeasible = session?.infeasibleGapCount ?? 0;
                 const computed = uncoveredTTPs > 0 && (feasible + infeasible) === uncoveredTTPs;
