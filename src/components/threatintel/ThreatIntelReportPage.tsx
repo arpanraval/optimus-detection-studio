@@ -8,6 +8,7 @@ import { MonacoCodeEditor } from '../MonacoCodeEditor';
 import { useToast } from '../../hooks/useToast';
 import { useThreatIntel } from '../../context/ThreatIntelContext';
 import { retryReportSection } from '../../lib/aiService';
+import { supabase } from '../../lib/supabaseClient';
 import {
   ThreatReport,
   ThreatIntelSession,
@@ -984,7 +985,7 @@ export const ThreatIntelReportPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const { fetchReport, saveReport, updateReport } = useThreatIntel();
+  const { fetchReport, saveReport, updateReport, userId } = useThreatIntel();
 
   const [session, setSession] = useState<ThreatIntelSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1403,6 +1404,38 @@ export const ThreatIntelReportPage: React.FC = () => {
       setRetryingSection(null);
     }
   }, [report, session, showToast]);
+
+  // Bulk-create draft detections from selected TTPs
+  const handleBulkCreateDrafts = useCallback(async () => {
+    if (!session || !report || !userId || selectedTTPIds.size === 0) return;
+    const selectedTTPs = (report.ttps ?? []).filter(t => selectedTTPIds.has(t.id));
+    if (selectedTTPs.length === 0) return;
+
+    const now = new Date().toISOString();
+    const inserts = selectedTTPs.map(ttp => ({
+      id: crypto.randomUUID(),
+      name: `Detect ${ttp.techniqueName} (${ttp.mitreId})`,
+      description: `${ttp.explanation || ''}\n\nEvidence: ${ttp.evidence || 'N/A'}`.trim(),
+      mitreAttackIds: [ttp.mitreId],
+      mitreTechniques: [ttp.techniqueName],
+      severity: ttp.confidence === 'high' ? 'High' : ttp.confidence === 'medium' ? 'Medium' : 'Low',
+      status: 'Draft',
+      createdBy: userId,
+      createdDate: now,
+      updatedDate: now,
+      library: 'user',
+    }));
+
+    try {
+      const { error } = await supabase.from('detections').insert(inserts);
+      if (error) throw error;
+      showToast('success', 'Drafts created', `${inserts.length} draft detection${inserts.length === 1 ? '' : 's'} added to your library`);
+      clearTTPSelection();
+      navigate('/library?status=Draft');
+    } catch (err) {
+      showToast('error', 'Bulk create failed', err instanceof Error ? err.message : 'Could not create drafts');
+    }
+  }, [session, report, userId, selectedTTPIds, showToast, clearTTPSelection, navigate]);
 
   // Create detection from TTP
   const handleCreateDetectionFromTTP = useCallback((ttp: ExtractedTTP) => {
@@ -2261,6 +2294,32 @@ export const ThreatIntelReportPage: React.FC = () => {
                       />
                     </div>
                   </div>
+
+                  {/* Bulk action bar — appears when TTPs are selected */}
+                  {selectedTTPIds.size > 0 && (
+                    <div className="sticky top-0 z-10 flex items-center justify-between gap-3 mb-4 px-4 py-2.5 rounded-xl bg-primary/10 border border-primary/30">
+                      <span className="text-sm text-on-surface">
+                        <strong className="font-mono">{selectedTTPIds.size}</strong> technique{selectedTTPIds.size === 1 ? '' : 's'} selected
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={clearTTPSelection}
+                          className="text-xs text-on-surface-variant hover:text-on-surface px-3 py-1.5 rounded-lg hover:bg-surface-container-high"
+                        >
+                          Clear
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleBulkCreateDrafts}
+                          className="text-xs font-medium text-white bg-primary hover:brightness-110 px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5"
+                        >
+                          <Icon name="plus" className="w-3.5 h-3.5" />
+                          Create {selectedTTPIds.size} Draft{selectedTTPIds.size === 1 ? '' : 's'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* TTP List by Tactic */}
                   <TTPTacticList
