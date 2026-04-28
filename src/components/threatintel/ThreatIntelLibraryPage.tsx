@@ -318,7 +318,10 @@ const ReportListItem: React.FC<{
             <span className="font-mono text-sm font-semibold text-primary">{report.ruleCount || 0}</span>
           </div>
         );
-      case 'coveragePercent':
+      case 'coveragePercent': {
+        if (!isCoverageMeaningful(report)) {
+          return <span className="text-on-surface-variant/40 text-xs font-mono">—</span>;
+        }
         const pct = report.coveragePercent ?? 0;
         return (
           <div className="flex items-center gap-1.5">
@@ -333,6 +336,7 @@ const ReportListItem: React.FC<{
             </span>
           </div>
         );
+      }
       case 'source':
         return report.source === 'auto' ? (
           <span className="inline-flex items-center gap-1 text-xs">
@@ -408,6 +412,10 @@ const ReportListItem: React.FC<{
 
 const formatDate = (ts: number) => {
   return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const isCoverageMeaningful = (report: { ttpCount?: number; coveragePercent?: number | null }): boolean => {
+  return (report.ttpCount ?? 0) > 0;
 };
 
 // =============================================================================
@@ -522,12 +530,21 @@ const ReportCard: React.FC<ReportCardProps> = ({ report, to, onClick, onDelete }
           </div>
           {/* Coverage */}
           <div className="text-right">
-            <div className={`text-2xl font-mono font-bold ${
-              coveragePercent >= 70 ? 'text-green-400' : coveragePercent >= 40 ? 'text-amber-400' : 'text-red-400'
-            }`}>
-              {coveragePercent}%
-            </div>
-            <div className="text-[10px] uppercase tracking-widest text-on-surface-variant/40 font-semibold">Coverage</div>
+            {isCoverageMeaningful(report) ? (
+              <>
+                <div className={`text-2xl font-mono font-bold ${
+                  coveragePercent >= 70 ? 'text-green-400' : coveragePercent >= 40 ? 'text-amber-400' : 'text-red-400'
+                }`}>
+                  {coveragePercent}%
+                </div>
+                <div className="text-[10px] uppercase tracking-widest text-on-surface-variant/40 font-semibold">Coverage</div>
+              </>
+            ) : (
+              <>
+                <div className="text-2xl font-mono font-bold text-on-surface-variant/40">—</div>
+                <div className="text-[10px] uppercase tracking-widest text-on-surface-variant/40 font-semibold">Coverage</div>
+              </>
+            )}
           </div>
         </div>
       </div>

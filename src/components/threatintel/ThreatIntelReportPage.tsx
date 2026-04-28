@@ -253,7 +253,7 @@ const ThreatLevelIndicator: React.FC<{ level?: ThreatLevel | string; size?: 'sm'
 
 const StatCard: React.FC<{
   label: string;
-  value: number | string;
+  value: React.ReactNode;
   subtext?: string;
   color?: string;
   progress?: number;
@@ -1820,12 +1820,20 @@ export const ThreatIntelReportPage: React.FC = () => {
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <StatCard
                   label="Detection Coverage"
-                  value={`${stats.coveragePercent}%`}
+                  value={(report.ttps?.length ?? 0) > 0
+                    ? `${stats.coveragePercent}%`
+                    : <span className="text-on-surface-variant/40">—</span>}
                   color={stats.coveragePercent >= 70 ? 'text-green-400' : stats.coveragePercent >= 40 ? 'text-amber-400' : 'text-red-400'}
                   progress={stats.coveragePercent}
                 />
                 <StatCard label="TTPs Identified" value={report.ttps.length} color="text-purple-500" />
-                <StatCard label="Detection Gaps" value={stats.gaps} color="text-on-surface-variant" />
+                <StatCard
+                  label="Detection Gaps"
+                  value={(report.ttps?.length ?? 0) > 0
+                    ? stats.gaps
+                    : <span className="text-on-surface-variant/40">—</span>}
+                  color="text-on-surface-variant"
+                />
                 <StatCard label="Indicators" value={report.iocs.length} color="text-secondary" />
                 <StatCard label="Rules Extracted" value={report.rules.length} color="text-primary" />
               </div>
