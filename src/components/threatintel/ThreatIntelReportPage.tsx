@@ -30,6 +30,7 @@ import {
   ttpMetaBadgeColors,
   ttpCoverageColors,
 } from '../../lib/ui/badges';
+import { FeasibilityEmptyState } from './FeasibilityEmptyState';
 
 // =============================================================================
 // TYPES
@@ -2146,17 +2147,30 @@ export const ThreatIntelReportPage: React.FC = () => {
           {/* ===== TTPs TAB (Campaign-style) ===== */}
           {activeTab === 'ttps' && (
             <div className="space-y-8 animate-fade-in">
-              {/* Feasibility summary (auto-digest reports) */}
-              {(session?.feasibleGapCount != null || session?.infeasibleGapCount != null) && (
-                <div className="flex items-center gap-4 mb-4 text-sm text-on-surface-variant">
-                  <span>
-                    Gaps you <strong className="text-emerald-400">can</strong> detect: <strong>{session.feasibleGapCount ?? 0}</strong>
-                  </span>
-                  <span>
-                    Gaps needing new log sources: <strong>{session.infeasibleGapCount ?? 0}</strong>
-                  </span>
-                </div>
-              )}
+              {/* Feasibility summary — only render when computation actually ran */}
+              {(() => {
+                const totalTTPs = report.ttps?.length ?? 0;
+                const coveredTTPs = (report.ttps ?? []).filter(t => t.hasExistingDetection === true).length;
+                const uncoveredTTPs = totalTTPs - coveredTTPs;
+                const feasible = session?.feasibleGapCount ?? 0;
+                const infeasible = session?.infeasibleGapCount ?? 0;
+                const computed = uncoveredTTPs > 0 && (feasible + infeasible) === uncoveredTTPs;
+
+                if (uncoveredTTPs === 0) return null;
+                if (!computed) {
+                  return <FeasibilityEmptyState uncoveredCount={uncoveredTTPs} />;
+                }
+                return (
+                  <div className="flex items-center gap-4 mb-4 text-sm text-on-surface-variant">
+                    <span>
+                      Gaps you <strong className="text-emerald-400">can</strong> detect: <strong>{feasible}</strong>
+                    </span>
+                    <span>
+                      Gaps needing new log sources: <strong>{infeasible}</strong>
+                    </span>
+                  </div>
+                );
+              })()}
               {(report.ttps || []).length === 0 ? (
                 <EmptyStateWithRetry
                   icon="target"
