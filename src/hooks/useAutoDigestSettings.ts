@@ -190,6 +190,18 @@ export function useAutoDigestSettings(userId: string) {
     ]).finally(() => setIsLoading(false));
   }, [userId, fetchSettings, fetchCuratedSources, fetchEnabledSources, fetchRecentJobs]);
 
+  // Poll job status while a job is active so the UI can reflect the live state
+  // (button stuck on "Run" after refresh was the user-visible symptom of this
+  // missing). Polls every 3s; stops as soon as no pending/processing job exists.
+  const hasActiveJob = recentJobs.some(j => j.status === 'pending' || j.status === 'processing');
+  useEffect(() => {
+    if (!userId || !hasActiveJob) return;
+    const interval = setInterval(() => {
+      fetchRecentJobs();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [userId, hasActiveJob, fetchRecentJobs]);
+
   return {
     settings,
     curatedSources,

@@ -192,31 +192,95 @@ function EntryItem({ entry }: { entry: FeedEntry }) {
   );
 }
 
+function formatElapsed(ms: number): string {
+  const sec = Math.max(0, Math.round(ms / 1000));
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  const rem = sec % 60;
+  if (min < 60) return rem > 0 ? `${min}m ${rem}s` : `${min}m`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h ${min % 60}m`;
+}
+
 function JobItem({ job }: { job: AutoDigestJob }) {
   const summary = job.result_summary as Record<string, any> | null;
+  const errors: string[] = Array.isArray(summary?.errors) ? summary!.errors : [];
+  const feedsFetched = summary?.feeds_fetched ?? 0;
+  const digested = summary?.digested ?? summary?.articles_digested ?? 0;
+  const skipped = summary?.skipped ?? summary?.articles_skipped ?? 0;
+  const failed = summary?.failed ?? summary?.articles_failed ?? errors.length;
+  const harvested = summary?.articles_harvested ?? 0;
 
+  // ─── Completed ───────────────────────────────────────────────────────────
   if (job.status === 'completed') {
-    const feedsFetched = summary?.feeds_fetched ?? '?';
-    const digested = summary?.digested ?? summary?.articles_digested ?? 0;
-    const skipped = summary?.skipped ?? summary?.articles_skipped ?? 0;
-    const failed = summary?.failed ?? summary?.articles_failed ?? 0;
+    // Errors took down everything. Surface the real failure to the user instead
+    // of hiding it behind a happy "Job Completed" with all-zero stats.
+    if (errors.length > 0 && digested === 0) {
+      return (
+        <div className="flex items-start gap-3">
+          <span className="mt-1.5 w-2 h-2 rounded-full bg-red-400 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <Icon name="alert-triangle" className="w-3.5 h-3.5 text-red-400" />
+              <span className="text-xs font-medium text-red-400">Failed during processing</span>
+            </div>
+            <p className="text-sm text-on-surface mt-0.5">
+              Fetched {feedsFetched} feed{feedsFetched === 1 ? '' : 's'} but all {errors.length} article{errors.length === 1 ? '' : 's'} failed.
+            </p>
+            <p className="text-xs text-on-surface-variant mt-1 truncate" title={errors.join('\n')}>
+              {errors[0]}{errors.length > 1 ? ` (+${errors.length - 1} more)` : ''}
+            </p>
+          </div>
+        </div>
+      );
+    }
 
+    // Genuinely empty run: feeds fetched, but nothing matched the relevance / classification gate.
+    if (digested === 0 && skipped === 0 && failed === 0) {
+      return (
+        <div className="flex items-start gap-3">
+          <span className="mt-1.5 w-2 h-2 rounded-full bg-on-surface-variant/40 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <Icon name="check" className="w-3.5 h-3.5 text-on-surface-variant" />
+              <span className="text-xs font-medium text-on-surface-variant">Completed — no new content</span>
+            </div>
+            <p className="text-sm text-on-surface mt-0.5">
+              Checked {feedsFetched} feed{feedsFetched === 1 ? '' : 's'}
+              {harvested > 0 ? `, ${harvested} article${harvested === 1 ? '' : 's'} harvested` : ''}
+              {harvested > 0 ? ' — none passed the relevance gate' : ' — no new articles'}.
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    // Successful completion with at least some output.
     return (
       <div className="flex items-start gap-3">
         <span className="mt-1.5 w-2 h-2 rounded-full bg-primary shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <Icon name="check-circle" className="w-3.5 h-3.5 text-primary" />
-            <span className="text-xs font-medium text-primary">Job Completed</span>
+            <span className="text-xs font-medium text-primary">Completed</span>
+            {errors.length > 0 && (
+              <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400">
+                {errors.length} error{errors.length === 1 ? '' : 's'}
+              </span>
+            )}
           </div>
           <p className="text-sm text-on-surface mt-0.5">
-            Processing {feedsFetched} feeds: {digested} digested, {skipped} skipped, {failed} failed
+            <span className="font-medium">{digested}</span> digested
+            {skipped > 0 && <>, {skipped} skipped</>}
+            {failed > 0 && <>, <span className="text-red-400">{failed} failed</span></>}
+            <span className="text-on-surface-variant"> · from {feedsFetched} feed{feedsFetched === 1 ? '' : 's'}</span>
           </p>
         </div>
       </div>
     );
   }
 
+  // ─── Failed (job-level error before completion) ─────────────────────────
   if (job.status === 'failed') {
     return (
       <div className="flex items-start gap-3">
@@ -227,23 +291,36 @@ function JobItem({ job }: { job: AutoDigestJob }) {
             <span className="text-xs font-medium text-red-400">Job Failed</span>
           </div>
           <p className="text-sm text-on-surface mt-0.5">
-            Job error: {job.error || 'Unknown error'}
+            {job.error || 'Unknown error'}
           </p>
         </div>
       </div>
     );
   }
 
-  // processing / pending / timeout_partial
+  // ─── Pending / processing — show elapsed time so the user has a heartbeat ───
+  const startedAt = job.started_at || job.created_at;
+  const elapsed = startedAt ? Date.now() - new Date(startedAt).getTime() : 0;
   return (
     <div className="flex items-start gap-3">
-      <span className="mt-1.5 w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+      <span className="mt-1.5 w-2 h-2 rounded-full bg-amber-400 shrink-0 animate-pulse" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <Icon name="loader" className="w-3.5 h-3.5 text-amber-400 animate-spin" />
-          <span className="text-xs font-medium text-amber-400">Running</span>
+          <span className="text-xs font-medium text-amber-400">
+            {job.status === 'pending' ? 'Queued' : 'Running'}
+          </span>
+          {elapsed > 0 && (
+            <span className="text-[11px] text-on-surface-variant tabular-nums">
+              {formatElapsed(elapsed)}
+            </span>
+          )}
         </div>
-        <p className="text-sm text-on-surface mt-0.5">Processing feeds...</p>
+        <p className="text-sm text-on-surface mt-0.5">
+          {job.status === 'pending'
+            ? 'Waiting for the orchestrator to pick up this job…'
+            : `Fetching feeds, classifying articles, and digesting matches${feedsFetched > 0 ? ` (${feedsFetched} feed${feedsFetched === 1 ? '' : 's'} so far)` : ''}…`}
+        </p>
       </div>
     </div>
   );

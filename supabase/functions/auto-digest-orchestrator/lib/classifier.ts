@@ -207,8 +207,14 @@ async function callAI(
 // ---------------------------------------------------------------------------
 
 async function callGemini(model: string, userPrompt: string): Promise<{ result: string; usage: TokenUsage }> {
-  const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
-  if (!apiKey) throw new Error('GOOGLE_AI_API_KEY not set');
+  // Every other function in the project (ai-generate, generate-embedding,
+  // batch-embedding, etc.) reads GEMINI_API_KEY. The secret stored in Supabase
+  // is named GEMINI_API_KEY. The orchestrator was reading GOOGLE_AI_API_KEY
+  // (which is unset), so the classifier silently failed on every article and
+  // the activity log showed "0 digested, 0 skipped, 0 failed" with the real
+  // error buried inside result_summary.errors. Aligning to the project name.
+  const apiKey = Deno.env.get('GEMINI_API_KEY');
+  if (!apiKey) throw new Error('GEMINI_API_KEY not set');
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
