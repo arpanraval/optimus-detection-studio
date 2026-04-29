@@ -5,6 +5,12 @@
 
 import { logger } from './logger';
 import { supabase } from './supabaseClient';
+import type { AiFeatureCode } from './ai/featureCodes';
+
+/** Options accepted by every embedding helper. `feature` attributes usage in the GenAI Cost Center. */
+export interface EmbeddingHelperOptions {
+  feature?: AiFeatureCode;
+}
 
 // =============================================================================
 // TYPES
@@ -40,7 +46,8 @@ interface EmbeddingStats {
  */
 export async function generateDetectionEmbedding(
   detectionId: string,
-  forceRegenerate = false
+  forceRegenerate = false,
+  opts?: EmbeddingHelperOptions
 ): Promise<EmbeddingResult> {
   const { data: { session } } = await supabase.auth.getSession();
 
@@ -52,7 +59,8 @@ export async function generateDetectionEmbedding(
     body: {
       type: 'detection',
       id: detectionId,
-      forceRegenerate
+      forceRegenerate,
+      feature: opts?.feature ?? 'embedding-detection',
     }
   });
 
@@ -69,7 +77,8 @@ export async function generateDetectionEmbedding(
  */
 export async function generateMitreEmbedding(
   stixId: string,
-  forceRegenerate = false
+  forceRegenerate = false,
+  opts?: EmbeddingHelperOptions
 ): Promise<EmbeddingResult> {
   const { data: { session } } = await supabase.auth.getSession();
 
@@ -81,7 +90,8 @@ export async function generateMitreEmbedding(
     body: {
       type: 'mitre',
       id: stixId,
-      forceRegenerate
+      forceRegenerate,
+      feature: opts?.feature ?? 'embedding-detection',
     }
   });
 
@@ -102,7 +112,8 @@ export async function generateMitreEmbedding(
  */
 export async function generateBatchDetectionEmbeddings(
   detectionIds: string[],
-  forceRegenerate = false
+  forceRegenerate = false,
+  opts?: EmbeddingHelperOptions
 ): Promise<BatchEmbeddingResult> {
   const { data: { session } } = await supabase.auth.getSession();
 
@@ -114,7 +125,8 @@ export async function generateBatchDetectionEmbeddings(
     body: {
       type: 'batch_detections',
       ids: detectionIds,
-      forceRegenerate
+      forceRegenerate,
+      feature: opts?.feature ?? 'embedding-batch',
     }
   });
 
@@ -142,7 +154,8 @@ export async function generateBatchDetectionEmbeddings(
  */
 export async function generateBatchMitreEmbeddings(
   stixIds: string[],
-  forceRegenerate = false
+  forceRegenerate = false,
+  opts?: EmbeddingHelperOptions
 ): Promise<BatchEmbeddingResult> {
   const { data: { session } } = await supabase.auth.getSession();
 
@@ -154,7 +167,8 @@ export async function generateBatchMitreEmbeddings(
     body: {
       type: 'batch_mitre',
       ids: stixIds,
-      forceRegenerate
+      forceRegenerate,
+      feature: opts?.feature ?? 'embedding-batch',
     }
   });
 

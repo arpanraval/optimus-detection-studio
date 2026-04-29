@@ -2,6 +2,8 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import { getCorsHeaders, handleCorsPreflight, corsErrorResponse } from '../_shared/cors.ts'
 import { checkRateLimit } from '../_shared/rate-limiter.ts'
+import { withAiTelemetry } from '../_shared/aiTelemetry.ts'
+import { parseGeminiUsage } from '../_shared/aiUsageParsers.ts'
 
 // =============================================================================
 // TYPES
@@ -141,7 +143,8 @@ async function executeTool(
 
 async function generateReportSections(
   playbookId: string,
-  context: Record<string, any>
+  context: Record<string, any>,
+  userId: string | null
 ): Promise<Record<string, string>> {
   const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY')
   if (!GEMINI_API_KEY) {
@@ -166,32 +169,48 @@ Be specific, cite numbers from the data, and focus on actionable insights.
 Return ONLY valid JSON, no markdown code blocks.`
 
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`,
+    return await withAiTelemetry(
       {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY! },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.3,
-            maxOutputTokens: 2000,
-            responseMimeType: 'application/json',
-          },
-        }),
+        userId,
+        feature: 'playbook-runner',
+        model: 'gemini-2.0-flash',
+        provider: 'google',
+        category: 'llm',
+        metadata: { playbook_id: playbookId, step: 'report_synthesis' },
+      },
+      async () => {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY! },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: {
+                temperature: 0.3,
+                maxOutputTokens: 2000,
+                responseMimeType: 'application/json',
+              },
+            }),
+          }
+        )
+
+        if (!response.ok) {
+          const errorText = await response.text()
+          console.error('Gemini API error:', errorText)
+          throw new Error(`Gemini API ${response.status}: ${errorText.slice(0, 200)}`)
+        }
+
+        const data = await response.json()
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+        if (!text) throw new Error('Empty AI response')
+
+        return {
+          result: JSON.parse(text) as Record<string, string>,
+          usage: parseGeminiUsage(data),
+        }
       }
     )
-
-    if (!response.ok) {
-      console.error('Gemini API error:', await response.text())
-      return {}
-    }
-
-    const data = await response.json()
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text
-    if (!text) return {}
-
-    return JSON.parse(text)
   } catch (e) {
     console.error('Report generation error:', e)
     return {}
@@ -380,7 +399,7 @@ serve(async (req: Request) => {
     }
 
     // Generate AI report sections from aggregated context
-    const generatedSections = await generateReportSections(playbookId, context)
+    const generatedSections = await generateReportSections(playbookId, context, user.id)
 
     // Persist report to analysis_reports table
     const runStatus = stepResults.every(s => s.status === 'completed') ? 'completed' : 'partial'

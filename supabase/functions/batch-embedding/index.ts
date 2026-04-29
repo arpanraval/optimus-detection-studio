@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
+import { withAiTelemetry } from '../_shared/aiTelemetry.ts'
 
 function getCorsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get('Origin') || '*'
@@ -158,11 +159,31 @@ async function handleSubmit(supabase: any, userId: string, req: Request): Promis
 
     const apiKey = Deno.env.get('GEMINI_API_KEY')!
     const url = `${GEMINI_BASE}/models/${EMBEDDING_MODEL}:asyncBatchEmbedContent?key=${apiKey}`
+    // Wrap the submit fetch in telemetry. NOTE: async batch submission returns
+    // only the batch name — not token counts — so usage is logged as 0 here.
+    // Future work: instrument handleProcess to record actual usage from the
+    // completed batch response when results are fetched.
+    // The original error response shape (geminiStatus + geminiBody) is preserved
+    // by handling the non-2xx case OUTSIDE the wrapper, with a manual telemetry
+    // log via the wrapper for the success path only.
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodyString })
     const responseText = await res.text()
     if (!res.ok) {
+      // Log failure event directly, then return the original error response unchanged.
+      try {
+        await withAiTelemetry(
+          { userId, feature: 'embedding-batch', model: EMBEDDING_MODEL, provider: 'google', category: 'embedding', metadata: { batch_items: totalQueued } },
+          async () => { throw new Error(`Gemini API ${res.status}: ${responseText.slice(0, 200)}`) }
+        )
+      } catch { /* swallow — telemetry is best-effort */ }
       return new Response(JSON.stringify({ error: 'Gemini API rejected the batch submission', geminiStatus: res.status, geminiBody: responseText.slice(0, 3000), diag }), { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
+    // Success path: fire-and-forget telemetry. Don't await — callers shouldn't wait on it.
+    withAiTelemetry(
+      { userId, feature: 'embedding-batch', model: EMBEDDING_MODEL, provider: 'google', category: 'embedding', metadata: { batch_items: totalQueued } },
+      async () => ({ result: undefined, usage: { inputTokens: 0, outputTokens: 0 } })
+    ).catch(() => { /* best-effort */ })
+
     const batchResponse = JSON.parse(responseText)
     const batchName = batchResponse.name || batchResponse.batch?.name
     if (!batchName) {

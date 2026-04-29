@@ -2,6 +2,9 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import { getCorsHeaders, handleCorsPreflight, corsErrorResponse } from '../_shared/cors.ts'
 import { checkRateLimit } from '../_shared/rate-limiter.ts'
+import { withAiTelemetry, BudgetExceededError } from '../_shared/aiTelemetry.ts'
+import { parseGeminiUsage, parseOpenAIUsage, parseAnthropicUsage } from '../_shared/aiUsageParsers.ts'
+import { normalizeFeatureCode } from '../_shared/aiFeatureCodes.ts'
 
 // Provider detection from model name
 type Provider = 'google' | 'openai' | 'anthropic'
@@ -47,11 +50,19 @@ interface AIRequest {
   // Detection Intelligence Loop — optional context enrichment fields
   technique_id?: string
   detection_category?: string
+  // GenAI Cost Center — caller-tagged feature code for usage attribution
+  feature?: string
 }
 
 interface AIResponse {
   text: string
   functionCalls?: Array<{ name: string; args: Record<string, any> }>
+}
+
+// AICallResult bundles the parsed AI response with token usage for telemetry.
+interface AICallResult {
+  result: AIResponse
+  usage: { inputTokens: number; outputTokens: number; cachedInputTokens?: number }
 }
 
 // ============================================================================
@@ -66,7 +77,7 @@ async function callGeminiAPI(
   tools: any[] | undefined,
   history: Array<{ role: string; parts: Array<{ text: string }> }> | undefined,
   functionResponses: Array<{ id: string; name: string; response: any }> | undefined
-): Promise<AIResponse> {
+): Promise<AICallResult> {
   const contents: any[] = []
 
   // Add history if provided
@@ -137,8 +148,11 @@ async function callGeminiAPI(
     .join('')
 
   return {
-    text: generatedText,
-    functionCalls: functionCalls.length > 0 ? functionCalls : undefined
+    result: {
+      text: generatedText,
+      functionCalls: functionCalls.length > 0 ? functionCalls : undefined
+    },
+    usage: parseGeminiUsage(data),
   }
 }
 
@@ -247,7 +261,7 @@ async function callOpenAIAPI(
   tools: any[] | undefined,
   history: Array<{ role: string; parts: Array<{ text: string }> }> | undefined,
   functionResponses: Array<{ id: string; name: string; response: any }> | undefined
-): Promise<AIResponse> {
+): Promise<AICallResult> {
   const messages = convertHistoryToOpenAI(history, systemInstruction)
 
   // Handle function responses (tool results)
@@ -306,8 +320,11 @@ async function callOpenAIAPI(
   }))
 
   return {
-    text: message?.content || '',
-    functionCalls: functionCalls?.length > 0 ? functionCalls : undefined
+    result: {
+      text: message?.content || '',
+      functionCalls: functionCalls?.length > 0 ? functionCalls : undefined
+    },
+    usage: parseOpenAIUsage(data),
   }
 }
 
@@ -360,7 +377,7 @@ async function callAnthropicAPI(
   tools: any[] | undefined,
   history: Array<{ role: string; parts: Array<{ text: string }> }> | undefined,
   functionResponses: Array<{ id: string; name: string; response: any }> | undefined
-): Promise<AIResponse> {
+): Promise<AICallResult> {
   const messages = convertHistoryToAnthropic(history)
 
   // Handle function responses (tool results)
@@ -431,8 +448,11 @@ async function callAnthropicAPI(
   }
 
   return {
-    text,
-    functionCalls: functionCalls.length > 0 ? functionCalls : undefined
+    result: {
+      text,
+      functionCalls: functionCalls.length > 0 ? functionCalls : undefined
+    },
+    usage: parseAnthropicUsage(data),
   }
 }
 
@@ -613,33 +633,41 @@ serve(async (req: Request) => {
       )
     }
 
-    // Route to the appropriate provider
-    let result: AIResponse
-    switch (provider) {
-      case 'google':
-        result = await callGeminiAPI(
-          apiKey, model, prompt, responseFormat,
-          fullSystemInstruction, tools, history, functionResponses
-        )
-        break
-      case 'openai':
-        result = await callOpenAIAPI(
-          apiKey, model, prompt, responseFormat,
-          fullSystemInstruction, tools, history, functionResponses
-        )
-        break
-      case 'anthropic':
-        result = await callAnthropicAPI(
-          apiKey, model, prompt, responseFormat,
-          fullSystemInstruction, tools, history, functionResponses
-        )
-        break
-      default:
-        return new Response(
-          JSON.stringify({ error: `Unsupported provider: ${provider}` }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        )
-    }
+    // Route to the appropriate provider, wrapped in cost-center telemetry.
+    // The telemetry wrapper records usage + cost and (when AI_BUDGET_ENFORCEMENT
+    // is on) pre-checks budgets — but never modifies the provider call body.
+    const feature = normalizeFeatureCode(body.feature)
+    const result = await withAiTelemetry(
+      {
+        userId: user.id,
+        feature,
+        model,
+        provider,
+        category: 'llm',
+        metadata: body.technique_id ? { technique_id: body.technique_id } : undefined,
+      },
+      async () => {
+        switch (provider) {
+          case 'google':
+            return await callGeminiAPI(
+              apiKey, model, prompt, responseFormat,
+              fullSystemInstruction, tools, history, functionResponses
+            )
+          case 'openai':
+            return await callOpenAIAPI(
+              apiKey, model, prompt, responseFormat,
+              fullSystemInstruction, tools, history, functionResponses
+            )
+          case 'anthropic':
+            return await callAnthropicAPI(
+              apiKey, model, prompt, responseFormat,
+              fullSystemInstruction, tools, history, functionResponses
+            )
+          default:
+            throw new Error(`Unsupported provider: ${provider}`)
+        }
+      }
+    )
 
     return new Response(
       JSON.stringify(result),
@@ -647,6 +675,21 @@ serve(async (req: Request) => {
     )
 
   } catch (error) {
+    // BudgetExceededError → 429 with budget context for client display
+    if (error instanceof BudgetExceededError) {
+      return new Response(
+        JSON.stringify({
+          error: 'AI budget exceeded',
+          budget: {
+            scope: error.match.scope,
+            scopeValue: error.match.scopeValue,
+            limitUsd: error.match.limitUsd,
+            currentUsd: error.match.currentUsd,
+          },
+        }),
+        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
     console.error('Edge function error:', error)
     return new Response(
       JSON.stringify({ error: 'An internal error occurred. Please try again.' }),

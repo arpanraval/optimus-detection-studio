@@ -59,7 +59,9 @@ async function callBatchFunction(body: Record<string, unknown>): Promise<any> {
  * Returns job info or throws if a job is already active.
  */
 export async function submitBatchJob(): Promise<BatchSubmitResult> {
-  const data = await callBatchFunction({ action: 'submit' });
+  // Server hardcodes feature='embedding-batch' regardless, but pass it explicitly
+  // so the body matches the cost-center convention and keeps the audit trail clear.
+  const data = await callBatchFunction({ action: 'submit', feature: 'embedding-batch' });
 
   if (data.error) {
     throw new Error(data.error);

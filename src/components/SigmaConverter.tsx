@@ -424,7 +424,8 @@ export const SigmaConverter: React.FC<SigmaConverterProps> = ({ onCreateDraft })
 
           const response = await generateAIContent({
               prompt,
-              responseFormat: 'text'
+              responseFormat: 'text',
+              feature: 'sigma-converter',
           });
 
           let text = response.text || '';

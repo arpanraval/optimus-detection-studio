@@ -140,7 +140,7 @@ Output JSON object only:
     ${schemaFields.join(',\n    ')}
 }`;
 
-        const generatedData = await generateAIJSON<any>({ prompt, ...(model && { model }) });
+        const generatedData = await generateAIJSON<any>({ prompt, ...(model && { model }), feature: 'investigation-assist' });
 
         // 1. Update Steps
         if ((!sections || sections.has('steps')) && generatedData.steps && Array.isArray(generatedData.steps)) {

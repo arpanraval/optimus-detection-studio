@@ -14,6 +14,16 @@ import { InterruptedImportBanner } from '../components/global/InterruptedImportB
 import { useGlobalImport } from '../context/GlobalImportContext';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { supabase } from '../lib/supabaseClient';
+import { BudgetIndicator } from '../components/BudgetIndicator';
+
+// Routes where AI calls happen — show the BudgetIndicator chip in the header.
+const AI_ROUTE_PREFIXES = [
+  '/arsenal/optimus',
+  '/arsenal/ai-query',
+  '/arsenal/sigma',
+  '/arsenal/playbooks',
+  '/library/detections',
+];
 
 interface AppLayoutProps {
   user: User;
@@ -188,6 +198,11 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           onNavigateToDetection={handleNavigateToDetectionById}
           onNavigateToNotifications={() => navigate(ROUTES.NOTIFICATIONS)}
           onMobileMenuToggle={() => setIsMobileSidebarOpen(true)}
+          rightSlot={
+            AI_ROUTE_PREFIXES.some(p => location.pathname.startsWith(p))
+              ? <BudgetIndicator />
+              : undefined
+          }
         />
         <div className="flex-1 overflow-hidden relative">
           {/* Concave corners: SVG overlays matching header bg, creates inward curves at top of content */}

@@ -113,6 +113,8 @@ const ReportDetailPage = lazy(() => import('./pages/ReportDetailPage').then(m =>
 const SiemHealthPage = lazy(() => import('./pages/SiemHealthPage').then(m => ({ default: m.SiemHealthPage })));
 const SiemHomePageRoute = lazy(() => import('./pages/SiemHomePageRoute').then(m => ({ default: m.SiemHomePageRoute })));
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
+const CostCenterPage = lazy(() => import('./pages/CostCenterPage').then(m => ({ default: m.CostCenterPage })));
+const MyAiUsagePage  = lazy(() => import('./pages/MyAiUsagePage').then(m => ({ default: m.MyAiUsagePage })));
 
 
 // Design System Pages
@@ -239,6 +241,7 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       { path: 'settings/audit-log', element: <AuditLogPage /> },
       { path: 'settings/environment', element: <EnvironmentProfilePage /> },
       { path: 'settings/intelligence', element: <AutoDigestSettingsPage /> },
+      { path: 'settings/cost-center', element: <CostCenterPage /> },
 
       // SIEM Home
       { path: 'siem', element: <SiemHealthPage /> },
@@ -261,6 +264,7 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
 
       // Account
       { path: 'account', element: <AccountPage /> },
+      { path: 'account/ai-usage', element: <MyAiUsagePage /> },
       { path: 'submissions', element: <SubmissionsPage /> },
       { path: 'approval-queue', element: <ApprovalQueuePage /> },
         { path: 'notifications', element: <NotificationsPage /> },

@@ -2,6 +2,8 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import { getCorsHeaders, handleCorsPreflight, corsErrorResponse } from '../_shared/cors.ts'
 import { checkRateLimit } from '../_shared/rate-limiter.ts'
+import { withAiTelemetry } from '../_shared/aiTelemetry.ts'
+import { parseGeminiEmbeddingUsage } from '../_shared/aiUsageParsers.ts'
 import { runRansomwareAssessment } from './behavioral-matcher.ts'
 
 // =============================================================================
@@ -37,39 +39,56 @@ interface ToolRequest {
 // GEMINI EMBEDDING HELPER
 // =============================================================================
 
-async function generateQueryEmbedding(query: string): Promise<number[]> {
+async function generateQueryEmbedding(
+  query: string,
+  ctx: { userId: string | null; feature: string }
+): Promise<number[]> {
   const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY')
 
   if (!GEMINI_API_KEY) {
     throw new Error('GEMINI_API_KEY not configured')
   }
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:embedContent`,
+  return withAiTelemetry(
     {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': GEMINI_API_KEY!,
-      },
-      body: JSON.stringify({
-        model: `models/${EMBEDDING_MODEL}`,
-        content: {
-          parts: [{ text: query.slice(0, 8000) }]
-        },
-        taskType: 'RETRIEVAL_QUERY', // Use RETRIEVAL_QUERY for search queries
-        outputDimensionality: EMBEDDING_DIMENSIONS
-      })
+      userId: ctx.userId,
+      feature: ctx.feature,
+      model: EMBEDDING_MODEL,
+      provider: 'google',
+      category: 'embedding',
+    },
+    async () => {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:embedContent`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': GEMINI_API_KEY!,
+          },
+          body: JSON.stringify({
+            model: `models/${EMBEDDING_MODEL}`,
+            content: {
+              parts: [{ text: query.slice(0, 8000) }]
+            },
+            taskType: 'RETRIEVAL_QUERY', // Use RETRIEVAL_QUERY for search queries
+            outputDimensionality: EMBEDDING_DIMENSIONS
+          })
+        }
+      )
+
+      if (!response.ok) {
+        const error = await response.text()
+        throw new Error(`Gemini API error: ${error}`)
+      }
+
+      const data = await response.json()
+      return {
+        result: data.embedding.values as number[],
+        usage: parseGeminiEmbeddingUsage(data),
+      }
     }
   )
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Gemini API error: ${error}`)
-  }
-
-  const data = await response.json()
-  return data.embedding.values
 }
 
 // =============================================================================
@@ -80,13 +99,17 @@ async function generateQueryEmbedding(query: string): Promise<number[]> {
  * Search library using hybrid semantic + keyword search
  * Token budget: ~2KB response
  */
-async function handleSearchLibrary(supabase: any, params: any) {
+async function handleSearchLibrary(
+  supabase: any,
+  params: any,
+  ctx: { userId: string | null; feature: string }
+) {
   const { query, filters = {}, limit = 20 } = params
 
   // Try semantic search if embeddings are available
   let semanticResults: any[] = []
   try {
-    const embedding = await generateQueryEmbedding(query)
+    const embedding = await generateQueryEmbedding(query, ctx)
 
     // Convert embedding array to string format for PostgreSQL vector type
     // PostgREST/Supabase JS requires vector parameters as string "[0.1, 0.2, ...]"
@@ -852,7 +875,7 @@ serve(async (req: Request) => {
 
     switch (tool) {
       case 'search_library':
-        result = await handleSearchLibrary(supabase, params)
+        result = await handleSearchLibrary(supabase, params, { userId: user.id, feature: 'embedding-detection' })
         break
 
       case 'get_coverage_summary':
@@ -886,7 +909,7 @@ serve(async (req: Request) => {
 
       case 'ransomware_readiness':
         const geminiKey = Deno.env.get('GEMINI_API_KEY') || null;
-        result = await runRansomwareAssessment(supabase, geminiKey);
+        result = await runRansomwareAssessment(supabase, geminiKey, user.id);
         break
 
       default:

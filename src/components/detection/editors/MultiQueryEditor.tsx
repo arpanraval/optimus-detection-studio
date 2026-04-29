@@ -220,7 +220,7 @@ Output JSON only (no markdown code blocks):
   ${schemaFields.join(',\n  ')}
 }`;
 
-      const result = await generateAIJSON<any>({ prompt, ...(model && { model }) });
+      const result = await generateAIJSON<any>({ prompt, ...(model && { model }), feature: 'multi-query-assist' });
 
       let finalExplanation = result.explanation || '';
       let languageChanged = false;

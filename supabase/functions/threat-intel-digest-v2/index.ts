@@ -255,12 +255,14 @@ serve(async (req: Request) => {
     let libraryMatches: LibraryMatch[] = isRetry ? existingReport!.libraryMatches : []
     let sectionErrors: Record<string, string> = isRetry ? { ...existingReport!.sectionErrors } : {}
 
+    const aiCtx = { userId: user.id, feature: 'threat-intel-digest' as const }
+
     // Stage 2: Extract summary (AI)
     const shouldRunSummary = !isRetry || retrySection === 'summary'
     if (shouldRunSummary) {
       console.log('=== Stage 2: Summary extraction (AI) ===')
       const summaryResult = await executeStage('summary', async () => {
-        return await extractSummary(reportContent, model, promptTemplates)
+        return await extractSummary(reportContent, model, promptTemplates, aiCtx)
       })
 
       if (summaryResult.success) {
@@ -293,7 +295,7 @@ serve(async (req: Request) => {
     if (shouldRunClassification) {
       console.log('=== Stage 3: Classification (AI) ===')
       const classificationResult = await executeStage('classification', async () => {
-        return await extractClassification(reportContent, JSON.stringify(summary), model, promptTemplates)
+        return await extractClassification(reportContent, JSON.stringify(summary), model, promptTemplates, aiCtx)
       })
 
       if (classificationResult.success) {
@@ -317,7 +319,7 @@ serve(async (req: Request) => {
     if (shouldRunTTPs) {
       console.log('=== Stage 4: TTP extraction (AI) ===')
       const ttpsResult = await executeStage('ttps', async () => {
-        const ttpsArray = await extractTTPs(reportContent, model, promptTemplates)
+        const ttpsArray = await extractTTPs(reportContent, model, promptTemplates, aiCtx)
         return ttpsArray.map((ttp: any, i: number) => ({
           id: `ttp_${reportId}_${i}`,
           ...ttp
@@ -345,7 +347,7 @@ serve(async (req: Request) => {
     if ((shouldRunIoCs && extractIoCs) || (shouldRunRules && extractRules)) {
       console.log('=== Stage 5: IoC & Detection Query extraction ===')
       const aiExtractionResult = await executeStage('ioc_extraction', () =>
-        extractIoCsWithAI(reportContent, url || existingReport?.sourceUrl || '', model, promptTemplates)
+        extractIoCsWithAI(reportContent, url || existingReport?.sourceUrl || '', model, promptTemplates, aiCtx)
       )
 
       if (aiExtractionResult.success && aiExtractionResult.data) {

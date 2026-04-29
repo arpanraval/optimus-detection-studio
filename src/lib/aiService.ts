@@ -7,6 +7,7 @@ import type {
   ThreatReport,
 } from '../types/threatIntel';
 import { getAllThreatIntelPromptTemplates } from './ai/prompts/threat-intel';
+import type { AiFeatureCode } from './ai/featureCodes';
 
 // ============================================================================
 // Retry / Timeout Utility
@@ -155,6 +156,8 @@ export interface AIGenerateOptions {
   prompt: string;
   model?: string;
   responseFormat?: 'json' | 'text';
+  /** GenAI Cost Center feature code for usage attribution. Server defaults to 'unknown'. */
+  feature?: AiFeatureCode;
 }
 
 export interface AIChatOptions {
@@ -165,6 +168,8 @@ export interface AIChatOptions {
   tools?: any[];
   history?: Array<{ role: string; parts: Array<{ text: string }> }>;
   functionResponses?: Array<{ id: string; name: string; response: any }>;
+  /** GenAI Cost Center feature code for usage attribution. Server defaults to 'unknown'. */
+  feature?: AiFeatureCode;
 }
 
 export interface AIFunctionCall {
@@ -182,11 +187,15 @@ export interface AIGenerateResponse {
  * All AI API calls should go through this service to keep API keys secure on the backend.
  */
 export async function generateAIContent(options: AIGenerateOptions): Promise<AIGenerateResponse> {
-  const { prompt, model = DEFAULT_MODEL, responseFormat = 'json' } = options;
+  const { prompt, model = DEFAULT_MODEL, responseFormat = 'json', feature } = options;
+
+  if (import.meta.env.DEV && !feature) {
+    logger.warn('[aiService] generateAIContent missing feature tag — will be classified as "unknown" in the Cost Center.');
+  }
 
   return withRetry(async () => {
     const { data, error } = await supabase.functions.invoke('ai-generate', {
-      body: { prompt, model, responseFormat }
+      body: { prompt, model, responseFormat, feature }
     });
 
     if (error) {
@@ -214,8 +223,13 @@ export async function generateAIChat(options: AIChatOptions): Promise<AIGenerate
     systemInstruction,
     tools,
     history,
-    functionResponses
+    functionResponses,
+    feature
   } = options;
+
+  if (import.meta.env.DEV && !feature) {
+    logger.warn('[aiService] generateAIChat missing feature tag — will be classified as "unknown" in the Cost Center.');
+  }
 
   return withRetry(async () => {
     const { data, error } = await supabase.functions.invoke('ai-generate', {
@@ -226,7 +240,8 @@ export async function generateAIChat(options: AIChatOptions): Promise<AIGenerate
         systemInstruction,
         tools,
         history,
-        functionResponses
+        functionResponses,
+        feature
       }
     });
 
