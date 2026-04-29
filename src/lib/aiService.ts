@@ -15,8 +15,12 @@ import type { AiFeatureCode } from './ai/featureCodes';
 
 async function withRetry<T>(
   fn: () => Promise<T>,
-  { maxAttempts = 3, baseDelay = 1000, timeout = 30000 }: { maxAttempts?: number; baseDelay?: number; timeout?: number } = {}
+  { maxAttempts = 3, baseDelay = 1000, timeout = 120_000 }: { maxAttempts?: number; baseDelay?: number; timeout?: number } = {}
 ): Promise<T> {
+  // Per-attempt timeout was 30s — too tight for chat flows running large prompts
+  // through Claude Opus / GPT-5.4 (35–60s is normal for AI Query Generator).
+  // Bumped to 120s. Edge function default limit is 300s, so 3 attempts at 120s
+  // + backoff still fits inside the platform budget.
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const result = await Promise.race([
@@ -28,9 +32,16 @@ async function withRetry<T>(
       return result;
     } catch (err) {
       if (attempt === maxAttempts) throw err;
-      // Don't retry on auth errors or validation errors
       const message = err instanceof Error ? err.message : '';
-      if (message.includes('unauthorized') || message.includes('invalid') || message.includes('not found')) {
+      // Don't retry: auth/validation errors are permanent; timeouts mean the
+      // request was slow, not transient — retrying just makes the user wait
+      // another timeout window before the same failure.
+      if (
+        message.includes('unauthorized') ||
+        message.includes('invalid') ||
+        message.includes('not found') ||
+        message.includes('timed out')
+      ) {
         throw err;
       }
       // Exponential backoff: 1s, 2s, 4s
