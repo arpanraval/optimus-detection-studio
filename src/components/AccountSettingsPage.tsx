@@ -1,890 +1,651 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Icon } from './Icon';
+import React, { useState, useEffect } from 'react';
+import { Button } from './ui/Button';
+import { Input } from './ui/Input';
 import { MfaEnrollmentWizard } from './MfaEnrollmentWizard';
 import { supabase } from '../lib/supabaseClient';
 import { useToast } from '../hooks/useToast';
 import { useBeforeUnload } from '../hooks/useBeforeUnload';
 import { Profile } from '../types';
+import { getAvatarColor, getInitials } from '../lib/avatar';
 
 // =============================================================================
-// STYLES
-// =============================================================================
-
-const customStyles = `
-.settings-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
-.settings-scroll::-webkit-scrollbar-track { background: transparent; }
-.settings-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
-.settings-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
-.settings-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent; }
-[data-theme="light"] .settings-scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); }
-[data-theme="light"] .settings-scroll::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.2); }
-`;
-
-// =============================================================================
-// TYPES
+// CONSTANTS
 // =============================================================================
 
 type SettingsSection = 'profile' | 'security' | 'notifications' | 'sessions';
 
 interface AccountSettingsPageProps {
-    userId: string;
-    userEmail: string;
-    onBack?: () => void;
+  userId: string;
+  userEmail: string;
 }
+
+const TABS: { id: SettingsSection; label: string }[] = [
+  { id: 'profile',       label: 'Profile' },
+  { id: 'security',      label: 'Security' },
+  { id: 'notifications', label: 'Notifications' },
+  { id: 'sessions',      label: 'Sessions' },
+];
+
+const COMMON_TIMEZONES = [
+  'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+  'America/Sao_Paulo', 'Europe/London', 'Europe/Paris', 'Europe/Berlin',
+  'Asia/Dubai', 'Asia/Kolkata', 'Asia/Singapore', 'Asia/Tokyo', 'Asia/Shanghai',
+  'Australia/Sydney', 'Pacific/Auckland',
+];
+
+const PASSWORD_REQUIREMENTS = [
+  { test: (p: string) => p.length >= 12, label: '12+ characters' },
+  { test: (p: string) => /[A-Z]/.test(p), label: 'Uppercase' },
+  { test: (p: string) => /[a-z]/.test(p), label: 'Lowercase' },
+  { test: (p: string) => /[0-9]/.test(p), label: 'Number' },
+];
+
+// =============================================================================
+// CARD CHROME — visible borders + clearly-elevated background. Stronger
+// contrast than the AutoDigest pattern so the structure reads in both themes.
+// =============================================================================
+
+interface CardProps {
+  title: string;
+  description?: string;
+  trailing?: React.ReactNode;
+  children: React.ReactNode;
+}
+
+const Card: React.FC<CardProps> = ({ title, description, trailing, children }) => (
+  <div className="rounded-xl border border-outline-variant/30 bg-surface-container-low shadow-sm overflow-hidden">
+    <div className="flex items-start justify-between gap-3 px-5 py-3.5 border-b border-outline-variant/30 bg-surface-container">
+      <div className="min-w-0">
+        <h3 className="text-sm font-semibold text-on-surface">{title}</h3>
+        {description && (
+          <p className="text-xs text-on-surface-variant mt-0.5">{description}</p>
+        )}
+      </div>
+      {trailing}
+    </div>
+    <div className="p-5">{children}</div>
+  </div>
+);
 
 // =============================================================================
 // MAIN COMPONENT
 // =============================================================================
 
-export const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({
-    userId,
-    userEmail,
-    onBack,
-}) => {
-    const [activeSection, setActiveSection] = useState<SettingsSection>('profile');
-    const [profile, setProfile] = useState<Profile | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [isSaving, setIsSaving] = useState(false);
+export const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ userId, userEmail }) => {
+  const [activeSection, setActiveSection] = useState<SettingsSection>('profile');
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [copiedId, setCopiedId] = useState(false);
 
-    // Form states
-    const [displayName, setDisplayName] = useState('');
-    const [timezone, setTimezone] = useState('');
+  // Profile form state
+  const [displayName, setDisplayName] = useState('');
+  const [timezone, setTimezone] = useState('');
 
-    // Password form states
-    const [currentPassword, setCurrentPassword] = useState('');
-    const [newPassword, setNewPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
-    const [isChangingPassword, setIsChangingPassword] = useState(false);
+  // Password form state
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
 
-    // MFA state
-    const [mfaFactors, setMfaFactors] = useState<Array<{ id: string; status: string; friendly_name?: string; created_at?: string }>>([]);
-    const [mfaLoading, setMfaLoading] = useState(false);
-    const [showMfaWizard, setShowMfaWizard] = useState(false);
-    const [showMfaDisableConfirm, setShowMfaDisableConfirm] = useState(false);
-    const [mfaDisabling, setMfaDisabling] = useState(false);
+  // MFA state
+  const [mfaFactors, setMfaFactors] = useState<
+    Array<{ id: string; status: string; friendly_name?: string; created_at?: string }>
+  >([]);
+  const [mfaLoading, setMfaLoading] = useState(false);
+  const [showMfaWizard, setShowMfaWizard] = useState(false);
+  const [showMfaDisableConfirm, setShowMfaDisableConfirm] = useState(false);
+  const [mfaDisabling, setMfaDisabling] = useState(false);
 
-    const { showToast } = useToast();
+  const { showToast } = useToast();
 
-    // Dirty tracking: profile changed or password fields filled
-    const hasUnsavedChanges = (
-        (profile !== null && (
-            displayName !== (profile.full_name || '') ||
-            timezone !== (profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone)
-        )) ||
-        currentPassword.length > 0 ||
-        newPassword.length > 0 ||
-        confirmPassword.length > 0
-    );
+  const isProfileDirty =
+    profile !== null &&
+    (displayName !== (profile.full_name || '') ||
+      timezone !== (profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone));
 
-    useBeforeUnload(hasUnsavedChanges);
+  const isPasswordDirty =
+    currentPassword.length > 0 || newPassword.length > 0 || confirmPassword.length > 0;
 
-    // Inject styles
-    useEffect(() => {
-        const styleId = 'account-settings-styles';
-        if (!document.getElementById(styleId)) {
-            const style = document.createElement('style');
-            style.id = styleId;
-            style.textContent = customStyles;
-            document.head.appendChild(style);
-        }
-    }, []);
+  useBeforeUnload(isProfileDirty || isPasswordDirty);
 
-    // Fetch profile
-    useEffect(() => {
-        const fetchProfile = async () => {
-            setIsLoading(true);
-            try {
-                const { data, error } = await supabase
-                    .from('profiles')
-                    .select('*')
-                    .eq('id', userId)
-                    .single();
+  // ==========================================================================
+  // DATA FETCH
+  // ==========================================================================
 
-                if (error) throw error;
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setIsLoading(true);
+      try {
+        const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
+        if (error) throw error;
+        if (cancelled) return;
+        setProfile(data);
+        setDisplayName(data.full_name || '');
+        setTimezone(data.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone);
+      } catch {
+        if (!cancelled) showToast('error', 'Error', 'Failed to load profile');
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [userId, showToast]);
 
-                setProfile(data);
-                setDisplayName(data.full_name || '');
-                setTimezone(data.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone);
-            } catch (err: unknown) {
-                showToast('error', 'Error', 'Failed to load profile');
-            } finally {
-                setIsLoading(false);
-            }
-        };
+  // ==========================================================================
+  // HANDLERS
+  // ==========================================================================
 
-        fetchProfile();
-    }, [userId]);
+  const handleSaveProfile = async () => {
+    setIsSavingProfile(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          full_name: displayName.trim() || null,
+          timezone,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', userId);
+      if (error) throw error;
+      showToast('success', 'Saved', 'Profile updated successfully');
+      setProfile((prev) => (prev ? { ...prev, full_name: displayName, timezone } : null));
+    } catch (err) {
+      showToast('error', 'Error', err instanceof Error ? err.message : 'Failed to save profile');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
-    // ==========================================================================
-    // HANDLERS
-    // ==========================================================================
+  const handleDiscardProfile = () => {
+    if (!profile) return;
+    setDisplayName(profile.full_name || '');
+    setTimezone(profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone);
+  };
 
-    const handleSaveProfile = async () => {
-        setIsSaving(true);
-        try {
-            const { error } = await supabase
-                .from('profiles')
-                .update({
-                    full_name: displayName.trim() || null,
-                    timezone: timezone,
-                    updated_at: new Date().toISOString(),
-                })
-                .eq('id', userId);
+  const handleChangePassword = async () => {
+    if (newPassword !== confirmPassword) {
+      showToast('error', 'Error', 'Passwords do not match');
+      return;
+    }
+    const failedRequirement = PASSWORD_REQUIREMENTS.find((r) => !r.test(newPassword));
+    if (failedRequirement) {
+      showToast('error', 'Error', `Password missing: ${failedRequirement.label}`);
+      return;
+    }
+    if (!currentPassword) {
+      showToast('error', 'Error', 'Current password is required');
+      return;
+    }
 
-            if (error) throw error;
+    setIsChangingPassword(true);
+    try {
+      const { error: verifyError } = await supabase.auth.signInWithPassword({
+        email: profile?.email || userEmail,
+        password: currentPassword,
+      });
+      if (verifyError) {
+        showToast('error', 'Error', 'Current password is incorrect');
+        return;
+      }
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      showToast('success', 'Success', 'Password changed successfully');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err) {
+      showToast('error', 'Error', err instanceof Error ? err.message : 'Failed to change password');
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
 
-            showToast('success', 'Saved', 'Profile updated successfully');
-            setProfile(prev => prev ? { ...prev, full_name: displayName, timezone } : null);
-        } catch (err: unknown) {
-            showToast('error', 'Error', err instanceof Error ? err.message : 'Failed to save profile');
-        } finally {
-            setIsSaving(false);
-        }
-    };
+  const handleCopyId = async () => {
+    if (!profile?.id) return;
+    try {
+      await navigator.clipboard.writeText(profile.id);
+      setCopiedId(true);
+      setTimeout(() => setCopiedId(false), 1500);
+    } catch {
+      /* clipboard might be unavailable; silently ignore */
+    }
+  };
 
-    const handleChangePassword = async () => {
-        if (newPassword !== confirmPassword) {
-            showToast('error', 'Error', 'Passwords do not match');
-            return;
-        }
+  // ==========================================================================
+  // MFA
+  // ==========================================================================
 
-        if (newPassword.length < 12) {
-            showToast('error', 'Error', 'Password must be at least 12 characters.');
-            return;
-        }
-        if (!/[A-Z]/.test(newPassword)) {
-            showToast('error', 'Error', 'Must contain at least one uppercase letter.');
-            return;
-        }
-        if (!/[a-z]/.test(newPassword)) {
-            showToast('error', 'Error', 'Must contain at least one lowercase letter.');
-            return;
-        }
-        if (!/[0-9]/.test(newPassword)) {
-            showToast('error', 'Error', 'Must contain at least one number.');
-            return;
-        }
+  const fetchMfaFactors = async () => {
+    setMfaLoading(true);
+    try {
+      const { data } = await supabase.auth.mfa.listFactors();
+      setMfaFactors(data?.totp?.filter((f) => f.status === 'verified') || []);
+    } catch {
+      /* silent */
+    } finally {
+      setMfaLoading(false);
+    }
+  };
 
-        if (!currentPassword) {
-            showToast('error', 'Error', 'Current password is required.');
-            return;
-        }
+  useEffect(() => {
+    if (activeSection === 'security') fetchMfaFactors();
+  }, [activeSection]);
 
-        setIsChangingPassword(true);
-        try {
-            // Verify current password first
-            const { error: verifyError } = await supabase.auth.signInWithPassword({
-                email: profile?.email || userEmail,
-                password: currentPassword,
-            });
+  const handleDisableMfa = async () => {
+    if (!mfaFactors[0]) return;
+    setMfaDisabling(true);
+    try {
+      const { error } = await supabase.auth.mfa.unenroll({ factorId: mfaFactors[0].id });
+      if (error) throw error;
+      showToast('success', 'Disabled', 'Two-factor authentication has been disabled');
+      await fetchMfaFactors();
+    } catch (err) {
+      showToast('error', 'Error', err instanceof Error ? err.message : 'Failed to disable MFA');
+    } finally {
+      setMfaDisabling(false);
+      setShowMfaDisableConfirm(false);
+    }
+  };
 
-            if (verifyError) {
-                showToast('error', 'Error', 'Current password is incorrect.');
-                return;
-            }
+  // ==========================================================================
+  // RENDER
+  // ==========================================================================
 
-            const { error } = await supabase.auth.updateUser({
-                password: newPassword,
-            });
+  const avatar = getAvatarColor(userEmail);
+  const initials = getInitials(profile?.full_name || displayName, userEmail);
+  const displayLine = (profile?.full_name || displayName || userEmail.split('@')[0]).trim();
+  const memberSince = profile?.created_at
+    ? new Date(profile.created_at).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })
+    : null;
+  const lastActive = profile?.last_active_at
+    ? new Date(profile.last_active_at).toLocaleString(undefined, {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      })
+    : null;
+  const hasMfa = mfaFactors.length > 0;
 
-            if (error) throw error;
-
-            showToast('success', 'Success', 'Password changed successfully');
-            setCurrentPassword('');
-            setNewPassword('');
-            setConfirmPassword('');
-        } catch (err: unknown) {
-            showToast('error', 'Error', err instanceof Error ? err.message : 'Failed to change password');
-        } finally {
-            setIsChangingPassword(false);
-        }
-    };
-
-    // ==========================================================================
-    // MFA
-    // ==========================================================================
-
-    const fetchMfaFactors = async () => {
-        setMfaLoading(true);
-        try {
-            const { data } = await supabase.auth.mfa.listFactors();
-            setMfaFactors(data?.totp?.filter(f => f.status === 'verified') || []);
-        } catch { /* silent */ } finally { setMfaLoading(false); }
-    };
-
-    useEffect(() => {
-        if (activeSection === 'security') fetchMfaFactors();
-    }, [activeSection]);
-
-    const handleDisableMfa = async () => {
-        if (!mfaFactors[0]) return;
-        setMfaDisabling(true);
-        try {
-            const { error } = await supabase.auth.mfa.unenroll({ factorId: mfaFactors[0].id });
-            if (error) throw error;
-            showToast('success', 'Disabled', 'Two-factor authentication has been disabled');
-            await fetchMfaFactors();
-        } catch (err: unknown) {
-            showToast('error', 'Error', err instanceof Error ? err.message : 'Failed to disable MFA');
-        } finally { setMfaDisabling(false); setShowMfaDisableConfirm(false); }
-    };
-
-    // ==========================================================================
-    // NAVIGATION
-    // ==========================================================================
-
-    const navItems: { id: SettingsSection; label: string; icon: string }[] = [
-        { id: 'profile', label: 'Profile', icon: 'user' },
-        { id: 'security', label: 'Security', icon: 'shield-check' },
-        { id: 'notifications', label: 'Notifications', icon: 'bell' },
-        { id: 'sessions', label: 'Sessions', icon: 'monitor' },
-    ];
-
-    // ==========================================================================
-    // RENDER
-    // ==========================================================================
-
-    return (
-        <div className="h-full flex flex-col bg-background">
-            {/* Header */}
-            <div className="flex-shrink-0 px-6 lg:px-8 py-5 border-b border-outline-variant/10">
-                <div className="max-w-5xl mx-auto flex items-center gap-4">
-                    {onBack && (
-                        <button
-                            onClick={onBack}
-                            className="p-2 rounded-lg text-on-surface-variant/60 hover:text-on-surface hover:bg-surface-container-highest transition-colors"
-                        >
-                            <Icon name="arrow-left" className="w-5 h-5" />
-                        </button>
-                    )}
-                    <div>
-                        <h1 className="text-xl font-semibold text-on-surface">Account Settings</h1>
-                        <p className="text-sm text-on-surface-variant/60 mt-0.5">{userEmail}</p>
-                    </div>
-                </div>
-            </div>
-
-            {/* Content */}
-            <div className="flex-1 overflow-hidden">
-                <div className="h-full max-w-5xl mx-auto px-6 lg:px-8 py-6 flex gap-6">
-                    {/* Sidebar Navigation */}
-                    <nav className="w-56 flex-shrink-0">
-                        <div className="space-y-1">
-                            {navItems.map((item) => (
-                                <button
-                                    key={item.id}
-                                    onClick={() => setActiveSection(item.id)}
-                                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-                                        activeSection === item.id
-                                            ? 'bg-tertiary/10 text-tertiary'
-                                            : 'text-on-surface-variant/70 hover:text-on-surface hover:bg-surface-container-highest'
-                                    }`}
-                                >
-                                    <Icon name={item.icon} className="w-5 h-5" />
-                                    {item.label}
-                                </button>
-                            ))}
-                        </div>
-                    </nav>
-
-                    {/* Main Content */}
-                    <div className="flex-1 overflow-y-auto settings-scroll">
-                        {isLoading ? (
-                            <div className="flex items-center justify-center py-16">
-                                <Icon name="spinner" className="w-8 h-8 animate-spin text-tertiary/50" />
-                            </div>
-                        ) : (
-                            <>
-                                {activeSection === 'profile' && (
-                                    <ProfileSection
-                                        displayName={displayName}
-                                        setDisplayName={setDisplayName}
-                                        timezone={timezone}
-                                        setTimezone={setTimezone}
-                                        userEmail={userEmail}
-                                        isSaving={isSaving}
-                                        onSave={handleSaveProfile}
-                                    />
-                                )}
-
-                                {activeSection === 'security' && (
-                                    <SecuritySection
-                                        currentPassword={currentPassword}
-                                        setCurrentPassword={setCurrentPassword}
-                                        newPassword={newPassword}
-                                        setNewPassword={setNewPassword}
-                                        confirmPassword={confirmPassword}
-                                        setConfirmPassword={setConfirmPassword}
-                                        isChangingPassword={isChangingPassword}
-                                        onChangePassword={handleChangePassword}
-                                        mfaFactors={mfaFactors}
-                                        mfaLoading={mfaLoading}
-                                        onEnableMfa={() => setShowMfaWizard(true)}
-                                        onDisableMfa={() => setShowMfaDisableConfirm(true)}
-                                    />
-                                )}
-
-                                {activeSection === 'notifications' && (
-                                    <NotificationsSection />
-                                )}
-
-                                {activeSection === 'sessions' && (
-                                    <SessionsSection userEmail={userEmail} />
-                                )}
-                            </>
-                        )}
-                    </div>
-                </div>
-            </div>
-
-            {/* MFA Enrollment Wizard */}
-            <MfaEnrollmentWizard
-                isOpen={showMfaWizard}
-                onClose={() => setShowMfaWizard(false)}
-                onEnrolled={() => {
-                    fetchMfaFactors();
-                    showToast('success', 'Enabled', 'Two-factor authentication is now active');
-                }}
-            />
-
-            {/* MFA Disable Confirmation */}
-            {showMfaDisableConfirm && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-                    <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6 max-w-sm w-full mx-4 shadow-2xl">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="w-10 h-10 rounded-xl bg-error/10 flex items-center justify-center">
-                                <Icon name="shield-off" className="w-5 h-5 text-error" />
-                            </div>
-                            <h3 className="text-base font-semibold text-on-surface">Disable Two-Factor?</h3>
-                        </div>
-                        <p className="text-sm text-on-surface-variant/70 mb-6">
-                            This will remove the authenticator app from your account. Your account will only be protected by your password.
-                        </p>
-                        <div className="flex gap-3 justify-end">
-                            <button
-                                onClick={() => setShowMfaDisableConfirm(false)}
-                                className="px-4 py-2 text-sm font-medium text-on-surface-variant rounded-xl hover:bg-surface-container-highest transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleDisableMfa}
-                                disabled={mfaDisabling}
-                                className="px-4 py-2 text-sm font-medium text-white bg-error rounded-xl hover:brightness-110 transition-all disabled:opacity-50 flex items-center gap-2"
-                            >
-                                {mfaDisabling ? (
-                                    <>
-                                        <Icon name="spinner" className="w-4 h-4 animate-spin" />
-                                        Disabling...
-                                    </>
-                                ) : (
-                                    'Disable'
-                                )}
-                            </button>
-                        </div>
-                    </div>
-                </div>
+  return (
+    <div className="max-w-6xl mx-auto px-6 py-6 animate-page-enter">
+      {/* ───── Identity hero — full-width header card ───────────────────── */}
+      <div className="flex items-center gap-4 px-5 py-4 rounded-xl border border-outline-variant/30 bg-surface-container-low shadow-sm mb-6">
+        <div className={`w-14 h-14 rounded-full ${avatar.bg} flex items-center justify-center flex-shrink-0`}>
+          <span className={`text-base font-bold ${avatar.text}`}>{initials}</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-base font-semibold text-on-surface truncate">{displayLine}</span>
+            {profile?.role && (
+              <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded bg-tertiary/15 text-tertiary">
+                {profile.role}
+              </span>
             )}
+          </div>
+          <div className="text-sm text-on-surface-variant truncate">{userEmail}</div>
+          {memberSince && (
+            <div className="text-[11px] text-on-surface-variant/60 mt-0.5">Member since {memberSince}</div>
+          )}
         </div>
-    );
-};
+      </div>
 
-// =============================================================================
-// PROFILE SECTION
-// =============================================================================
-
-interface ProfileSectionProps {
-    displayName: string;
-    setDisplayName: (v: string) => void;
-    timezone: string;
-    setTimezone: (v: string) => void;
-    userEmail: string;
-    isSaving: boolean;
-    onSave: () => void;
-}
-
-const ProfileSection: React.FC<ProfileSectionProps> = ({
-    displayName,
-    setDisplayName,
-    timezone,
-    setTimezone,
-    userEmail,
-    isSaving,
-    onSave,
-}) => {
-    const commonTimezones = [
-        'America/New_York',
-        'America/Chicago',
-        'America/Denver',
-        'America/Los_Angeles',
-        'America/Sao_Paulo',
-        'Europe/London',
-        'Europe/Paris',
-        'Europe/Berlin',
-        'Asia/Dubai',
-        'Asia/Kolkata',
-        'Asia/Singapore',
-        'Asia/Tokyo',
-        'Asia/Shanghai',
-        'Australia/Sydney',
-        'Pacific/Auckland',
-    ];
-
-    return (
-        <div className="space-y-8">
-            {/* Section Header */}
-            <div>
-                <h2 className="text-lg font-semibold text-on-surface">Profile Information</h2>
-                <p className="text-sm text-on-surface-variant/60 mt-1">
-                    Update your personal information and preferences
-                </p>
-            </div>
-
-            {/* Avatar */}
-            <div className="flex items-center gap-6">
-                <div className="w-20 h-20 rounded-2xl bg-tertiary/10 text-tertiary flex items-center justify-center text-2xl font-semibold">
-                    {displayName ? displayName.charAt(0).toUpperCase() : userEmail.charAt(0).toUpperCase()}
-                </div>
-                <div>
-                    <p className="text-sm font-medium text-on-surface">Profile Photo</p>
-                    <p className="text-xs text-on-surface-variant/50 mt-1">Avatar upload coming soon</p>
-                </div>
-            </div>
-
-            {/* Form Fields */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Display Name */}
-                <div>
-                    <label className="block text-sm font-medium text-on-surface-variant mb-2">
-                        Display Name
-                    </label>
-                    <input
-                        type="text"
-                        value={displayName}
-                        onChange={(e) => setDisplayName(e.target.value)}
-                        placeholder="Enter your name"
-                        className="w-full px-4 py-3 bg-surface-container border border-outline-variant/10 rounded-xl text-on-surface placeholder-on-surface-variant/40 focus:outline-none focus:border-tertiary/30 transition-colors"
-                    />
-                </div>
-
-                {/* Email (read-only) */}
-                <div>
-                    <label className="block text-sm font-medium text-on-surface-variant mb-2">
-                        Email Address
-                    </label>
-                    <input
-                        type="email"
-                        value={userEmail}
-                        disabled
-                        className="w-full px-4 py-3 bg-surface-container-highest border border-outline-variant/10 rounded-xl text-on-surface-variant/50 cursor-not-allowed"
-                    />
-                    <p className="text-xs text-on-surface-variant/40 mt-1">Email cannot be changed</p>
-                </div>
-
-                {/* Timezone */}
-                <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-on-surface-variant mb-2">
-                        Timezone
-                    </label>
-                    <select
-                        value={timezone}
-                        onChange={(e) => setTimezone(e.target.value)}
-                        className="w-full px-4 py-3 bg-surface-container border border-outline-variant/10 rounded-xl text-on-surface focus:outline-none focus:border-tertiary/30 transition-colors appearance-none cursor-pointer"
-                    >
-                        {commonTimezones.map((tz) => (
-                            <option key={tz} value={tz}>
-                                {tz.replace(/_/g, ' ')}
-                            </option>
-                        ))}
-                    </select>
-                </div>
-            </div>
-
-            {/* Save Button */}
-            <div className="flex justify-end pt-4 border-t border-outline-variant/10">
+      {/* ───── Two-column layout: vertical sub-nav rail + content ───────── */}
+      <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6">
+        {/* Sub-nav rail */}
+        <nav className="md:sticky md:top-6 md:self-start">
+          <div className="text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-widest mb-2 px-3">
+            Settings
+          </div>
+          <div className="flex flex-col gap-0.5">
+            {TABS.map((tab) => {
+              const active = activeSection === tab.id;
+              return (
                 <button
-                    onClick={onSave}
-                    disabled={isSaving}
-                    className="px-6 py-2.5 bg-tertiary text-on-tertiary font-medium rounded-xl hover:brightness-110 transition-all disabled:opacity-50 flex items-center gap-2"
+                  key={tab.id}
+                  onClick={() => setActiveSection(tab.id)}
+                  className={`text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                    active
+                      ? 'bg-surface-container-high text-on-surface font-medium'
+                      : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low'
+                  }`}
                 >
-                    {isSaving ? (
-                        <>
-                            <Icon name="spinner" className="w-4 h-4 animate-spin" />
-                            Saving...
-                        </>
-                    ) : (
-                        'Save Changes'
-                    )}
+                  {tab.label}
                 </button>
+              );
+            })}
+          </div>
+        </nav>
+
+        {/* Section content column */}
+        <div className="min-w-0 space-y-5">
+          {/* Loading state */}
+          {isLoading && (
+            <div className="flex items-center justify-center py-16 rounded-xl border border-outline-variant/30 bg-surface-container-low">
+              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             </div>
-        </div>
-    );
-};
+          )}
 
-// =============================================================================
-// SECURITY SECTION
-// =============================================================================
-
-interface SecuritySectionProps {
-    currentPassword: string;
-    setCurrentPassword: (v: string) => void;
-    newPassword: string;
-    setNewPassword: (v: string) => void;
-    confirmPassword: string;
-    setConfirmPassword: (v: string) => void;
-    isChangingPassword: boolean;
-    onChangePassword: () => void;
-    mfaFactors: Array<{ id: string; status: string; friendly_name?: string; created_at?: string }>;
-    mfaLoading: boolean;
-    onEnableMfa: () => void;
-    onDisableMfa: () => void;
-}
-
-const REQUIREMENTS = [
-    { test: (p: string) => p.length >= 12, label: '12+ characters' },
-    { test: (p: string) => /[A-Z]/.test(p), label: 'Uppercase' },
-    { test: (p: string) => /[a-z]/.test(p), label: 'Lowercase' },
-    { test: (p: string) => /[0-9]/.test(p), label: 'Number' },
-];
-
-const SecuritySection: React.FC<SecuritySectionProps> = ({
-    currentPassword,
-    setCurrentPassword,
-    newPassword,
-    setNewPassword,
-    confirmPassword,
-    setConfirmPassword,
-    isChangingPassword,
-    onChangePassword,
-    mfaFactors,
-    mfaLoading,
-    onEnableMfa,
-    onDisableMfa,
-}) => {
-    const [showPasswords, setShowPasswords] = useState(false);
-    const hasMfa = mfaFactors.length > 0;
-
-    return (
-        <div className="space-y-8">
-            {/* Section Header */}
-            <div>
-                <h2 className="text-lg font-semibold text-on-surface">Security</h2>
-                <p className="text-sm text-on-surface-variant/60 mt-1">
-                    Manage your password and security settings
-                </p>
-            </div>
-
-            {/* Security Status Banner */}
-            <div
-                className="rounded-2xl border border-outline-variant/10 p-5"
-                style={{ background: 'linear-gradient(135deg, rgba(120,50,100,0.08), rgba(0,80,145,0.05))' }}
-            >
-                <div className="flex items-center gap-4">
-                    <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${hasMfa ? 'bg-emerald-500/15' : 'bg-amber-500/15'}`}>
-                        <Icon name="shield-check" className={`w-6 h-6 ${hasMfa ? 'text-emerald-500' : 'text-amber-500'}`} />
-                    </div>
-                    <div className="flex-1">
-                        <p className="text-sm font-semibold text-on-surface">
-                            Protection: {hasMfa ? 'Enhanced' : 'Standard'}
-                        </p>
-                        <p className="text-xs text-on-surface-variant/60 mt-0.5">
-                            {hasMfa
-                                ? 'Password and two-factor authentication active'
-                                : 'Enable 2FA for enhanced protection'}
-                        </p>
-                    </div>
-                    {/* Two-segment bar indicator */}
-                    <div className="flex gap-1.5">
-                        <div className="w-10 h-2 rounded-full bg-emerald-500" />
-                        <div className={`w-10 h-2 rounded-full ${hasMfa ? 'bg-emerald-500' : 'bg-surface-container-highest'}`} />
-                    </div>
+          {/* PROFILE */}
+          {!isLoading && activeSection === 'profile' && (
+            <>
+              <Card title="Personal Information" description="Your name, email, and timezone">
+                <div className="space-y-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Input
+                      label="Display Name"
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      placeholder="Enter your name"
+                      fullWidth
+                    />
+                    <Input
+                      label="Email Address"
+                      type="email"
+                      value={userEmail}
+                      readOnly
+                      helperText="Email cannot be changed"
+                      fullWidth
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-on-surface mb-1.5">Timezone</label>
+                    <select
+                      value={timezone}
+                      onChange={(e) => setTimezone(e.target.value)}
+                      className="w-full h-10 px-4 rounded-xl bg-surface-container-high border border-outline-variant/40 text-sm text-on-surface focus:outline-none focus:border-[#783264] focus:ring-2 focus:ring-[#783264]/20 transition-all appearance-none cursor-pointer"
+                    >
+                      {COMMON_TIMEZONES.map((tz) => (
+                        <option key={tz} value={tz}>
+                          {tz.replace(/_/g, ' ')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-            </div>
+              </Card>
 
-            {/* Password Card */}
-            <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6">
-                <h3 className="text-base font-medium text-on-surface mb-4">Change Password</h3>
+              {/* Account meta — read-only at-a-glance info gives the page weight */}
+              <Card title="Account Details" description="Read-only account metadata">
+                <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                  <MetaRow label="Role" value={profile?.role ? capitalize(profile.role) : '—'} />
+                  <MetaRow label="Member since" value={memberSince ?? '—'} />
+                  <MetaRow label="Last active" value={lastActive ?? 'Now'} />
+                  <MetaRow label="Status" value={profile?.status ? capitalize(profile.status) : 'Active'} />
+                  <div className="md:col-span-2">
+                    <dt className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/60 mb-1">
+                      Account ID
+                    </dt>
+                    <dd className="flex items-center gap-2">
+                      <code className="text-xs font-mono text-on-surface-variant px-2 py-1 rounded bg-surface-container-high border border-outline-variant/30 truncate flex-1 min-w-0">
+                        {profile?.id ?? userId}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={handleCopyId}
+                        className="text-xs text-on-surface-variant hover:text-on-surface px-2 py-1 rounded-md hover:bg-surface-container-high transition-colors flex-shrink-0"
+                        title="Copy account ID"
+                      >
+                        {copiedId ? 'Copied' : 'Copy'}
+                      </button>
+                    </dd>
+                  </div>
+                </dl>
+              </Card>
+            </>
+          )}
 
+          {/* SECURITY */}
+          {!isLoading && activeSection === 'security' && (
+            <>
+              <Card title="Password" description="Change the password you use to sign in">
                 <div className="space-y-4 max-w-md">
-                    {/* Current Password */}
-                    <div>
-                        <label className="block text-sm font-medium text-on-surface-variant mb-2">
-                            Current Password
-                        </label>
-                        <input
-                            type={showPasswords ? 'text' : 'password'}
-                            value={currentPassword}
-                            onChange={(e) => setCurrentPassword(e.target.value)}
-                            placeholder="Enter current password"
-                            className="w-full px-4 py-3 bg-surface-container-highest border border-outline-variant/10 rounded-xl text-on-surface placeholder-on-surface-variant/40 focus:outline-none focus:border-tertiary/30 transition-colors"
-                        />
-                    </div>
-
-                    {/* New Password */}
-                    <div>
-                        <label className="block text-sm font-medium text-on-surface-variant mb-2">
-                            New Password
-                        </label>
-                        <input
-                            type={showPasswords ? 'text' : 'password'}
-                            value={newPassword}
-                            onChange={(e) => setNewPassword(e.target.value)}
-                            placeholder="Enter new password"
-                            className="w-full px-4 py-3 bg-surface-container-highest border border-outline-variant/10 rounded-xl text-on-surface placeholder-on-surface-variant/40 focus:outline-none focus:border-tertiary/30 transition-colors"
-                        />
-
-                        {/* Requirements checklist */}
-                        {newPassword.length > 0 && (
-                            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
-                                {REQUIREMENTS.map((req) => {
-                                    const met = req.test(newPassword);
-                                    return (
-                                        <span key={req.label} className={`text-xs flex items-center gap-1 ${met ? 'text-emerald-500' : 'text-on-surface-variant/40'}`}>
-                                            <Icon name={met ? 'check-circle' : 'circle'} className="w-3.5 h-3.5" />
-                                            {req.label}
-                                        </span>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Confirm Password */}
-                    <div>
-                        <label className="block text-sm font-medium text-on-surface-variant mb-2">
-                            Confirm New Password
-                        </label>
-                        <input
-                            type={showPasswords ? 'text' : 'password'}
-                            value={confirmPassword}
-                            onChange={(e) => setConfirmPassword(e.target.value)}
-                            placeholder="Confirm new password"
-                            className="w-full px-4 py-3 bg-surface-container-highest border border-outline-variant/10 rounded-xl text-on-surface placeholder-on-surface-variant/40 focus:outline-none focus:border-tertiary/30 transition-colors"
-                        />
-                    </div>
-
-                    {/* Show Password Toggle */}
-                    <label className="flex items-center gap-2 text-sm text-on-surface-variant cursor-pointer">
-                        <input
-                            type="checkbox"
-                            checked={showPasswords}
-                            onChange={(e) => setShowPasswords(e.target.checked)}
-                            className="w-4 h-4 rounded border-outline-variant/30"
-                        />
-                        Show passwords
-                    </label>
-
-                    {/* Change Button */}
-                    <button
-                        onClick={onChangePassword}
-                        disabled={isChangingPassword || !newPassword || !confirmPassword}
-                        className="px-6 py-2.5 text-white font-medium rounded-xl hover:brightness-110 transition-all disabled:opacity-50 flex items-center gap-2"
-                        style={{ backgroundColor: '#783264' }}
-                    >
-                        {isChangingPassword ? (
-                            <>
-                                <Icon name="spinner" className="w-4 h-4 animate-spin" />
-                                Changing...
-                            </>
-                        ) : (
-                            'Change Password'
-                        )}
-                    </button>
-                </div>
-            </div>
-
-            {/* MFA Card */}
-            <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6">
-                <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-base font-medium text-on-surface">Two-Factor Authentication</h3>
-                    {mfaLoading ? (
-                        <Icon name="spinner" className="w-4 h-4 animate-spin text-on-surface-variant/40" />
-                    ) : (
-                        <span className={`px-3 py-1 text-xs font-medium rounded-full ${
-                            hasMfa
-                                ? 'bg-emerald-500/10 text-emerald-500'
-                                : 'bg-on-surface-variant/5 text-on-surface-variant/50'
-                        }`}>
-                            {hasMfa ? 'Enabled' : 'Not enabled'}
-                        </span>
+                  <Input
+                    label="Current Password"
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    placeholder="Enter current password"
+                    fullWidth
+                  />
+                  <div>
+                    <Input
+                      label="New Password"
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Enter new password"
+                      fullWidth
+                    />
+                    {newPassword.length > 0 && (
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                        {PASSWORD_REQUIREMENTS.map((req) => {
+                          const met = req.test(newPassword);
+                          return (
+                            <span
+                              key={req.label}
+                              className={`text-xs flex items-center gap-1 ${
+                                met ? 'text-emerald-500' : 'text-on-surface-variant/50'
+                              }`}
+                            >
+                              <span
+                                className={`w-3 h-3 rounded-full flex items-center justify-center text-[8px] ${
+                                  met ? 'bg-emerald-500/15' : 'bg-on-surface-variant/10'
+                                }`}
+                              >
+                                {met ? '✓' : '·'}
+                              </span>
+                              {req.label}
+                            </span>
+                          );
+                        })}
+                      </div>
                     )}
-                </div>
-
-                <div className="flex items-center gap-4 p-4 rounded-xl bg-surface-container-highest/50 border border-outline-variant/10">
-                    <div className="w-10 h-10 rounded-xl bg-tertiary/10 flex items-center justify-center flex-shrink-0">
-                        <Icon name="shield-check" className="w-5 h-5 text-tertiary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-on-surface">Authenticator App</p>
-                        <p className="text-xs text-on-surface-variant/50 mt-0.5">
-                            {hasMfa && mfaFactors[0].created_at
-                                ? `Enrolled ${new Date(mfaFactors[0].created_at).toLocaleDateString()}`
-                                : 'Google Authenticator, Authy, 1Password'}
-                        </p>
-                    </div>
-                    <button
-                        onClick={hasMfa ? onDisableMfa : onEnableMfa}
-                        className={`px-4 py-2 text-sm font-medium rounded-xl transition-all flex-shrink-0 ${
-                            hasMfa
-                                ? 'text-error bg-error/10 hover:bg-error/15'
-                                : 'text-white hover:brightness-110'
-                        }`}
-                        style={hasMfa ? undefined : { backgroundColor: '#783264' }}
+                  </div>
+                  <Input
+                    label="Confirm New Password"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Confirm new password"
+                    fullWidth
+                  />
+                  <div className="pt-1">
+                    <Button
+                      color="primary"
+                      size="md"
+                      loading={isChangingPassword}
+                      disabled={!newPassword || !confirmPassword || !currentPassword}
+                      onClick={handleChangePassword}
                     >
-                        {hasMfa ? 'Disable' : 'Enable'}
-                    </button>
+                      Change Password
+                    </Button>
+                  </div>
                 </div>
-            </div>
-        </div>
-    );
-};
+              </Card>
 
-// =============================================================================
-// NOTIFICATIONS SECTION
-// =============================================================================
-
-const NotificationsSection: React.FC = () => {
-    return (
-        <div className="space-y-8">
-            {/* Section Header */}
-            <div>
-                <h2 className="text-lg font-semibold text-on-surface">Notifications</h2>
-                <p className="text-sm text-on-surface-variant/60 mt-1">
-                    Choose what notifications you want to receive
-                </p>
-            </div>
-
-            {/* In-App Notifications Info */}
-            <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6">
-                <div className="flex items-start gap-3">
-                    <Icon name="bell" className="w-5 h-5 text-primary mt-0.5" />
-                    <div>
-                        <h3 className="text-base font-medium text-on-surface">In-App Notifications</h3>
-                        <p className="text-sm text-on-surface-variant mt-1">
-                            You receive real-time notifications for review requests, assignments, status changes, and promotion decisions.
-                            View all notifications from the bell icon in the header.
-                        </p>
-                        <p className="text-xs text-on-surface-variant/60 mt-3">
-                            Email notifications coming in a future update.
-                        </p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// =============================================================================
-// SESSIONS SECTION
-// =============================================================================
-
-interface SessionsSectionProps {
-    userEmail: string;
-}
-
-const SessionsSection: React.FC<SessionsSectionProps> = ({ userEmail }) => {
-    return (
-        <div className="space-y-8">
-            {/* Section Header */}
-            <div>
-                <h2 className="text-lg font-semibold text-on-surface">Active Sessions</h2>
-                <p className="text-sm text-on-surface-variant/60 mt-1">
-                    Manage your active sessions across devices
-                </p>
-            </div>
-
-            {/* Current Session */}
-            <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6">
-                <h3 className="text-base font-medium text-on-surface mb-4">Current Session</h3>
-
-                <div className="flex items-center gap-4 p-4 rounded-xl bg-surface-container-highest">
-                    <div className="w-12 h-12 rounded-xl bg-tertiary/10 flex items-center justify-center">
-                        <Icon name="monitor" className="w-6 h-6 text-tertiary" />
-                    </div>
-                    <div className="flex-1">
-                        <p className="text-sm font-medium text-on-surface">This Device</p>
-                        <p className="text-xs text-on-surface-variant/60 mt-0.5">
-                            {navigator.userAgent.includes('Chrome') ? 'Chrome' :
-                             navigator.userAgent.includes('Firefox') ? 'Firefox' :
-                             navigator.userAgent.includes('Safari') ? 'Safari' : 'Browser'}
-                            {' · '}
-                            {navigator.platform}
-                        </p>
-                    </div>
-                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-emerald-500/10 text-emerald-500">
-                        Active Now
+              <Card
+                title="Two-Factor Authentication"
+                description="Add an extra layer of security with an authenticator app"
+                trailing={
+                  mfaLoading ? (
+                    <div className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <span
+                      className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+                        hasMfa
+                          ? 'bg-emerald-500/15 text-emerald-500'
+                          : 'bg-on-surface-variant/10 text-on-surface-variant'
+                      }`}
+                    >
+                      {hasMfa ? 'Enabled' : 'Not enabled'}
                     </span>
-                </div>
-            </div>
-
-            {/* Sign Out All Sessions (Placeholder) */}
-            <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6">
-                <div className="flex items-start justify-between">
-                    <div>
-                        <h3 className="text-base font-medium text-on-surface">Sign Out All Devices</h3>
-                        <p className="text-sm text-on-surface-variant/60 mt-1">
-                            Sign out from all other active sessions
-                        </p>
+                  )
+                }
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-on-surface">Authenticator App</div>
+                    <div className="text-xs text-on-surface-variant mt-0.5">
+                      {hasMfa && mfaFactors[0].created_at
+                        ? `Enrolled ${new Date(mfaFactors[0].created_at).toLocaleDateString()}`
+                        : 'Use Google Authenticator, Authy, or 1Password to generate one-time codes.'}
                     </div>
-                    <button
-                        disabled
-                        className="px-4 py-2 text-sm font-medium text-error bg-error/10 rounded-xl opacity-50 cursor-not-allowed"
-                    >
-                        Sign Out All
-                    </button>
+                  </div>
+                  {hasMfa ? (
+                    <Button color="error" variant="tonal" size="md" onClick={() => setShowMfaDisableConfirm(true)}>
+                      Disable
+                    </Button>
+                  ) : (
+                    <Button color="primary" size="md" onClick={() => setShowMfaWizard(true)}>
+                      Enable
+                    </Button>
+                  )}
                 </div>
-                <p className="text-xs text-on-surface-variant/40 mt-3">
-                    Session management will be available in a future update
-                </p>
-            </div>
+              </Card>
+            </>
+          )}
+
+          {/* NOTIFICATIONS */}
+          {!isLoading && activeSection === 'notifications' && (
+            <Card title="Notification Channels" description="Where and how you'll be reached">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-4 py-2">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-on-surface">In-app</div>
+                    <div className="text-xs text-on-surface-variant mt-0.5">
+                      Bell-icon feed for review requests, assignments, status changes, promotion decisions.
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-500">
+                    Always on
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-4 py-2 border-t border-outline-variant/20">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-on-surface">Email</div>
+                    <div className="text-xs text-on-surface-variant mt-0.5">
+                      Digest emails for high-priority events.
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-on-surface-variant/10 text-on-surface-variant">
+                    Coming soon
+                  </span>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {/* SESSIONS */}
+          {!isLoading && activeSection === 'sessions' && (
+            <>
+              <Card title="Current Session" description="The device you're signed in on right now">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-on-surface">This Device</div>
+                    <div className="text-xs text-on-surface-variant mt-0.5">
+                      {detectBrowser()} · {navigator.platform || 'Unknown platform'}
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-500">
+                    Active Now
+                  </span>
+                </div>
+              </Card>
+
+              <Card title="Sign Out All Devices" description="Sign out from all other active sessions">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="text-xs text-on-surface-variant">
+                    Session management arrives in a future update.
+                  </div>
+                  <Button color="error" variant="tonal" size="md" disabled>
+                    Sign Out All
+                  </Button>
+                </div>
+              </Card>
+            </>
+          )}
         </div>
-    );
+      </div>
+
+      {/* ───── Floating save bar (Profile only) ─────────────────────────── */}
+      {isProfileDirty && activeSection === 'profile' && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 animate-page-enter">
+          <div className="flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-surface-container-highest border border-outline-variant/40 shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+            <span className="text-xs text-on-surface-variant">Unsaved changes</span>
+            <button
+              onClick={handleDiscardProfile}
+              className="text-xs text-on-surface-variant hover:text-on-surface transition-colors px-2 py-1 rounded-lg hover:bg-surface-container-high"
+            >
+              Discard
+            </button>
+            <Button color="primary" size="sm" loading={isSavingProfile} onClick={handleSaveProfile}>
+              Save Changes
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ───── MFA Enrollment Wizard ─────────────────────────────────────── */}
+      <MfaEnrollmentWizard
+        isOpen={showMfaWizard}
+        onClose={() => setShowMfaWizard(false)}
+        onEnrolled={() => {
+          fetchMfaFactors();
+          showToast('success', 'Enabled', 'Two-factor authentication is now active');
+        }}
+      />
+
+      {/* ───── MFA Disable Confirmation ──────────────────────────────────── */}
+      {showMfaDisableConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setShowMfaDisableConfirm(false)}
+        >
+          <div
+            className="bg-surface-container rounded-2xl border border-outline-variant/30 p-5 max-w-sm w-full mx-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-base font-semibold text-on-surface mb-2">Disable Two-Factor?</div>
+            <p className="text-sm text-on-surface-variant mb-5">
+              This removes the authenticator app from your account. Your account will only be protected by your password.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <Button color="surface" variant="text" size="md" onClick={() => setShowMfaDisableConfirm(false)}>
+                Cancel
+              </Button>
+              <Button color="error" size="md" loading={mfaDisabling} onClick={handleDisableMfa}>
+                Disable
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
 
 // =============================================================================
-// HELPER COMPONENTS
+// HELPERS
 // =============================================================================
 
-interface ToggleSwitchProps {
-    checked: boolean;
-    onChange: (checked: boolean) => void;
-}
-
-const ToggleSwitch: React.FC<ToggleSwitchProps> = ({ checked, onChange }) => (
-    <button
-        onClick={() => onChange(!checked)}
-        className={`relative w-11 h-6 rounded-full transition-colors ${
-            checked ? 'bg-tertiary' : 'bg-surface-container-highest'
-        }`}
-    >
-        <span
-            className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                checked ? 'translate-x-5' : 'translate-x-0'
-            }`}
-        />
-    </button>
+const MetaRow: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div>
+    <dt className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/60 mb-1">{label}</dt>
+    <dd className="text-sm text-on-surface">{value}</dd>
+  </div>
 );
 
-interface NotificationToggleProps {
-    label: string;
-    description: string;
-    checked: boolean;
-    onChange: (checked: boolean) => void;
+function detectBrowser(): string {
+  const ua = navigator.userAgent;
+  if (ua.includes('Edg/')) return 'Edge';
+  if (ua.includes('Chrome/')) return 'Chrome';
+  if (ua.includes('Firefox/')) return 'Firefox';
+  if (ua.includes('Safari/')) return 'Safari';
+  return 'Browser';
 }
 
-const NotificationToggle: React.FC<NotificationToggleProps> = ({
-    label,
-    description,
-    checked,
-    onChange,
-}) => (
-    <div className="flex items-center justify-between py-3 border-b border-outline-variant/10 last:border-0">
-        <div>
-            <p className="text-sm font-medium text-on-surface">{label}</p>
-            <p className="text-xs text-on-surface-variant/50 mt-0.5">{description}</p>
-        </div>
-        <ToggleSwitch checked={checked} onChange={onChange} />
-    </div>
-);
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
 
 export default AccountSettingsPage;
