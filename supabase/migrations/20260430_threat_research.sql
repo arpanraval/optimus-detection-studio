@@ -2,7 +2,7 @@
 -- Threat Research feature — sessions, event timeline, and library FK.
 
 -- ── Sessions ────────────────────────────────────────────────────────────
-CREATE TABLE threat_research_sessions (
+CREATE TABLE IF NOT EXISTS threat_research_sessions (
   id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id              uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   created_at           timestamptz NOT NULL DEFAULT now(),
@@ -28,9 +28,9 @@ CREATE TABLE threat_research_sessions (
   model_versions       jsonb
 );
 
-CREATE INDEX threat_research_sessions_user_idx
+CREATE INDEX IF NOT EXISTS threat_research_sessions_user_idx
   ON threat_research_sessions (user_id, created_at DESC);
-CREATE INDEX threat_research_sessions_status_idx
+CREATE INDEX IF NOT EXISTS threat_research_sessions_status_idx
   ON threat_research_sessions (status, created_at DESC)
   WHERE status IN ('pending', 'running');
 
@@ -50,7 +50,7 @@ CREATE POLICY trs_self_delete ON threat_research_sessions
   FOR DELETE USING (user_id = auth.uid());
 
 -- ── Events ──────────────────────────────────────────────────────────────
-CREATE TABLE threat_research_events (
+CREATE TABLE IF NOT EXISTS threat_research_events (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id   uuid NOT NULL REFERENCES threat_research_sessions(id) ON DELETE CASCADE,
   user_id      uuid REFERENCES profiles(id) ON DELETE SET NULL,
@@ -64,13 +64,21 @@ CREATE TABLE threat_research_events (
   narration    text
 );
 
-CREATE INDEX threat_research_events_session_idx
+CREATE INDEX IF NOT EXISTS threat_research_events_session_idx
   ON threat_research_events (session_id, created_at);
 
 ALTER TABLE threat_research_events ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS tre_self_select ON threat_research_events;
+
 CREATE POLICY tre_self_select ON threat_research_events
-  FOR SELECT USING (user_id = auth.uid());
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM threat_research_sessions s
+      WHERE s.id = threat_research_events.session_id
+        AND s.user_id = auth.uid()
+    )
+  );
 CREATE POLICY tre_admin_select ON threat_research_events
   FOR SELECT USING (EXISTS (
     SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('owner','admin')
@@ -79,12 +87,47 @@ CREATE POLICY tre_admin_select ON threat_research_events
 
 -- ── Detections FK ───────────────────────────────────────────────────────
 ALTER TABLE detections
-  ADD COLUMN research_session_id uuid REFERENCES threat_research_sessions(id) ON DELETE SET NULL,
-  ADD COLUMN research_node_id    text;
+  ADD COLUMN IF NOT EXISTS research_session_id uuid REFERENCES threat_research_sessions(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS research_node_id    text;
 
-CREATE INDEX detections_research_session_idx
+CREATE INDEX IF NOT EXISTS detections_research_session_idx
   ON detections (research_session_id) WHERE research_session_id IS NOT NULL;
 
+-- Ensure research_node_id is cleared whenever research_session_id is cleared,
+-- so detections don't keep stale breadcrumb node IDs after a session is deleted
+-- (ON DELETE SET NULL only nulls the FK column).
+CREATE OR REPLACE FUNCTION clear_research_node_on_session_clear()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.research_session_id IS NULL AND OLD.research_session_id IS NOT NULL THEN
+    NEW.research_node_id := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS detections_clear_research_node_trigger ON detections;
+CREATE TRIGGER detections_clear_research_node_trigger
+  BEFORE UPDATE OF research_session_id ON detections
+  FOR EACH ROW
+  EXECUTE FUNCTION clear_research_node_on_session_clear();
+
 -- ── Realtime ────────────────────────────────────────────────────────────
-ALTER PUBLICATION supabase_realtime ADD TABLE threat_research_events;
-ALTER PUBLICATION supabase_realtime ADD TABLE threat_research_sessions;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'threat_research_events'
+  ) THEN
+    EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE threat_research_events';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'threat_research_sessions'
+  ) THEN
+    EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE threat_research_sessions';
+  END IF;
+END $$;
