@@ -279,19 +279,68 @@ export async function generateAIChat(options: AIChatOptions): Promise<AIGenerate
 export async function generateAIJSON<T>(options: Omit<AIGenerateOptions, 'responseFormat'>): Promise<T> {
   const response = await generateAIContent({ ...options, responseFormat: 'json' });
 
-  let text = response.text.trim();
-
-  // Strip markdown code fences (```json ... ``` or ``` ... ```)
-  if (text.startsWith('```')) {
-    text = text.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?\s*```$/, '');
-  }
-
+  const candidate = extractJsonFromResponse(response.text);
   try {
-    return JSON.parse(text);
+    return JSON.parse(candidate);
   } catch (e) {
-    logger.error('Failed to parse AI JSON response:', response.text);
+    logger.error('Failed to parse AI JSON response:', { raw: response.text, candidate });
     throw new Error('Failed to parse AI response as JSON');
   }
+}
+
+/**
+ * Pull the first valid-looking JSON object out of a raw model response.
+ *
+ * Models (especially Claude with no native JSON mode) sometimes wrap their
+ * JSON output in prose ("Here is the analysis...") and/or markdown code fences
+ * (```json ... ```). The previous implementation only stripped fences when
+ * the response *started* with backticks; it failed when there was leading
+ * prose. This version handles three cases in order:
+ *
+ *   1. The whole response is a fenced block ⇒ strip the fences.
+ *   2. A fenced JSON block appears anywhere in the response ⇒ extract it.
+ *   3. Otherwise scan for the first balanced top-level `{...}` object using
+ *      string-aware brace counting (so braces inside string literals don't
+ *      throw off the depth counter).
+ *
+ * Falls back to the trimmed input if nothing matches; JSON.parse will then
+ * surface the original error to the caller.
+ */
+function extractJsonFromResponse(text: string): string {
+  let trimmed = text.trim();
+
+  // Case 1: whole response is fenced
+  if (trimmed.startsWith('```')) {
+    trimmed = trimmed.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?\s*```$/, '').trim();
+  }
+
+  // Case 2: fenced JSON block somewhere in the response
+  const fenceMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+  if (fenceMatch) {
+    return fenceMatch[1].trim();
+  }
+
+  // Case 3: extract first balanced top-level object via string-aware brace counting
+  const start = trimmed.indexOf('{');
+  if (start === -1) return trimmed;
+
+  let depth = 0;
+  let inString = false;
+  let escapeNext = false;
+  for (let i = start; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (escapeNext) { escapeNext = false; continue; }
+    if (ch === '\\') { escapeNext = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return trimmed.slice(start, i + 1);
+    }
+  }
+
+  return trimmed;
 }
 
 // ============================================================================
