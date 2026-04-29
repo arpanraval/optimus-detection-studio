@@ -42,6 +42,8 @@ export const CommandCenterPage: React.FC = () => {
       navigate(ROUTES.DATA_SYNC);
     } else if (targetView === 'groups') {
       navigate(ROUTES.GROUPS);
+    } else if (targetView === 'campaigns') {
+      navigate(ROUTES.CAMPAIGNS);
     } else if (targetView === 'software') {
       navigate(ROUTES.SOFTWARE);
     } else if (targetView === 'mitre') {
