@@ -7,6 +7,13 @@
  */
 
 import type { ClassificationResult, JobResultSummary } from './types.ts';
+import { withAiTelemetry, type AiProvider } from '../../_shared/aiTelemetry.ts';
+import {
+  parseGeminiUsage,
+  parseOpenAIUsage,
+  parseAnthropicUsage,
+} from '../../_shared/aiUsageParsers.ts';
+import type { TokenUsage } from '../../_shared/aiPricing.ts';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -106,7 +113,7 @@ export async function classifyEntries(
       const snippet = (entry.content || '').slice(0, 1000);
       const userPrompt = buildUserPrompt(entry.title, snippet, vendorName);
 
-      const classification = await callAI(model, userPrompt);
+      const classification = await callAI(model, userPrompt, userId);
 
       result.articles_classified += 1;
 
@@ -156,22 +163,41 @@ const ALLOWED_MODELS = new Set([
   'gpt-5.4-mini', 'gpt-5.4-nano',
 ]);
 
-async function callAI(model: string, userPrompt: string): Promise<ClassificationResult> {
+async function callAI(
+  model: string,
+  userPrompt: string,
+  userId: string | null,
+): Promise<ClassificationResult> {
   if (!ALLOWED_MODELS.has(model)) {
     throw new Error(`Model "${model}" is not in the allowed list`);
   }
 
-  let rawText: string;
+  let provider: AiProvider;
+  let runner: () => Promise<{ result: string; usage: TokenUsage }>;
 
   if (model.startsWith('gemini')) {
-    rawText = await callGemini(model, userPrompt);
+    provider = 'google';
+    runner = () => callGemini(model, userPrompt);
   } else if (model.startsWith('gpt')) {
-    rawText = await callOpenAI(model, userPrompt);
+    provider = 'openai';
+    runner = () => callOpenAI(model, userPrompt);
   } else if (model.startsWith('claude')) {
-    rawText = await callAnthropic(model, userPrompt);
+    provider = 'anthropic';
+    runner = () => callAnthropic(model, userPrompt);
   } else {
     throw new Error(`Unsupported model prefix: ${model}`);
   }
+
+  const rawText = await withAiTelemetry(
+    {
+      userId,
+      feature: 'auto-digest-classify',
+      model,
+      provider,
+      category: 'llm',
+    },
+    runner,
+  );
 
   return parseClassificationJSON(rawText);
 }
@@ -180,7 +206,7 @@ async function callAI(model: string, userPrompt: string): Promise<Classification
 // Gemini
 // ---------------------------------------------------------------------------
 
-async function callGemini(model: string, userPrompt: string): Promise<string> {
+async function callGemini(model: string, userPrompt: string): Promise<{ result: string; usage: TokenUsage }> {
   const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
   if (!apiKey) throw new Error('GOOGLE_AI_API_KEY not set');
 
@@ -210,14 +236,17 @@ async function callGemini(model: string, userPrompt: string): Promise<string> {
   }
 
   const json = await res.json();
-  return json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  return {
+    result: json.candidates?.[0]?.content?.parts?.[0]?.text || '',
+    usage: parseGeminiUsage(json),
+  };
 }
 
 // ---------------------------------------------------------------------------
 // OpenAI
 // ---------------------------------------------------------------------------
 
-async function callOpenAI(model: string, userPrompt: string): Promise<string> {
+async function callOpenAI(model: string, userPrompt: string): Promise<{ result: string; usage: TokenUsage }> {
   const apiKey = Deno.env.get('OPENAI_API_KEY');
   if (!apiKey) throw new Error('OPENAI_API_KEY not set');
 
@@ -248,14 +277,17 @@ async function callOpenAI(model: string, userPrompt: string): Promise<string> {
   }
 
   const json = await res.json();
-  return json.choices?.[0]?.message?.content || '';
+  return {
+    result: json.choices?.[0]?.message?.content || '',
+    usage: parseOpenAIUsage(json),
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Anthropic
 // ---------------------------------------------------------------------------
 
-async function callAnthropic(model: string, userPrompt: string): Promise<string> {
+async function callAnthropic(model: string, userPrompt: string): Promise<{ result: string; usage: TokenUsage }> {
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
@@ -284,7 +316,10 @@ async function callAnthropic(model: string, userPrompt: string): Promise<string>
   }
 
   const json = await res.json();
-  return json.content?.[0]?.text || '';
+  return {
+    result: json.content?.[0]?.text || '',
+    usage: parseAnthropicUsage(json),
+  };
 }
 
 // ---------------------------------------------------------------------------
