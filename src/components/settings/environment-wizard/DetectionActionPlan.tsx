@@ -8,6 +8,8 @@ import { useToast } from '../../../hooks/useToast';
 import { useAppData } from '../../../router/AppDataContext';
 import { LIBRARY_PRODUCTION } from '../../../constants/library';
 import { ROUTES } from '../../../router/routes';
+import { createEmptyDetection } from '../../../types/detection';
+import { Status } from '../../../types';
 import { DetectionActionQueue } from './DetectionActionQueue';
 import { ThreatGroupCards } from './ThreatGroupCards';
 import { CriticalGapsList } from './CriticalGapsList';
@@ -74,20 +76,21 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
     if (techniqueIds.size === 0) return;
     if (!window.confirm(`Create ${techniqueIds.size} draft detections?`)) return;
     try {
+      const now = new Date().toISOString();
+      const userId = user?.id || '';
       const inserts = [];
       for (const techId of techniqueIds) {
         const gap = gapTechniques.find(g => g.mitreId === techId);
         if (!gap) continue;
         inserts.push({
-          id: crypto.randomUUID(),
+          ...createEmptyDetection(userId),
           name: `Detection for ${gap.name} (${techId})`,
-          status: 'Draft',
+          status: Status.Draft,
           mitreTechniques: [gap.name],
           mitreAttackIds: [techId],
-          createdBy: user?.id || '',
-          createdDate: new Date().toISOString(),
-          updatedDate: new Date().toISOString(),
-          library: 'user',
+          library_type: 'development',
+          createdDate: now,
+          updatedDate: now,
         });
       }
       if (inserts.length > 0) {

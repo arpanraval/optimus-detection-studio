@@ -9,6 +9,8 @@ import { useToast } from '../../hooks/useToast';
 import { useThreatIntel } from '../../context/ThreatIntelContext';
 import { retryReportSection } from '../../lib/aiService';
 import { supabase } from '../../lib/supabaseClient';
+import { createEmptyDetection } from '../../types/detection';
+import { Severity, Status } from '../../types';
 import {
   ThreatReport,
   ThreatIntelSession,
@@ -1413,17 +1415,16 @@ export const ThreatIntelReportPage: React.FC = () => {
 
     const now = new Date().toISOString();
     const inserts = selectedTTPs.map(ttp => ({
-      id: crypto.randomUUID(),
+      ...createEmptyDetection(userId),
       name: `Detect ${ttp.techniqueName} (${ttp.mitreId})`,
       description: `${ttp.explanation || ''}\n\nEvidence: ${ttp.evidence || 'N/A'}`.trim(),
       mitreAttackIds: [ttp.mitreId],
       mitreTechniques: [ttp.techniqueName],
-      severity: ttp.confidence === 'high' ? 'High' : ttp.confidence === 'medium' ? 'Medium' : 'Low',
-      status: 'Draft',
-      createdBy: userId,
+      severity: ttp.confidence === 'high' ? Severity.High : ttp.confidence === 'medium' ? Severity.Medium : Severity.Low,
+      status: Status.Draft,
+      library_type: 'development',
       createdDate: now,
       updatedDate: now,
-      library: 'user',
     }));
 
     try {
