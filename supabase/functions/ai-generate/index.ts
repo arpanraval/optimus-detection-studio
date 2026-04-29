@@ -405,9 +405,21 @@ async function callAnthropicAPI(
     messages
   }
 
-  // Add system prompt if provided
-  if (systemInstruction) {
-    anthropicPayload.system = systemInstruction
+  // Build the system prompt. Anthropic has no native JSON mode (unlike Gemini's
+  // responseMimeType or OpenAI's response_format), so when the caller asks for
+  // JSON we prepend an instruction to the system prompt. The client-side parser
+  // (generateAIJSON in src/lib/aiService.ts) is also tolerant to fenced JSON
+  // and embedded JSON as a defense-in-depth fallback.
+  const jsonDirective = responseFormat === 'json'
+    ? 'Respond with a single valid JSON object only. Do not include prose, explanations, markdown, or code fences before or after the JSON. Your entire response must be parseable by JSON.parse().'
+    : null;
+
+  if (systemInstruction && jsonDirective) {
+    anthropicPayload.system = `${jsonDirective}\n\n${systemInstruction}`;
+  } else if (jsonDirective) {
+    anthropicPayload.system = jsonDirective;
+  } else if (systemInstruction) {
+    anthropicPayload.system = systemInstruction;
   }
 
   // Convert and add tools if provided
