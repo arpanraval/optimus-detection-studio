@@ -38,9 +38,7 @@ ALTER TABLE public.pack_detections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.promotion_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.scoring_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.team_invitations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.team_members ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.teams ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_invitations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.threat_intel_report_detections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.threat_intel_reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_dashboards ENABLE ROW LEVEL SECURITY;
@@ -80,12 +78,6 @@ CREATE POLICY "System can insert activity" ON public.activity_log
   FOR INSERT
   TO public
   WITH CHECK ((user_id = auth.uid()));
-
-CREATE POLICY "Team members can view activity" ON public.activity_log
-  AS PERMISSIVE
-  FOR SELECT
-  TO public
-  USING ((((team_id IS NULL) AND (user_id = auth.uid())) OR is_team_member(team_id)));
 
 CREATE POLICY "Users can insert activity_log" ON public.activity_log
   AS PERMISSIVE
@@ -191,49 +183,49 @@ CREATE POLICY "Users can view own deployment history" ON public.deployment_histo
 -- Table: detection_assignments
 -- --------------------------------------------------------
 
-CREATE POLICY "Team members can view assignments" ON public.detection_assignments
+CREATE POLICY "Users can view assignments on own detections" ON public.detection_assignments
   AS PERMISSIVE
   FOR SELECT
   TO public
   USING ((EXISTS ( SELECT 1
    FROM detections d
-  WHERE ((d.id = detection_assignments.detection_id) AND ((d.user_id = auth.uid()) OR is_team_member(d.team_id))))));
+  WHERE ((d.id = detection_assignments.detection_id) AND (d.user_id = auth.uid())))));
 
-CREATE POLICY "Users can create assignments on own or team detections" ON public.detection_assignments
+CREATE POLICY "Users can create assignments on own detections" ON public.detection_assignments
   AS PERMISSIVE
   FOR INSERT
   TO public
   WITH CHECK ((EXISTS ( SELECT 1
    FROM detections d
-  WHERE ((d.id = detection_assignments.detection_id) AND ((d.user_id = auth.uid()) OR has_team_role(d.team_id, ARRAY['owner'::text, 'admin'::text, 'lead'::text]))))));
+  WHERE ((d.id = detection_assignments.detection_id) AND (d.user_id = auth.uid())))));
 
-CREATE POLICY "Users can update assignments on own or team detections" ON public.detection_assignments
+CREATE POLICY "Users can update assignments on own detections" ON public.detection_assignments
   AS PERMISSIVE
   FOR UPDATE
   TO public
   USING ((EXISTS ( SELECT 1
    FROM detections d
-  WHERE ((d.id = detection_assignments.detection_id) AND ((d.user_id = auth.uid()) OR has_team_role(d.team_id, ARRAY['owner'::text, 'admin'::text, 'lead'::text]))))));
+  WHERE ((d.id = detection_assignments.detection_id) AND (d.user_id = auth.uid())))));
 
 -- --------------------------------------------------------
 -- Table: detection_comments
 -- --------------------------------------------------------
 
-CREATE POLICY "Team members can add comments" ON public.detection_comments
+CREATE POLICY "Users can add comments to own detections" ON public.detection_comments
   AS PERMISSIVE
   FOR INSERT
   TO public
   WITH CHECK (((user_id = auth.uid()) AND (EXISTS ( SELECT 1
    FROM detections d
-  WHERE ((d.id = detection_comments.detection_id) AND ((d.user_id = auth.uid()) OR is_team_member(d.team_id)))))));
+  WHERE ((d.id = detection_comments.detection_id) AND (d.user_id = auth.uid()))))));
 
-CREATE POLICY "Team members can view comments" ON public.detection_comments
+CREATE POLICY "Users can view comments on accessible detections" ON public.detection_comments
   AS PERMISSIVE
   FOR SELECT
   TO public
   USING ((EXISTS ( SELECT 1
    FROM detections d
-  WHERE ((d.id = detection_comments.detection_id) AND ((d.user_id = auth.uid()) OR is_team_member(d.team_id) OR (d.library_type = 'development'::text))))));
+  WHERE ((d.id = detection_comments.detection_id) AND ((d.user_id = auth.uid()) OR (d.library_type = 'development'::text))))));
 
 CREATE POLICY "Users can delete own comments" ON public.detection_comments
   AS PERMISSIVE
@@ -286,13 +278,11 @@ CREATE POLICY "Authenticated users can read detection_reviews" ON public.detecti
   TO authenticated
   USING (true);
 
-CREATE POLICY "Leads can update reviews" ON public.detection_reviews
+CREATE POLICY "Global admin/lead can update reviews" ON public.detection_reviews
   AS PERMISSIVE
   FOR UPDATE
   TO public
-  USING ((EXISTS ( SELECT 1
-   FROM detections d
-  WHERE ((d.id = detection_reviews.detection_id) AND has_team_role(d.team_id, ARRAY['owner'::text, 'admin'::text, 'lead'::text])))));
+  USING (is_global_admin_or_lead(auth.uid()));
 
 CREATE POLICY "Service role can manage detection_reviews" ON public.detection_reviews
   AS PERMISSIVE
@@ -300,14 +290,6 @@ CREATE POLICY "Service role can manage detection_reviews" ON public.detection_re
   TO service_role
   USING (true)
   WITH CHECK (true);
-
-CREATE POLICY "Team members can view reviews" ON public.detection_reviews
-  AS PERMISSIVE
-  FOR SELECT
-  TO public
-  USING ((EXISTS ( SELECT 1
-   FROM detections d
-  WHERE ((d.id = detection_reviews.detection_id) AND ((d.user_id = auth.uid()) OR is_team_member(d.team_id))))));
 
 -- --------------------------------------------------------
 -- Table: detections
@@ -351,7 +333,6 @@ CREATE POLICY "development_select" ON public.detections
     (auth.uid() = user_id) OR
     (auth.uid() = assigned_to) OR
     (visibility = 'shared'::text) OR
-    ((team_id IS NOT NULL) AND is_team_member(team_id)) OR
     is_global_admin_or_lead(auth.uid())
   )));
 
@@ -679,14 +660,11 @@ CREATE POLICY "Users can update own profile" ON public.profiles
    FROM profiles p
   WHERE (p.id = auth.uid())))));
 
-CREATE POLICY "Users can view profiles" ON public.profiles
+CREATE POLICY "Users can view own profile" ON public.profiles
   AS PERMISSIVE
   FOR SELECT
   TO public
-  USING (((id = auth.uid()) OR (EXISTS ( SELECT 1
-   FROM (team_members tm1
-     JOIN team_members tm2 ON ((tm1.team_id = tm2.team_id)))
-  WHERE ((tm1.user_id = auth.uid()) AND (tm2.user_id = profiles.id) AND (tm1.status = 'active'::text) AND (tm2.status = 'active'::text))))));
+  USING ((id = auth.uid()));
 
 -- --------------------------------------------------------
 -- Table: promotion_requests
@@ -758,119 +736,32 @@ CREATE POLICY "scoring_profiles_update" ON public.scoring_profiles
   WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text]))))));
 
 -- --------------------------------------------------------
--- Table: team_invitations
+-- Table: user_invitations
 -- --------------------------------------------------------
 
-CREATE POLICY "Admins can create invitations" ON public.team_invitations
+CREATE POLICY "Admins can create user invitations" ON public.user_invitations
   AS PERMISSIVE
   FOR INSERT
   TO public
-  WITH CHECK (has_team_role(team_id, ARRAY['owner'::text, 'admin'::text]));
+  WITH CHECK (is_global_admin_or_lead(auth.uid()));
 
-CREATE POLICY "Admins can delete invitations" ON public.team_invitations
-  AS PERMISSIVE
-  FOR DELETE
-  TO public
-  USING (has_team_role(team_id, ARRAY['owner'::text, 'admin'::text]));
-
-CREATE POLICY "Admins can update invitations" ON public.team_invitations
-  AS PERMISSIVE
-  FOR UPDATE
-  TO authenticated
-  USING (has_team_role(team_id, ARRAY['owner'::text, 'admin'::text]))
-  WITH CHECK (has_team_role(team_id, ARRAY['owner'::text, 'admin'::text]));
-
-CREATE POLICY "Admins can view invitations" ON public.team_invitations
+CREATE POLICY "Admins can view user invitations" ON public.user_invitations
   AS PERMISSIVE
   FOR SELECT
   TO public
-  USING (has_team_role(team_id, ARRAY['owner'::text, 'admin'::text]));
+  USING (is_global_admin_or_lead(auth.uid()));
 
-CREATE POLICY "Users can view their own invitations" ON public.team_invitations
+CREATE POLICY "Admins can delete user invitations" ON public.user_invitations
+  AS PERMISSIVE
+  FOR DELETE
+  TO public
+  USING (is_global_admin_or_lead(auth.uid()));
+
+CREATE POLICY "Users can view their own invitations" ON public.user_invitations
   AS PERMISSIVE
   FOR SELECT
   TO authenticated
   USING ((email = (auth.jwt() ->> 'email'::text)));
-
--- --------------------------------------------------------
--- Table: team_members
--- --------------------------------------------------------
-
-CREATE POLICY "Admins can add members" ON public.team_members
-  AS PERMISSIVE
-  FOR INSERT
-  TO public
-  WITH CHECK (has_team_role(team_id, ARRAY['owner'::text, 'admin'::text]));
-
-CREATE POLICY "Admins can update members" ON public.team_members
-  AS PERMISSIVE
-  FOR UPDATE
-  TO public
-  USING (has_team_role(team_id, ARRAY['owner'::text, 'admin'::text]));
-
-CREATE POLICY "Owners can remove members" ON public.team_members
-  AS PERMISSIVE
-  FOR DELETE
-  TO public
-  USING (has_team_role(team_id, ARRAY['owner'::text, 'admin'::text]));
-
-CREATE POLICY "Team members can view members" ON public.team_members
-  AS PERMISSIVE
-  FOR SELECT
-  TO public
-  USING (is_team_member(team_id));
-
--- --------------------------------------------------------
--- Table: teams
--- --------------------------------------------------------
-
-CREATE POLICY "Admins can manage teams" ON public.teams
-  AS PERMISSIVE
-  FOR ALL
-  TO authenticated
-  USING ((EXISTS ( SELECT 1
-   FROM profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text]))))))
-  WITH CHECK ((EXISTS ( SELECT 1
-   FROM profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text]))))));
-
-CREATE POLICY "Authenticated users can create teams" ON public.teams
-  AS PERMISSIVE
-  FOR INSERT
-  TO public
-  WITH CHECK ((auth.uid() IS NOT NULL));
-
-CREATE POLICY "Authenticated users can read teams" ON public.teams
-  AS PERMISSIVE
-  FOR SELECT
-  TO authenticated
-  USING (true);
-
-CREATE POLICY "Owners can delete teams" ON public.teams
-  AS PERMISSIVE
-  FOR DELETE
-  TO public
-  USING (has_team_role(id, ARRAY['owner'::text]));
-
-CREATE POLICY "Owners can update teams" ON public.teams
-  AS PERMISSIVE
-  FOR UPDATE
-  TO public
-  USING (has_team_role(id, ARRAY['owner'::text]));
-
-CREATE POLICY "Service role can manage teams" ON public.teams
-  AS PERMISSIVE
-  FOR ALL
-  TO service_role
-  USING (true)
-  WITH CHECK (true);
-
-CREATE POLICY "Team members can view their teams" ON public.teams
-  AS PERMISSIVE
-  FOR SELECT
-  TO public
-  USING (is_team_member(id));
 
 -- --------------------------------------------------------
 -- Table: threat_intel_report_detections

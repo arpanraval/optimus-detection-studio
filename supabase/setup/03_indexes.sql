@@ -9,7 +9,6 @@
 CREATE INDEX IF NOT EXISTS idx_activity_log_action ON public.activity_log USING btree (action);
 CREATE INDEX IF NOT EXISTS idx_activity_log_created ON public.activity_log USING btree (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_log_entity ON public.activity_log USING btree (entity_type, entity_id);
-CREATE INDEX IF NOT EXISTS idx_activity_log_team ON public.activity_log USING btree (team_id);
 CREATE INDEX IF NOT EXISTS idx_activity_log_user ON public.activity_log USING btree (user_id);
 
 -- ------------------------------------------------------------
@@ -19,7 +18,6 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_action ON public.audit_events USING 
 CREATE INDEX IF NOT EXISTS idx_audit_events_changed_fields ON public.audit_events USING gin (changed_fields);
 CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON public.audit_events USING btree (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_events_entity ON public.audit_events USING btree (entity_type, entity_id);
-CREATE INDEX IF NOT EXISTS idx_audit_events_team_time ON public.audit_events USING btree (team_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_events_user_id ON public.audit_events USING btree (user_id);
 
 -- ------------------------------------------------------------
@@ -97,7 +95,6 @@ CREATE INDEX IF NOT EXISTS idx_detections_source ON public.detections USING btre
 CREATE INDEX IF NOT EXISTS idx_detections_source_rule_id ON public.detections USING btree (source_rule_id);
 CREATE INDEX IF NOT EXISTS idx_detections_status ON public.detections USING btree (status);
 CREATE INDEX IF NOT EXISTS idx_detections_tags ON public.detections USING gin (tags);
-CREATE INDEX IF NOT EXISTS idx_detections_team ON public.detections USING btree (team_id);
 CREATE INDEX IF NOT EXISTS idx_detections_user_id ON public.detections USING btree (user_id);
 CREATE INDEX IF NOT EXISTS idx_detections_user_library ON public.detections USING btree (user_id, library_type);
 CREATE INDEX IF NOT EXISTS idx_detections_vendor_metadata ON public.detections USING gin (vendor_metadata);
@@ -112,7 +109,6 @@ CREATE INDEX IF NOT EXISTS idx_enrichment_audit_type ON public.enrichment_audit 
 -- ------------------------------------------------------------
 -- environment_profiles
 -- ------------------------------------------------------------
-CREATE INDEX IF NOT EXISTS idx_environment_profiles_team_id ON public.environment_profiles USING btree (team_id);
 CREATE INDEX IF NOT EXISTS idx_environment_profiles_user_id ON public.environment_profiles USING btree (user_id);
 
 -- ------------------------------------------------------------
@@ -209,33 +205,14 @@ CREATE INDEX IF NOT EXISTS idx_publish_requests_submitted_by ON public.publish_r
 -- ------------------------------------------------------------
 -- scoring_profiles
 -- ------------------------------------------------------------
-CREATE UNIQUE INDEX IF NOT EXISTS idx_scoring_profiles_global_default ON public.scoring_profiles USING btree ((true)) WHERE ((is_default = true) AND (team_id IS NULL));
-CREATE UNIQUE INDEX IF NOT EXISTS idx_scoring_profiles_team_default ON public.scoring_profiles USING btree (team_id) WHERE ((is_default = true) AND (team_id IS NOT NULL));
-CREATE INDEX IF NOT EXISTS idx_scoring_profiles_team_id ON public.scoring_profiles USING btree (team_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scoring_profiles_default ON public.scoring_profiles USING btree ((true)) WHERE (is_default = true);
 
 -- ------------------------------------------------------------
--- team_invitations
+-- user_invitations
 -- ------------------------------------------------------------
-CREATE INDEX IF NOT EXISTS idx_team_invitations_email ON public.team_invitations USING btree (email);
-CREATE INDEX IF NOT EXISTS idx_team_invitations_team ON public.team_invitations USING btree (team_id);
-CREATE INDEX IF NOT EXISTS idx_team_invitations_token ON public.team_invitations USING btree (token);
-CREATE UNIQUE INDEX IF NOT EXISTS team_invitations_token_key ON public.team_invitations USING btree (token);
-
--- ------------------------------------------------------------
--- team_members
--- ------------------------------------------------------------
-CREATE INDEX IF NOT EXISTS idx_team_members_role ON public.team_members USING btree (role);
-CREATE INDEX IF NOT EXISTS idx_team_members_status ON public.team_members USING btree (status);
-CREATE INDEX IF NOT EXISTS idx_team_members_team ON public.team_members USING btree (team_id);
-CREATE INDEX IF NOT EXISTS idx_team_members_user ON public.team_members USING btree (user_id);
-CREATE UNIQUE INDEX IF NOT EXISTS team_members_team_id_user_id_key ON public.team_members USING btree (team_id, user_id);
-
--- ------------------------------------------------------------
--- teams
--- ------------------------------------------------------------
-CREATE INDEX IF NOT EXISTS idx_teams_created_by ON public.teams USING btree (created_by);
-CREATE INDEX IF NOT EXISTS idx_teams_slug ON public.teams USING btree (slug);
-CREATE UNIQUE INDEX IF NOT EXISTS teams_slug_key ON public.teams USING btree (slug);
+CREATE INDEX IF NOT EXISTS idx_user_invitations_email ON public.user_invitations USING btree (email);
+CREATE INDEX IF NOT EXISTS idx_user_invitations_token ON public.user_invitations USING btree (token);
+CREATE UNIQUE INDEX IF NOT EXISTS user_invitations_token_key ON public.user_invitations USING btree (token);
 
 -- ------------------------------------------------------------
 -- threat_intel_report_detections

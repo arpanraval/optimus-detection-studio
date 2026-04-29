@@ -7,7 +7,7 @@
 -- AUTH HELPERS
 -- ============================================================
 
--- Trigger function: creates profile on new user signup, handles invitations
+-- Trigger function: creates profile on new user signup, processes pending invitation if any
 CREATE OR REPLACE FUNCTION public.handle_new_user()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -16,16 +16,14 @@ CREATE OR REPLACE FUNCTION public.handle_new_user()
 AS $function$
 DECLARE
   v_invitation RECORD;
-  v_default_team_id uuid;
   v_full_name text;
   v_role text;
 BEGIN
   -- Extract display name from email
   v_full_name := split_part(NEW.email, '@', 1);
 
-  -- Extract role from invite metadata, default to 'analyst' (safe default for invited users)
+  -- Extract role from invite metadata, default to 'analyst'
   v_role := COALESCE(NEW.raw_user_meta_data->>'role', 'analyst');
-  -- Validate role against allowed values
   IF v_role NOT IN ('owner', 'admin', 'lead', 'analyst', 'viewer') THEN
     v_role := 'analyst';
   END IF;
@@ -43,9 +41,9 @@ BEGIN
     now()
   );
 
-  -- Check for pending invitation by email
+  -- Check for pending invitation by email and mark accepted if found
   SELECT * INTO v_invitation
-  FROM team_invitations
+  FROM user_invitations
   WHERE email = NEW.email
     AND accepted_at IS NULL
     AND expires_at > now()
@@ -53,73 +51,30 @@ BEGIN
   LIMIT 1;
 
   IF v_invitation IS NOT NULL THEN
-    -- Invitation found! Create team membership with invited role
-    INSERT INTO team_members (
-      team_id,
-      user_id,
-      role,
-      status,
-      invited_by,
-      invited_at,
-      accepted_at
-    )
-    VALUES (
-      v_invitation.team_id,
-      NEW.id,
-      v_invitation.role,
-      'active',
-      v_invitation.invited_by,
-      v_invitation.created_at,
-      now()
-    );
-
-    -- Mark invitation as accepted
-    UPDATE team_invitations
+    UPDATE user_invitations
     SET accepted_at = now()
     WHERE id = v_invitation.id;
 
-    -- Log the activity
-    INSERT INTO activity_log (team_id, user_id, entity_type, entity_id, action, details)
+    INSERT INTO activity_log (user_id, entity_type, entity_id, action, details)
     VALUES (
-      v_invitation.team_id,
-      NEW.id,
-      'user',
-      NEW.id::text,
-      'user_joined',
+      NEW.id, 'user', NEW.id::text, 'user_joined',
       jsonb_build_object(
-        'email', NEW.email,
-        'role', v_invitation.role,
-        'invited_by', v_invitation.invited_by,
-        'method', 'invitation'
+        'email', NEW.email, 'role', v_invitation.role,
+        'invited_by', v_invitation.invited_by, 'method', 'invitation'
       )
     );
 
-    -- Create welcome notification
     INSERT INTO user_notifications (user_id, type, title, message)
     VALUES (
-      NEW.id,
-      'welcome',
-      'Welcome to Optimus!',
-      'You have been added to the team as ' || v_invitation.role || '. Start by exploring the Detection Library.'
+      NEW.id, 'welcome', 'Welcome to Optimus!',
+      'Your account has been created as ' || v_invitation.role || '. Start by exploring the Detection Library.'
     );
-
   ELSE
-    -- No invitation found
-    -- Log the activity (no team)
-    INSERT INTO activity_log (team_id, user_id, entity_type, entity_id, action, details)
+    INSERT INTO activity_log (user_id, entity_type, entity_id, action, details)
     VALUES (
-      NULL,
-      NEW.id,
-      'user',
-      NEW.id::text,
-      'user_registered',
-      jsonb_build_object(
-        'email', NEW.email,
-        'method', 'direct_signup',
-        'has_team', false
-      )
+      NEW.id, 'user', NEW.id::text, 'user_registered',
+      jsonb_build_object('email', NEW.email, 'method', 'direct_signup')
     );
-
   END IF;
 
   RETURN NEW;
@@ -172,8 +127,8 @@ BEGIN
 END;
 $function$;
 
--- Get user permissions based on team role
-CREATE OR REPLACE FUNCTION public.get_user_permissions(p_team_id uuid DEFAULT NULL::uuid)
+-- Get user permissions based on global role (in profiles.role)
+CREATE OR REPLACE FUNCTION public.get_user_permissions()
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -181,57 +136,35 @@ AS $function$
 DECLARE
   v_current_user uuid := auth.uid();
   v_role text;
-  v_is_global_admin boolean;
-  v_team_id uuid;
 BEGIN
-  -- Check global admin (from profiles)
-  SELECT role = 'admin' INTO v_is_global_admin
-  FROM profiles WHERE id = v_current_user;
+  SELECT role INTO v_role FROM profiles WHERE id = v_current_user;
 
-  -- Get team_id (use provided or get user's default team)
-  IF p_team_id IS NOT NULL THEN
-    v_team_id := p_team_id;
-  ELSE
-    SELECT team_id INTO v_team_id
-    FROM team_members
-    WHERE user_id = v_current_user AND status = 'active'
-    ORDER BY role = 'owner' DESC, created_at ASC
-    LIMIT 1;
-  END IF;
-
-  -- Get team role
-  SELECT role INTO v_role
-  FROM team_members
-  WHERE team_id = v_team_id AND user_id = v_current_user AND status = 'active';
-
-  -- Return permissions based on role
   RETURN jsonb_build_object(
     'user_id', v_current_user,
-    'team_id', v_team_id,
     'role', COALESCE(v_role, 'viewer'),
-    'is_global_admin', COALESCE(v_is_global_admin, false),
+    'is_global_admin', COALESCE(v_role IN ('owner', 'admin'), false),
     'permissions', CASE COALESCE(v_role, 'viewer')
       WHEN 'owner' THEN jsonb_build_object(
         'detection_create', true, 'detection_edit_any', true, 'detection_delete_any', true,
-        'team_manage', true, 'user_manage', true, 'user_invite', true,
+        'user_manage', true, 'user_invite', true,
         'assign', true, 'review', true, 'publish_approve', true,
         'view_activity', true, 'export_bulk', true
       )
       WHEN 'admin' THEN jsonb_build_object(
         'detection_create', true, 'detection_edit_any', true, 'detection_delete_any', true,
-        'team_manage', false, 'user_manage', true, 'user_invite', true,
+        'user_manage', true, 'user_invite', true,
         'assign', true, 'review', true, 'publish_approve', true,
         'view_activity', true, 'export_bulk', true
       )
       WHEN 'lead' THEN jsonb_build_object(
         'detection_create', true, 'detection_edit_any', true, 'detection_delete_any', true,
-        'team_manage', false, 'user_manage', false, 'user_invite', false,
+        'user_manage', false, 'user_invite', false,
         'assign', true, 'review', true, 'publish_approve', false,
         'view_activity', true, 'export_bulk', false
       )
       WHEN 'analyst' THEN jsonb_build_object(
         'detection_create', true, 'detection_edit_assigned', true, 'detection_delete_own', true,
-        'team_manage', false, 'user_manage', false, 'user_invite', false,
+        'user_manage', false, 'user_invite', false,
         'assign', false, 'review', false, 'publish_approve', false,
         'view_activity', false, 'export_bulk', false,
         'self_assign', true, 'request_review', true
@@ -272,8 +205,7 @@ BEGIN
     DELETE FROM user_notifications WHERE user_id = target_user_id;
     DELETE FROM detection_comments WHERE user_id = target_user_id;
     DELETE FROM detection_reviews WHERE reviewer_id = target_user_id OR requested_by = target_user_id;
-    DELETE FROM team_invitations WHERE invited_by = target_user_id;
-    DELETE FROM team_members WHERE user_id = target_user_id;
+    DELETE FROM user_invitations WHERE invited_by = target_user_id;
     UPDATE detections SET assigned_to = NULL WHERE assigned_to = target_user_id;
 
     IF owner_user_id IS NOT NULL THEN
@@ -288,262 +220,11 @@ $function$;
 
 
 -- ============================================================
--- TEAM MANAGEMENT
+-- TEAM MANAGEMENT — removed; teams concept retired
+-- See migration 20260429b_drop_teams.sql
+-- (was: add_user_to_team, change_team_role, deactivate_team_member,
+--  get_team_role, has_team_role, is_team_member)
 -- ============================================================
-
--- Add a user to a team
-CREATE OR REPLACE FUNCTION public.add_user_to_team(p_user_id uuid, p_team_id uuid, p_role text DEFAULT 'analyst'::text, p_invited_by uuid DEFAULT NULL::uuid)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-DECLARE
-  v_current_user uuid := auth.uid();
-  v_can_invite boolean;
-BEGIN
-  -- Check if current user can invite (owner or admin of target team)
-  SELECT EXISTS (
-    SELECT 1 FROM team_members
-    WHERE team_id = p_team_id
-    AND user_id = v_current_user
-    AND status = 'active'
-    AND role IN ('owner', 'admin')
-  ) INTO v_can_invite;
-
-  IF NOT v_can_invite THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Permission denied. Owner or Admin required.');
-  END IF;
-
-  -- Check if user exists
-  IF NOT EXISTS (SELECT 1 FROM profiles WHERE id = p_user_id) THEN
-    RETURN jsonb_build_object('success', false, 'error', 'User not found.');
-  END IF;
-
-  -- Check if already a member
-  IF EXISTS (SELECT 1 FROM team_members WHERE team_id = p_team_id AND user_id = p_user_id) THEN
-    RETURN jsonb_build_object('success', false, 'error', 'User is already a team member.');
-  END IF;
-
-  -- Validate role
-  IF p_role NOT IN ('admin', 'lead', 'analyst', 'viewer') THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Invalid role. Use: admin, lead, analyst, or viewer.');
-  END IF;
-
-  -- Add to team
-  INSERT INTO team_members (team_id, user_id, role, status, invited_by, invited_at, accepted_at)
-  VALUES (p_team_id, p_user_id, p_role, 'active', COALESCE(p_invited_by, v_current_user), now(), now());
-
-  -- Log activity
-  INSERT INTO activity_log (team_id, user_id, entity_type, entity_id, action, details)
-  VALUES (
-    p_team_id,
-    v_current_user,
-    'user',
-    p_user_id::text,
-    'user_added',
-    jsonb_build_object(
-      'added_user_id', p_user_id,
-      'role', p_role,
-      'added_by', v_current_user
-    )
-  );
-
-  -- Notify the user
-  INSERT INTO user_notifications (user_id, type, title, message)
-  VALUES (
-    p_user_id,
-    'team_invite',
-    'Added to Team',
-    'You have been added to a team as ' || p_role || '.'
-  );
-
-  RETURN jsonb_build_object('success', true, 'message', 'User added to team successfully.');
-END;
-$function$;
-
--- Change a team member's role
-CREATE OR REPLACE FUNCTION public.change_team_role(p_user_id uuid, p_team_id uuid, p_new_role text)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-DECLARE
-  v_current_user uuid := auth.uid();
-  v_current_user_role text;
-  v_target_user_role text;
-BEGIN
-  -- Get current user's role
-  SELECT role INTO v_current_user_role
-  FROM team_members
-  WHERE team_id = p_team_id AND user_id = v_current_user AND status = 'active';
-
-  -- Get target user's current role
-  SELECT role INTO v_target_user_role
-  FROM team_members
-  WHERE team_id = p_team_id AND user_id = p_user_id AND status = 'active';
-
-  IF v_target_user_role IS NULL THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Target user is not a team member.');
-  END IF;
-
-  -- Permission checks
-  IF v_current_user_role = 'owner' THEN
-    IF p_user_id = v_current_user AND p_new_role != 'owner' THEN
-      RETURN jsonb_build_object('success', false, 'error', 'Owner cannot demote themselves. Transfer ownership first.');
-    END IF;
-  ELSIF v_current_user_role = 'admin' THEN
-    IF v_target_user_role IN ('owner', 'admin') THEN
-      RETURN jsonb_build_object('success', false, 'error', 'Admins cannot modify owner or other admins.');
-    END IF;
-    IF p_new_role IN ('owner', 'admin') THEN
-      RETURN jsonb_build_object('success', false, 'error', 'Admins cannot promote to owner or admin.');
-    END IF;
-  ELSE
-    RETURN jsonb_build_object('success', false, 'error', 'Permission denied. Owner or Admin required.');
-  END IF;
-
-  -- Validate new role
-  IF p_new_role NOT IN ('owner', 'admin', 'lead', 'analyst', 'viewer') THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Invalid role.');
-  END IF;
-
-  -- Update role
-  UPDATE team_members
-  SET role = p_new_role, updated_at = now()
-  WHERE team_id = p_team_id AND user_id = p_user_id;
-
-  -- Log activity
-  INSERT INTO activity_log (team_id, user_id, entity_type, entity_id, action, details)
-  VALUES (
-    p_team_id,
-    v_current_user,
-    'user',
-    p_user_id::text,
-    'role_changed',
-    jsonb_build_object(
-      'user_id', p_user_id,
-      'old_role', v_target_user_role,
-      'new_role', p_new_role,
-      'changed_by', v_current_user
-    )
-  );
-
-  -- Notify the user
-  INSERT INTO user_notifications (user_id, type, title, message)
-  VALUES (
-    p_user_id,
-    'role_change',
-    'Role Updated',
-    'Your role has been changed from ' || v_target_user_role || ' to ' || p_new_role || '.'
-  );
-
-  RETURN jsonb_build_object('success', true, 'old_role', v_target_user_role, 'new_role', p_new_role);
-END;
-$function$;
-
--- Deactivate (soft delete) a team member
-CREATE OR REPLACE FUNCTION public.deactivate_team_member(p_user_id uuid, p_team_id uuid)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-DECLARE
-  v_current_user uuid := auth.uid();
-  v_current_user_role text;
-  v_target_user_role text;
-BEGIN
-  -- Get roles
-  SELECT role INTO v_current_user_role
-  FROM team_members
-  WHERE team_id = p_team_id AND user_id = v_current_user AND status = 'active';
-
-  SELECT role INTO v_target_user_role
-  FROM team_members
-  WHERE team_id = p_team_id AND user_id = p_user_id AND status = 'active';
-
-  IF v_target_user_role IS NULL THEN
-    RETURN jsonb_build_object('success', false, 'error', 'User is not an active team member.');
-  END IF;
-
-  -- Permission checks
-  IF v_current_user_role NOT IN ('owner', 'admin') THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Permission denied.');
-  END IF;
-
-  IF v_target_user_role = 'owner' THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Cannot deactivate the owner.');
-  END IF;
-
-  IF v_current_user_role = 'admin' AND v_target_user_role = 'admin' THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Admins cannot deactivate other admins.');
-  END IF;
-
-  -- Deactivate (soft delete)
-  UPDATE team_members
-  SET status = 'deactivated', updated_at = now()
-  WHERE team_id = p_team_id AND user_id = p_user_id;
-
-  -- Log activity
-  INSERT INTO activity_log (team_id, user_id, entity_type, entity_id, action, details)
-  VALUES (
-    p_team_id,
-    v_current_user,
-    'user',
-    p_user_id::text,
-    'user_deactivated',
-    jsonb_build_object(
-      'user_id', p_user_id,
-      'role_was', v_target_user_role,
-      'deactivated_by', v_current_user
-    )
-  );
-
-  RETURN jsonb_build_object('success', true, 'message', 'User deactivated from team.');
-END;
-$function$;
-
--- Get current user's team role
-CREATE OR REPLACE FUNCTION public.get_team_role(p_team_id uuid)
- RETURNS text
- LANGUAGE sql
- STABLE SECURITY DEFINER
-AS $function$
-  SELECT role FROM team_members
-  WHERE team_id = p_team_id
-  AND user_id = auth.uid()
-  AND status = 'active'
-  LIMIT 1;
-$function$;
-
--- Check if current user has one of the specified team roles
-CREATE OR REPLACE FUNCTION public.has_team_role(p_team_id uuid, p_roles text[])
- RETURNS boolean
- LANGUAGE sql
- STABLE SECURITY DEFINER
-AS $function$
-  SELECT EXISTS (
-    SELECT 1 FROM team_members
-    WHERE team_id = p_team_id
-    AND user_id = auth.uid()
-    AND status = 'active'
-    AND role = ANY(p_roles)
-  );
-$function$;
-
--- Check if current user is a member of a team
-CREATE OR REPLACE FUNCTION public.is_team_member(p_team_id uuid)
- RETURNS boolean
- LANGUAGE sql
- STABLE SECURITY DEFINER
-AS $function$
-  SELECT EXISTS (
-    SELECT 1 FROM team_members
-    WHERE team_id = p_team_id
-    AND user_id = auth.uid()
-    AND status = 'active'
-  );
-$function$;
-
 
 -- ============================================================
 -- DETECTION OPERATIONS
