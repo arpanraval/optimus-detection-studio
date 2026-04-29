@@ -7,6 +7,7 @@
  */
 
 import type { ClassificationResult, EnvironmentProfileRow } from './types.ts';
+import { emit, type RunContext } from './events.ts';
 
 // ---------------------------------------------------------------------------
 // Public API — Scoring
@@ -128,18 +129,18 @@ export function scoreRelevance(
  * @returns Array of selected entry IDs.
  */
 export async function rankAndSelect(
-  supabase: any,
+  ctx: RunContext,
   classifiedIds: string[],
-  userId: string,
   maxArticles: number,
   envProfile: EnvironmentProfileRow | null,
 ): Promise<string[]> {
+  const { supabase } = ctx;
   if (classifiedIds.length === 0) return [];
 
-  // 1. Fetch classified entries
+  // 1. Fetch classified entries (with title/url so we can emit informative drop events)
   const { data: entries, error: fetchError } = await supabase
     .from('threat_intel_feed_entries')
-    .select('id, classification, published_at')
+    .select('id, title, url, feed_id, threat_intel_feeds(name), classification, published_at')
     .in('id', classifiedIds)
     .eq('digest_status', 'classified');
 
@@ -154,8 +155,13 @@ export async function rankAndSelect(
   const scored = entries.map((entry: any) => {
     const classification = entry.classification as ClassificationResult;
     const { score, tags } = scoreRelevance(classification, envProfile);
+    const feedRel = entry.threat_intel_feeds as any;
     return {
       id: entry.id as string,
+      title: entry.title as string,
+      url: (entry.url as string | null) ?? null,
+      feed_id: (entry.feed_id as string | null) ?? null,
+      feed_name: (feedRel?.name as string | null) ?? null,
       score,
       tags,
       published_at: entry.published_at as string | null,
@@ -173,6 +179,7 @@ export async function rankAndSelect(
 
   // 4. Take top N
   const selected = scored.slice(0, maxArticles);
+  const overflow = scored.slice(maxArticles);
   const selectedIds = selected.map((s: any) => s.id);
 
   // 5. Update selected entries
@@ -184,6 +191,21 @@ export async function rankAndSelect(
         digest_status: 'queued',
       })
       .eq('id', item.id);
+  }
+
+  // 6. Emit transparency events: which articles got dropped because they
+  //    didn't make the top-N cut for the user's daily limit. They stay in
+  //    digest_status='classified' so a future run can pick them up.
+  for (const item of overflow) {
+    await emit(ctx, 'article_skipped_daily_limit', {
+      feed_id: item.feed_id,
+      feed_name: item.feed_name,
+      article_id: item.id,
+      article_title: item.title,
+      article_url: item.url,
+      reason: `Beyond daily cap of ${maxArticles}; ranked ${overflow.indexOf(item) + maxArticles + 1} (score ${item.score})`,
+      payload: { score: item.score, tags: item.tags, daily_max: maxArticles },
+    });
   }
 
   return selectedIds;

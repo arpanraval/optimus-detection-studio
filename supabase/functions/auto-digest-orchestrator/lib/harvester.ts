@@ -7,6 +7,7 @@
  */
 
 import type { FeedRow, JobResultSummary } from './types.ts';
+import { emit, type RunContext } from './events.ts';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -31,10 +32,10 @@ const MAX_AGE_MS = 72 * 60 * 60 * 1000; // 72 hours
  * @returns Array of newly inserted feed-entry IDs.
  */
 export async function harvestFeeds(
-  supabase: any,
-  userId: string,
+  ctx: RunContext,
   result: JobResultSummary,
 ): Promise<string[]> {
+  const { supabase, userId } = ctx;
   // 1. Get user's auto-digest feeds
   const { data: feeds, error: feedsError } = await supabase
     .from('threat_intel_feeds')
@@ -57,11 +58,29 @@ export async function harvestFeeds(
   // 2. Process each feed
   for (const feed of feeds as FeedRow[]) {
     try {
-      const newIds = await processFeed(supabase, userId, feed);
-      allNewIds.push(...newIds);
+      const newRows = await processFeed(supabase, userId!, feed);
+      allNewIds.push(...newRows.map((r) => r.id));
 
       result.feeds_fetched += 1;
-      result.articles_harvested += newIds.length;
+      result.articles_harvested += newRows.length;
+
+      // Emit per-feed and per-article events for the UI transcript.
+      await emit(ctx, 'feed_fetched', {
+        feed_id: feed.id,
+        feed_name: feed.name,
+        reason: `${newRows.length} new article${newRows.length === 1 ? '' : 's'} harvested`,
+        payload: { articles_found: newRows.length, feed_url: feed.url },
+      });
+      for (const row of newRows) {
+        await emit(ctx, 'article_seen', {
+          feed_id: feed.id,
+          feed_name: feed.name,
+          article_id: row.id,
+          article_title: row.title,
+          article_url: row.url ?? null,
+          payload: row.published_at ? { published_at: row.published_at } : null,
+        });
+      }
 
       // Update feed metadata — success
       await supabase
@@ -72,6 +91,13 @@ export async function harvestFeeds(
       const msg = `${feed.name}: ${err.message || 'Unknown error'}`;
       console.error(`[harvester] ${msg}`);
       result.errors.push(msg);
+
+      await emit(ctx, 'feed_failed', {
+        feed_id: feed.id,
+        feed_name: feed.name,
+        reason: err.message || 'Unknown error',
+        payload: { feed_url: feed.url },
+      });
 
       // Update feed metadata — error
       await supabase
@@ -103,11 +129,13 @@ export async function harvestFeeds(
 
 const MAX_FEED_SIZE = 5 * 1024 * 1024; // 5 MB
 
+interface UpsertedEntry { id: string; title: string; url: string | null; published_at: string | null }
+
 async function processFeed(
   supabase: any,
   userId: string,
   feed: FeedRow,
-): Promise<string[]> {
+): Promise<UpsertedEntry[]> {
   // Validate feed URL (SSRF protection)
   try {
     const parsed = new URL(feed.url);
@@ -180,13 +208,13 @@ async function processFeed(
   const { data: upserted, error: upsertError } = await supabase
     .from('threat_intel_feed_entries')
     .upsert(rows, { onConflict: 'feed_id,external_id', ignoreDuplicates: true })
-    .select('id');
+    .select('id, title, url, published_at');
 
   if (upsertError) {
     throw new Error(`Upsert failed: ${upsertError.message}`);
   }
 
-  return (upserted || []).map((r: { id: string }) => r.id);
+  return (upserted || []) as UpsertedEntry[];
 }
 
 // ---------------------------------------------------------------------------
