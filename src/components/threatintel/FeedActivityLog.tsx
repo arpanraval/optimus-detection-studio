@@ -60,18 +60,35 @@ function jobDuration(job: AutoDigestJob): number | null {
 }
 
 function jobToneAndLabel(job: AutoDigestJob): { tone: JobStatusTone; label: string; iconName: string } {
+  // System errors are bugs / infra failures inside the orchestrator pipeline
+  // (article_classify_failed, article_digest_failed, feed_failed). They live
+  // in result_summary.errors[] populated by the orchestrator. AI verdicts —
+  // articles correctly judged non-threat-research and Skipped — are NOT
+  // errors and do not flip the tone. This separation is load-bearing UX:
+  // a run that successfully judged 5 marketing articles and skipped them is
+  // a working pipeline, not a failure.
   const summary = job.result_summary as Record<string, any> | null;
-  const errors: string[] = Array.isArray(summary?.errors) ? summary!.errors : [];
+  const systemErrors: string[] = Array.isArray(summary?.errors) ? summary!.errors : [];
   const digested = summary?.digested ?? summary?.articles_digested ?? 0;
-  const failed = summary?.failed ?? summary?.articles_failed ?? errors.length;
 
   if (job.status === 'pending') return { tone: 'pending', label: 'Queued', iconName: 'clock' };
   if (job.status === 'processing') return { tone: 'running', label: 'Running', iconName: 'loader' };
   if (job.status === 'failed') return { tone: 'failure', label: 'Failed', iconName: 'x-circle' };
-  if (errors.length > 0 && digested === 0) return { tone: 'failure', label: 'Failed during processing', iconName: 'alert-triangle' };
-  if (failed > 0 && digested > 0) return { tone: 'partial', label: 'Partial success', iconName: 'alert-triangle' };
-  if (digested === 0 && failed === 0) return { tone: 'success', label: 'Completed — no new content', iconName: 'check-circle' };
-  return { tone: 'success', label: 'Completed', iconName: 'check-circle' };
+  if (job.status === 'timeout_partial') return { tone: 'partial', label: 'Timed out (partial)', iconName: 'alert-triangle' };
+
+  // Completed status from here on.
+  const n = systemErrors.length;
+  if (digested > 0 && n === 0) {
+    return { tone: 'success', label: 'Completed', iconName: 'check-circle' };
+  }
+  if (digested > 0 && n > 0) {
+    return { tone: 'partial', label: `Completed with ${n} error${n === 1 ? '' : 's'}`, iconName: 'alert-triangle' };
+  }
+  if (digested === 0 && n === 0) {
+    return { tone: 'success', label: 'Completed — nothing relevant today', iconName: 'check-circle' };
+  }
+  // digested === 0 && n > 0
+  return { tone: 'partial', label: `Completed with ${n} error${n === 1 ? '' : 's'}`, iconName: 'alert-triangle' };
 }
 
 const TONE_CLASSES: Record<JobStatusTone, { dot: string; iconColor: string; bg: string; label: string }> = {
@@ -84,11 +101,10 @@ const TONE_CLASSES: Record<JobStatusTone, { dot: string; iconColor: string; bg: 
 
 function jobOneLineSummary(job: AutoDigestJob): string {
   const summary = job.result_summary as Record<string, any> | null;
-  const errors: string[] = Array.isArray(summary?.errors) ? summary!.errors : [];
+  const systemErrors: string[] = Array.isArray(summary?.errors) ? summary!.errors : [];
   const feedsFetched = summary?.feeds_fetched ?? 0;
   const harvested = summary?.articles_harvested ?? 0;
   const digested = summary?.digested ?? summary?.articles_digested ?? 0;
-  const failed = summary?.failed ?? summary?.articles_failed ?? errors.length;
   const skipped = summary?.skipped ?? summary?.articles_skipped ?? 0;
 
   if (job.status === 'pending') return 'Waiting for the orchestrator to pick this up…';
@@ -97,12 +113,15 @@ function jobOneLineSummary(job: AutoDigestJob): string {
   }
   if (job.status === 'failed') return job.error || 'Run failed before reporting any stats';
 
+  // Show feeds, harvest, and the productive outcomes. AI-skip is a verdict,
+  // not a failure — surface it neutrally. Only systemErrors get the "error"
+  // label since "failed" was already misleading.
   const parts: string[] = [];
   parts.push(`${feedsFetched} feed${feedsFetched === 1 ? '' : 's'}`);
   if (harvested > 0) parts.push(`${harvested} harvested`);
   if (digested > 0) parts.push(`${digested} digested`);
   if (skipped > 0) parts.push(`${skipped} skipped`);
-  if (failed > 0) parts.push(`${failed} failed`);
+  if (systemErrors.length > 0) parts.push(`${systemErrors.length} error${systemErrors.length === 1 ? '' : 's'}`);
   return parts.join(' · ');
 }
 

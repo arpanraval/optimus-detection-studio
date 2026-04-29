@@ -124,10 +124,23 @@ export async function classifyEntries(
 
       result.articles_classified += 1;
 
+      // Coerce confidence defensively. The model occasionally omits the field
+      // (or our truncation-repair trims a partial trailing key) — we should
+      // not crash with `Cannot read properties of undefined (reading 'toFixed')`.
+      // A missing/invalid confidence collapses to 0, which fails the gate
+      // below and routes the article through the regular Skipped path with
+      // a clear reason, instead of bubbling up as a system error.
+      const confidence = coerceConfidence(classification.confidence);
+      const confidenceMissing = !Number.isFinite(
+        typeof classification.confidence === 'number'
+          ? classification.confidence
+          : Number(classification.confidence),
+      );
+
       // 3. Gate: is_threat_research AND confidence >= threshold
       const passed =
         classification.is_threat_research === true &&
-        classification.confidence >= CONFIDENCE_THRESHOLD;
+        confidence >= CONFIDENCE_THRESHOLD;
 
       if (passed) {
         await supabase
@@ -146,26 +159,28 @@ export async function classifyEntries(
           article_url: entry.url,
           passed: true,
           reason: classification.category
-            ? `Classified as ${classification.category} (confidence ${classification.confidence.toFixed(2)})`
-            : `Confidence ${classification.confidence.toFixed(2)}`,
+            ? `Classified as ${classification.category} (confidence ${confidence.toFixed(2)})`
+            : `Confidence ${confidence.toFixed(2)}`,
           payload: {
-            confidence: classification.confidence,
+            confidence,
             category: classification.category,
             threat_actors: classification.threat_actors,
             campaign_keywords: classification.campaign_keywords,
           },
         });
       } else {
-        const reasonText = classification.skip_reason
+        const reasonText = confidenceMissing
+          ? 'Model response missing confidence value — treated as low-confidence skip'
+          : classification.skip_reason
           || (classification.category
-            ? `${classification.category} (confidence ${classification.confidence.toFixed(2)})`
-            : `Below confidence threshold (${classification.confidence.toFixed(2)} < ${CONFIDENCE_THRESHOLD})`);
+            ? `${classification.category} (confidence ${confidence.toFixed(2)})`
+            : `Below confidence threshold (${confidence.toFixed(2)} < ${CONFIDENCE_THRESHOLD})`);
 
         await supabase
           .from('threat_intel_feed_entries')
           .update({
             digest_status: 'skipped',
-            skip_reason: classification.skip_reason || classification.category,
+            skip_reason: classification.skip_reason || classification.category || (confidenceMissing ? 'no_confidence' : null),
           })
           .eq('id', entry.id);
 
@@ -180,9 +195,10 @@ export async function classifyEntries(
           passed: false,
           reason: reasonText,
           payload: {
-            confidence: classification.confidence,
+            confidence,
             category: classification.category,
             skip_reason: classification.skip_reason,
+            confidence_missing: confidenceMissing || undefined,
           },
         });
       }
@@ -383,6 +399,22 @@ async function callAnthropic(model: string, userPrompt: string): Promise<{ resul
 // ---------------------------------------------------------------------------
 // JSON Parsing
 // ---------------------------------------------------------------------------
+
+/**
+ * Defensive coercion for the model's reported confidence value.
+ *
+ * The classification prompt asks for a number 0..1 in `confidence`, but the
+ * model occasionally omits the field, returns a string, or returns an
+ * out-of-range value. Truncation-repair (PR #13) can also strip a partial
+ * trailing key. Returning a clamped number means downstream `.toFixed(2)`,
+ * gate comparisons, and event payloads never blow up — and the article
+ * falls through to the regular Skipped path with a clear reason.
+ */
+function coerceConfidence(raw: unknown): number {
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
 
 /**
  * Robust JSON extraction for classification responses.

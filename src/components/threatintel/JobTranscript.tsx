@@ -465,10 +465,20 @@ export const JobTranscript: React.FC<JobTranscriptProps> = ({ job }) => {
     { ...STAGES[2], ...rank },
     { ...STAGES[3], ...digest },
   ];
-  const errorIdx = stages.findIndex((s) => s.state === 'error');
+  // Default-open priority: running first (so the user sees live progress),
+  // then the last stage that has data (so the user lands on the most-recent
+  // productive step). We deliberately do NOT auto-open the failing stage —
+  // each stage's summary line already shows its error count + amber/red
+  // tone, so the user can still see at a glance that something went wrong.
+  // Auto-opening the bad stage on a mostly-successful run made the page
+  // read as a failure when most of the work succeeded.
   const runningIdx = stages.findIndex((s) => s.state === 'running');
-  const lastNonEmpty = [...stages].reverse().findIndex((s) => s.state !== 'empty');
-  const defaultOpenIdx = errorIdx >= 0 ? errorIdx : runningIdx >= 0 ? runningIdx : lastNonEmpty >= 0 ? stages.length - 1 - lastNonEmpty : -1;
+  const lastNonEmptyReversed = [...stages].reverse().findIndex((s) => s.state !== 'empty');
+  const defaultOpenIdx = runningIdx >= 0
+    ? runningIdx
+    : lastNonEmptyReversed >= 0
+      ? stages.length - 1 - lastNonEmptyReversed
+      : -1;
 
   return (
     <div className="space-y-2 px-4 py-3 bg-surface-container-lowest/30 rounded-b-xl">
