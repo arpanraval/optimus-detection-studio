@@ -60,16 +60,14 @@ serve(async (req: Request) => {
 
   try {
     // 2. Auth check — must be service_role key (from pg_cron via pg_net)
-    const authHeader = req.headers.get('Authorization');
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const authHeader = req.headers.get('Authorization');
     if (!authHeader || authHeader !== `Bearer ${serviceRoleKey}`) {
       return corsErrorResponse('Forbidden — service role required', req, 403);
     }
 
     // 3. Create service-role Supabase client
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-
     const supabase = createClient(supabaseUrl, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
@@ -123,12 +121,6 @@ serve(async (req: Request) => {
         if (settingsErr || !settings) {
           await markJobCompleted(supabase, job.id, 'completed', result);
           result.errors.push('No auto_digest_settings found — skipping');
-          jobSummaries.push(buildJobSummary(job, result));
-          continue;
-        }
-
-        if (!settings.is_enabled) {
-          await markJobCompleted(supabase, job.id, 'completed', result);
           jobSummaries.push(buildJobSummary(job, result));
           continue;
         }

@@ -11,24 +11,25 @@ declare const Deno: {
   };
 };
 
-// Default allowed origins for development
-const DEFAULT_ORIGINS = [
+// Local dev origins — always allowed so localhost testing works regardless of ALLOWED_ORIGINS
+const DEV_ORIGINS = [
   'http://localhost:5173',
   'http://localhost:3000',
   'http://127.0.0.1:5173',
 ];
 
 /**
- * Get the list of allowed origins from environment variable or defaults.
- * Set ALLOWED_ORIGINS environment variable as comma-separated list for production.
- * Example: ALLOWED_ORIGINS=https://app.example.com,https://staging.example.com
+ * Get the list of allowed origins.
+ * ALLOWED_ORIGINS env var (comma-separated) adds production domains.
+ * Dev origins are always included so local testing is never blocked.
  */
 function getAllowedOrigins(): string[] {
   const envOrigins = Deno.env.get('ALLOWED_ORIGINS');
   if (envOrigins) {
-    return envOrigins.split(',').map(o => o.trim()).filter(Boolean);
+    const custom = envOrigins.split(',').map(o => o.trim()).filter(Boolean);
+    return [...custom, ...DEV_ORIGINS];
   }
-  return DEFAULT_ORIGINS;
+  return DEV_ORIGINS;
 }
 
 /**

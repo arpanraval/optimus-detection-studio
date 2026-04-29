@@ -156,6 +156,21 @@ export function useAutoDigestSettings(userId: string) {
     await fetchEnabledSources();
   }, [userId, fetchEnabledSources, showToast]);
 
+  const triggerManualRun = useCallback(async (): Promise<{ jobId: string } | null> => {
+    const { data, error } = await supabase.functions.invoke('trigger-auto-digest', { body: {} });
+    if (error) {
+      showToast('error', `Failed to start: ${error.message}`);
+      return null;
+    }
+    if (data?.status === 'pending' || data?.status === 'processing') {
+      showToast('info', 'A digest job is already in progress');
+    } else {
+      showToast('success', 'Digest pipeline started');
+    }
+    await fetchRecentJobs();
+    return { jobId: data?.job_id };
+  }, [showToast, fetchRecentJobs]);
+
   const refresh = useCallback(async () => {
     await Promise.all([
       fetchSettings(),
@@ -187,6 +202,7 @@ export function useAutoDigestSettings(userId: string) {
     fetchRecentJobs,
     saveSettings,
     toggleSource,
+    triggerManualRun,
     refresh,
   };
 }

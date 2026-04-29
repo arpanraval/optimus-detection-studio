@@ -147,9 +147,11 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     settings,
     curatedSources,
     enabledSourceIds,
+    recentJobs,
     isLoading,
     saveSettings,
     toggleSource,
+    triggerManualRun,
   } = useAutoDigestSettings(userId);
 
   // Tab state
@@ -163,6 +165,19 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     classification_model: 'gemini-3-flash-preview',
     digest_model: 'gemini-3-flash-preview',
   });
+
+  // Manual run state
+  const [isRunning, setIsRunning] = useState(false);
+  const isJobActive = recentJobs.some(j => j.status === 'pending' || j.status === 'processing');
+
+  const handleRunNow = useCallback(async () => {
+    setIsRunning(true);
+    try {
+      await triggerManualRun();
+    } finally {
+      setIsRunning(false);
+    }
+  }, [triggerManualRun]);
 
   // Track which sources are locally toggled (dirty state)
   const [pendingToggles, setPendingToggles] = useState<Map<string, boolean>>(new Map());
@@ -316,6 +331,16 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
           <p className="text-sm text-on-surface-variant mt-0.5">Automatic threat intelligence ingestion and analysis</p>
         </div>
         <div className="flex items-center gap-3">
+          <Button
+            size="sm"
+            color="secondary"
+            leadingIcon="play"
+            loading={isRunning || isJobActive}
+            onClick={handleRunNow}
+            title={isJobActive ? 'A digest job is already in progress' : 'Run the pipeline now instead of waiting for the next scheduled slot'}
+          >
+            {isJobActive ? 'Running…' : 'Run Now'}
+          </Button>
           <span className="text-sm text-on-surface-variant">{localConfig.is_enabled ? 'Active' : 'Paused'}</span>
           <Toggle
             size="md"
