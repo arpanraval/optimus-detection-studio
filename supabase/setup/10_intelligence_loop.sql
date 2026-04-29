@@ -12,7 +12,6 @@
 CREATE TABLE analysis_reports (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  team_id uuid REFERENCES teams(id) ON DELETE SET NULL,
   report_type text NOT NULL,
   playbook_id text,
   title text NOT NULL,
@@ -114,11 +113,6 @@ ALTER TABLE analysis_reports ENABLE ROW LEVEL SECURITY;
 CREATE POLICY analysis_reports_select_own ON analysis_reports
   FOR SELECT USING (user_id = auth.uid());
 
-CREATE POLICY analysis_reports_select_team ON analysis_reports
-  FOR SELECT USING (
-    team_id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
-  );
-
 CREATE POLICY analysis_reports_insert ON analysis_reports
   FOR INSERT WITH CHECK (user_id = auth.uid());
 
@@ -140,19 +134,6 @@ CREATE POLICY detection_decisions_select ON detection_decisions
   FOR SELECT USING (
     user_id = auth.uid()
     OR detection_id IN (SELECT id FROM detections WHERE user_id = auth.uid())
-    OR detection_id IN (
-      SELECT d.id FROM detections d
-      JOIN team_members tm ON tm.team_id = d.team_id
-      WHERE tm.user_id = auth.uid()
-    )
-    OR (
-      detection_id IS NULL
-      AND technique_id IS NOT NULL
-      AND user_id IN (
-        SELECT tm2.user_id FROM team_members tm2
-        WHERE tm2.team_id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
-      )
-    )
   );
 
 CREATE POLICY detection_decisions_insert ON detection_decisions

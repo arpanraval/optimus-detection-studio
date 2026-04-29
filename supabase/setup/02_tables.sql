@@ -33,24 +33,6 @@ CREATE TABLE IF NOT EXISTS profiles (
 );
 
 -- ----------------------------------------------------------
--- teams
--- ----------------------------------------------------------
-CREATE TABLE IF NOT EXISTS teams (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  name text NOT NULL,
-  slug text NOT NULL,
-  description text,
-  logo_url text,
-  settings jsonb DEFAULT '{}'::jsonb,
-  created_by uuid,
-  created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now(),
-
-  CONSTRAINT teams_pkey PRIMARY KEY (id),
-  CONSTRAINT teams_slug_key UNIQUE (slug)
-);
-
--- ----------------------------------------------------------
 -- mitre_objects
 -- ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS mitre_objects (
@@ -371,34 +353,10 @@ CREATE TABLE IF NOT EXISTS mitre_technique_data_sources (
 );
 
 -- ----------------------------------------------------------
--- team_members
+-- user_invitations
 -- ----------------------------------------------------------
-CREATE TABLE IF NOT EXISTS team_members (
+CREATE TABLE IF NOT EXISTS user_invitations (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
-  team_id uuid NOT NULL,
-  user_id uuid NOT NULL,
-  role text NOT NULL DEFAULT 'analyst'::text,
-  invited_by uuid,
-  invited_at timestamptz DEFAULT now(),
-  accepted_at timestamptz,
-  status text NOT NULL DEFAULT 'active'::text,
-  created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now(),
-
-  CONSTRAINT team_members_pkey PRIMARY KEY (id),
-  CONSTRAINT team_members_team_id_user_id_key UNIQUE (team_id, user_id),
-  CONSTRAINT team_members_team_id_fkey FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
-  CONSTRAINT team_members_user_id_fkey FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE,
-  CONSTRAINT team_members_role_check CHECK (role = ANY (ARRAY['owner'::text, 'admin'::text, 'lead'::text, 'analyst'::text, 'viewer'::text])),
-  CONSTRAINT team_members_status_check CHECK (status = ANY (ARRAY['pending'::text, 'active'::text, 'deactivated'::text]))
-);
-
--- ----------------------------------------------------------
--- team_invitations
--- ----------------------------------------------------------
-CREATE TABLE IF NOT EXISTS team_invitations (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  team_id uuid NOT NULL,
   email text NOT NULL,
   role text NOT NULL DEFAULT 'analyst'::text,
   invited_by uuid NOT NULL,
@@ -407,10 +365,9 @@ CREATE TABLE IF NOT EXISTS team_invitations (
   accepted_at timestamptz,
   created_at timestamptz DEFAULT now(),
 
-  CONSTRAINT team_invitations_pkey PRIMARY KEY (id),
-  CONSTRAINT team_invitations_token_key UNIQUE (token),
-  CONSTRAINT team_invitations_team_id_fkey FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
-  CONSTRAINT team_invitations_role_check CHECK (role = ANY (ARRAY['admin'::text, 'lead'::text, 'analyst'::text, 'viewer'::text]))
+  CONSTRAINT user_invitations_pkey PRIMARY KEY (id),
+  CONSTRAINT user_invitations_token_key UNIQUE (token),
+  CONSTRAINT user_invitations_role_check CHECK (role = ANY (ARRAY['admin'::text, 'lead'::text, 'analyst'::text, 'viewer'::text]))
 );
 
 -- ----------------------------------------------------------
@@ -418,7 +375,6 @@ CREATE TABLE IF NOT EXISTS team_invitations (
 -- ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS activity_log (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
-  team_id uuid,
   user_id uuid NOT NULL,
   entity_type text NOT NULL,
   entity_id text NOT NULL,
@@ -429,8 +385,7 @@ CREATE TABLE IF NOT EXISTS activity_log (
   created_at timestamptz DEFAULT now(),
 
   CONSTRAINT activity_log_pkey PRIMARY KEY (id),
-  CONSTRAINT activity_log_team_id_fkey FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
-  CONSTRAINT activity_log_entity_type_check CHECK (entity_type = ANY (ARRAY['detection'::text, 'user'::text, 'team'::text, 'pack'::text, 'review'::text, 'comment'::text]))
+  CONSTRAINT activity_log_entity_type_check CHECK (entity_type = ANY (ARRAY['detection'::text, 'user'::text, 'pack'::text, 'review'::text, 'comment'::text]))
 );
 
 -- ----------------------------------------------------------
@@ -448,7 +403,6 @@ CREATE TABLE IF NOT EXISTS audit_events (
   old_values jsonb,
   new_values jsonb,
   changed_fields text[],
-  team_id uuid,
   ip_address inet,
   user_agent text,
   session_id text,
@@ -457,7 +411,6 @@ CREATE TABLE IF NOT EXISTS audit_events (
   created_at timestamptz NOT NULL DEFAULT now(),
 
   CONSTRAINT audit_events_pkey PRIMARY KEY (id),
-  CONSTRAINT audit_events_team_id_fkey FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE SET NULL,
   CONSTRAINT audit_events_source_check CHECK (source = ANY (ARRAY['client'::text, 'edge_function'::text, 'migration'::text]))
 );
 
@@ -466,7 +419,6 @@ CREATE TABLE IF NOT EXISTS audit_events (
 -- ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS scoring_profiles (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
-  team_id uuid,
   name text NOT NULL,
   description text,
   is_default boolean NOT NULL DEFAULT false,
@@ -476,7 +428,6 @@ CREATE TABLE IF NOT EXISTS scoring_profiles (
   updated_at timestamptz NOT NULL DEFAULT now(),
 
   CONSTRAINT scoring_profiles_pkey PRIMARY KEY (id),
-  CONSTRAINT scoring_profiles_team_id_fkey FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
   CONSTRAINT scoring_profiles_weights_sum_100 CHECK (
     (((((((((((weights ->> 'query_completeness'::text))::integer
     + ((weights ->> 'mitre_mapping'::text))::integer)
@@ -496,7 +447,6 @@ CREATE TABLE IF NOT EXISTS scoring_profiles (
 -- ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS environment_profiles (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
-  team_id uuid,
   user_id uuid NOT NULL,
   industry text,
   siem_platforms text[] DEFAULT '{}'::text[],
@@ -509,8 +459,7 @@ CREATE TABLE IF NOT EXISTS environment_profiles (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
 
-  CONSTRAINT environment_profiles_pkey PRIMARY KEY (id),
-  CONSTRAINT environment_profiles_team_id_fkey FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
+  CONSTRAINT environment_profiles_pkey PRIMARY KEY (id)
 );
 
 -- ----------------------------------------------------------
@@ -603,7 +552,6 @@ CREATE TABLE IF NOT EXISTS detections (
   promotion_status text DEFAULT 'none'::text,
   promoted_to_id text,
   promoted_at timestamptz,
-  team_id uuid,
   assigned_to uuid,
   assigned_by uuid,
   assigned_at timestamptz,
@@ -620,7 +568,6 @@ CREATE TABLE IF NOT EXISTS detections (
   CONSTRAINT detections_source_rule_id_fkey FOREIGN KEY (source_rule_id) REFERENCES detections(id) ON DELETE SET NULL,
   CONSTRAINT detections_promoted_to_id_fkey FOREIGN KEY (promoted_to_id) REFERENCES detections(id) ON DELETE SET NULL,
   CONSTRAINT detections_bulk_import_id_fkey FOREIGN KEY (bulk_import_id) REFERENCES bulk_import_jobs(id) ON DELETE SET NULL,
-  CONSTRAINT detections_team_id_fkey FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE SET NULL,
   CONSTRAINT detections_library_type_check CHECK (library_type = ANY (ARRAY['development'::text, 'production'::text])),
   CONSTRAINT detections_visibility_check CHECK (visibility = ANY (ARRAY['private'::text, 'shared'::text])),
   CONSTRAINT detections_promotion_status_check CHECK (promotion_status = ANY (ARRAY['none'::text, 'pending'::text, 'promoted'::text, 'rejected'::text])),
