@@ -6,28 +6,9 @@ import { useLibrary } from '../context/LibraryContext';
 import { useTheme } from '../context/ThemeContext';
 import { viewToRoute, ROUTES } from '../router/routes';
 import { readDashboardSummaries } from './dashboard/enterprise/dashboardPersistence';
+import { getAvatarColor } from '../lib/avatar';
 
 type View = 'dashboard' | 'command-center' | 'library' | 'detail' | 'form' | 'mitre' | 'coverage' | 'groups' | 'group-detail' | 'software' | 'software-detail' | 'campaigns' | 'campaign-detail' | 'mitigations' | 'mitigation-detail' | 'detection-strategies' | 'strategy-detail' | 'users' | 'add_selection' | 'sigma_converter' | 'ai_query_gen' | 'ai_agent' | 'bulk_import' | 'integrations' | 'approval_queue' | 'my_submissions' | 'account_settings' | 'data_sync' | 'packs' | 'pack-detail' | 'defensive-posture' | 'scoring_settings' | 'threat-intel' | 'threat-intel-feeds' | 'analysis-reports' | 'siem-health' | 'design-system' | 'design-system-buttons' | 'design-system-inputs' | 'design-system-badges' | 'design-system-cards' | 'design-system-navigation' | 'design-system-modals' | 'design-system-dropdowns' | 'design-system-loading' | 'design-system-misc' | 'design-system-colors' | 'design-system-bulk-import' | 'design-system-logo' | 'design-system-ai-chat-cards' | 'audit_log' | 'environment_profile' | 'intelligence_sources' | 'pipeline' | 'detection-board' | 'onboarding' | 'action_plan' | 'exercises-state-sponsored' | 'cost_center' | 'my_ai_usage';
-
-// Avatar colors
-const AVATAR_COLORS = [
-  { bg: 'bg-violet-500/15', text: 'text-violet-400' },
-  { bg: 'bg-blue-500/15', text: 'text-blue-400' },
-  { bg: 'bg-cyan-500/15', text: 'text-cyan-400' },
-  { bg: 'bg-teal-500/15', text: 'text-teal-400' },
-  { bg: 'bg-emerald-500/15', text: 'text-emerald-400' },
-  { bg: 'bg-amber-500/15', text: 'text-amber-400' },
-  { bg: 'bg-rose-500/15', text: 'text-rose-400' },
-  { bg: 'bg-fuchsia-500/15', text: 'text-fuchsia-400' },
-];
-
-const getAvatarColor = (seed: string) => {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    hash = seed.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-};
 
 interface SidebarProps {
   onNavigate: (view: View) => void;
