@@ -22,7 +22,12 @@ import type { TokenUsage } from '../../_shared/aiPricing.ts';
 
 const AI_TIMEOUT_MS = 15_000;
 const AI_TEMPERATURE = 0.1;
-const AI_MAX_TOKENS = 500;
+// Bumped from 500 → 1500. The classifier was getting cut off mid-JSON when
+// the model wrote a long skip_reason for product/marketing articles; the
+// response then had no closing brace and the parser failed with
+// "No JSON object found". 1500 leaves comfortable headroom while staying
+// well under any provider's per-request budget.
+const AI_MAX_TOKENS = 1500;
 const CONFIDENCE_THRESHOLD = 0.6;
 
 // ---------------------------------------------------------------------------
@@ -379,19 +384,102 @@ async function callAnthropic(model: string, userPrompt: string): Promise<{ resul
 // JSON Parsing
 // ---------------------------------------------------------------------------
 
+/**
+ * Robust JSON extraction for classification responses.
+ *
+ * Tries (in order): direct parse, fence-strip parse, fenced-block parse,
+ * balanced-brace extraction with string-aware counting, and a best-effort
+ * "close the truncated object" repair pass for cases where the model ran
+ * out of tokens mid-write. Throws only if every approach fails.
+ */
 function parseClassificationJSON(raw: string): ClassificationResult {
-  // Try direct parse first
+  const trimmed = raw.trim();
+
+  // 1. Direct parse — works when the model honors responseMimeType=application/json.
   try {
-    return JSON.parse(raw) as ClassificationResult;
-  } catch {
-    // Fall through to regex extraction
+    return JSON.parse(trimmed) as ClassificationResult;
+  } catch { /* fall through */ }
+
+  // 2. Strip leading/trailing fences if the whole response is fenced.
+  const fenceStripped = trimmed.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?\s*```$/, '').trim();
+  if (fenceStripped !== trimmed) {
+    try { return JSON.parse(fenceStripped) as ClassificationResult; } catch { /* fall through */ }
   }
 
-  // Extract JSON from markdown fences or surrounding text
-  const match = raw.match(/\{[\s\S]*\}/);
-  if (!match) {
-    throw new Error(`No JSON object found in AI response: ${raw.slice(0, 200)}`);
+  // 3. A fenced JSON block somewhere inside prose (Claude habit).
+  const fenceMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+  if (fenceMatch) {
+    try { return JSON.parse(fenceMatch[1].trim()) as ClassificationResult; } catch { /* fall through */ }
   }
 
-  return JSON.parse(match[0]) as ClassificationResult;
+  // 4. First balanced top-level object via string-aware brace counting.
+  const start = trimmed.indexOf('{');
+  if (start !== -1) {
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    for (let i = start; i < trimmed.length; i++) {
+      const ch = trimmed[i];
+      if (escape) { escape = false; continue; }
+      if (ch === '\\') { escape = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          try { return JSON.parse(trimmed.slice(start, i + 1)) as ClassificationResult; }
+          catch { /* fall through to repair */ }
+          break;
+        }
+      }
+    }
+
+    // 5. Truncation repair — model ran out of tokens mid-object. Trim the last
+    //    incomplete value and append closing chars in the right nesting order.
+    const repaired = repairTruncatedJson(trimmed.slice(start));
+    if (repaired) {
+      try { return JSON.parse(repaired) as ClassificationResult; } catch { /* give up */ }
+    }
+  }
+
+  throw new Error(`No parseable JSON in AI response: ${trimmed.slice(0, 200)}`);
+}
+
+/**
+ * Best-effort repair of a truncated JSON object/array. Tracks string and
+ * escape state to avoid miscounting braces inside strings, finds the last
+ * value boundary that's safe to close at, then appends `]` for each open
+ * array and `}` for each open object.
+ *
+ * Returns null when the input ends in the middle of a string literal — at
+ * that point we can't tell where the value boundary is.
+ */
+function repairTruncatedJson(input: string): string | null {
+  let braceDepth = 0;
+  let bracketDepth = 0;
+  let inString = false;
+  let escape = false;
+  let lastSafeIdx = -1; // last index at which a value just ended (after `,` `}` `]` or primitive)
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (escape) { escape = false; continue; }
+    if (ch === '\\') { escape = true; continue; }
+    if (ch === '"') { inString = !inString; if (!inString) lastSafeIdx = i; continue; }
+    if (inString) continue;
+    if (ch === '{') braceDepth++;
+    else if (ch === '}') { braceDepth--; lastSafeIdx = i; }
+    else if (ch === '[') bracketDepth++;
+    else if (ch === ']') { bracketDepth--; lastSafeIdx = i; }
+    else if (ch === ',') lastSafeIdx = i - 1;          // chop trailing comma
+    else if (/[0-9.eE+\-]/.test(ch)) lastSafeIdx = i;  // last char of a primitive
+  }
+
+  if (inString) return null;
+  if (braceDepth <= 0 && bracketDepth <= 0) return input; // already balanced
+  if (lastSafeIdx === -1) return null;
+
+  const truncated = input.slice(0, lastSafeIdx + 1).replace(/,\s*$/, '');
+  return truncated + ']'.repeat(Math.max(0, bracketDepth)) + '}'.repeat(Math.max(0, braceDepth));
 }
