@@ -14,7 +14,7 @@
 // per phase 8 of the plan.
 
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
-import { calculateCostUsd, type TokenUsage } from './aiPricing.ts';
+import { calculateCostUsd, MODEL_PRICING, type TokenUsage } from './aiPricing.ts';
 import { normalizeFeatureCode } from './aiFeatureCodes.ts';
 
 export type AiCategory = 'llm' | 'embedding' | 'image' | 'failed';
@@ -86,12 +86,24 @@ function enforcementEnabled(): boolean {
 async function checkBudgets(ctx: AiTelemetryContext): Promise<BudgetMatch | null> {
   const sb = adminClient();
 
+  // Whitelist values that get interpolated into the PostgREST `or()` filter to
+  // prevent injection via malicious model names from upstream callers.
+  // - `feature` is already normalized to a known string by normalizeFeatureCode.
+  // - `userId` is a UUID from the JWT (only [0-9a-f-]) — safe by construction.
+  // - `model` comes from request bodies with varying validation across edge
+  //   functions; check it against the pricing table (the source of truth for
+  //   models we know about). Unknown models cost 0 (calculateCostUsd returns 0)
+  //   so they cannot trigger a budget anyway — safe to drop the model clause.
+  const modelIsKnown = Object.prototype.hasOwnProperty.call(MODEL_PRICING, ctx.model);
+
   // Build OR filter for budgets that could match this call.
   const orParts: string[] = [
     'and(scope.eq.org)',
     `and(scope.eq.feature,scope_value.eq.${ctx.feature})`,
-    `and(scope.eq.model,scope_value.eq.${ctx.model})`,
   ];
+  if (modelIsKnown) {
+    orParts.push(`and(scope.eq.model,scope_value.eq.${ctx.model})`);
+  }
   if (ctx.userId) {
     orParts.push(`and(scope.eq.user,scope_value.eq.${ctx.userId})`);
   }

@@ -36,7 +36,7 @@ export const MyAiUsagePage: React.FC = () => {
       {myBudget && myBudget.current >= myBudget.budget.limit_usd && (
         <div className="px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-sm text-amber-400">
           ⚠ You're at {Math.round((myBudget.current / myBudget.budget.limit_usd) * 100)}% of your {myBudget.budget.period} limit.
-          AI tools will fail until the period resets or an admin grants a 24h override.
+          If hard enforcement is enabled, AI tools will start failing until the period resets or an admin grants a 24h override.
         </div>
       )}
 
