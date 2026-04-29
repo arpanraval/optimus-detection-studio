@@ -1,3 +1,11 @@
+// NOTE: This is the v1 threat-intel-digest function. v2 (threat-intel-digest-v2)
+// supersedes it and is the only version invoked from the application
+// (src/lib/aiService.ts and supabase/functions/auto-digest-orchestrator).
+// Verified 2026-04-29: no remaining callers of v1 in src/ or other edge fns.
+// Not instrumented for the GenAI Cost Center because no callers exist.
+// If this is reintroduced, add withAiTelemetry per the cost-center plan
+// (see threat-intel-digest-v2/lib/ai-extractor.ts for the wrapping pattern).
+
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import { getCorsHeaders, handleCorsPreflight } from '../_shared/cors.ts'
