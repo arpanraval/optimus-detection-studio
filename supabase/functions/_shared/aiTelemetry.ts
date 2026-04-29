@@ -200,6 +200,15 @@ export async function withAiTelemetry<T>(
 ): Promise<T> {
   const start = performance.now();
 
+  // Surface untagged calls so they don't silently roll up under 'unknown'.
+  if (normalizeFeatureCode(ctx.feature) === 'unknown') {
+    console.warn(
+      `[aiTelemetry] AI call from ${ctx.provider} model ${ctx.model} is missing a feature tag. ` +
+      `This will roll up under "Unclassified" in the Cost Center. ` +
+      `Add a feature: '<code>' from src/lib/ai/featureCodes.ts to the calling code.`
+    );
+  }
+
   // 1. Pre-check budgets (gated by env flag; fail-open on errors).
   let blocking: BudgetMatch | null = null;
   if (enforcementEnabled()) {

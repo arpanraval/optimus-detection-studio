@@ -189,6 +189,10 @@ export interface AIGenerateResponse {
 export async function generateAIContent(options: AIGenerateOptions): Promise<AIGenerateResponse> {
   const { prompt, model = DEFAULT_MODEL, responseFormat = 'json', feature } = options;
 
+  if (import.meta.env.DEV && !feature) {
+    logger.warn('[aiService] generateAIContent missing feature tag — will be classified as "unknown" in the Cost Center.');
+  }
+
   return withRetry(async () => {
     const { data, error } = await supabase.functions.invoke('ai-generate', {
       body: { prompt, model, responseFormat, feature }
@@ -222,6 +226,10 @@ export async function generateAIChat(options: AIChatOptions): Promise<AIGenerate
     functionResponses,
     feature
   } = options;
+
+  if (import.meta.env.DEV && !feature) {
+    logger.warn('[aiService] generateAIChat missing feature tag — will be classified as "unknown" in the Cost Center.');
+  }
 
   return withRetry(async () => {
     const { data, error } = await supabase.functions.invoke('ai-generate', {
