@@ -140,27 +140,29 @@ const StageShell: React.FC<{
 // ─── Stage 1: Harvest ──────────────────────────────────────────────────────
 
 function HarvestStage({ events, jobIsActive }: { events: DigestEvent[]; jobIsActive: boolean }) {
+  // NOTE: this is a plain helper function, not a React component. Hooks added
+  // here would attach to JobTranscript's hook scope and break the rules of
+  // hooks when JobTranscript's early-return branches fire (the "Rendered more
+  // hooks than during the previous render" crash). Keep computation inline.
   const feedFetched = events.filter((e) => e.event_type === 'feed_fetched');
   const feedFailed = events.filter((e) => e.event_type === 'feed_failed');
   const articlesSeen = events.filter((e) => e.event_type === 'article_seen');
 
-  const feedsByFeedId = useMemo(() => {
-    const map = new Map<string, { feedName: string; status: 'ok' | 'failed'; error?: string; articles: DigestEvent[] }>();
-    for (const fe of feedFetched) {
-      const key = fe.feed_id || `name:${fe.feed_name}`;
-      map.set(key, { feedName: fe.feed_name || 'Unknown feed', status: 'ok', articles: [] });
-    }
-    for (const fe of feedFailed) {
-      const key = fe.feed_id || `name:${fe.feed_name}`;
-      map.set(key, { feedName: fe.feed_name || 'Unknown feed', status: 'failed', error: fe.reason ?? 'Unknown error', articles: [] });
-    }
-    for (const a of articlesSeen) {
-      const key = a.feed_id || `name:${a.feed_name}`;
-      const entry = map.get(key);
-      if (entry) entry.articles.push(a);
-    }
-    return [...map.entries()].map(([id, v]) => ({ id, ...v }));
-  }, [feedFetched, feedFailed, articlesSeen]);
+  const feedMap = new Map<string, { feedName: string; status: 'ok' | 'failed'; error?: string; articles: DigestEvent[] }>();
+  for (const fe of feedFetched) {
+    const key = fe.feed_id || `name:${fe.feed_name}`;
+    feedMap.set(key, { feedName: fe.feed_name || 'Unknown feed', status: 'ok', articles: [] });
+  }
+  for (const fe of feedFailed) {
+    const key = fe.feed_id || `name:${fe.feed_name}`;
+    feedMap.set(key, { feedName: fe.feed_name || 'Unknown feed', status: 'failed', error: fe.reason ?? 'Unknown error', articles: [] });
+  }
+  for (const a of articlesSeen) {
+    const key = a.feed_id || `name:${a.feed_name}`;
+    const entry = feedMap.get(key);
+    if (entry) entry.articles.push(a);
+  }
+  const feedsByFeedId = [...feedMap.entries()].map(([id, v]) => ({ id, ...v }));
 
   const totalNew = articlesSeen.length;
   const totalFeeds = feedsByFeedId.length;
