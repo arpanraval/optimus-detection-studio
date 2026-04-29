@@ -2,6 +2,8 @@
 
 import { RANSOMWARE_KILL_CHAIN, RANSOMWARE_ADJACENT_TECHNIQUES } from './ransomware-killchain.ts';
 import type { KillChainPhase, BehaviorPattern } from './ransomware-killchain.ts';
+import { withAiTelemetry } from '../_shared/aiTelemetry.ts';
+import { parseGeminiUsage } from '../_shared/aiUsageParsers.ts';
 
 // --- Types (match spec exactly) ---
 
@@ -106,7 +108,8 @@ function runKeywordMatching(detections: DetectionRow[]): KeywordMatch[] {
 
 async function runAIEvaluation(
   unmatchedDetections: DetectionRow[],
-  geminiApiKey: string
+  geminiApiKey: string,
+  userId: string | null
 ): Promise<{ matches: KeywordMatch[]; skipped: boolean; error?: string }> {
   // Filter to detections with ransomware-adjacent MITRE mappings
   const candidates = unmatchedDetections.filter(d => {
@@ -140,42 +143,56 @@ ${JSON.stringify(batch.map(d => ({
 })))}`;
 
   try {
-    const response = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+    const aiMatches = await withAiTelemetry(
       {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 4000, responseMimeType: 'application/json' },
-        }),
+        userId,
+        feature: 'optimus-tool-call',
+        model: 'gemini-2.0-flash',
+        provider: 'google',
+        category: 'llm',
+        metadata: { tool: 'ransomware_readiness', step: 'ai_evaluation' },
+      },
+      async () => {
+        const response = await fetch(
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { temperature: 0.1, maxOutputTokens: 4000, responseMimeType: 'application/json' },
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`Gemini API ${response.status}`);
+        }
+
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) throw new Error('Empty AI response');
+
+        const results: Array<{ id: string; phases: string[] }> = JSON.parse(text);
+        const matches: KeywordMatch[] = [];
+
+        for (const result of results) {
+          for (const phaseId of result.phases) {
+            // Map phase to a behavior label (use "AI-classified" since we don't know which specific behavior)
+            const phase = RANSOMWARE_KILL_CHAIN.find(p => p.id === phaseId);
+            if (phase) {
+              matches.push({
+                detection_id: result.id,
+                phase_id: phaseId,
+                behavior_label: `AI-classified: ${phase.name} relevance`,
+              });
+            }
+          }
+        }
+
+        return { result: matches, usage: parseGeminiUsage(data) };
       }
     );
-
-    if (!response.ok) {
-      return { matches: [], skipped: true, error: `Gemini API ${response.status}` };
-    }
-
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) return { matches: [], skipped: true, error: 'Empty AI response' };
-
-    const results: Array<{ id: string; phases: string[] }> = JSON.parse(text);
-    const aiMatches: KeywordMatch[] = [];
-
-    for (const result of results) {
-      for (const phaseId of result.phases) {
-        // Map phase to a behavior label (use "AI-classified" since we don't know which specific behavior)
-        const phase = RANSOMWARE_KILL_CHAIN.find(p => p.id === phaseId);
-        if (phase) {
-          aiMatches.push({
-            detection_id: result.id,
-            phase_id: phaseId,
-            behavior_label: `AI-classified: ${phase.name} relevance`,
-          });
-        }
-      }
-    }
 
     return { matches: aiMatches, skipped: false };
   } catch (err) {
@@ -187,7 +204,8 @@ ${JSON.stringify(batch.map(d => ({
 
 async function generateSummaryAndRecommendations(
   phases: PhaseResult[],
-  geminiApiKey: string
+  geminiApiKey: string,
+  userId: string | null
 ): Promise<{ executive_summary: string | null; recommendations: string | null }> {
   // Build concise phase summary for the AI
   const phaseSummary = phases.map(p => ({
@@ -209,29 +227,44 @@ ${JSON.stringify(phaseSummary)}
 Return ONLY valid JSON with keys "executive_summary" and "recommendations" (both strings).`;
 
   try {
-    const response = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+    return await withAiTelemetry(
       {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 3000, responseMimeType: 'application/json' },
-        }),
+        userId,
+        feature: 'optimus-tool-call',
+        model: 'gemini-2.0-flash',
+        provider: 'google',
+        category: 'llm',
+        metadata: { tool: 'ransomware_readiness', step: 'summary_and_recommendations' },
+      },
+      async () => {
+        const response = await fetch(
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { temperature: 0.3, maxOutputTokens: 3000, responseMimeType: 'application/json' },
+            }),
+          }
+        );
+
+        if (!response.ok) throw new Error(`Gemini API ${response.status}`);
+
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) throw new Error('Empty AI response');
+
+        const parsed = JSON.parse(text);
+        return {
+          result: {
+            executive_summary: parsed.executive_summary || null,
+            recommendations: parsed.recommendations || null,
+          },
+          usage: parseGeminiUsage(data),
+        };
       }
     );
-
-    if (!response.ok) return { executive_summary: null, recommendations: null };
-
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) return { executive_summary: null, recommendations: null };
-
-    const result = JSON.parse(text);
-    return {
-      executive_summary: result.executive_summary || null,
-      recommendations: result.recommendations || null,
-    };
   } catch {
     return { executive_summary: null, recommendations: null };
   }
@@ -245,7 +278,8 @@ const STATUS_RANK: Record<string, number> = {
 
 export async function runRansomwareAssessment(
   supabaseClient: any,
-  geminiApiKey: string | null
+  geminiApiKey: string | null,
+  userId: string | null = null
 ): Promise<RansomwareAssessment> {
   // 1. Fetch all user detections
   const { data: detections, error } = await supabaseClient
@@ -288,7 +322,7 @@ export async function runRansomwareAssessment(
   if (geminiApiKey) {
     // Layer 2 uses candidates (already MITRE-filtered), minus those already matched by keywords
     const unmatched = candidates.filter(d => !matchedDetectionIds.has(d.id));
-    const aiResult = await runAIEvaluation(unmatched, geminiApiKey);
+    const aiResult = await runAIEvaluation(unmatched, geminiApiKey, userId);
     aiMatches = aiResult.matches;
     aiSkipped = aiResult.skipped;
     aiError = aiResult.error;
@@ -374,7 +408,7 @@ export async function runRansomwareAssessment(
   let recommendations: string | null = null;
 
   if (geminiApiKey) {
-    const aiReport = await generateSummaryAndRecommendations(phases, geminiApiKey);
+    const aiReport = await generateSummaryAndRecommendations(phases, geminiApiKey, userId);
     executive_summary = aiReport.executive_summary;
     recommendations = aiReport.recommendations;
   }
