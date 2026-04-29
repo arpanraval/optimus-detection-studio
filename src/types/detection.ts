@@ -208,6 +208,10 @@ export interface Detection {
 
   // === BULK IMPORT TRACKING ===
   bulk_import_id?: string;           // ID of bulk import job (for rollback capability)
+
+  // === THREAT RESEARCH PROVENANCE ===
+  research_session_id?: string | null;
+  research_node_id?: string | null;
 }
 
 // ============================================
