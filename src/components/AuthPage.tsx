@@ -405,7 +405,11 @@ const LabeledInput: React.FC<{
   focusedField: string | null; setFocusedField: (v: string | null) => void;
   showPassword?: boolean; setShowPassword?: (v: boolean) => void; isPassword?: boolean;
   variant?: 'light' | 'dark';
-}> = ({ id, type, label, placeholder, value, onChange, focusedField, setFocusedField, showPassword, setShowPassword, isPassword, variant = 'light' }) => {
+  /** form-field name (for autofill / FormData) */
+  name?: string;
+  /** browser autocomplete hint (e.g. 'username', 'current-password') */
+  autoComplete?: string;
+}> = ({ id, type, label, placeholder, value, onChange, focusedField, setFocusedField, showPassword, setShowPassword, isPassword, variant = 'light', name, autoComplete }) => {
   const isDark = variant === 'dark';
   const labelClass = isDark ? 'text-white/40' : 'text-on-surface-variant/50';
   const inputBase = isDark
@@ -421,10 +425,13 @@ const LabeledInput: React.FC<{
 
   return (
     <div className="space-y-1.5">
-      <label className={`text-xs font-medium ${labelClass}`}>{label}</label>
+      <label htmlFor={id} className={`text-xs font-medium ${labelClass}`}>{label}</label>
       <div className="relative">
         <input
+          id={id}
+          name={name ?? id}
           type={isPassword && showPassword ? 'text' : type}
+          autoComplete={autoComplete}
           placeholder={placeholder}
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -626,8 +633,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
                   </div>
 
                   <div className="space-y-5">
-                    <LabeledInput id="login-email" type="email" label="Email" placeholder="Email address" value={email} onChange={setEmail} focusedField={focusedField} setFocusedField={setFocusedField} variant={v} />
-                    <LabeledInput id="login-pass" type="password" label="Password" placeholder="Password" value={password} onChange={setPassword} focusedField={focusedField} setFocusedField={setFocusedField} isPassword showPassword={showPassword} setShowPassword={setShowPassword} variant={v} />
+                    <LabeledInput id="login-email" name="email" type="email" autoComplete="username" label="Email" placeholder="Email address" value={email} onChange={setEmail} focusedField={focusedField} setFocusedField={setFocusedField} variant={v} />
+                    <LabeledInput id="login-pass" name="password" type="password" autoComplete="current-password" label="Password" placeholder="Password" value={password} onChange={setPassword} focusedField={focusedField} setFocusedField={setFocusedField} isPassword showPassword={showPassword} setShowPassword={setShowPassword} variant={v} />
                   </div>
 
                   <div className="mt-3 mb-6" />
