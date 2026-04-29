@@ -67,6 +67,10 @@ export const ROUTES = {
   AUDIT_LOG: '/settings/audit-log',
   ENVIRONMENT_PROFILE: '/settings/environment',
   INTELLIGENCE_SOURCES: '/settings/intelligence',
+  COST_CENTER: '/settings/cost-center',
+
+  // Account
+  MY_AI_USAGE: '/account/ai-usage',
 
   // SIEM Home
   SIEM_HEALTH: '/siem',
@@ -173,6 +177,8 @@ export const viewToRoute: Record<string, string> = {
   'audit_log': ROUTES.AUDIT_LOG,
   'users': ROUTES.USERS,
   'data_sync': ROUTES.DATA_SYNC,
+  'cost_center': ROUTES.COST_CENTER,
+  'my_ai_usage': ROUTES.MY_AI_USAGE,
   'account_settings': ROUTES.ACCOUNT,
   'my_submissions': ROUTES.SUBMISSIONS,
   'approval_queue': ROUTES.APPROVAL_QUEUE,
@@ -251,6 +257,8 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.SUBMISSIONS]: { title: 'My Submissions', description: 'Track your publication requests' },
   [ROUTES.APPROVAL_QUEUE]: { title: 'Approval Queue', description: 'Review promotion requests for Production Library' },
   [ROUTES.NOTIFICATIONS]: { title: 'Notifications', description: 'Your notification history' },
+  [ROUTES.COST_CENTER]: { title: 'AI Cost Center', description: 'GenAI usage, costs, and budget governance' },
+  [ROUTES.MY_AI_USAGE]: { title: 'My AI Usage', description: 'Your AI consumption and remaining budget' },
   [ROUTES.SEARCH]: { title: 'Search Results' },
   [ROUTES.COMPONENT_SHOWCASE]: { title: 'Design System', description: 'M3 Design System Components' },
   [ROUTES.DESIGN_SYSTEM_BUTTONS]: { title: 'Buttons', description: 'Button components and variants' },

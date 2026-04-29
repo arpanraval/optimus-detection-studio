@@ -13,6 +13,8 @@ interface HeaderProps {
   onNavigateToDetection?: (detectionId: string) => void;
   onNavigateToNotifications?: () => void;
   onMobileMenuToggle?: () => void;
+  /** Right-aligned slot for route-specific actions (e.g. BudgetIndicator on AI tool pages). */
+  rightSlot?: React.ReactNode;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -22,6 +24,7 @@ export const Header: React.FC<HeaderProps> = ({
   onNavigateToDetection,
   onNavigateToNotifications,
   onMobileMenuToggle,
+  rightSlot,
 }) => {
   const handleNotificationDetectionClick = (detectionId: string) => {
     onNavigateToDetection ? onNavigateToDetection(detectionId) : onNavigate('detection', detectionId);
@@ -53,7 +56,8 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-2 flex-shrink-0">
+      <div className="flex items-center gap-3 flex-shrink-0">
+        {rightSlot}
         <NotificationBell
           onNavigateToDetection={handleNotificationDetectionClick}
           onNavigateToNotifications={onNavigateToNotifications}
