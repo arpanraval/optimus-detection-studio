@@ -6,7 +6,6 @@ const QuickActionsWidget: React.FC<WidgetComponentProps> = ({ onNavigate }) => {
     { label: 'New Detection', icon: '+', target: 'add_selection' },
     { label: 'Bulk Import', icon: '↓', target: 'bulk_import' },
     { label: 'MITRE Matrix', icon: '⬡', target: 'mitre' },
-    { label: 'Coverage', icon: '◎', target: 'coverage' },
   ];
 
   return (

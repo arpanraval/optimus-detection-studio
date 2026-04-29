@@ -20,7 +20,6 @@ export const ROUTES = {
 
   // Intelligence
   MITRE_MATRIX: '/intelligence/mitre',
-  COVERAGE: '/intelligence/coverage',
   DEFENSIVE_POSTURE: '/intelligence/posture',
   STRATEGIES: '/intelligence/strategies',
   STRATEGY_DETAIL: '/intelligence/strategies/:id',
@@ -140,7 +139,6 @@ export const viewToRoute: Record<string, string> = {
   'detail': ROUTES.DETECTION_DETAIL,
   'form': ROUTES.DETECTION_NEW,
   'mitre': ROUTES.MITRE_MATRIX,
-  'coverage': ROUTES.COVERAGE,
   'defensive-posture': ROUTES.DEFENSIVE_POSTURE,
   'detection-strategies': ROUTES.STRATEGIES,
   'strategy-detail': ROUTES.STRATEGY_DETAIL,
@@ -212,7 +210,6 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.PACKS]: { title: 'Detection Packs', description: 'Curated collections of detection rules' },
   [ROUTES.PACK_DETAIL]: { title: 'Pack Details', description: undefined },
   [ROUTES.MITRE_MATRIX]: { title: 'MITRE ATT&CK', description: 'Technique coverage matrix and analysis' },
-  [ROUTES.COVERAGE]: { title: 'Coverage Analytics', description: 'Analyze detection coverage across the MITRE ATT&CK framework' },
   [ROUTES.DEFENSIVE_POSTURE]: { title: 'Defensive Posture', description: 'Assess your defensive capabilities' },
   [ROUTES.STRATEGIES]: { title: 'Detection Strategies', description: 'Browse MITRE detection strategies' },
   [ROUTES.STRATEGY_DETAIL]: { title: 'Strategy Details', description: undefined },

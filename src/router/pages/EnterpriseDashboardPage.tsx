@@ -68,8 +68,6 @@ export const EnterpriseDashboardPage: React.FC = () => {
       navigate(`/intelligence/campaigns/${filter.id}`);
     } else if (targetView === 'data_sync') {
       navigate(ROUTES.DATA_SYNC);
-    } else if (targetView === 'coverage') {
-      navigate(ROUTES.COVERAGE);
     } else if (targetView === 'mitre') {
       navigate(ROUTES.MITRE_MATRIX);
     } else if (targetView === 'bulk_import') {

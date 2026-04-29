@@ -16,7 +16,6 @@ export { StrategyDetailPage } from './StrategyDetailPage';
 export { PacksPage } from './PacksPage';
 export { PackDetailPage } from './PackDetailPage';
 export { MitreMatrixPage } from './MitreMatrixPage';
-export { CoveragePage } from './CoveragePage';
 export { DefensivePosturePage } from './DefensivePosturePage';
 export { SigmaConverterPage } from './SigmaConverterPage';
 export { AIQueryPage } from './AIQueryPage';

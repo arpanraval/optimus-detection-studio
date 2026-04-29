@@ -80,7 +80,6 @@ const StrategyDetailPage = lazy(() => import('./pages/StrategyDetailPage').then(
 const PacksPage = lazy(() => import('./pages/PacksPage').then(m => ({ default: m.PacksPage })));
 const PackDetailPage = lazy(() => import('./pages/PackDetailPage').then(m => ({ default: m.PackDetailPage })));
 const MitreMatrixPage = lazy(() => import('./pages/MitreMatrixPage').then(m => ({ default: m.MitreMatrixPage })));
-const CoveragePage = lazy(() => import('./pages/CoveragePage').then(m => ({ default: m.CoveragePage })));
 const DefensivePosturePage = lazy(() => import('./pages/DefensivePosturePage').then(m => ({ default: m.DefensivePosturePage })));
 const SigmaConverterPage = lazy(() => import('./pages/SigmaConverterPage').then(m => ({ default: m.SigmaConverterPage })));
 const IntegrationsPage = lazy(() => import('./pages/IntegrationsPage').then(m => ({ default: m.IntegrationsPage })));
@@ -205,7 +204,6 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
 
       // Intelligence
       { path: 'intelligence/mitre', element: <MitreMatrixPage /> },
-      { path: 'intelligence/coverage', element: <CoveragePage /> },
       { path: 'intelligence/posture', element: <DefensivePosturePage /> },
       { path: 'intelligence/strategies', element: <StrategiesPage /> },
       { path: 'intelligence/strategies/:id', element: <StrategyDetailPage /> },

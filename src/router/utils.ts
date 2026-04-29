@@ -48,7 +48,6 @@ export function matchRouteToNavItem(pathname: string): string | null {
   if (pathname === ROUTES.PACKS || pathname.startsWith('/packs/')) return 'packs';
   if (pathname === ROUTES.APPROVAL_QUEUE) return 'approval_queue';
   if (pathname === ROUTES.MITRE_MATRIX) return 'mitre';
-  if (pathname === ROUTES.COVERAGE) return 'coverage';
   if (pathname === ROUTES.DEFENSIVE_POSTURE) return 'defensive-posture';
   if (pathname === ROUTES.STRATEGIES || pathname.startsWith('/intelligence/strategies/')) return 'detection-strategies';
   if (pathname === ROUTES.GROUPS || pathname.startsWith('/intelligence/groups/')) return 'groups';

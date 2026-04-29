@@ -40,8 +40,6 @@ export const CommandCenterPage: React.FC = () => {
       navigate(`/intelligence/campaigns/${filter.id}`);
     } else if (targetView === 'data_sync') {
       navigate(ROUTES.DATA_SYNC);
-    } else if (targetView === 'coverage') {
-      navigate(ROUTES.COVERAGE);
     } else if (targetView === 'groups') {
       navigate(ROUTES.GROUPS);
     } else if (targetView === 'software') {
