@@ -504,7 +504,6 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
       icon: 'crosshairs',
       items: [
         { id: 'mitre' as View, label: 'ATT&CK Matrix' },
-        { id: 'coverage' as View, label: 'Coverage Analytics' },
         { id: 'defensive-posture' as View, label: 'Defensive Posture' },
         { id: 'detection-strategies' as View, label: 'Detection Strategies' },
         { id: 'groups' as View, label: 'Threat Groups' },

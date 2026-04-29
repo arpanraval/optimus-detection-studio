@@ -20,7 +20,7 @@ export const DefensivePosturePage: React.FC = () => {
   };
 
   const handleViewAllGaps = () => {
-    navigate(ROUTES.COVERAGE);
+    navigate(ROUTES.ENTERPRISE_DASHBOARD);
   };
 
   const handleBuildDetection = (techniqueId: string) => {

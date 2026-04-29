@@ -64,8 +64,8 @@ const StatTilesWidget: React.FC<WidgetComponentProps> = ({ onNavigate, timeRange
   return (
     <div className="grid grid-cols-3 lg:grid-cols-6 gap-2.5 p-2 w-full h-full items-center">
       <StatTile label="Techniques" value={techCovered} total={totalTech} onClick={() => onNavigate('mitre')} />
-      <StatTile label="Groups" value={groups} total={totalGroups} onClick={() => onNavigate('coverage')} />
-      <StatTile label="Campaigns" value={campaigns} total={totalCampaigns} onClick={() => onNavigate('coverage')} />
+      <StatTile label="Groups" value={groups} total={totalGroups} onClick={() => onNavigate('groups')} />
+      <StatTile label="Campaigns" value={campaigns} total={totalCampaigns} onClick={() => onNavigate('campaigns')} />
       <StatTile label="Production" value={stats?.production ?? 0} total={stats?.total} onClick={() => onNavigate('library', { status: 'Production' })} />
       <StatTile label="Validated" value={stats?.validated ?? 0} total={stats?.total} onClick={() => onNavigate('library', { testedAndValidated: 'true' })} />
       <StatTile label="Quality" value={stats?.qualityAvg ?? 0} suffix="%" onClick={() => onNavigate('library', { qualityGrade: 'A' })} />
