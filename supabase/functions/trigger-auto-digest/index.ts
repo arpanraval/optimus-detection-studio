@@ -27,13 +27,21 @@ serve(async (req: Request) => {
       throw new Error('Supabase environment variables are not set.');
     }
 
-    // Authenticate via user JWT (same pattern as review-ops)
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: req.headers.get('Authorization')! } },
-    });
-
-    const { data: { user }, error: authError } = await userClient.auth.getUser();
+    // Authenticate via user JWT — explicit-token pattern (matches ai-generate).
+    // The global-Authorization-header + auth.getUser() pattern used in review-ops
+    // does NOT work reliably with the pinned @supabase/supabase-js@2.39.3 in this
+    // Deno runtime — it returns 401 inside the function even when the JWT is
+    // valid (the platform-level verify_jwt has already passed). Pass the token
+    // explicitly instead.
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return corsErrorResponse('Missing or invalid authorization header', req, 401);
+    }
+    const token = authHeader.replace('Bearer ', '');
+    const userClient = createClient(supabaseUrl, anonKey);
+    const { data: { user }, error: authError } = await userClient.auth.getUser(token);
     if (authError || !user) {
+      console.error('[trigger-auto-digest] Auth error:', authError?.message);
       return corsErrorResponse('Unauthorized', req, 401);
     }
 
