@@ -164,7 +164,9 @@ async function invokeTool<T>(tool: string, params: Record<string, any> = {}): Pr
   }
 
   const { data, error } = await supabase.functions.invoke('optimus-tools', {
-    body: { tool, params }
+    // feature is informational; server picks the per-tool feature code internally
+    // (embedding-detection for search_library, optimus-tool-call for ransomware_readiness).
+    body: { tool, params, feature: 'optimus-tool-call' }
   });
 
   if (error) {
