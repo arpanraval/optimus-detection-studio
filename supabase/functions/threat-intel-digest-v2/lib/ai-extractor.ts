@@ -15,6 +15,18 @@ import {
   MODEL_PROVIDERS,
   type Provider
 } from './types.ts'
+import { withAiTelemetry } from '../../_shared/aiTelemetry.ts'
+import {
+  parseGeminiUsage,
+  parseOpenAIUsage,
+  parseAnthropicUsage,
+} from '../../_shared/aiUsageParsers.ts'
+
+export interface AiCallCtx {
+  userId: string | null
+  feature: string
+  metadata?: Record<string, unknown>
+}
 
 // =============================================================================
 // AI PROVIDER DETECTION
@@ -31,7 +43,8 @@ function getProvider(model: string): Provider {
 export async function callAI(
   model: string,
   prompt: string,
-  systemInstruction?: string
+  systemInstruction: string | undefined,
+  ctx: AiCallCtx
 ): Promise<string> {
   const provider = getProvider(model)
   console.log(`callAI: model=${model}, provider=${provider}, promptLength=${prompt.length}`)
@@ -57,13 +70,25 @@ export async function callAI(
 
   console.log(`callAI: API key found for ${provider}, calling API...`)
 
-  if (provider === 'google') {
-    return await callGeminiAPI(apiKey, model, prompt, systemInstruction)
-  } else if (provider === 'openai') {
-    return await callOpenAIAPI(apiKey, model, prompt, systemInstruction)
-  } else {
-    return await callAnthropicAPI(apiKey, model, prompt, systemInstruction)
-  }
+  return withAiTelemetry(
+    {
+      userId: ctx.userId,
+      feature: ctx.feature,
+      model,
+      provider,
+      category: 'llm',
+      metadata: ctx.metadata,
+    },
+    async () => {
+      if (provider === 'google') {
+        return await callGeminiAPI(apiKey!, model, prompt, systemInstruction)
+      } else if (provider === 'openai') {
+        return await callOpenAIAPI(apiKey!, model, prompt, systemInstruction)
+      } else {
+        return await callAnthropicAPI(apiKey!, model, prompt, systemInstruction)
+      }
+    }
+  )
 }
 
 async function callGeminiAPI(
@@ -71,7 +96,7 @@ async function callGeminiAPI(
   model: string,
   prompt: string,
   systemInstruction?: string
-): Promise<string> {
+): Promise<{ result: string; usage: ReturnType<typeof parseGeminiUsage> }> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
   console.log(`callGeminiAPI: model=${model}, promptLength=${prompt.length}`)
 
@@ -104,7 +129,7 @@ async function callGeminiAPI(
   const data = await response.json()
   const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
   console.log(`callGeminiAPI: Result text length=${resultText.length}, preview=${resultText.substring(0, 100)}...`)
-  return resultText
+  return { result: resultText, usage: parseGeminiUsage(data) }
 }
 
 async function callOpenAIAPI(
@@ -112,7 +137,7 @@ async function callOpenAIAPI(
   model: string,
   prompt: string,
   systemInstruction?: string
-): Promise<string> {
+): Promise<{ result: string; usage: ReturnType<typeof parseOpenAIUsage> }> {
   const messages: any[] = []
   if (systemInstruction) {
     messages.push({ role: 'system', content: systemInstruction })
@@ -139,7 +164,7 @@ async function callOpenAIAPI(
   }
 
   const data = await response.json()
-  return data.choices?.[0]?.message?.content || ''
+  return { result: data.choices?.[0]?.message?.content || '', usage: parseOpenAIUsage(data) }
 }
 
 async function callAnthropicAPI(
@@ -147,7 +172,7 @@ async function callAnthropicAPI(
   model: string,
   prompt: string,
   systemInstruction?: string
-): Promise<string> {
+): Promise<{ result: string; usage: ReturnType<typeof parseAnthropicUsage> }> {
   const payload: any = {
     model,
     max_tokens: 8192,
@@ -174,7 +199,7 @@ async function callAnthropicAPI(
   }
 
   const data = await response.json()
-  return data.content?.[0]?.text || ''
+  return { result: data.content?.[0]?.text || '', usage: parseAnthropicUsage(data) }
 }
 
 // =============================================================================
@@ -455,7 +480,8 @@ export async function extractIoCsWithAI(
   content: string,
   sourceUrl: string,
   model: string,
-  promptTemplates: PromptTemplates
+  promptTemplates: PromptTemplates,
+  ctx: AiCallCtx
 ): Promise<{ iocs: ExtractedIoC[], rules: ExtractedRule[] }> {
   console.log('=== IoC EXTRACTION START ===')
   console.log('Content length:', content.length, 'chars')
@@ -473,7 +499,8 @@ export async function extractIoCsWithAI(
     const response = await callAI(
       model,
       prompt,
-      promptTemplates.systemInstruction || 'You are an expert threat intelligence analyst. Return only valid JSON.'
+      promptTemplates.systemInstruction || 'You are an expert threat intelligence analyst. Return only valid JSON.',
+      { ...ctx, metadata: { ...(ctx.metadata ?? {}), section: 'iocs_rules' } }
     )
 
     console.log('Response length:', response.length)
@@ -498,7 +525,8 @@ export async function extractIoCsWithAI(
 export async function extractSummary(
   content: string,
   model: string,
-  promptTemplates: PromptTemplates
+  promptTemplates: PromptTemplates,
+  ctx: AiCallCtx
 ): Promise<any> {
   if (!promptTemplates?.summary) {
     throw new Error('Missing summary prompt template')
@@ -507,7 +535,12 @@ export async function extractSummary(
   // Build prompt by replacing placeholders
   const prompt = promptTemplates.summary.replace('{{CONTENT}}', content.substring(0, 30000))
 
-  const response = await callAI(model, prompt, promptTemplates.systemInstruction)
+  const response = await callAI(
+    model,
+    prompt,
+    promptTemplates.systemInstruction,
+    { ...ctx, metadata: { ...(ctx.metadata ?? {}), section: 'summary' } }
+  )
   return JSON.parse(response)
 }
 
@@ -519,7 +552,8 @@ export async function extractClassification(
   content: string,
   summary: string,
   model: string,
-  promptTemplates: PromptTemplates
+  promptTemplates: PromptTemplates,
+  ctx: AiCallCtx
 ): Promise<any> {
   if (!promptTemplates?.classification) {
     throw new Error('Missing classification prompt template')
@@ -530,7 +564,12 @@ export async function extractClassification(
     .replace('{{CONTENT}}', content.substring(0, 15000))
     .replace('{{SUMMARY}}', summary)
 
-  const response = await callAI(model, prompt, promptTemplates.systemInstruction)
+  const response = await callAI(
+    model,
+    prompt,
+    promptTemplates.systemInstruction,
+    { ...ctx, metadata: { ...(ctx.metadata ?? {}), section: 'classification' } }
+  )
   return JSON.parse(response)
 }
 
@@ -541,7 +580,8 @@ export async function extractClassification(
 export async function extractTTPs(
   content: string,
   model: string,
-  promptTemplates: PromptTemplates
+  promptTemplates: PromptTemplates,
+  ctx: AiCallCtx
 ): Promise<any[]> {
   if (!promptTemplates?.ttps) {
     throw new Error('Missing ttps prompt template')
@@ -550,7 +590,12 @@ export async function extractTTPs(
   // Build prompt by replacing placeholders
   const prompt = promptTemplates.ttps.replace('{{CONTENT}}', content.substring(0, 50000))
 
-  const response = await callAI(model, prompt, promptTemplates.systemInstruction)
+  const response = await callAI(
+    model,
+    prompt,
+    promptTemplates.systemInstruction,
+    { ...ctx, metadata: { ...(ctx.metadata ?? {}), section: 'ttps' } }
+  )
   console.log('TTP AI response length:', response.length)
 
   let parsed: any
