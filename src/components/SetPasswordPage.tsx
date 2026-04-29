@@ -144,15 +144,32 @@ export const SetPasswordPage: React.FC<SetPasswordPageProps> = ({ mode, email, o
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-5" aria-label={mode === 'invite' ? 'Set password' : 'Reset password'}>
+            {/*
+              Hidden username field — required by Chrome's password-field-form
+              guidance (https://goo.gl/9p2vKq) so password managers can associate
+              the new password with the correct account when saving it.
+            */}
+            <input
+              type="text"
+              name="username"
+              autoComplete="username"
+              value={email ?? ''}
+              readOnly
+              hidden
+            />
+
             {/* Display Name (invite mode only) */}
             {mode === 'invite' && (
               <div className="space-y-1.5">
-                <label className={`text-xs font-medium ${isDark ? 'text-white/40' : 'text-on-surface-variant/50'}`}>
+                <label htmlFor="set-pw-name" className={`text-xs font-medium ${isDark ? 'text-white/40' : 'text-on-surface-variant/50'}`}>
                   Your Name
                 </label>
                 <input
+                  id="set-pw-name"
+                  name="display-name"
                   type="text"
+                  autoComplete="name"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   placeholder="How should we address you?"
@@ -164,12 +181,15 @@ export const SetPasswordPage: React.FC<SetPasswordPageProps> = ({ mode, email, o
 
             {/* Password */}
             <div className="space-y-1.5">
-              <label className={`text-xs font-medium ${isDark ? 'text-white/40' : 'text-on-surface-variant/50'}`}>
+              <label htmlFor="set-pw-new" className={`text-xs font-medium ${isDark ? 'text-white/40' : 'text-on-surface-variant/50'}`}>
                 Password
               </label>
               <div className="relative">
                 <input
+                  id="set-pw-new"
+                  name="new-password"
                   type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Minimum 12 characters"
@@ -189,11 +209,14 @@ export const SetPasswordPage: React.FC<SetPasswordPageProps> = ({ mode, email, o
 
             {/* Confirm Password */}
             <div className="space-y-1.5">
-              <label className={`text-xs font-medium ${isDark ? 'text-white/40' : 'text-on-surface-variant/50'}`}>
+              <label htmlFor="set-pw-confirm" className={`text-xs font-medium ${isDark ? 'text-white/40' : 'text-on-surface-variant/50'}`}>
                 Confirm Password
               </label>
               <input
+                id="set-pw-confirm"
+                name="confirm-password"
                 type={showPassword ? 'text' : 'password'}
+                autoComplete="new-password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Re-enter password"

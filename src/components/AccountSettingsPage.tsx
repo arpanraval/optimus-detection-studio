@@ -398,13 +398,36 @@ export const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ userId
           {!isLoading && activeSection === 'security' && (
             <>
               <Card title="Password" description="Change the password you use to sign in">
-                <div className="space-y-4 max-w-md">
+                <form
+                  className="space-y-4 max-w-md"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleChangePassword();
+                  }}
+                  // Hint to browsers/password managers that this is a password-change form,
+                  // not a sign-in form, so they offer to update the saved credential.
+                  aria-label="Change password"
+                >
+                  {/*
+                    Hidden username field — required by the Chrome warning at
+                    https://goo.gl/9p2vKq. Lets password managers associate the
+                    new password with the correct account when saving it.
+                  */}
+                  <input
+                    type="text"
+                    name="username"
+                    autoComplete="username"
+                    value={profile?.email || userEmail}
+                    readOnly
+                    hidden
+                  />
                   <Input
                     label="Current Password"
                     type="password"
                     value={currentPassword}
                     onChange={(e) => setCurrentPassword(e.target.value)}
                     placeholder="Enter current password"
+                    autoComplete="current-password"
                     fullWidth
                   />
                   <div>
@@ -414,6 +437,7 @@ export const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ userId
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                       placeholder="Enter new password"
+                      autoComplete="new-password"
                       fullWidth
                     />
                     {newPassword.length > 0 && (
@@ -447,20 +471,21 @@ export const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ userId
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Confirm new password"
+                    autoComplete="new-password"
                     fullWidth
                   />
                   <div className="pt-1">
                     <Button
+                      type="submit"
                       color="primary"
                       size="md"
                       loading={isChangingPassword}
                       disabled={!newPassword || !confirmPassword || !currentPassword}
-                      onClick={handleChangePassword}
                     >
                       Change Password
                     </Button>
                   </div>
-                </div>
+                </form>
               </Card>
 
               <Card
