@@ -54,7 +54,7 @@ export function usePlaybookRunner() {
 
       // Call the run-playbook edge function
       const { data: responseData, error: invokeError } = await supabase.functions.invoke('run-playbook', {
-        body: { playbookId: playbook.id, inputs },
+        body: { playbookId: playbook.id, inputs, feature: 'playbook-runner' },
       });
       if (invokeError) throw invokeError;
 

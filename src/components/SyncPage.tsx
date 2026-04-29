@@ -368,7 +368,11 @@ export const SyncPage: React.FC = () => {
         // Use supabase.functions.invoke so the client auto-refreshes expiring
         // access tokens — raw fetch would 401 mid-session. Matches the pattern
         // already used in batchEmbeddingService.
-        const { data, error } = await supabase.functions.invoke('enrich-threat-groups', { body });
+        const { data, error } = await supabase.functions.invoke('enrich-threat-groups', {
+            // body.feature is informational for the cost-center; if the enrich
+            // function later wraps a provider call it should read this code.
+            body: { ...body, feature: 'enrichment-sync' },
+        });
         if (error) {
             // FunctionsHttpError wraps the response body in `error.context`;
             // surface the server's message when present.

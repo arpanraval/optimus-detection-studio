@@ -578,7 +578,8 @@ export const AIQueryGenerator: React.FC<AIQueryGeneratorProps> = ({ onCreateDraf
 
             const data = await generateAIJSON<{ query?: string; explanation?: string }>({
                 prompt,
-                model: session.model
+                model: session.model,
+                feature: 'ai-query-gen',
             });
 
             // Check if aborted

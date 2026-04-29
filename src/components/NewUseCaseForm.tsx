@@ -720,7 +720,7 @@ IMPORTANT:
 
 Output JSON only, no markdown.`;
 
-          const suggestion = await generateAIJSON<any>({ prompt, ...(model && { model }) });
+          const suggestion = await generateAIJSON<any>({ prompt, ...(model && { model }), feature: 'detection-form-assist' });
 
           setFormData(prev => ({
             ...prev,
@@ -892,7 +892,7 @@ Output JSON only, no markdown.`;
         groups?: { name: string; mitre_id?: string }[];
         software?: { name: string; mitre_id?: string }[];
         campaigns?: { name: string; mitre_id?: string }[];
-      }>({ prompt, ...(model && { model }) });
+      }>({ prompt, ...(model && { model }), feature: 'detection-form-assist' });
 
       let addedGroups = 0, addedSoftware = 0, addedCampaigns = 0;
       let nonMitreCount = 0;

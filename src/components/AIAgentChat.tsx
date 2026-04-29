@@ -365,7 +365,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
         }
 
         const { data, error } = await supabase.functions.invoke('optimus-tools', {
-            body: { tool: toolName, params: args }
+            body: { tool: toolName, params: args, feature: 'optimus-chat' }
         });
 
         if (error) {
@@ -559,7 +559,8 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                 responseFormat: 'text',
                 systemInstruction: OPTIMUS_SYSTEM_PROMPT,
                 tools: OPTIMUS_TOOLS,
-                history: truncateHistory(newHistory.slice(0, -1))
+                history: truncateHistory(newHistory.slice(0, -1)),
+                feature: 'optimus-chat',
             });
 
             if (abortControllerRef.current?.signal.aborted) return;
@@ -651,7 +652,8 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                         id: r.name,
                         name: r.name,
                         response: r.error ? { error: r.error } : r.result
-                    }))
+                    })),
+                    feature: 'optimus-chat',
                 });
             }
 
