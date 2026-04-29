@@ -18,6 +18,7 @@ import { detectAndMergeCampaign } from './lib/campaign-detector.ts'
 import { enrichFeasibility } from './lib/feasibility-enricher.ts'
 import { emptyJobResult } from './lib/types.ts'
 import type { JobResultSummary, EnvironmentProfileRow } from './lib/types.ts'
+import { emit, type RunContext } from './lib/events.ts'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -135,8 +136,14 @@ serve(async (req: Request) => {
         const envProfile: EnvironmentProfileRow | null =
           envProfiles && envProfiles.length > 0 ? envProfiles[0] : null;
 
+        // Build per-job RunContext for the events trail. Every helper that
+        // emits transcript events takes this so it has supabase + jobId + userId
+        // and can write to auto_digest_run_events without piping primitives
+        // through every signature.
+        const ctx: RunContext = { supabase, jobId: job.id, userId: job.user_id };
+
         // 6d. HARVEST
-        const entryIds = await harvestFeeds(supabase, job.user_id, result);
+        const entryIds = await harvestFeeds(ctx, result);
 
         if (entryIds.length === 0) {
           await markJobCompleted(supabase, job.id, 'completed', result);
@@ -146,9 +153,8 @@ serve(async (req: Request) => {
 
         // 6f. CLASSIFY
         const classifiedIds = await classifyEntries(
-          supabase,
+          ctx,
           entryIds,
-          job.user_id,
           settings.classification_model || settings.ai_model || 'gemini-3-flash-preview',
           result,
         );
@@ -161,9 +167,8 @@ serve(async (req: Request) => {
 
         // 6h. RANK & SELECT
         const selectedIds = await rankAndSelect(
-          supabase,
+          ctx,
           classifiedIds,
-          job.user_id,
           settings.max_articles_per_day,
           envProfile,
         );
@@ -179,21 +184,28 @@ serve(async (req: Request) => {
             break;
           }
 
+          const digestStart = Date.now();
           try {
-            // Fetch entry details with feed name
+            // Fetch entry details with feed name + id
             const { data: entry, error: entryErr } = await supabase
               .from('threat_intel_feed_entries')
-              .select('id, url, title, content, feed_id, threat_intel_feeds(name)')
+              .select('id, url, title, content, feed_id, threat_intel_feeds(id, name)')
               .eq('id', entryId)
               .single();
 
             if (entryErr || !entry) {
               result.errors.push(`Entry fetch ${entryId}: ${entryErr?.message || 'not found'}`);
               result.articles_failed += 1;
+              await emit(ctx, 'article_digest_failed', {
+                article_id: entryId,
+                reason: entryErr?.message || 'Entry not found',
+              });
               continue;
             }
 
-            const feedName = (entry.threat_intel_feeds as any)?.name || 'Unknown Feed';
+            const feedRel = (entry.threat_intel_feeds as any) || {};
+            const feedName = feedRel.name || 'Unknown Feed';
+            const feedId: string | null = feedRel.id ?? null;
 
             // Validate entry URL before passing to digest (SSRF protection)
             if (!entry.url || !isSafeArticleUrl(entry.url)) {
@@ -206,6 +218,14 @@ serve(async (req: Request) => {
                   extract_error: 'URL blocked by safety check',
                 })
                 .eq('id', entryId);
+              await emit(ctx, 'article_digest_failed', {
+                feed_id: feedId,
+                feed_name: feedName,
+                article_id: entry.id,
+                article_title: entry.title,
+                article_url: entry.url ?? null,
+                reason: 'URL blocked by safety check (unsafe or missing)',
+              });
               continue;
             }
 
@@ -255,6 +275,15 @@ serve(async (req: Request) => {
 
               result.errors.push(`Digest ${entryId}: ${digestData.error}`);
               result.articles_failed += 1;
+              await emit(ctx, 'article_digest_failed', {
+                feed_id: feedId,
+                feed_name: feedName,
+                article_id: entry.id,
+                article_title: entry.title,
+                article_url: entry.url ?? null,
+                reason: digestData.error,
+                duration_ms: Date.now() - digestStart,
+              });
               continue;
             }
 
@@ -361,6 +390,15 @@ serve(async (req: Request) => {
 
               result.errors.push(`Report save ${entryId}: ${upsertErr?.message || 'no data'}`);
               result.articles_failed += 1;
+              await emit(ctx, 'article_digest_failed', {
+                feed_id: feedId,
+                feed_name: feedName,
+                article_id: entry.id,
+                article_title: entry.title,
+                article_url: entry.url ?? null,
+                reason: `Report save failed: ${upsertErr?.message || 'no data'}`,
+                duration_ms: Date.now() - digestStart,
+              });
               continue;
             }
 
@@ -385,6 +423,22 @@ serve(async (req: Request) => {
             // Update counters
             result.articles_digested += 1;
             result.articles_resolved += 1;
+
+            await emit(ctx, 'article_digested', {
+              feed_id: feedId,
+              feed_name: feedName,
+              article_id: entry.id,
+              article_title: entry.title,
+              article_url: entry.url ?? null,
+              duration_ms: Date.now() - digestStart,
+              payload: {
+                report_id: reportId,
+                ttp_count: ttpCount,
+                ioc_count: iocCount,
+                rule_count: ruleCount,
+                coverage_percent: coveragePercent,
+              },
+            });
           } catch (entryError: any) {
             // Per-entry error handling
             console.error(`[orchestrator] Entry ${entryId} failed:`, entryError.message);
@@ -396,6 +450,11 @@ serve(async (req: Request) => {
 
             result.errors.push(`Entry ${entryId}: ${entryError.message || 'Unknown error'}`);
             result.articles_failed += 1;
+            await emit(ctx, 'article_digest_failed', {
+              article_id: entryId,
+              reason: entryError.message || 'Unknown error',
+              duration_ms: Date.now() - digestStart,
+            });
           }
         }
 

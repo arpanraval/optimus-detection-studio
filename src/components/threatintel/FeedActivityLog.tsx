@@ -5,6 +5,7 @@ import { Icon } from '../Icon';
 import { routeHelpers } from '../../router/routes';
 import type { FeedEntry } from '../../hooks/useThreatIntelFeeds';
 import type { AutoDigestJob } from '../../hooks/useAutoDigestSettings';
+import { JobTranscript } from './JobTranscript';
 
 // =============================================================================
 // TYPES
@@ -335,6 +336,9 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
   const [jobs, setJobs] = useState<AutoDigestJob[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
+  // Job IDs whose transcript is currently expanded. Active jobs auto-expand
+  // on first appearance (see effect below) so the user sees the live run.
+  const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -379,6 +383,48 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
     fetchData();
     return () => { cancelled = true; };
   }, [userId]);
+
+  // Poll for fresh job rows so the activity log reflects status changes from
+  // pending -> processing -> completed without a manual refresh. The transcript
+  // hook does its own sub-poll for events; this one keeps the parent up to date.
+  const hasActiveJob = jobs.some(j => j.status === 'pending' || j.status === 'processing');
+  useEffect(() => {
+    if (!userId || !hasActiveJob) return;
+    const interval = setInterval(async () => {
+      const { data } = await supabase
+        .from('auto_digest_jobs')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(7);
+      if (data) setJobs(data as AutoDigestJob[]);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [userId, hasActiveJob]);
+
+  // Auto-expand any actively-running job so the user sees the live transcript
+  // without having to click. Stops re-expanding once the job lands in a final
+  // state, so collapsing it manually after that point sticks.
+  useEffect(() => {
+    setExpandedJobs((prev) => {
+      const next = new Set(prev);
+      for (const j of jobs) {
+        if ((j.status === 'pending' || j.status === 'processing') && !next.has(j.id)) {
+          next.add(j.id);
+        }
+      }
+      return next;
+    });
+  }, [jobs]);
+
+  const toggleJob = (jobId: string) => {
+    setExpandedJobs((prev) => {
+      const next = new Set(prev);
+      if (next.has(jobId)) next.delete(jobId);
+      else next.add(jobId);
+      return next;
+    });
+  };
 
   // Build unified timeline, grouped by date
   const groupedTimeline = useMemo(() => {
@@ -490,7 +536,24 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
                       {item.kind === 'entry' ? (
                         <EntryItem entry={item.data} />
                       ) : (
-                        <JobItem job={item.data} />
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => toggleJob(item.data.id)}
+                            className="w-full text-left flex items-start gap-2 hover:bg-surface-container-low/30 -mx-2 px-2 py-1 rounded-lg transition-colors"
+                          >
+                            <Icon
+                              name={expandedJobs.has(item.data.id) ? 'chevron-down' : 'chevron-right'}
+                              className="w-3.5 h-3.5 text-on-surface-variant/50 mt-1.5 shrink-0"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <JobItem job={item.data} />
+                            </div>
+                          </button>
+                          {expandedJobs.has(item.data.id) && (
+                            <JobTranscript job={item.data} />
+                          )}
+                        </div>
                       )}
                     </div>
                   ))}

@@ -8,6 +8,7 @@
 
 import type { ClassificationResult, JobResultSummary } from './types.ts';
 import { withAiTelemetry, type AiProvider } from '../../_shared/aiTelemetry.ts';
+import { emit, type RunContext } from './events.ts';
 import {
   parseGeminiUsage,
   parseOpenAIUsage,
@@ -82,18 +83,18 @@ function buildUserPrompt(title: string, snippet: string, vendor: string): string
  * @returns Array of entry IDs that passed the classification gate.
  */
 export async function classifyEntries(
-  supabase: any,
+  ctx: RunContext,
   entryIds: string[],
-  userId: string,
   model: string,
   result: JobResultSummary,
 ): Promise<string[]> {
+  const { supabase, userId } = ctx;
   if (entryIds.length === 0) return [];
 
   // 1. Fetch entries with feed name
   const { data: entries, error: fetchError } = await supabase
     .from('threat_intel_feed_entries')
-    .select('id, title, content, url, feed_id, threat_intel_feeds(name)')
+    .select('id, title, content, url, feed_id, threat_intel_feeds(id, name)')
     .in('id', entryIds);
 
   if (fetchError) {
@@ -107,9 +108,10 @@ export async function classifyEntries(
 
   // 2. Classify each entry
   for (const entry of entries) {
+    const feedRel = (entry.threat_intel_feeds as any) || {};
+    const vendorName = feedRel.name || 'Unknown Vendor';
+    const feedId: string | null = feedRel.id ?? null;
     try {
-      const vendorName =
-        (entry.threat_intel_feeds as any)?.name || 'Unknown Vendor';
       const snippet = (entry.content || '').slice(0, 1000);
       const userPrompt = buildUserPrompt(entry.title, snippet, vendorName);
 
@@ -118,21 +120,42 @@ export async function classifyEntries(
       result.articles_classified += 1;
 
       // 3. Gate: is_threat_research AND confidence >= threshold
-      if (
+      const passed =
         classification.is_threat_research === true &&
-        classification.confidence >= CONFIDENCE_THRESHOLD
-      ) {
+        classification.confidence >= CONFIDENCE_THRESHOLD;
+
+      if (passed) {
         await supabase
           .from('threat_intel_feed_entries')
-          .update({
-            digest_status: 'classified',
-            classification,
-          })
+          .update({ digest_status: 'classified', classification })
           .eq('id', entry.id);
 
         passedIds.push(entry.id);
         result.articles_passed_gate += 1;
+
+        await emit(ctx, 'article_classified', {
+          feed_id: feedId,
+          feed_name: vendorName,
+          article_id: entry.id,
+          article_title: entry.title,
+          article_url: entry.url,
+          passed: true,
+          reason: classification.category
+            ? `Classified as ${classification.category} (confidence ${classification.confidence.toFixed(2)})`
+            : `Confidence ${classification.confidence.toFixed(2)}`,
+          payload: {
+            confidence: classification.confidence,
+            category: classification.category,
+            threat_actors: classification.threat_actors,
+            campaign_keywords: classification.campaign_keywords,
+          },
+        });
       } else {
+        const reasonText = classification.skip_reason
+          || (classification.category
+            ? `${classification.category} (confidence ${classification.confidence.toFixed(2)})`
+            : `Below confidence threshold (${classification.confidence.toFixed(2)} < ${CONFIDENCE_THRESHOLD})`);
+
         await supabase
           .from('threat_intel_feed_entries')
           .update({
@@ -142,11 +165,35 @@ export async function classifyEntries(
           .eq('id', entry.id);
 
         result.articles_skipped += 1;
+
+        await emit(ctx, 'article_classified', {
+          feed_id: feedId,
+          feed_name: vendorName,
+          article_id: entry.id,
+          article_title: entry.title,
+          article_url: entry.url,
+          passed: false,
+          reason: reasonText,
+          payload: {
+            confidence: classification.confidence,
+            category: classification.category,
+            skip_reason: classification.skip_reason,
+          },
+        });
       }
     } catch (err: any) {
       const msg = `Classify ${entry.id}: ${err.message || 'Unknown error'}`;
       console.error(`[classifier] ${msg}`);
       result.errors.push(msg);
+
+      await emit(ctx, 'article_classify_failed', {
+        feed_id: feedId,
+        feed_name: vendorName,
+        article_id: entry.id,
+        article_title: entry.title,
+        article_url: entry.url,
+        reason: err.message || 'Unknown error',
+      });
       // Leave as 'harvested' so it retries on the next run
     }
   }
