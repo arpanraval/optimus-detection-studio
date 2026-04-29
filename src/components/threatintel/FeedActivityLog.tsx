@@ -1,9 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { Icon } from '../Icon';
-import { routeHelpers } from '../../router/routes';
-import type { FeedEntry } from '../../hooks/useThreatIntelFeeds';
 import type { AutoDigestJob } from '../../hooks/useAutoDigestSettings';
 import { JobTranscript } from './JobTranscript';
 
@@ -15,10 +12,7 @@ interface FeedActivityLogProps {
   userId: string;
 }
 
-/** Union type for timeline items (entry or job) */
-type TimelineItem =
-  | { kind: 'entry'; data: FeedEntry; timestamp: string }
-  | { kind: 'job'; data: AutoDigestJob; timestamp: string };
+type JobStatusTone = 'success' | 'partial' | 'failure' | 'running' | 'pending';
 
 // =============================================================================
 // HELPERS
@@ -30,27 +24,14 @@ function getRelativeDate(dateStr: string): string {
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
 
-  const isSameDay = (a: Date, b: Date) =>
+  const sameDay = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() &&
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate();
 
-  if (isSameDay(date, today)) return 'Today';
-  if (isSameDay(date, yesterday)) return 'Yesterday';
-
-  return date.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-function formatTime(dateStr: string): string {
-  return new Date(dateStr).toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+  if (sameDay(date, today)) return 'Today';
+  if (sameDay(date, yesterday)) return 'Yesterday';
+  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
 function getDateKey(dateStr: string): string {
@@ -58,423 +39,214 @@ function getDateKey(dateStr: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// =============================================================================
-// STATUS RENDERERS
-// =============================================================================
-
-function EntryItem({ entry }: { entry: FeedEntry }) {
-  const status = entry.digest_status || 'ready';
-  const feedName = entry.feed_name || 'Unknown Feed';
-
-  if (status === 'ready') {
-    return (
-      <div className="flex items-start gap-3">
-        <span className="mt-1.5 w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <Icon name="check-circle" className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-xs font-medium text-emerald-400">Digest Complete</span>
-          </div>
-          <p className="text-sm text-on-surface truncate mt-0.5">
-            {feedName}: {entry.title}
-          </p>
-          {entry.auto_digest_report_id && (
-            <Link
-              to={routeHelpers.threatIntelDetail(entry.auto_digest_report_id)}
-              className="text-xs text-primary hover:underline mt-0.5 inline-block"
-            >
-              View report
-            </Link>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (status === 'skipped') {
-    const confidence = (entry.classification as Record<string, any>)?.confidence;
-    return (
-      <div className="flex items-start gap-3">
-        <span className="mt-1.5 w-2 h-2 rounded-full bg-on-surface-variant/40 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <Icon name="skip-forward" className="w-3.5 h-3.5 text-on-surface-variant/60" />
-            <span className="text-xs font-medium text-on-surface-variant/60">Skipped</span>
-          </div>
-          <p className="text-sm text-on-surface truncate mt-0.5">
-            {feedName}: {entry.title}
-          </p>
-          <p className="text-xs text-on-surface-variant/50 mt-0.5">
-            Reason: {entry.skip_reason || 'N/A'}
-            {confidence != null && ` (confidence: ${confidence})`}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (status === 'digest_failed' || status === 'extract_failed') {
-    return (
-      <div className="flex items-start gap-3">
-        <span className="mt-1.5 w-2 h-2 rounded-full bg-red-400 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <Icon name="x-circle" className="w-3.5 h-3.5 text-red-400" />
-            <span className="text-xs font-medium text-red-400">Failed</span>
-          </div>
-          <p className="text-sm text-on-surface truncate mt-0.5">
-            {feedName}: {entry.title}
-          </p>
-          {entry.extract_error && (
-            <p className="text-xs text-red-400/70 mt-0.5">
-              Error: {entry.extract_error.length > 200
-                ? 'Processing failed — check feed health in settings'
-                : entry.extract_error}
-            </p>
-          )}
-          <p className="text-xs text-on-surface-variant/40 mt-0.5">
-            Paste Content Manually
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (status === 'digesting' || status === 'queued') {
-    return (
-      <div className="flex items-start gap-3">
-        <span className="mt-1.5 w-2 h-2 rounded-full bg-amber-400 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <Icon name="loader" className="w-3.5 h-3.5 text-amber-400 animate-spin" />
-            <span className="text-xs font-medium text-amber-400">Processing</span>
-          </div>
-          <p className="text-sm text-on-surface truncate mt-0.5">
-            {feedName}: {entry.title}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (status === 'classified') {
-    return (
-      <div className="flex items-start gap-3">
-        <span className="mt-1.5 w-2 h-2 rounded-full bg-blue-400 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <Icon name="check-circle" className="w-3.5 h-3.5 text-blue-400" />
-            <span className="text-xs font-medium text-blue-400">Classified</span>
-          </div>
-          <p className="text-sm text-on-surface truncate mt-0.5">
-            {feedName}: {entry.title}
-          </p>
-          <p className="text-xs text-on-surface-variant/50 mt-0.5">
-            Waiting for digest slot
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Fallback for any other status
-  return (
-    <div className="flex items-start gap-3">
-      <span className="mt-1.5 w-2 h-2 rounded-full bg-on-surface-variant/30 shrink-0" />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm text-on-surface truncate">
-          {feedName}: {entry.title}
-        </p>
-        <p className="text-xs text-on-surface-variant/50 mt-0.5">
-          Status: {status}
-        </p>
-      </div>
-    </div>
-  );
+function formatTime(dateStr: string): string {
+  return new Date(dateStr).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
-function formatElapsed(ms: number): string {
-  const sec = Math.max(0, Math.round(ms / 1000));
-  if (sec < 60) return `${sec}s`;
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const sec = ms / 1000;
+  if (sec < 60) return `${sec.toFixed(1)}s`;
   const min = Math.floor(sec / 60);
-  const rem = sec % 60;
-  if (min < 60) return rem > 0 ? `${min}m ${rem}s` : `${min}m`;
-  const hr = Math.floor(min / 60);
-  return `${hr}h ${min % 60}m`;
+  const rem = Math.round(sec % 60);
+  return rem > 0 ? `${min}m ${rem}s` : `${min}m`;
 }
 
-function JobItem({ job }: { job: AutoDigestJob }) {
+function jobDuration(job: AutoDigestJob): number | null {
+  const start = job.started_at || job.created_at;
+  const end = job.completed_at || (job.status === 'pending' || job.status === 'processing' ? new Date().toISOString() : null);
+  if (!start || !end) return null;
+  return new Date(end).getTime() - new Date(start).getTime();
+}
+
+function jobToneAndLabel(job: AutoDigestJob): { tone: JobStatusTone; label: string; iconName: string } {
+  const summary = job.result_summary as Record<string, any> | null;
+  const errors: string[] = Array.isArray(summary?.errors) ? summary!.errors : [];
+  const digested = summary?.digested ?? summary?.articles_digested ?? 0;
+  const failed = summary?.failed ?? summary?.articles_failed ?? errors.length;
+
+  if (job.status === 'pending') return { tone: 'pending', label: 'Queued', iconName: 'clock' };
+  if (job.status === 'processing') return { tone: 'running', label: 'Running', iconName: 'loader' };
+  if (job.status === 'failed') return { tone: 'failure', label: 'Failed', iconName: 'x-circle' };
+  if (errors.length > 0 && digested === 0) return { tone: 'failure', label: 'Failed during processing', iconName: 'alert-triangle' };
+  if (failed > 0 && digested > 0) return { tone: 'partial', label: 'Partial success', iconName: 'alert-triangle' };
+  if (digested === 0 && failed === 0) return { tone: 'success', label: 'Completed — no new content', iconName: 'check-circle' };
+  return { tone: 'success', label: 'Completed', iconName: 'check-circle' };
+}
+
+const TONE_CLASSES: Record<JobStatusTone, { dot: string; iconColor: string; bg: string; label: string }> = {
+  success: { dot: 'bg-emerald-500',                iconColor: 'text-emerald-500', bg: 'bg-emerald-500/5',        label: 'text-emerald-500' },
+  partial: { dot: 'bg-amber-400',                  iconColor: 'text-amber-400',   bg: 'bg-amber-400/5',          label: 'text-amber-400' },
+  failure: { dot: 'bg-red-400',                    iconColor: 'text-red-400',     bg: 'bg-red-400/5',            label: 'text-red-400' },
+  running: { dot: 'bg-amber-400 animate-pulse',    iconColor: 'text-amber-400',   bg: 'bg-amber-400/5',          label: 'text-amber-400' },
+  pending: { dot: 'bg-on-surface-variant/40',      iconColor: 'text-on-surface-variant', bg: 'bg-surface-container-lowest', label: 'text-on-surface-variant' },
+};
+
+function jobOneLineSummary(job: AutoDigestJob): string {
   const summary = job.result_summary as Record<string, any> | null;
   const errors: string[] = Array.isArray(summary?.errors) ? summary!.errors : [];
   const feedsFetched = summary?.feeds_fetched ?? 0;
-  const digested = summary?.digested ?? summary?.articles_digested ?? 0;
-  const skipped = summary?.skipped ?? summary?.articles_skipped ?? 0;
-  const failed = summary?.failed ?? summary?.articles_failed ?? errors.length;
   const harvested = summary?.articles_harvested ?? 0;
+  const digested = summary?.digested ?? summary?.articles_digested ?? 0;
+  const failed = summary?.failed ?? summary?.articles_failed ?? errors.length;
+  const skipped = summary?.skipped ?? summary?.articles_skipped ?? 0;
 
-  // ─── Completed ───────────────────────────────────────────────────────────
-  if (job.status === 'completed') {
-    // Errors took down everything. Surface the real failure to the user instead
-    // of hiding it behind a happy "Job Completed" with all-zero stats.
-    if (errors.length > 0 && digested === 0) {
-      return (
-        <div className="flex items-start gap-3">
-          <span className="mt-1.5 w-2 h-2 rounded-full bg-red-400 shrink-0" />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <Icon name="alert-triangle" className="w-3.5 h-3.5 text-red-400" />
-              <span className="text-xs font-medium text-red-400">Failed during processing</span>
-            </div>
-            <p className="text-sm text-on-surface mt-0.5">
-              Fetched {feedsFetched} feed{feedsFetched === 1 ? '' : 's'} but all {errors.length} article{errors.length === 1 ? '' : 's'} failed.
-            </p>
-            <p className="text-xs text-on-surface-variant mt-1 truncate" title={errors.join('\n')}>
-              {errors[0]}{errors.length > 1 ? ` (+${errors.length - 1} more)` : ''}
-            </p>
-          </div>
-        </div>
-      );
-    }
+  if (job.status === 'pending') return 'Waiting for the orchestrator to pick this up…';
+  if (job.status === 'processing') {
+    return `In flight — ${feedsFetched} feed${feedsFetched === 1 ? '' : 's'} fetched so far`;
+  }
+  if (job.status === 'failed') return job.error || 'Run failed before reporting any stats';
 
-    // Genuinely empty run: feeds fetched, but nothing matched the relevance / classification gate.
-    if (digested === 0 && skipped === 0 && failed === 0) {
-      return (
-        <div className="flex items-start gap-3">
-          <span className="mt-1.5 w-2 h-2 rounded-full bg-on-surface-variant/40 shrink-0" />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <Icon name="check" className="w-3.5 h-3.5 text-on-surface-variant" />
-              <span className="text-xs font-medium text-on-surface-variant">Completed — no new content</span>
-            </div>
-            <p className="text-sm text-on-surface mt-0.5">
-              Checked {feedsFetched} feed{feedsFetched === 1 ? '' : 's'}
-              {harvested > 0 ? `, ${harvested} article${harvested === 1 ? '' : 's'} harvested` : ''}
-              {harvested > 0 ? ' — none passed the relevance gate' : ' — no new articles'}.
-            </p>
-          </div>
-        </div>
-      );
-    }
+  const parts: string[] = [];
+  parts.push(`${feedsFetched} feed${feedsFetched === 1 ? '' : 's'}`);
+  if (harvested > 0) parts.push(`${harvested} harvested`);
+  if (digested > 0) parts.push(`${digested} digested`);
+  if (skipped > 0) parts.push(`${skipped} skipped`);
+  if (failed > 0) parts.push(`${failed} failed`);
+  return parts.join(' · ');
+}
 
-    // Successful completion with at least some output.
-    return (
-      <div className="flex items-start gap-3">
-        <span className="mt-1.5 w-2 h-2 rounded-full bg-primary shrink-0" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <Icon name="check-circle" className="w-3.5 h-3.5 text-primary" />
-            <span className="text-xs font-medium text-primary">Completed</span>
-            {errors.length > 0 && (
-              <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400">
-                {errors.length} error{errors.length === 1 ? '' : 's'}
+// =============================================================================
+// JOB CARD
+// =============================================================================
+
+const JobCard: React.FC<{ job: AutoDigestJob; expanded: boolean; onToggle: () => void }> = ({ job, expanded, onToggle }) => {
+  const { tone, label, iconName } = jobToneAndLabel(job);
+  const classes = TONE_CLASSES[tone];
+  const dur = jobDuration(job);
+  const summary = jobOneLineSummary(job);
+  const shortId = job.id.slice(0, 8);
+
+  return (
+    <div className={`rounded-xl border border-outline-variant/30 ${classes.bg} overflow-hidden`}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-on-surface/[0.02] transition-colors"
+      >
+        <Icon
+          name={iconName}
+          className={`w-4 h-4 mt-0.5 shrink-0 ${classes.iconColor} ${tone === 'running' ? 'animate-spin' : ''}`}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className={`text-sm font-semibold ${classes.label}`}>{label}</span>
+            <span className="text-[11px] text-on-surface-variant/60 font-mono">#{shortId}</span>
+            <span className="text-[11px] text-on-surface-variant/50 tabular-nums">
+              {formatTime(job.created_at)}
+            </span>
+            {dur != null && (
+              <span className="text-[11px] text-on-surface-variant/50 tabular-nums">
+                · {formatDuration(dur)}
               </span>
             )}
           </div>
-          <p className="text-sm text-on-surface mt-0.5">
-            <span className="font-medium">{digested}</span> digested
-            {skipped > 0 && <>, {skipped} skipped</>}
-            {failed > 0 && <>, <span className="text-red-400">{failed} failed</span></>}
-            <span className="text-on-surface-variant"> · from {feedsFetched} feed{feedsFetched === 1 ? '' : 's'}</span>
-          </p>
+          <div className="text-xs text-on-surface-variant mt-1">{summary}</div>
         </div>
-      </div>
-    );
-  }
+        <Icon
+          name={expanded ? 'chevron-down' : 'chevron-right'}
+          className="w-4 h-4 text-on-surface-variant/40 shrink-0 mt-1"
+        />
+      </button>
 
-  // ─── Failed (job-level error before completion) ─────────────────────────
-  if (job.status === 'failed') {
-    return (
-      <div className="flex items-start gap-3">
-        <span className="mt-1.5 w-2 h-2 rounded-full bg-red-400 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <Icon name="x-circle" className="w-3.5 h-3.5 text-red-400" />
-            <span className="text-xs font-medium text-red-400">Job Failed</span>
-          </div>
-          <p className="text-sm text-on-surface mt-0.5">
-            {job.error || 'Unknown error'}
-          </p>
+      {expanded && (
+        <div className="border-t border-outline-variant/15">
+          <JobTranscript job={job} />
         </div>
-      </div>
-    );
-  }
-
-  // ─── Pending / processing — show elapsed time so the user has a heartbeat ───
-  const startedAt = job.started_at || job.created_at;
-  const elapsed = startedAt ? Date.now() - new Date(startedAt).getTime() : 0;
-  return (
-    <div className="flex items-start gap-3">
-      <span className="mt-1.5 w-2 h-2 rounded-full bg-amber-400 shrink-0 animate-pulse" />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <Icon name="loader" className="w-3.5 h-3.5 text-amber-400 animate-spin" />
-          <span className="text-xs font-medium text-amber-400">
-            {job.status === 'pending' ? 'Queued' : 'Running'}
-          </span>
-          {elapsed > 0 && (
-            <span className="text-[11px] text-on-surface-variant tabular-nums">
-              {formatElapsed(elapsed)}
-            </span>
-          )}
-        </div>
-        <p className="text-sm text-on-surface mt-0.5">
-          {job.status === 'pending'
-            ? 'Waiting for the orchestrator to pick up this job…'
-            : `Fetching feeds, classifying articles, and digesting matches${feedsFetched > 0 ? ` (${feedsFetched} feed${feedsFetched === 1 ? '' : 's'} so far)` : ''}…`}
-        </p>
-      </div>
+      )}
     </div>
   );
-}
+};
 
 // =============================================================================
 // MAIN COMPONENT
 // =============================================================================
 
 export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
-  const [entries, setEntries] = useState<FeedEntry[]>([]);
   const [jobs, setJobs] = useState<AutoDigestJob[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
-  // Job IDs whose transcript is currently expanded. Active jobs auto-expand
-  // on first appearance (see effect below) so the user sees the live run.
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchData() {
-      setIsLoading(true);
-
-      const [entriesResult, jobsResult] = await Promise.all([
-        supabase
-          .from('threat_intel_feed_entries')
-          .select('*, threat_intel_feeds(name)')
-          .eq('user_id', userId)
-          .neq('digest_status', 'harvested')
-          .order('fetched_at', { ascending: false })
-          .limit(50),
-        supabase
-          .from('auto_digest_jobs')
-          .select('*')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false })
-          .limit(7),
-      ]);
-
-      if (cancelled) return;
-
-      if (!entriesResult.error) {
-        setEntries(
-          (entriesResult.data || []).map((e: any) => ({
-            ...e,
-            feed_name: e.threat_intel_feeds?.name,
-          }))
-        );
-      }
-
-      if (!jobsResult.error) {
-        setJobs(jobsResult.data || []);
-      }
-
-      setIsLoading(false);
-    }
-
-    fetchData();
-    return () => { cancelled = true; };
+  const fetchJobs = useCallback(async () => {
+    const { data } = await supabase
+      .from('auto_digest_jobs')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if (data) setJobs(data as AutoDigestJob[]);
   }, [userId]);
 
-  // Poll for fresh job rows so the activity log reflects status changes from
-  // pending -> processing -> completed without a manual refresh. The transcript
-  // hook does its own sub-poll for events; this one keeps the parent up to date.
-  const hasActiveJob = jobs.some(j => j.status === 'pending' || j.status === 'processing');
+  // Initial load
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    fetchJobs().finally(() => {
+      if (!cancelled) setIsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [fetchJobs]);
+
+  // Live poll while a job is running so the activity log reflects status
+  // changes (pending → processing → completed) without manual refresh.
+  const hasActiveJob = jobs.some((j) => j.status === 'pending' || j.status === 'processing');
   useEffect(() => {
     if (!userId || !hasActiveJob) return;
-    const interval = setInterval(async () => {
-      const { data } = await supabase
-        .from('auto_digest_jobs')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(7);
-      if (data) setJobs(data as AutoDigestJob[]);
-    }, 3000);
+    const interval = setInterval(fetchJobs, 3000);
     return () => clearInterval(interval);
-  }, [userId, hasActiveJob]);
+  }, [userId, hasActiveJob, fetchJobs]);
 
-  // Auto-expand any actively-running job so the user sees the live transcript
-  // without having to click. Stops re-expanding once the job lands in a final
-  // state, so collapsing it manually after that point sticks.
+  // Auto-expand any active job + the most-recent job so the user always
+  // sees something useful when landing on the page.
   useEffect(() => {
     setExpandedJobs((prev) => {
       const next = new Set(prev);
+      let mostRecentDone: string | null = null;
       for (const j of jobs) {
-        if ((j.status === 'pending' || j.status === 'processing') && !next.has(j.id)) {
-          next.add(j.id);
-        }
+        if (j.status === 'pending' || j.status === 'processing') next.add(j.id);
+        else if (mostRecentDone === null) mostRecentDone = j.id;
       }
+      if (mostRecentDone && next.size === 0) next.add(mostRecentDone);
       return next;
     });
   }, [jobs]);
 
-  const toggleJob = (jobId: string) => {
+  const toggleJob = (jobId: string) =>
     setExpandedJobs((prev) => {
       const next = new Set(prev);
-      if (next.has(jobId)) next.delete(jobId);
-      else next.add(jobId);
+      next.has(jobId) ? next.delete(jobId) : next.add(jobId);
       return next;
     });
-  };
 
-  // Build unified timeline, grouped by date
-  const groupedTimeline = useMemo(() => {
-    const items: TimelineItem[] = [
-      ...entries.map((e): TimelineItem => ({
-        kind: 'entry',
-        data: e,
-        timestamp: e.fetched_at,
-      })),
-      ...jobs.map((j): TimelineItem => ({
-        kind: 'job',
-        data: j,
-        timestamp: j.created_at,
-      })),
-    ];
-
-    items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-    const groups: { dateKey: string; label: string; items: TimelineItem[] }[] = [];
-    const groupMap = new Map<string, TimelineItem[]>();
-
-    for (const item of items) {
-      const key = getDateKey(item.timestamp);
-      if (!groupMap.has(key)) {
-        const group: TimelineItem[] = [];
-        groupMap.set(key, group);
-        groups.push({ dateKey: key, label: getRelativeDate(item.timestamp), items: group });
-      }
-      groupMap.get(key)!.push(item);
-    }
-
-    return groups;
-  }, [entries, jobs]);
-
-  const toggleDay = (dateKey: string) => {
+  const toggleDay = (key: string) =>
     setCollapsedDays((prev) => {
       const next = new Set(prev);
-      if (next.has(dateKey)) {
-        next.delete(dateKey);
-      } else {
-        next.add(dateKey);
-      }
+      next.has(key) ? next.delete(key) : next.add(key);
       return next;
     });
-  };
 
-  // Loading state
+  // Group jobs by day
+  const grouped = useMemo(() => {
+    const groups: { dateKey: string; label: string; jobs: AutoDigestJob[] }[] = [];
+    const map = new Map<string, AutoDigestJob[]>();
+    for (const j of jobs) {
+      const key = getDateKey(j.created_at);
+      if (!map.has(key)) {
+        const arr: AutoDigestJob[] = [];
+        map.set(key, arr);
+        groups.push({ dateKey: key, label: getRelativeDate(j.created_at), jobs: arr });
+      }
+      map.get(key)!.push(j);
+    }
+    return groups;
+  }, [jobs]);
+
+  // ─── Loading ───────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6">
+        <h3 className="text-base font-semibold text-on-surface mb-4">Activity Log</h3>
         <div className="flex items-center justify-center py-12">
           <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
@@ -482,15 +254,15 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
     );
   }
 
-  // Empty state
-  if (entries.length === 0 && jobs.length === 0) {
+  // ─── Empty ─────────────────────────────────────────────────────────────
+  if (jobs.length === 0) {
     return (
       <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6">
         <h3 className="text-base font-semibold text-on-surface mb-4">Activity Log</h3>
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <Icon name="activity" className="w-10 h-10 text-on-surface-variant/30 mb-3" />
           <p className="text-sm text-on-surface-variant">
-            No auto-digest activity yet. Enable auto-digest in settings to get started.
+            No auto-digest runs yet. Click <span className="font-medium text-on-surface">Run Now</span> in the Configuration tab to kick off the first one.
           </p>
         </div>
       </div>
@@ -498,64 +270,45 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
   }
 
   return (
-    <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6">
-      <h3 className="text-base font-semibold text-on-surface mb-4">Activity Log</h3>
+    <div className="bg-surface-container rounded-2xl border border-outline-variant/10 flex flex-col"
+         style={{ maxHeight: 'calc(100vh - 260px)' }}>
+      <div className="flex items-center justify-between px-6 pt-5 pb-3 shrink-0">
+        <h3 className="text-base font-semibold text-on-surface">Activity Log</h3>
+        <span className="text-[10px] font-bold text-on-surface-variant/50 uppercase tracking-widest">
+          {jobs.length} run{jobs.length === 1 ? '' : 's'}
+        </span>
+      </div>
 
-      <div className="space-y-4">
-        {groupedTimeline.map((group) => {
-          const isCollapsed = collapsedDays.has(group.dateKey);
-
+      <div className="overflow-y-auto px-6 pb-6 space-y-4 scrollbar-thin">
+        {grouped.map((group) => {
+          const collapsed = collapsedDays.has(group.dateKey);
           return (
             <div key={group.dateKey}>
-              {/* Day header */}
               <button
                 type="button"
                 onClick={() => toggleDay(group.dateKey)}
                 className="flex items-center gap-2 w-full text-left mb-2 group"
               >
                 <Icon
-                  name={isCollapsed ? 'chevron-right' : 'chevron-down'}
+                  name={collapsed ? 'chevron-right' : 'chevron-down'}
                   className="w-3.5 h-3.5 text-on-surface-variant/50 group-hover:text-on-surface-variant transition-colors"
                 />
-                <span className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider">
+                <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">
                   {group.label}
                 </span>
-                <span className="text-xs text-on-surface-variant/40">
-                  ({group.items.length})
+                <span className="text-[10px] text-on-surface-variant/40 tabular-nums">
+                  ({group.jobs.length})
                 </span>
               </button>
-
-              {/* Day items */}
-              {!isCollapsed && (
-                <div className="ml-2 border-l border-outline-variant/10 pl-4 space-y-3">
-                  {group.items.map((item) => (
-                    <div key={item.kind === 'entry' ? item.data.id : item.data.id} className="relative">
-                      <span className="text-xs text-on-surface-variant/50 block mb-1">
-                        {formatTime(item.timestamp)}
-                      </span>
-                      {item.kind === 'entry' ? (
-                        <EntryItem entry={item.data} />
-                      ) : (
-                        <div>
-                          <button
-                            type="button"
-                            onClick={() => toggleJob(item.data.id)}
-                            className="w-full text-left flex items-start gap-2 hover:bg-surface-container-low/30 -mx-2 px-2 py-1 rounded-lg transition-colors"
-                          >
-                            <Icon
-                              name={expandedJobs.has(item.data.id) ? 'chevron-down' : 'chevron-right'}
-                              className="w-3.5 h-3.5 text-on-surface-variant/50 mt-1.5 shrink-0"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <JobItem job={item.data} />
-                            </div>
-                          </button>
-                          {expandedJobs.has(item.data.id) && (
-                            <JobTranscript job={item.data} />
-                          )}
-                        </div>
-                      )}
-                    </div>
+              {!collapsed && (
+                <div className="space-y-2">
+                  {group.jobs.map((j) => (
+                    <JobCard
+                      key={j.id}
+                      job={j}
+                      expanded={expandedJobs.has(j.id)}
+                      onToggle={() => toggleJob(j.id)}
+                    />
                   ))}
                 </div>
               )}
