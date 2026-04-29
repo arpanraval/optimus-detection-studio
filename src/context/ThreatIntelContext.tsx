@@ -9,6 +9,7 @@ import {
 } from '../types/threatIntel';
 import { useToast } from '../hooks/useToast';
 import { logger } from '../lib/logger';
+import { enrichFeasibilityForReport } from '../lib/feasibility/enrichClient';
 
 // ============================================
 // UTILITIES
@@ -426,6 +427,22 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
 
       // Clean up localStorage if this was migrated
       localStorage.removeItem(SESSION_PREFIX + session.id);
+
+      // Best-effort feasibility enrichment for manual reports (auto-digest reports
+      // are already enriched by the orchestrator).
+      if (record.source !== 'auto' && record.id && userId) {
+        const ttps = (session.report?.ttps ?? []).map(t => ({
+          mitreId: t.mitreId,
+          hasExistingDetection: t.hasExistingDetection,
+        }));
+        enrichFeasibilityForReport(record.id, userId, ttps)
+          .then(result => {
+            if (result.computed) fetchReports();
+          })
+          .catch(err => {
+            console.warn('Feasibility enrichment failed:', err);
+          });
+      }
 
       return session.id;
     } catch (err: unknown) {

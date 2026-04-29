@@ -8,6 +8,9 @@ import { MonacoCodeEditor } from '../MonacoCodeEditor';
 import { useToast } from '../../hooks/useToast';
 import { useThreatIntel } from '../../context/ThreatIntelContext';
 import { retryReportSection } from '../../lib/aiService';
+import { supabase } from '../../lib/supabaseClient';
+import { createEmptyDetection } from '../../types/detection';
+import { Severity, Status } from '../../types';
 import {
   ThreatReport,
   ThreatIntelSession,
@@ -30,6 +33,8 @@ import {
   ttpMetaBadgeColors,
   ttpCoverageColors,
 } from '../../lib/ui/badges';
+import { FeasibilityEmptyState } from './FeasibilityEmptyState';
+import { RetryWithModelButton } from './RetryWithModelButton';
 
 // =============================================================================
 // TYPES
@@ -253,7 +258,7 @@ const ThreatLevelIndicator: React.FC<{ level?: ThreatLevel | string; size?: 'sm'
 
 const StatCard: React.FC<{
   label: string;
-  value: number | string;
+  value: React.ReactNode;
   subtext?: string;
   color?: string;
   progress?: number;
@@ -487,7 +492,9 @@ const TTPCard: React.FC<{
   onCancelEdit?: () => void;
   onEditChange?: (v: string) => void;
   onRemove?: (id: string) => void;
-}> = ({ ttp, isEditing, editValue, onCreateDetection, onCopy, onStartEdit, onSaveEdit, onCancelEdit, onEditChange, onRemove }) => {
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
+}> = ({ ttp, isEditing, editValue, onCreateDetection, onCopy, onStartEdit, onSaveEdit, onCancelEdit, onEditChange, onRemove, isSelected, onToggleSelect }) => {
   const isCovered = ttp.hasExistingDetection;
   const coverageStyle = isCovered ? coveredColor : gapColor;
   const metaBadge = ttpMetaBadgeColors.sub; // Neutral for all meta badges
@@ -497,6 +504,16 @@ const TTPCard: React.FC<{
       {/* Header row: badges + inline actions */}
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center gap-2 flex-wrap flex-1">
+          {/* Bulk-select checkbox — only for uncovered TTPs (covered ones don't need detections) */}
+          {onToggleSelect && !isCovered && (
+            <input
+              type="checkbox"
+              checked={!!isSelected}
+              onChange={onToggleSelect}
+              className="w-4 h-4 rounded cursor-pointer"
+              aria-label={`Select ${ttp.techniqueName}`}
+            />
+          )}
           {/* MITRE ID - Uses coverage color (green if covered, neutral if gap) */}
           <span className={`${badgeSizes.sm} font-mono font-bold inline-flex items-center ${coverageStyle.bg} ${coverageStyle.text} border ${coverageStyle.border}`}>
             {ttp.mitreId}
@@ -600,7 +617,9 @@ const TTPTacticList: React.FC<{
   onCancelEdit?: () => void;
   onEditChange?: (v: string) => void;
   onRemove?: (id: string) => void;
-}> = ({ ttps, search, editingId, editingValue, onCreateDetection, onCopy, onStartEdit, onSaveEdit, onCancelEdit, onEditChange, onRemove }) => {
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
+}> = ({ ttps, search, editingId, editingValue, onCreateDetection, onCopy, onStartEdit, onSaveEdit, onCancelEdit, onEditChange, onRemove, selectedIds, onToggleSelect }) => {
   const [expandedTactics, setExpandedTactics] = useState<Set<string>>(new Set());
 
   // Group by tactic
@@ -734,6 +753,8 @@ const TTPTacticList: React.FC<{
                     onCancelEdit={onCancelEdit}
                     onEditChange={onEditChange}
                     onRemove={onRemove}
+                    isSelected={selectedIds?.has(ttp.id) ?? false}
+                    onToggleSelect={onToggleSelect ? () => onToggleSelect(ttp.id) : undefined}
                   />
                 ))}
               </div>
@@ -778,7 +799,7 @@ const EmptyStateWithRetry: React.FC<{
   section: RetrySectionType;
   isRetrying: boolean;
   retryingSection: RetrySectionType | null;
-  onRetry: (section: RetrySectionType) => void;
+  onRetry: (section: RetrySectionType, model?: string) => void;
   error?: string;
 }> = ({ icon, title, description, section, isRetrying, retryingSection, onRetry, error }) => (
   <div className="text-center py-16 bg-surface-container rounded-2xl border border-outline-variant/30">
@@ -790,11 +811,10 @@ const EmptyStateWithRetry: React.FC<{
         <p className="text-red-500 text-xs font-mono">{error}</p>
       </div>
     )}
-    <RetryButton
-      section={section}
+    <RetryWithModelButton
       isRetrying={isRetrying}
-      retryingSection={retryingSection}
-      onRetry={onRetry}
+      isThisRetrying={retryingSection === section}
+      onRetry={(model) => onRetry(section, model)}
       label="Retry Extraction"
     />
   </div>
@@ -967,7 +987,7 @@ export const ThreatIntelReportPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const { fetchReport, saveReport, updateReport } = useThreatIntel();
+  const { fetchReport, saveReport, updateReport, userId } = useThreatIntel();
 
   const [session, setSession] = useState<ThreatIntelSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -996,6 +1016,18 @@ export const ThreatIntelReportPage: React.FC = () => {
   const [editingTTPValue, setEditingTTPValue] = useState('');
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [editingRuleValue, setEditingRuleValue] = useState('');
+
+  // Bulk-select state for TTPs (used by "Create N Drafts" action)
+  const [selectedTTPIds, setSelectedTTPIds] = useState<Set<string>>(new Set());
+  const toggleTTPSelection = useCallback((id: string) => {
+    setSelectedTTPIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  const clearTTPSelection = useCallback(() => setSelectedTTPIds(new Set()), []);
 
   useEffect(() => {
     const loadReport = async () => {
@@ -1307,7 +1339,7 @@ export const ThreatIntelReportPage: React.FC = () => {
   }, [fetchUrlDialog, session, report, showToast]);
 
   // Retry a specific section
-  const handleRetrySection = useCallback(async (section: RetrySectionType) => {
+  const handleRetrySection = useCallback(async (section: RetrySectionType, model?: string) => {
     if (!report || !session) return;
 
     // Store previous counts to detect if data was preserved
@@ -1319,7 +1351,7 @@ export const ThreatIntelReportPage: React.FC = () => {
 
     setRetryingSection(section);
     try {
-      const result = await retryReportSection(report, section);
+      const result = await retryReportSection(report, section, model);
 
       if (result.success && result.report) {
         // Update session with new report
@@ -1374,6 +1406,37 @@ export const ThreatIntelReportPage: React.FC = () => {
       setRetryingSection(null);
     }
   }, [report, session, showToast]);
+
+  // Bulk-create draft detections from selected TTPs
+  const handleBulkCreateDrafts = useCallback(async () => {
+    if (!session || !report || !userId || selectedTTPIds.size === 0) return;
+    const selectedTTPs = (report.ttps ?? []).filter(t => selectedTTPIds.has(t.id));
+    if (selectedTTPs.length === 0) return;
+
+    const now = new Date().toISOString();
+    const inserts = selectedTTPs.map(ttp => ({
+      ...createEmptyDetection(userId),
+      name: `Detect ${ttp.techniqueName} (${ttp.mitreId})`,
+      description: `${ttp.explanation || ''}\n\nEvidence: ${ttp.evidence || 'N/A'}`.trim(),
+      mitreAttackIds: [ttp.mitreId],
+      mitreTechniques: [ttp.techniqueName],
+      severity: ttp.confidence === 'high' ? Severity.High : ttp.confidence === 'medium' ? Severity.Medium : Severity.Low,
+      status: Status.Draft,
+      library_type: 'development',
+      createdDate: now,
+      updatedDate: now,
+    }));
+
+    try {
+      const { error } = await supabase.from('detections').insert(inserts);
+      if (error) throw error;
+      showToast('success', 'Drafts created', `${inserts.length} draft detection${inserts.length === 1 ? '' : 's'} added to your library`);
+      clearTTPSelection();
+      navigate('/library?status=Draft');
+    } catch (err) {
+      showToast('error', 'Bulk create failed', err instanceof Error ? err.message : 'Could not create drafts');
+    }
+  }, [session, report, userId, selectedTTPIds, showToast, clearTTPSelection, navigate]);
 
   // Create detection from TTP
   const handleCreateDetectionFromTTP = useCallback((ttp: ExtractedTTP) => {
@@ -1820,12 +1883,20 @@ export const ThreatIntelReportPage: React.FC = () => {
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <StatCard
                   label="Detection Coverage"
-                  value={`${stats.coveragePercent}%`}
+                  value={(report.ttps?.length ?? 0) > 0
+                    ? `${stats.coveragePercent}%`
+                    : <span className="text-on-surface-variant/40">—</span>}
                   color={stats.coveragePercent >= 70 ? 'text-green-400' : stats.coveragePercent >= 40 ? 'text-amber-400' : 'text-red-400'}
                   progress={stats.coveragePercent}
                 />
                 <StatCard label="TTPs Identified" value={report.ttps.length} color="text-purple-500" />
-                <StatCard label="Detection Gaps" value={stats.gaps} color="text-on-surface-variant" />
+                <StatCard
+                  label="Detection Gaps"
+                  value={(report.ttps?.length ?? 0) > 0
+                    ? stats.gaps
+                    : <span className="text-on-surface-variant/40">—</span>}
+                  color="text-on-surface-variant"
+                />
                 <StatCard label="Indicators" value={report.iocs.length} color="text-secondary" />
                 <StatCard label="Rules Extracted" value={report.rules.length} color="text-primary" />
               </div>
@@ -2138,17 +2209,28 @@ export const ThreatIntelReportPage: React.FC = () => {
           {/* ===== TTPs TAB (Campaign-style) ===== */}
           {activeTab === 'ttps' && (
             <div className="space-y-8 animate-fade-in">
-              {/* Feasibility summary (auto-digest reports) */}
-              {(session?.feasibleGapCount != null || session?.infeasibleGapCount != null) && (
-                <div className="flex items-center gap-4 mb-4 text-sm text-on-surface-variant">
-                  <span>
-                    Gaps you <strong className="text-emerald-400">can</strong> detect: <strong>{session.feasibleGapCount ?? 0}</strong>
-                  </span>
-                  <span>
-                    Gaps needing new log sources: <strong>{session.infeasibleGapCount ?? 0}</strong>
-                  </span>
-                </div>
-              )}
+              {/* Feasibility summary — only render when computation actually ran */}
+              {(() => {
+                const uncoveredTTPs = stats.gaps;
+                const feasible = session?.feasibleGapCount ?? 0;
+                const infeasible = session?.infeasibleGapCount ?? 0;
+                const computed = uncoveredTTPs > 0 && (feasible + infeasible) === uncoveredTTPs;
+
+                if (uncoveredTTPs === 0) return null;
+                if (!computed) {
+                  return <FeasibilityEmptyState uncoveredCount={uncoveredTTPs} />;
+                }
+                return (
+                  <div className="flex items-center gap-4 mb-4 text-sm text-on-surface-variant">
+                    <span>
+                      Gaps you <strong className="text-emerald-400">can</strong> detect: <strong>{feasible}</strong>
+                    </span>
+                    <span>
+                      Gaps needing new log sources: <strong>{infeasible}</strong>
+                    </span>
+                  </div>
+                );
+              })()}
               {(report.ttps || []).length === 0 ? (
                 <EmptyStateWithRetry
                   icon="target"
@@ -2214,6 +2296,32 @@ export const ThreatIntelReportPage: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Bulk action bar — appears when TTPs are selected */}
+                  {selectedTTPIds.size > 0 && (
+                    <div className="sticky top-0 z-10 flex items-center justify-between gap-3 mb-4 px-4 py-2.5 rounded-xl bg-primary/10 border border-primary/30">
+                      <span className="text-sm text-on-surface">
+                        <strong className="font-mono">{selectedTTPIds.size}</strong> technique{selectedTTPIds.size === 1 ? '' : 's'} selected
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={clearTTPSelection}
+                          className="text-xs text-on-surface-variant hover:text-on-surface px-3 py-1.5 rounded-lg hover:bg-surface-container-high"
+                        >
+                          Clear
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleBulkCreateDrafts}
+                          className="text-xs font-medium text-white bg-primary hover:brightness-110 px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5"
+                        >
+                          <Icon name="plus" className="w-3.5 h-3.5" />
+                          Create {selectedTTPIds.size} Draft{selectedTTPIds.size === 1 ? '' : 's'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* TTP List by Tactic */}
                   <TTPTacticList
                     ttps={report.ttps || []}
@@ -2227,6 +2335,8 @@ export const ThreatIntelReportPage: React.FC = () => {
                     onCancelEdit={handleCancelEditTTP}
                     onEditChange={setEditingTTPValue}
                     onRemove={handleRemoveTTP}
+                    selectedIds={selectedTTPIds}
+                    onToggleSelect={toggleTTPSelection}
                   />
                 </>
               )}

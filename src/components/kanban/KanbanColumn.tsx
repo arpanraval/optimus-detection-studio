@@ -38,7 +38,7 @@ const COLUMN_THEME: Record<Status, { dot: string; accent: string; icon: string }
   [Status.Archived]:    { dot: 'bg-on-surface-variant/30', accent: 'text-on-surface-variant/50', icon: 'archive' },
 };
 
-export const KanbanColumn: React.FC<KanbanColumnProps> = ({
+export const KanbanColumn: React.FC<KanbanColumnProps> = React.memo(({
   status,
   detections,
   selectedIds,
@@ -243,4 +243,4 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
       </div>
     </div>
   );
-};
+});

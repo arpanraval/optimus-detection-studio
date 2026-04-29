@@ -9,6 +9,8 @@ import { ThreatIntelSessionSummary, ThreatLevel, AttackType } from '../../types/
 import { DigestNewReportModal } from './DigestNewReportModal';
 import { AutoDigestBanner } from './AutoDigestBanner';
 import { BulkTriageBar } from './BulkTriageBar';
+import { CampaignCard } from './CampaignCard';
+import { useDigestCampaigns } from '../../hooks/useDigestCampaigns';
 import {
   badgeSizes,
   getThreatLevelConfig,
@@ -318,7 +320,10 @@ const ReportListItem: React.FC<{
             <span className="font-mono text-sm font-semibold text-primary">{report.ruleCount || 0}</span>
           </div>
         );
-      case 'coveragePercent':
+      case 'coveragePercent': {
+        if (!isCoverageMeaningful(report)) {
+          return <span className="text-on-surface-variant/40 text-xs font-mono">—</span>;
+        }
         const pct = report.coveragePercent ?? 0;
         return (
           <div className="flex items-center gap-1.5">
@@ -333,6 +338,7 @@ const ReportListItem: React.FC<{
             </span>
           </div>
         );
+      }
       case 'source':
         return report.source === 'auto' ? (
           <span className="inline-flex items-center gap-1 text-xs">
@@ -410,6 +416,10 @@ const formatDate = (ts: number) => {
   return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
+const isCoverageMeaningful = (report: { ttpCount?: number; coveragePercent?: number | null }): boolean => {
+  return (report.ttpCount ?? 0) > 0;
+};
+
 // =============================================================================
 // REPORT CARD - Cyber Aesthetic Design
 // =============================================================================
@@ -476,6 +486,12 @@ const ReportCard: React.FC<ReportCardProps> = ({ report, to, onClick, onDelete }
               {report.attribution}
             </span>
           )}
+          {report.campaignId && (
+            <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md bg-primary/15 text-primary inline-flex items-center gap-1">
+              <Icon name="git-merge" className="w-2.5 h-2.5" />
+              Campaign
+            </span>
+          )}
           {/* Delete - top right */}
           <button
             onClick={(e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); onDelete(); }}
@@ -522,16 +538,55 @@ const ReportCard: React.FC<ReportCardProps> = ({ report, to, onClick, onDelete }
           </div>
           {/* Coverage */}
           <div className="text-right">
-            <div className={`text-2xl font-mono font-bold ${
-              coveragePercent >= 70 ? 'text-green-400' : coveragePercent >= 40 ? 'text-amber-400' : 'text-red-400'
-            }`}>
-              {coveragePercent}%
-            </div>
-            <div className="text-[10px] uppercase tracking-widest text-on-surface-variant/40 font-semibold">Coverage</div>
+            {isCoverageMeaningful(report) ? (
+              <>
+                <div className={`text-2xl font-mono font-bold ${
+                  coveragePercent >= 70 ? 'text-green-400' : coveragePercent >= 40 ? 'text-amber-400' : 'text-red-400'
+                }`}>
+                  {coveragePercent}%
+                </div>
+                <div className="text-[10px] uppercase tracking-widest text-on-surface-variant/40 font-semibold">Coverage</div>
+              </>
+            ) : (
+              <>
+                <div className="text-2xl font-mono font-bold text-on-surface-variant/40">—</div>
+                <div className="text-[10px] uppercase tracking-widest text-on-surface-variant/40 font-semibold">Coverage</div>
+              </>
+            )}
           </div>
         </div>
       </div>
     </Link>
+  );
+};
+
+const StatTile: React.FC<{
+  value: string | number;
+  label: string;
+  valueClassName?: string;
+  onClick?: () => void;
+  title?: string;
+  pressed?: boolean;
+}> = ({ value, label, valueClassName = 'text-on-surface', onClick, title, pressed }) => {
+  if (!onClick) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className={`text-3xl font-mono font-bold ${valueClassName}`}>{value}</span>
+        <span className="text-xs text-on-surface-variant uppercase tracking-widest font-bold">{label}</span>
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-pressed={pressed}
+      className="flex items-center gap-2 rounded-lg px-2 -mx-2 py-1 hover:bg-surface-container-high focus:bg-surface-container-high focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors"
+    >
+      <span className={`text-3xl font-mono font-bold ${valueClassName}`}>{value}</span>
+      <span className="text-xs text-on-surface-variant uppercase tracking-widest font-bold">{label}</span>
+    </button>
   );
 };
 
@@ -562,7 +617,8 @@ const getCoverageRange = (percent: number): string => {
 export const ThreatIntelLibraryPage: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const { reports, isLoading: loading, fetchReports, deleteReport, hasPendingMigration, migrateFromLocalStorage, updateReviewStatus } = useThreatIntel();
+  const { reports, userId, isLoading: loading, fetchReports, deleteReport, hasPendingMigration, migrateFromLocalStorage, updateReviewStatus } = useThreatIntel();
+  const { campaigns: digestCampaigns } = useDigestCampaigns(userId);
 
   const [showModal, setShowModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -836,35 +892,58 @@ export const ThreatIntelLibraryPage: React.FC = () => {
           {/* Stats Bar */}
           {reports.length > 0 && (
             <div className="flex items-center gap-8 mb-6">
-              <div className="flex items-center gap-2">
-                <span className="text-3xl font-mono font-bold text-on-surface">{stats.total}</span>
-                <span className="text-xs text-on-surface-variant uppercase tracking-widest font-bold">Reports</span>
-              </div>
+              <StatTile
+                value={stats.total}
+                label="Reports"
+              />
               <div className="w-px h-8 bg-outline-variant/30" />
-              <div className="flex items-center gap-2">
-                <span className="text-3xl font-mono font-bold text-red-400">{stats.critical}</span>
-                <span className="text-xs text-on-surface-variant uppercase tracking-widest font-bold">Critical</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-3xl font-mono font-bold text-orange-400">{stats.high}</span>
-                <span className="text-xs text-on-surface-variant uppercase tracking-widest font-bold">High</span>
-              </div>
+              <StatTile
+                value={stats.critical}
+                label="Critical"
+                valueClassName="text-red-400"
+                onClick={() => {
+                  setVisibleFilters(prev => prev.includes('threatLevel') ? prev : [...prev, 'threatLevel']);
+                  setFilters(prev => ({ ...prev, threatLevel: ['Critical'] }));
+                }}
+                title="Filter to Critical reports"
+                pressed={filters.threatLevel?.includes('Critical') ?? false}
+              />
+              <StatTile
+                value={stats.high}
+                label="High"
+                valueClassName="text-orange-400"
+                onClick={() => {
+                  setVisibleFilters(prev => prev.includes('threatLevel') ? prev : [...prev, 'threatLevel']);
+                  setFilters(prev => ({ ...prev, threatLevel: ['High'] }));
+                }}
+                title="Filter to High reports"
+                pressed={filters.threatLevel?.includes('High') ?? false}
+              />
               <div className="w-px h-8 bg-outline-variant/30" />
-              <div className="flex items-center gap-2">
-                <span className="text-3xl font-mono font-bold text-tertiary">{stats.totalTTPs}</span>
-                <span className="text-xs text-on-surface-variant uppercase tracking-widest font-bold">TTPs</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-3xl font-mono font-bold text-secondary">{stats.totalIoCs}</span>
-                <span className="text-xs text-on-surface-variant uppercase tracking-widest font-bold">IoCs</span>
-              </div>
+              <StatTile
+                value={stats.totalTTPs}
+                label="TTPs"
+                valueClassName="text-tertiary"
+              />
+              <StatTile
+                value={stats.totalIoCs}
+                label="IoCs"
+                valueClassName="text-secondary"
+              />
               <div className="w-px h-8 bg-outline-variant/30" />
-              <div className="flex items-center gap-2">
-                <span className={`text-3xl font-mono font-bold ${
+              <StatTile
+                value={`${stats.avgCoverage}%`}
+                label="Avg Coverage"
+                valueClassName={
                   stats.avgCoverage >= 70 ? 'text-green-400' : stats.avgCoverage >= 40 ? 'text-amber-400' : 'text-red-400'
-                }`}>{stats.avgCoverage}%</span>
-                <span className="text-xs text-on-surface-variant uppercase tracking-widest font-bold">Avg Coverage</span>
-              </div>
+                }
+                onClick={() => {
+                  setVisibleFilters(prev => prev.includes('coverageRange') ? prev : [...prev, 'coverageRange']);
+                  setFilters(prev => ({ ...prev, coverageRange: ['Low (0-39%)'] }));
+                }}
+                title="Filter to Low-coverage reports (<40%)"
+                pressed={filters.coverageRange?.includes('Low (0-39%)') ?? false}
+              />
             </div>
           )}
 
@@ -1003,6 +1082,24 @@ export const ThreatIntelLibraryPage: React.FC = () => {
       {/* ========== CONTENT ========== */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
         <div className="max-w-[1920px] mx-auto">
+          {/* Active Campaigns — auto-digest merged-report clusters */}
+          {digestCampaigns.length > 0 && (
+            <div className="mb-8">
+              <div className="flex items-center gap-2 mb-3">
+                <Icon name="git-merge" className="w-4 h-4 text-primary" />
+                <h2 className="text-sm font-semibold uppercase tracking-widest text-on-surface-variant">
+                  Active Campaigns
+                </h2>
+                <span className="text-xs font-mono text-on-surface-variant/60">({digestCampaigns.length})</span>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5 items-stretch">
+                {digestCampaigns.map(c => (
+                  <CampaignCard key={c.id} campaign={c} />
+                ))}
+              </div>
+            </div>
+          )}
+
           {reports.length === 0 ? (
             /* Empty State */
             <div className="flex flex-col items-center justify-center h-full max-w-lg mx-auto text-center py-16">

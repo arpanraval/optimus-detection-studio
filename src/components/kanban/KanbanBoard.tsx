@@ -85,7 +85,7 @@ export const KanbanBoard: React.FC = () => {
   useEffect(() => {
     const unsub = subscribe('detections', '*', (payload) => {
       if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT' || payload.eventType === 'DELETE') {
-        refreshAll();
+        refreshAll(true);
       }
     });
     return unsub;
@@ -279,7 +279,7 @@ export const KanbanBoard: React.FC = () => {
     const { active, over } = event;
     if (!over) return;
 
-    const targetStatus = over.data.current?.status as Status | undefined;
+    const targetStatus = (over.data.current?.status || over.data.current?.detection?.status) as Status | undefined;
     if (!targetStatus) return;
 
     const draggedId = active.id as string;
@@ -287,7 +287,7 @@ export const KanbanBoard: React.FC = () => {
 
     const detectionsToMove = idsToMove.filter(id => {
       const d = productionDetections.find(det => det.id === id);
-      return d && d.status !== targetStatus;
+      return d && (d.status || Status.Backlog) !== targetStatus;
     });
     if (detectionsToMove.length === 0) return;
 

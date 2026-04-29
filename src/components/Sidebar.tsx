@@ -453,6 +453,7 @@ function isItemActive(itemId: View, currentView: View, itemUrl?: string, pathnam
   if (itemId === 'detection-strategies' && currentView === 'strategy-detail') return true;
   if (itemId === 'packs' && currentView === 'pack-detail') return true;
   if (itemId === 'add_selection' && currentView === 'form') return true;
+  if (itemId === 'action_plan' && currentView === 'action_plan') return true;
   return false;
 }
 
@@ -498,23 +499,6 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
       activeClass: 'bg-[#1a3a4a] text-cyan-200',
     },
     {
-      id: 'action-plan',
-      label: 'Action Plan',
-      icon: 'shield',
-      singleAction: 'action_plan' as View,
-      items: [],
-      activeClass: 'bg-[#1a3a2a] text-emerald-200',
-    },
-    {
-      id: 'exercises',
-      label: 'Exercises',
-      icon: 'crosshairs',
-      items: [
-        { id: 'exercises-state-sponsored' as View, label: 'State Sponsored Attack', url: ROUTES.EXERCISES_STATE_SPONSORED },
-      ],
-      activeClass: 'bg-[#3a1a1a] text-red-200',
-    },
-    {
       id: 'mitre',
       label: 'Intelligence',
       icon: 'crosshairs',
@@ -530,6 +514,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
         { id: 'threat-intel' as View, label: 'Intelligence Reports' },
         { id: 'intelligence_sources' as View, label: 'Auto-Digest Sources', url: ROUTES.INTELLIGENCE_SOURCES },
         { id: 'analysis-reports' as View, label: 'Analysis Reports' },
+        { id: 'action_plan' as View, label: 'Action Plan' },
       ],
       activeClass: 'bg-[#1a3a3a] text-teal-200',
     },
@@ -543,6 +528,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
         { id: 'ai_agent' as View, label: 'Optimus Prime' },
         { id: 'playbooks' as View, label: 'Playbooks' },
         { id: 'bulk_import' as View, label: 'Bulk Import' },
+        { id: 'exercises-state-sponsored' as View, label: 'State Sponsored Attack', url: ROUTES.EXERCISES_STATE_SPONSORED },
       ],
       activeClass: 'bg-[#2a2a3a] text-violet-200',
     },
