@@ -18,71 +18,80 @@ export type ResearchEventType =
   | 'behaviour_created' | 'opportunity_created' | 'detection_generated'
   | 'qa_verdict' | 'qa_refinement_started' | 'qa_refinement_completed'
   | 'session_completed' | 'session_cancelled' | 'session_failed'
-  | 'tool_call' | 'tool_cache_hit';
+  | 'tool_call' | 'tool_cache_hit'
+  | 'library_match_found' | 'attack_research_completed';
 
-export type KillChainTactic =
+/** MITRE ATT&CK Tactic (post-exploitation phases). NOT "kill chain phases". */
+export type MitreTacticName =
   | 'reconnaissance' | 'resource-development' | 'initial-access'
   | 'execution' | 'persistence' | 'privilege-escalation'
   | 'defense-evasion' | 'credential-access' | 'discovery'
   | 'lateral-movement' | 'collection' | 'command-and-control'
   | 'exfiltration' | 'impact';
 
-export interface ResearchCitation {
-  source: string;          // "Mandiant", "MITRE", "CrowdStrike", etc.
-  url: string;
-  claim: string;           // what this citation supports
-}
-
-export interface ResearchSubject {
-  classification: ResearchInputClassification;
-  subject: string;         // canonical name e.g. "Scattered Spider (UNC3944)"
-  brief: string;           // 1-paragraph synthesis
-  scope_hints: string[];   // user-relevant scopes the agent picked up on
-  citations: ResearchCitation[];
-}
-
-export interface PreflightSummary {
-  existing_coverage_pct: number | null;
-  covered_techniques: string[];     // MITRE technique IDs
-  gap_techniques: string[];
-  skipped: boolean;
-  ran_at: string;                   // ISO timestamp
-}
-
-export interface AttackBehaviour {
-  id: string;
-  title: string;
-  narrative_description: string;
-  kill_chain_phase: KillChainTactic;
-  mitre_technique_ids: string[];
-  data_sources: string[];
-  artefacts: string[];
-  citations: ResearchCitation[];
-  library_already_covers_ids: string[];   // detection IDs from the user's library
-  opportunities: DetectionOpportunity[];
-}
-
-export interface DetectionOpportunity {
-  id: string;
-  title: string;
-  description: string;
-  detection: GeneratedDetection;
-}
-
 export type FeasibilityVerdict = 'covered' | 'partial' | 'uncovered';
 
-/** Query language used for a generated detection. Derived from the canonical
- *  list in `src/constants.ts` so the agent's choices are restricted to the same
- *  set the rest of the app already understands. */
 export type ResearchQueryLanguage = (typeof QUERY_LANGUAGES)[number];
 
 export type QaVerdict = 'pass' | 'pass_with_concerns' | 'fail';
 export type QaCoverageQuality = 'tight' | 'acceptable' | 'loose';
 
+export interface ResearchCitation {
+  source: string;
+  url: string;
+  claim: string;
+}
+
+export interface ResearchSubject {
+  classification: ResearchInputClassification;
+  subject: string;
+  brief: string;
+  intel_summary: {
+    actor?: string;
+    infrastructure?: string;
+    victimology?: string;
+    timing?: string;
+    tooling?: string;
+    attribution?: string;
+  };
+  citations: ResearchCitation[];
+}
+
+export interface PreflightSummary {
+  existing_coverage_pct: number | null;
+  covered_techniques: string[];
+  gap_techniques: string[];
+  skipped: boolean;
+  ran_at: string;
+}
+
+/** Existing-detection match in the user's library — the Detection Engineer
+ *  surfaces this when a strong match exists (combined_score >= 0.75). UI
+ *  renders the leaf with a sage-green glow border. */
+export interface LibraryMatch {
+  existing_detection_id: string;
+  name: string;
+  query_language: string;
+  combined_score: number;
+  semantic_score: number;
+  keyword_score: number;
+}
+
+/** Attack Researcher's per-behaviour offensive deep dive. */
+export interface AttackResearchDeepDive {
+  how_it_works: string;
+  controls_bypassed: string[];
+  attacker_motivation: string;
+  attacker_gain: string;
+  success_signal: string;
+  variants: string[];
+  citations: ResearchCitation[];
+}
+
 export interface QaIteration {
   verdict: QaVerdict;
   concerns: string[];
-  diff_from_previous: string | null;     // unified diff vs prior iteration's query
+  diff_from_previous: string | null;
 }
 
 export interface QaResult {
@@ -90,7 +99,7 @@ export interface QaResult {
   coverage_quality: QaCoverageQuality;
   concerns: string[];
   suggested_changes: string[];
-  duplicate_of: string | null;            // existing detection id
+  duplicate_of: string | null;
   iteration_history: QaIteration[];
   iteration_count: number;
 }
@@ -102,7 +111,7 @@ export interface GeneratedDetection {
   query_language: ResearchQueryLanguage;
   query: string;
   mitre_technique_ids: string[];
-  kill_chain_phase: KillChainTactic;
+  tactic: MitreTacticName;
   suggested_severity: 'Critical' | 'High' | 'Medium' | 'Low' | 'Informational';
   suggested_detection_type: 'Detection' | 'Hunting';
   feasibility: FeasibilityVerdict;
@@ -110,8 +119,29 @@ export interface GeneratedDetection {
   citations: ResearchCitation[];
   covers_behaviour_ids: string[];
   qa: QaResult | null;
-  saved_detection_id: string | null;      // FK back into the user's library
+  saved_detection_id: string | null;
   archived: boolean;
+}
+
+export interface DetectionOpportunity {
+  id: string;
+  title: string;
+  description: string;
+  detection: GeneratedDetection;
+}
+
+export interface AttackBehaviour {
+  id: string;
+  title: string;
+  narrative_description: string;
+  tactic: MitreTacticName;
+  mitre_technique_ids: string[];
+  data_sources: string[];
+  artefacts: string[];
+  citations: ResearchCitation[];
+  deep_dive: AttackResearchDeepDive | null;
+  library_match: LibraryMatch | null;
+  opportunities: DetectionOpportunity[];
 }
 
 export interface ResearchOpenQuestion {
@@ -133,19 +163,14 @@ export interface ThreatResearchSession {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
-
   input_text: string;
   input_classification: ResearchInputClassification | null;
-
   status: ResearchStatus;
   failure_reason: string | null;
   duration_ms: number | null;
-
   tree: ThreatResearchTree;
   environment_snapshot: Record<string, unknown> | null;
-
   coverage_impact: number | null;
-
   total_tokens: number | null;
   total_cost_usd: number | null;
   tool_calls_used: number | null;

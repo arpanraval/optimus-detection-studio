@@ -52,7 +52,8 @@ export async function critiqueDetection(
   const cfg: AgentLoopConfig<QaResult> = {
     agent: 'qa',
     model: 'claude-haiku-4-5',
-    systemInstruction: `${SYSTEM}\n\n---\n\n${pack}`,
+    systemInstruction: SYSTEM,
+    knowledgePack: pack,
     toolDeclarations: TOOLS_FOR.qa,
     iterationCap: 3,
     feature: 'tr-qa-agent',

@@ -62,7 +62,7 @@ function Row({ behaviour, opportunity, onClick }: { behaviour: AttackBehaviour; 
   const det = opportunity.detection;
   return (
     <tr onClick={onClick} className={`cursor-pointer hover:bg-surface-container-high ${det.archived ? 'opacity-50' : ''}`}>
-      <td className="px-4 py-2.5"><span className="text-xs text-on-surface-variant">{behaviour.kill_chain_phase}</span></td>
+      <td className="px-4 py-2.5"><span className="text-xs text-on-surface-variant">{behaviour.tactic}</span></td>
       <td className="px-4 py-2.5"><span className="font-medium text-on-surface">{behaviour.title}</span></td>
       <td className="px-4 py-2.5 text-on-surface-variant">{opportunity.title}</td>
       <td className="px-4 py-2.5 font-medium text-on-surface">{det.name}</td>
@@ -103,7 +103,7 @@ function Row({ behaviour, opportunity, onClick }: { behaviour: AttackBehaviour; 
 function EmptyBehaviourRow({ behaviour }: { behaviour: AttackBehaviour }) {
   return (
     <tr className="bg-surface-container-low">
-      <td className="px-4 py-2 text-xs text-on-surface-variant">{behaviour.kill_chain_phase}</td>
+      <td className="px-4 py-2 text-xs text-on-surface-variant">{behaviour.tactic}</td>
       <td className="px-4 py-2 font-medium text-on-surface-variant">{behaviour.title}</td>
       <td colSpan={7} className="px-4 py-2 text-xs italic text-on-surface-variant">
         Detection Engineer running...

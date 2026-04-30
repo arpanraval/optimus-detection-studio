@@ -1,10 +1,18 @@
 // supabase/functions/threat-research-orchestrator/lib/skills-loader.ts
 //
-// Reads a Knowledge Pack from disk and returns its markdown content, wrapped
-// in a header so the model can see provenance. Cached per Deno instance.
+// Knowledge Packs are authored as SKILL.md files (Skills authoring pattern)
+// and mirrored into SKILL.ts wrappers that export the same content as a
+// TypeScript string. The wrappers ship in the edge-function bundle; the .md
+// files are the editable source of truth for humans.
+//
+// Why not Deno.readTextFile at runtime? Edge functions don't ship arbitrary
+// asset files by default — only TypeScript modules. Embedding the markdown
+// in a TS export bundles cleanly and removes the runtime disk dependency.
 
-const SKILLS_ROOT = new URL('../../_shared/skills/', import.meta.url);
-const cache = new Map<string, string>();
+import { PACK_CONTENT as THREAT_CLASSIFICATION_PACK } from '../../_shared/skills/threat-classification/SKILL.ts';
+import { PACK_CONTENT as ADVERSARY_RESEARCH_PACK }   from '../../_shared/skills/adversary-research-methodology/SKILL.ts';
+import { PACK_CONTENT as DETECTION_ENGINEERING_PACK } from '../../_shared/skills/detection-engineering/SKILL.ts';
+import { PACK_CONTENT as QUERY_QA_PACK }              from '../../_shared/skills/query-qa/SKILL.ts';
 
 export type KnowledgePackName =
   | 'threat-classification'
@@ -12,22 +20,21 @@ export type KnowledgePackName =
   | 'detection-engineering'
   | 'query-qa';
 
+const PACKS: Record<KnowledgePackName, string> = {
+  'threat-classification':           THREAT_CLASSIFICATION_PACK,
+  'adversary-research-methodology':  ADVERSARY_RESEARCH_PACK,
+  'detection-engineering':           DETECTION_ENGINEERING_PACK,
+  'query-qa':                        QUERY_QA_PACK,
+};
+
 /**
- * Read `_shared/skills/<packName>/SKILL.md` and return it wrapped under a
- * `# Knowledge Pack: <name>` header. Cached after first read within a warm
- * Deno instance.
+ * Return the content of a Knowledge Pack wrapped under a `# Knowledge Pack: <name>`
+ * header so the model can see provenance.
  */
-export async function loadKnowledgePack(packName: KnowledgePackName): Promise<string> {
-  if (cache.has(packName)) return cache.get(packName)!;
-  const url = new URL(`${packName}/SKILL.md`, SKILLS_ROOT);
-  let text: string;
-  try {
-    text = await Deno.readTextFile(url);
-  } catch (e) {
-    console.error(`[skills-loader] Failed to read ${packName}:`, e);
-    throw new Error(`Knowledge Pack '${packName}' not found at ${url.pathname}`);
+export function loadKnowledgePack(packName: KnowledgePackName): Promise<string> {
+  const content = PACKS[packName];
+  if (!content) {
+    return Promise.reject(new Error(`Knowledge Pack '${packName}' not found`));
   }
-  const wrapped = `# Knowledge Pack: ${packName}\n\n${text}`;
-  cache.set(packName, wrapped);
-  return wrapped;
+  return Promise.resolve(`# Knowledge Pack: ${packName}\n\n${content}`);
 }

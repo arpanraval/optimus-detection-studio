@@ -5,7 +5,7 @@ import type {
   AttackBehaviour,
   GeneratedDetection,
   QaResult,
-  KillChainTactic,
+  MitreTacticName,
   ResearchAgent,
   ThreatResearchEvent,
 } from '../threatResearch';
@@ -34,8 +34,8 @@ describe('threat research types', () => {
     expect(session.status).toBe('pending');
   });
 
-  it('exposes a typed kill_chain_phase via KillChainTactic', () => {
-    const phase: KillChainTactic = 'credential-access';
+  it('exposes a typed tactic via MitreTacticName', () => {
+    const phase: MitreTacticName = 'credential-access';
     expect(phase).toBeTruthy();
   });
 
@@ -49,15 +49,16 @@ describe('threat research types', () => {
       id: 'b1',
       title: 't',
       narrative_description: 'd',
-      kill_chain_phase: 'execution',
+      tactic: 'execution',
       mitre_technique_ids: ['T1059'],
       data_sources: ['Sysmon EID 1'],
       artefacts: [],
       citations: [],
-      library_already_covers_ids: [],
+      deep_dive: null,
+      library_match: null,
       opportunities: [],
     };
-    expect(b.kill_chain_phase).toBe('execution');
+    expect(b.tactic).toBe('execution');
   });
 
   it('exposes a typed GeneratedDetection with constrained query_language', () => {
@@ -68,7 +69,7 @@ describe('threat research types', () => {
       query_language: 'KQL',
       query: 'DeviceProcessEvents | take 1',
       mitre_technique_ids: ['T1059'],
-      kill_chain_phase: 'execution',
+      tactic: 'execution',
       suggested_severity: 'High',
       suggested_detection_type: 'Detection',
       feasibility: 'covered',

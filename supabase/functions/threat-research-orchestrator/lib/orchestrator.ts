@@ -1,11 +1,11 @@
 // supabase/functions/threat-research-orchestrator/lib/orchestrator.ts
 //
 // Drives the five-phase state machine:
-//   0. preflight (library gap awareness)
-//   1. research  (Subject Brief)
-//   2. behaviours (Attack Researcher)
-//   3. detections (Detection Engineer ↔ QA actor-critic, per behaviour)
-//   4. finalise  (Coverage Impact + status=completed)
+//   0. preflight        (library gap awareness)
+//   1. research         (Knowledge Bundle + behaviours[] in one call)
+//   2. attack research  (fan out — one Attack Researcher invocation per behaviour)
+//   3. detection        (per behaviour: library-first check → generate → actor-critic with QA)
+//   4. finalise         (Coverage Impact + status=completed)
 //
 // Hard wall-clock stop at 270s of the 300s edge-function ceiling.
 
@@ -16,7 +16,7 @@ import type { ToolContext } from "./tools/index.ts";
 import type { WebSearchResult } from "../../_shared/web-search.ts";
 import { runPreflight } from "./preflight.ts";
 import { runResearchAgent } from "./agents/research-agent.ts";
-import { runAttackResearcher } from "./agents/attack-researcher.ts";
+import { runAttackResearcherForBehaviour } from "./agents/attack-researcher.ts";
 import { runDetectionEngineerForBehaviour } from "./agents/detection-engineer.ts";
 import { resolveQueryLanguage } from "./query-language.ts";
 import type { ThreatResearchTree } from "./types.ts";
@@ -25,7 +25,6 @@ const TIME_BUDGET_MS = 270_000;
 
 export async function runOrchestration(
   supabase: SupabaseClient,
-  serviceRoleKey: string,
   sessionId: string,
   userId: string,
 ): Promise<void> {
@@ -33,16 +32,14 @@ export async function runOrchestration(
   const budget = new Budget(DEFAULT_BUDGET_CAPS);
   const searchCache = new Map<string, WebSearchResult>();
 
-  const runCtx: RunContext = { supabase, serviceRoleKey, sessionId, userId, budget };
+  const runCtx: RunContext = { supabase, sessionId, userId, budget };
   const toolCtx: ToolContext = { supabase, userId, searchCache };
 
-  // Mark running.
   await supabase
     .from('threat_research_sessions')
     .update({ status: 'running', updated_at: new Date().toISOString() })
     .eq('id', sessionId);
 
-  // Load the session row + env profile snapshot.
   const { data: session } = await supabase
     .from('threat_research_sessions')
     .select('id, input_text, status')
@@ -90,35 +87,50 @@ export async function runOrchestration(
     tree.preflight = await runPreflight(toolCtx, runCtx, session.input_text);
     await persistTree();
 
-    // Phase 1: research subject
+    // Phase 1: research — Knowledge Bundle + behaviours
     if (Date.now() - start > TIME_BUDGET_MS) throw new Error('time_budget_exceeded');
     if (await checkCancelled()) return await markCancelled(supabase, runCtx, sessionId, start, tree, budget);
-    tree.subject = await runResearchAgent(toolCtx, runCtx, session.input_text);
-    if (!tree.subject) {
-      throw new Error('research_agent_failed');
-    }
+    const researchOutput = await runResearchAgent(toolCtx, runCtx, session.input_text);
+    if (!researchOutput) throw new Error('research_agent_failed');
+    tree.subject = researchOutput.subject;
+    tree.behaviours = researchOutput.behaviours;
     await supabase
       .from('threat_research_sessions')
-      .update({ input_classification: tree.subject.classification, tree, updated_at: new Date().toISOString() })
+      .update({
+        input_classification: researchOutput.subject.classification,
+        tree,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', sessionId);
 
-    // Phase 2: behaviours
-    if (Date.now() - start > TIME_BUDGET_MS) throw new Error('time_budget_exceeded');
-    if (await checkCancelled()) return await markCancelled(supabase, runCtx, sessionId, start, tree, budget);
-    tree.behaviours = await runAttackResearcher(toolCtx, runCtx, tree.subject);
-    await persistTree();
-
-    // Phase 3: detections — sequentially per behaviour, persist after each.
+    // Phase 2: attack research per behaviour
     for (const behaviour of tree.behaviours) {
       if (Date.now() - start > TIME_BUDGET_MS) throw new Error('time_budget_exceeded');
       if (await checkCancelled()) return await markCancelled(supabase, runCtx, sessionId, start, tree, budget);
-      behaviour.opportunities = await runDetectionEngineerForBehaviour(
-        toolCtx, runCtx, behaviour, queryLanguage,
-      );
+      const deep = await runAttackResearcherForBehaviour(toolCtx, runCtx, tree.subject!, behaviour);
+      behaviour.deep_dive = deep;
+      await emit(runCtx, {
+        agent: 'attack-researcher',
+        event_type: 'attack_research_completed',
+        message: behaviour.title,
+        payload: { behaviour_id: behaviour.id, has_deep_dive: !!deep },
+      });
       await persistTree();
     }
 
-    // Phase 4: finalise.
+    // Phase 3: detections per behaviour (library-first → generate → QA)
+    for (const behaviour of tree.behaviours) {
+      if (Date.now() - start > TIME_BUDGET_MS) throw new Error('time_budget_exceeded');
+      if (await checkCancelled()) return await markCancelled(supabase, runCtx, sessionId, start, tree, budget);
+      const result = await runDetectionEngineerForBehaviour(
+        toolCtx, runCtx, tree.subject!, behaviour, queryLanguage,
+      );
+      behaviour.library_match = result.library_match;
+      behaviour.opportunities = result.opportunities;
+      await persistTree();
+    }
+
+    // Phase 4: finalise
     const coverageImpact = await computeCoverageImpact(supabase, userId, tree);
     await supabase
       .from('threat_research_sessions')
@@ -206,12 +218,6 @@ function budgetSnapshotToSessionFields(budget: Budget): Record<string, unknown> 
   };
 }
 
-/**
- * Coverage Impact: the gap-score lift this research produced once detections
- * are saved. At session completion, no detections are saved yet — we return
- * 0; the impact recomputes on the save flow (client-side or via a future
- * recompute hook). The badge auto-hides when 0/null.
- */
 async function computeCoverageImpact(
   _supabase: SupabaseClient,
   _userId: string,
