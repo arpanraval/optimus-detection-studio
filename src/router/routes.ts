@@ -159,6 +159,7 @@ export const viewToRoute: Record<string, string> = {
   'mitigation-detail': ROUTES.MITIGATION_DETAIL,
   'threat-intel': ROUTES.THREAT_INTEL,
   'threat-intel-feeds': ROUTES.THREAT_INTEL_FEEDS,
+  'threat-research': ROUTES.RESEARCH,
   'analysis-reports': ROUTES.REPORTS,
   'packs': ROUTES.PACKS,
   'pack-detail': ROUTES.PACK_DETAIL,

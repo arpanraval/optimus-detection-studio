@@ -92,6 +92,8 @@ const SubmissionsPage = lazy(() => import('./pages/SubmissionsPage').then(m => (
 const ApprovalQueuePage = lazy(() => import('./pages/ApprovalQueuePage').then(m => ({ default: m.ApprovalQueuePage })));
 const ThreatIntelPage = lazy(() => import('./pages/ThreatIntelPage').then(m => ({ default: m.ThreatIntelPage })));
 const ThreatIntelDetailPage = lazy(() => import('./pages/ThreatIntelDetailPage').then(m => ({ default: m.ThreatIntelDetailPage })));
+const ThreatResearchPage = lazy(() => import('./pages/ThreatResearchPage').then(m => ({ default: m.ThreatResearchPage })));
+const ThreatResearchDetailPage = lazy(() => import('./pages/ThreatResearchDetailPage').then(m => ({ default: m.ThreatResearchDetailPage })));
 const ImportHistoryPage = lazy(() => import('./pages/ImportHistoryPage').then(m => ({ default: m.ImportHistoryPage })));
 const SearchResultsPage = lazy(() => import('./pages/SearchResultsPage').then(m => ({ default: m.SearchResultsPage })));
 const AuditLogPage = lazy(() => import('./pages/AuditLogPage').then(m => ({ default: m.AuditLogPage })));
@@ -220,6 +222,8 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       { path: 'intelligence/threat-digest', element: <ThreatIntelPage /> },
       { path: 'intelligence/threat-digest/campaign/:id', element: <DigestCampaignDetailPage /> },
       { path: 'intelligence/threat-digest/:id', element: <ThreatIntelDetailPage /> },
+      { path: 'intelligence/research', element: <ThreatResearchPage /> },
+      { path: 'intelligence/research/:id', element: <ThreatResearchDetailPage /> },
       { path: 'intelligence/feeds', element: <ThreatIntelFeedsPage /> },
       { path: 'intelligence/reports', element: <ReportHistoryPage /> },
       { path: 'intelligence/reports/:id', element: <ReportDetailPage /> },
