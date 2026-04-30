@@ -108,12 +108,16 @@ const SourceRow: React.FC<{
   let healthTitle: string | undefined;
   if (isEnabled) {
     if (health?.last_error) {
-      healthLabel = <span className="text-red-400/90">Failed · {formatRelativeShort(health.last_fetched_at)}</span>;
+      // Only append the relative time when we actually have one — otherwise
+      // "Failed · —" reads as a malformed sentence with a trailing em-dash.
+      healthLabel = health.last_fetched_at
+        ? <span className="text-red-400">Failed · last fetched {formatRelativeShort(health.last_fetched_at)}</span>
+        : <span className="text-red-400">Failed</span>;
       healthTitle = health.last_error;
     } else if (health?.last_fetched_at) {
       healthLabel = <span className="text-on-surface-variant">Fetched {formatRelativeShort(health.last_fetched_at)}</span>;
     } else {
-      healthLabel = <span className="text-on-surface-variant/40">Awaiting first fetch</span>;
+      healthLabel = <span className="text-on-surface-variant/50">Awaiting first fetch</span>;
     }
   }
 
@@ -341,6 +345,23 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     return `Last run ${time} · ${digested} digested${errorPart}`;
   }, [lastRun]);
 
+  // Last-run tone for the prominent status pill in the header. Mirrors
+  // the FeedActivityLog tone math so a user sees the same color signal
+  // here that they'd see if they scrolled to the matching job card.
+  // Hook must live above the early-return below (Rules of Hooks).
+  const lastRunTone: 'success' | 'partial' | 'failure' | 'running' | 'pending' | 'idle' = useMemo(() => {
+    if (!lastRun) return 'idle';
+    const summary = lastRun.result_summary as Record<string, any> | null;
+    const errors: string[] = Array.isArray(summary?.errors) ? summary!.errors : [];
+    const digested = summary?.digested ?? summary?.articles_digested ?? 0;
+    if (lastRun.status === 'pending') return 'pending';
+    if (lastRun.status === 'processing') return 'running';
+    if (lastRun.status === 'failed') return 'failure';
+    if (digested > 0 && errors.length === 0) return 'success';
+    if (errors.length > 0) return 'partial';
+    return 'success';
+  }, [lastRun]);
+
   // ─────────────────────────────────────────────────────────────
   // LOADING (after all hooks — Rules of Hooks)
   // ─────────────────────────────────────────────────────────────
@@ -355,20 +376,13 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-4 animate-page-enter">
-      {/* Page header — name, status line, run controls.
-          "Auto-run: ON/OFF" replaces the ambiguous "Active/Paused" word
-          which read as a verb-state contradicting the always-clickable Run
-          Now button. Status line tells the user what just happened and
-          when next, the two questions every landing user has. */}
-      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
-        <div className="min-w-0">
-          <h2 className="text-lg font-bold text-on-surface">Auto-Digest</h2>
-          <p className="text-sm text-on-surface-variant mt-0.5">
-            <span>{lastRunLabel}</span>
-            <span className="mx-2 text-on-surface-variant/40">·</span>
-            <span>{nextScheduledLabel}</span>
-          </p>
-        </div>
+      {/* Page header — name + run controls on row 1, status pill on row 2.
+          The first version put the entire status line in faint subtitle text
+          which made the most-important "what just happened" info nearly
+          invisible. Promoting it to its own row at the same vertical
+          weight as the title fixes that. */}
+      <div className="flex items-start justify-between mb-3 gap-4 flex-wrap">
+        <h2 className="text-lg font-bold text-on-surface">Auto-Digest</h2>
         <div className="flex items-center gap-3 shrink-0">
           <Button
             size="sm"
@@ -392,6 +406,23 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
             />
           </div>
         </div>
+      </div>
+
+      {/* Status pill row — the page's primary signal. The dot color matches
+          the last-run job-card tone so this reads as a one-line summary of
+          "what's the pipeline's state right now". */}
+      <div className="mb-6 flex items-center gap-3 flex-wrap text-sm">
+        <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-container-low border border-outline-variant/30">
+          <span className={`w-2 h-2 rounded-full shrink-0 ${
+            lastRunTone === 'success' ? 'bg-emerald-500'
+            : lastRunTone === 'partial' ? 'bg-amber-400'
+            : lastRunTone === 'failure' ? 'bg-red-400'
+            : lastRunTone === 'running' ? 'bg-amber-400 animate-pulse'
+            : 'bg-on-surface-variant/40'
+          }`} />
+          <span className="text-on-surface font-medium">{lastRunLabel}</span>
+        </span>
+        <span className="text-on-surface-variant text-xs">{nextScheduledLabel}</span>
       </div>
 
       {/* ───── Underline Tabs ───── */}
@@ -624,27 +655,31 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
               Activity. Counts come straight from recentJobs (last 7
               runs from the hook) so we don't pay for an extra query. */}
           {recentJobs.length > 0 && (() => {
+            // Success rate counts only error-free completed runs as "clean".
+            // The previous version counted any 'completed' status, which
+            // gave 100% even when every run shipped with errors — useless
+            // signal. Now: clean = status==='completed' AND errors.length===0.
             const totals = recentJobs.reduce(
               (acc, j) => {
                 const s = j.result_summary as Record<string, any> | null;
+                const errs = Array.isArray(s?.errors) ? s!.errors.length : 0;
                 acc.digested += s?.digested ?? s?.articles_digested ?? 0;
                 acc.skipped  += s?.skipped  ?? s?.articles_skipped  ?? 0;
-                acc.errors   += Array.isArray(s?.errors) ? s!.errors.length : 0;
-                if (j.status === 'failed') acc.failedRuns += 1;
-                if (j.status === 'completed') acc.completedRuns += 1;
+                acc.errors   += errs;
+                if (j.status === 'completed' && errs === 0) acc.cleanRuns += 1;
                 return acc;
               },
-              { digested: 0, skipped: 0, errors: 0, failedRuns: 0, completedRuns: 0 },
+              { digested: 0, skipped: 0, errors: 0, cleanRuns: 0 },
             );
             const successRate = recentJobs.length > 0
-              ? Math.round((totals.completedRuns / recentJobs.length) * 100)
+              ? Math.round((totals.cleanRuns / recentJobs.length) * 100)
               : 0;
             return (
               <div className="rounded-xl border border-outline-variant/10">
                 <div className="px-5 py-3 border-b border-outline-variant/10 bg-surface-container-high/20">
                   <h3 className="text-sm font-semibold text-on-surface">Pipeline Health</h3>
                   <p className="text-xs text-on-surface-variant/60 mt-0.5">
-                    Last {recentJobs.length} run{recentJobs.length === 1 ? '' : 's'}
+                    Last {recentJobs.length} run{recentJobs.length === 1 ? '' : 's'} · Success rate counts error-free completions only
                   </p>
                 </div>
                 <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-4">
