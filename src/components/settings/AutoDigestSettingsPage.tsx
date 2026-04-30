@@ -425,61 +425,74 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
         <span className="text-on-surface-variant text-xs">{nextScheduledLabel}</span>
       </div>
 
-      {/* ───── Underline Tabs ───── */}
-      <div className="flex items-center gap-6 border-b border-outline-variant/15 mb-6">
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-1.5 pb-2.5 text-sm font-medium transition-colors relative ${
-              activeTab === tab.id
-                ? 'text-on-surface'
-                : 'text-on-surface-variant/60 hover:text-on-surface-variant'
-            }`}
-          >
-            <Icon name={tab.icon} className="w-3.5 h-3.5" />
-            {tab.label}
-            {/* Sources badge: show enabled/total to match the body counter
-                ("12/13") instead of just "12", which matched neither "12 of
-                13 sources enabled" nor "12 enabled, 1 disabled". */}
-            {tab.id === 'sources' && curatedSources.length > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-bold tabular-nums">
-                {effectiveEnabled.size}/{curatedSources.length}
-              </span>
-            )}
-            {/* Active indicator */}
-            {activeTab === tab.id && (
-              <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary rounded-full" />
-            )}
-          </button>
-        ))}
+      {/* Segmented tab strip. The previous underline-only tabs read as
+          loose floating text on the page canvas — you couldn't tell they
+          were tabs until clicking. This is a proper M3-style segmented
+          control with an enclosing container, hover state, and a clearly
+          "raised" active button using the surface token a level above
+          the strip background. */}
+      <div className="inline-flex items-center bg-surface-container-low rounded-xl p-1 mb-5 border border-outline-variant/15 gap-1">
+        {TABS.map(tab => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                isActive
+                  ? 'bg-surface-container-highest text-on-surface shadow-sm'
+                  : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
+              }`}
+            >
+              <Icon name={tab.icon} className="w-3.5 h-3.5" />
+              {tab.label}
+              {/* Sources badge: enabled/total to match the body counter
+                  ("12/13"). Slightly more prominent in the active tab. */}
+              {tab.id === 'sources' && curatedSources.length > 0 && (
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold tabular-nums ${
+                  isActive
+                    ? 'bg-primary/15 text-primary'
+                    : 'bg-on-surface-variant/10 text-on-surface-variant'
+                }`}>
+                  {effectiveEnabled.size}/{curatedSources.length}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* ═══════════════════════════════════════════════════════ */}
       {/* TAB: SOURCES                                           */}
       {/* ═══════════════════════════════════════════════════════ */}
+      {/* Wrapped in the same canonical container shape used by Activity
+          (FeedActivityLog) and Configuration. Was a bare table on the
+          page background which read as a different visual language than
+          the other two tabs. */}
       {activeTab === 'sources' && (
-        <div className="space-y-4">
-          {/* Counter bar + curated note. The "Add Custom Source" path
-              isn't built yet; rather than show a non-functional button
-              we explicitly tell the user the source list is curated and
-              point them at the right place to request additions. Quiet
-              acknowledgment beats hidden capability. */}
-          <div className="flex items-center justify-between px-1 gap-4 flex-wrap">
-            <span className="text-xs text-on-surface-variant">
-              <span className="font-bold text-on-surface tabular-nums">{effectiveEnabled.size}</span>
-              {' '}of {curatedSources.length} sources enabled
-            </span>
-            <span className="text-[11px] text-on-surface-variant/50">
+        <div className="bg-surface-container rounded-2xl border border-outline-variant/10 overflow-hidden">
+          {/* Header bar — matches the "Activity Log" header in
+              FeedActivityLog and the "Pipeline Settings" header in
+              Configuration. */}
+          <div className="px-6 pt-5 pb-3 flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <h3 className="text-base font-semibold text-on-surface">Curated Sources</h3>
+              <p className="text-xs text-on-surface-variant/70 mt-0.5">
+                <span className="font-medium text-on-surface tabular-nums">{effectiveEnabled.size}</span>
+                {' '}of {curatedSources.length} enabled
+              </p>
+            </div>
+            <span className="text-[11px] text-on-surface-variant/60 max-w-xs text-right">
               Curated by Optimus — to request a new source, contact support.
             </span>
           </div>
 
-          {/* Source table */}
-          <div className="rounded-xl border border-outline-variant overflow-hidden shadow-sm">
+          {/* Source table — now lives inside the page-level container so
+              it doesn't have its own competing border/shadow. */}
+          <div className="border-t border-outline-variant/15">
             <table className="w-full">
               <thead>
-                <tr className="bg-surface-container-high text-left">
+                <tr className="bg-surface-container-high/50 text-left">
                   <th className="py-2.5 pl-5 pr-3 w-12" />
                   <th className="py-2.5 pr-4 text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">Source</th>
                   <th className="py-2.5 pr-4 text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">Domain</th>
@@ -538,16 +551,21 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
       {/* TAB: CONFIGURATION                                     */}
       {/* ═══════════════════════════════════════════════════════ */}
       {activeTab === 'configuration' && (
-        <div className="space-y-6">
+        // Two panels in series, both using the canonical
+        // bg-surface-container rounded-2xl shape that Activity Log and
+        // Sources also use. Header bars are matched (px-6 pt-5 pb-3
+        // text-base font-semibold) so all three tabs feel like the
+        // same component family.
+        <div className="space-y-4">
           {/* Pipeline settings */}
-          <div className="rounded-xl border border-outline-variant/10">
-            <div className="px-5 py-3 border-b border-outline-variant/10 bg-surface-container-high/20">
-              <h3 className="text-sm font-semibold text-on-surface">Pipeline Settings</h3>
-              <p className="text-xs text-on-surface-variant/60 mt-0.5">
+          <div className="bg-surface-container rounded-2xl border border-outline-variant/10 overflow-hidden">
+            <div className="px-6 pt-5 pb-3 border-b border-outline-variant/15">
+              <h3 className="text-base font-semibold text-on-surface">Pipeline Settings</h3>
+              <p className="text-xs text-on-surface-variant/70 mt-0.5">
                 Controls when and how articles are fetched and processed
               </p>
             </div>
-            <div className="p-5 space-y-5">
+            <div className="p-6 space-y-5">
               {/* Schedule & Limits */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -675,14 +693,14 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
               ? Math.round((totals.cleanRuns / recentJobs.length) * 100)
               : 0;
             return (
-              <div className="rounded-xl border border-outline-variant/10">
-                <div className="px-5 py-3 border-b border-outline-variant/10 bg-surface-container-high/20">
-                  <h3 className="text-sm font-semibold text-on-surface">Pipeline Health</h3>
-                  <p className="text-xs text-on-surface-variant/60 mt-0.5">
+              <div className="bg-surface-container rounded-2xl border border-outline-variant/10 overflow-hidden">
+                <div className="px-6 pt-5 pb-3 border-b border-outline-variant/15">
+                  <h3 className="text-base font-semibold text-on-surface">Pipeline Health</h3>
+                  <p className="text-xs text-on-surface-variant/70 mt-0.5">
                     Last {recentJobs.length} run{recentJobs.length === 1 ? '' : 's'} · Success rate counts error-free completions only
                   </p>
                 </div>
-                <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="p-6 grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div>
                     <div className="text-lg font-bold text-on-surface tabular-nums">{totals.digested}</div>
                     <div className="text-[10px] uppercase tracking-wider text-on-surface-variant/60 font-bold mt-0.5">Digested</div>
