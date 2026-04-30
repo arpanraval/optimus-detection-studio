@@ -51,10 +51,9 @@ OUTPUT (single JSON object, no fences, no commentary outside the JSON):
   ]
 }
 
-Aim for 4-10 behaviours covering the realistic kill chain for this threat.
-Cover all relevant MITRE ATT&CK Tactics from initial-access through impact
-(skip a tactic only if it genuinely doesn't apply to this threat).
-Each behaviour MUST have at least one citation.`;
+Aim for 3-6 high-quality Attack Behaviours covering the most consequential
+MITRE ATT&CK Tactics for this threat. Quality over quantity. Each behaviour
+MUST have at least one citation.`;
 
 const VALID_TACTICS: ReadonlySet<MitreTacticName> = new Set<MitreTacticName>([
   'reconnaissance','resource-development','initial-access',
@@ -118,7 +117,7 @@ function validate(text: string): ResearchAgentOutput | null {
         library_match: null,
         opportunities: [],
       });
-      if (behaviours.length >= 12) break;
+      if (behaviours.length >= 6) break;
     }
     if (behaviours.length === 0) return null;
     return { subject, behaviours };
@@ -139,7 +138,7 @@ export async function runResearchAgent(
     systemInstruction: SYSTEM,
     knowledgePack: pack,
     toolDeclarations: TOOLS_FOR.research,
-    iterationCap: 10,
+    iterationCap: 6,
     feature: 'tr-research-agent',
     validateFinalOutput: validate,
   };
