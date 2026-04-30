@@ -90,7 +90,7 @@ export async function runAttackResearcherForBehaviour(
     systemInstruction: SYSTEM,
     knowledgePack: pack,
     toolDeclarations: TOOLS_FOR.attackResearcher,
-    iterationCap: 6,
+    iterationCap: 4,
     feature: 'tr-attack-researcher',
     validateFinalOutput: validate,
   };

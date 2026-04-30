@@ -238,7 +238,7 @@ export async function runDetectionEngineerForBehaviour(
     systemInstruction: buildSystemPrompt(language),
     knowledgePack: pack,
     toolDeclarations: TOOLS_FOR.detectionEngineer,
-    iterationCap: 8,
+    iterationCap: 5,
     feature: 'tr-detection-engineer',
     validateFinalOutput: (text) => validateOpportunities(text, language),
   };
