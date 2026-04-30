@@ -31,26 +31,81 @@ const TIME_BUDGET_MS = 270_000;
  *  half the run on rate-limit retries. */
 const FAN_OUT_CONCURRENCY = 2;
 
-/** Run an async fn over each item with a max concurrency cap. */
+/** Hard ceiling on a single per-behaviour agent invocation. The agent loop
+ *  has its own iteration cap (~5-8) and each Anthropic call has a 45s timeout,
+ *  so in theory a leaf is bounded — but in practice we've observed Deno edge
+ *  workers stuck on hung fetches that never time out, eventually killing the
+ *  whole worker. This timeout guarantees each leaf returns within N seconds so
+ *  fan-out can drain and the worker can persist final results. */
+const PER_LEAF_TIMEOUT_MS = 70_000;
+
+/** Race a promise against a hard deadline. When the deadline wins, the
+ *  underlying work continues in the background but the caller moves on. */
+async function withTimeout<T>(label: string, ms: number, p: Promise<T>): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(`[orchestrator] ${label} hit ${ms}ms timeout — returning null`);
+      resolve(null);
+    }, ms);
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/** Run an async fn over each item with a max concurrency cap.
+ *  - Skips remaining items as soon as `shouldStop()` returns true (wall-budget
+ *    enforcement mid-fanout — without this, one hung worker could blow the
+ *    entire 270s budget while others wait).
+ *  - Treats per-item failures as null results, NOT loop aborts: one failed
+ *    behaviour shouldn't kill the rest of the run.
+ *  - Races the whole worker pool against a wall-budget watchdog. If a worker
+ *    is hung inside `await fn(...)`, the watchdog still wins so the orchestrator
+ *    can finalize with whatever leaves are already persisted. The hung task
+ *    leaks for the remainder of the edge worker's life — that's fine, the worker
+ *    is about to be reclaimed anyway. */
 async function mapWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
+  shouldStop: () => boolean,
   fn: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
+): Promise<(R | null)[]> {
+  const results: (R | null)[] = new Array(items.length).fill(null);
   let cursor = 0;
   async function worker() {
     while (true) {
       const idx = cursor++;
       if (idx >= items.length) return;
-      results[idx] = await fn(items[idx], idx);
+      if (shouldStop()) return;
+      try {
+        results[idx] = await fn(items[idx], idx);
+      } catch (err) {
+        console.warn(`[orchestrator] fanout item ${idx} failed:`, err);
+        results[idx] = null;
+      }
     }
   }
   const workers = Array.from(
     { length: Math.min(Math.max(concurrency, 1), items.length) },
     () => worker(),
   );
-  await Promise.all(workers);
+  const allWorkers = Promise.all(workers).then(() => 'all_done' as const);
+  const watchdog = new Promise<'budget_exceeded'>((resolve) => {
+    const interval = setInterval(() => {
+      if (shouldStop()) {
+        clearInterval(interval);
+        resolve('budget_exceeded');
+      }
+    }, 1000);
+    allWorkers.finally(() => clearInterval(interval));
+  });
+  const winner = await Promise.race([allWorkers, watchdog]);
+  if (winner === 'budget_exceeded') {
+    console.warn('[orchestrator] mapWithConcurrency: wall budget exceeded, abandoning hung workers');
+  }
   return results;
 }
 
@@ -100,7 +155,19 @@ export async function runOrchestration(
     behaviours: [],
     open_questions: [],
   };
-  const persistTree = () => persistSessionTree(supabase, sessionId, tree);
+
+  // Serialized persistence queue. Multiple concurrent workers in Phase 2/3
+  // would otherwise race the JSONB UPDATE on `tree` and drop each other's
+  // mutations (last writer wins on the whole column). Chaining keeps DB
+  // writes strictly sequential while letting agent work stay parallel.
+  let persistQueue: Promise<void> = Promise.resolve();
+  const persistTree = (): Promise<void> => {
+    const next = persistQueue.then(() => persistSessionTree(supabase, sessionId, tree));
+    persistQueue = next.catch(() => {});
+    return next;
+  };
+
+  const isOverBudget = () => Date.now() - start > TIME_BUDGET_MS;
 
   const checkCancelled = async (): Promise<boolean> => {
     const { data } = await supabase
@@ -113,13 +180,13 @@ export async function runOrchestration(
 
   try {
     // Phase 0: preflight
-    if (Date.now() - start > TIME_BUDGET_MS) throw new Error('time_budget_exceeded');
+    if (isOverBudget()) throw new Error('time_budget_exceeded');
     if (await checkCancelled()) return await markCancelled(supabase, runCtx, sessionId, start, tree, budget);
     tree.preflight = await runPreflight(toolCtx, runCtx, session.input_text);
     await persistTree();
 
     // Phase 1: research — Knowledge Bundle + behaviours
-    if (Date.now() - start > TIME_BUDGET_MS) throw new Error('time_budget_exceeded');
+    if (isOverBudget()) throw new Error('time_budget_exceeded');
     if (await checkCancelled()) return await markCancelled(supabase, runCtx, sessionId, start, tree, budget);
     const researchOutput = await runResearchAgent(toolCtx, runCtx, session.input_text);
     if (!researchOutput) throw new Error('research_agent_failed');
@@ -140,10 +207,14 @@ export async function runOrchestration(
     // of the web. Running them sequentially turned 9 behaviours × ~60s into
     // ~9 minutes (over the wall-clock budget). Parallel collapses that to
     // roughly the slowest single invocation.
-    if (Date.now() - start > TIME_BUDGET_MS) throw new Error('time_budget_exceeded');
+    if (isOverBudget()) throw new Error('time_budget_exceeded');
     if (await checkCancelled()) return await markCancelled(supabase, runCtx, sessionId, start, tree, budget);
-    await mapWithConcurrency(tree.behaviours, FAN_OUT_CONCURRENCY, async (behaviour) => {
-      const deep = await runAttackResearcherForBehaviour(toolCtx, runCtx, tree.subject!, behaviour);
+    await mapWithConcurrency(tree.behaviours, FAN_OUT_CONCURRENCY, isOverBudget, async (behaviour) => {
+      const deep = await withTimeout(
+        `attack-researcher[${behaviour.id}]`,
+        PER_LEAF_TIMEOUT_MS,
+        runAttackResearcherForBehaviour(toolCtx, runCtx, tree.subject!, behaviour),
+      );
       behaviour.deep_dive = deep;
       await emit(runCtx, {
         agent: 'attack-researcher',
@@ -151,22 +222,28 @@ export async function runOrchestration(
         message: behaviour.title,
         payload: { behaviour_id: behaviour.id, has_deep_dive: !!deep },
       });
+      await persistTree();
+      return deep;
     });
-    await persistTree();
 
     // Phase 3: detections per behaviour, in PARALLEL.
     // Each behaviour is independently library-checked then generated; same
     // parallelisation benefit as Phase 2.
-    if (Date.now() - start > TIME_BUDGET_MS) throw new Error('time_budget_exceeded');
+    if (isOverBudget()) throw new Error('time_budget_exceeded');
     if (await checkCancelled()) return await markCancelled(supabase, runCtx, sessionId, start, tree, budget);
-    await mapWithConcurrency(tree.behaviours, FAN_OUT_CONCURRENCY, async (behaviour) => {
-      const result = await runDetectionEngineerForBehaviour(
-        toolCtx, runCtx, tree.subject!, behaviour, queryLanguage,
+    await mapWithConcurrency(tree.behaviours, FAN_OUT_CONCURRENCY, isOverBudget, async (behaviour) => {
+      const result = await withTimeout(
+        `detection-engineer[${behaviour.id}]`,
+        PER_LEAF_TIMEOUT_MS,
+        runDetectionEngineerForBehaviour(toolCtx, runCtx, tree.subject!, behaviour, queryLanguage),
       );
-      behaviour.library_match = result.library_match;
-      behaviour.opportunities = result.opportunities;
+      if (result) {
+        behaviour.library_match = result.library_match;
+        behaviour.opportunities = result.opportunities;
+      }
+      await persistTree();
+      return result;
     });
-    await persistTree();
 
     // Phase 4: finalise
     const coverageImpact = await computeCoverageImpact(supabase, userId, tree);

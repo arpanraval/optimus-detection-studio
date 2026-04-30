@@ -1,86 +1,52 @@
 ---
 name: threat-classification
-description: Classify a free-form threat-research input as CVE, threat actor (group), campaign, MITRE technique, or vague concept. Use at the start of every threat research session.
+description: Classify a free-form threat input and produce a Subject Brief plus 3-6 Attack Behaviours organised by MITRE ATT&CK Tactic.
 ---
 
-# Threat Classification
+# Threat Classification (lean)
 
-You are the Research Agent's classifier. Given a free-form input, decide which of five categories it falls into and produce a structured Subject Brief.
+You receive a free-form threat-research input. Produce a JSON Subject Brief
+PLUS the list of Attack Behaviours grouped by MITRE Tactic in ONE output.
 
-## The five categories
+## Five categories
 
-| Category | When it applies | Examples |
-|---|---|---|
-| `cve` | Input names a specific Common Vulnerabilities and Exposures identifier OR describes a specific vulnerability with version/product details | "CVE-2024-1234", "Log4Shell", "MOVEit zero-day", "ProxyNotShell" |
-| `group` | Input names a known threat actor or group (or one of its aliases) | "Scattered Spider", "APT29", "Lazarus", "UNC3944", "Cozy Bear", "Lapsus$" |
-| `campaign` | Input names a specific named operation, intrusion set, or time-bound activity cluster | "Operation Triangulation", "Volt Typhoon US infrastructure campaign", "the SolarWinds compromise" |
-| `technique` | Input names or describes a specific TTP (typically maps to a MITRE technique ID) | "T1003.001", "LSASS dumping", "Pass-the-hash", "Kerberoasting", "WMI persistence" |
-| `concept` | Input is a broad concept, threat theme, or open-ended question without a specific actor/CVE/technique anchor | "ransomware in healthcare", "supply chain attacks", "how does cloud lateral movement work?", "detect data exfiltration" |
+- `cve` — names a CVE id or specific named vulnerability ("Log4Shell")
+- `group` — threat actor ("Scattered Spider", "APT29")
+- `campaign` — named operation ("Operation Triangulation", "Volt Typhoon")
+- `technique` — specific TTP, with or without a MITRE ID
+- `concept` — broad theme ("ransomware in healthcare", "lateral movement")
 
-## Decision rubric
+First match wins, in this order: CVE id → MITRE tech id → known group →
+named vuln → named campaign → specific TTP → otherwise concept.
 
-Apply in order — first match wins:
+## Tool budget (strict)
 
-1. Does the input contain a CVE-style ID (`CVE-YYYY-NNNN`)? → **cve**.
-2. Does the input contain a MITRE technique ID (`T1234`, `T1234.567`, `TA0001`)? → **technique**.
-3. Does the input name a known threat actor, group, or alias? → **group**. Use `mitre_search` to confirm if uncertain (search by alias).
-4. Does the input name a specific vulnerability without a CVE id (e.g. "Log4Shell", "Shellshock")? → **cve**.
-5. Does the input describe a specific named operation or intrusion set? → **campaign**.
-6. Does the input describe a specific TTP without an ID (e.g. "Kerberoasting", "process hollowing")? → **technique**.
-7. Otherwise: **concept**.
+- AT MOST 3 tool calls. Any combination of web_search and mitre_search.
+- Combine angles into a single search query when possible (Tavily returns 8
+  results per call).
+- After 3 tool calls, your VERY NEXT response MUST be the JSON output.
 
-## Cues per category
+## Citation rule
 
-**cve cues:** "CVE-", year + number, named vulnerability with version, "zero-day", "exploit", "patched in version X".
+Every claim that came from outside sources needs a citation entry. If a
+fact comes from your own knowledge of MITRE ATT&CK or general security, no
+citation needed.
 
-**group cues:** Capitalised threat-actor names, three-letter agency aliases (UNC, APT, FIN), animal/element naming (Spider, Bear, Panda, Tiger), country attribution.
+## Behaviours (the second half of the output)
 
-**campaign cues:** "Operation X", time periods ("2024 campaign against ..."), specific victim sectors.
+3-6 high-quality Attack Behaviours covering the most consequential MITRE
+ATT&CK Tactics for this threat. Quality over quantity. Each behaviour is:
 
-**technique cues:** MITRE ID, action verb describing what an attacker does ("dumping", "spraying", "tunneling"), mention of a specific log source or tool ("Mimikatz", "PsExec").
+- title: short noun phrase
+- narrative_description: 2-3 sentences on what the adversary does
+- tactic: lowercase MITRE Tactic name (e.g. "initial-access", "execution",
+  "persistence", "defense-evasion", "credential-access", "discovery",
+  "lateral-movement", "collection", "command-and-control", "exfiltration",
+  "impact")
+- mitre_technique_ids: from your knowledge of MITRE
+- data_sources: typical defender-side sources for this behaviour
+- artefacts: forensic signals the behaviour produces
+- citations: at least one source per behaviour
 
-**concept cues:** Broad nouns ("ransomware", "phishing", "lateral movement"), questions starting with "how" or "what", absence of specific names.
-
-## Edge cases
-
-- **Alias collision:** "APT29" → group; "Cozy Bear" → group (same actor); resolve to canonical name via `mitre_search`. Brief notes both names.
-- **CVE + actor in one input:** "CVE-2024-1234 exploited by Scattered Spider" → choose `cve` and let the brief mention the actor in `scope_hints`.
-- **Group + technique in one input:** "Scattered Spider data exfiltration" → choose `group` and let the brief constrain scope to data exfiltration via `scope_hints`.
-- **Vague + specific signal:** "ransomware" alone → `concept`. "LockBit ransomware" → `group`. "ransomware data leak sites" → `concept`.
-
-## Tool use
-
-You have `web_search` and `mitre_search`. Call them as needed:
-- `mitre_search(query)` to confirm a name resolves to a known group/technique.
-- `web_search(query, focus='news')` for recent campaigns or 0-days that may not be in MITRE yet.
-- `web_search(query, focus='vulnerabilities')` for CVE details.
-
-Limit yourself to ≤ 4 model calls total. Don't over-research at this stage — the Attack Researcher does the deep dive.
-
-## Output schema
-
-Output a single JSON object (no fences, no commentary outside JSON):
-
-```json
-{
-  "classification": "cve" | "group" | "campaign" | "technique" | "concept",
-  "subject": "canonical name, e.g. 'Scattered Spider (UNC3944)' or 'CVE-2024-1234 (Log4Shell)'",
-  "brief": "1 paragraph, 3-5 sentences synthesising what this is, why it matters now, who is affected.",
-  "scope_hints": ["scope 1", "scope 2"],
-  "citations": [
-    { "source": "Mandiant", "url": "https://...", "claim": "what this source supports" },
-    { "source": "MITRE",    "url": "https://attack.mitre.org/groups/G1015/", "claim": "..." }
-  ]
-}
-```
-
-## Examples
-
-| Input | classification | subject | scope_hints |
-|---|---|---|---|
-| "Tell me about Scattered Spider" | group | Scattered Spider (UNC3944) | ["data theft", "ransomware deployment", "social engineering"] |
-| "CVE-2024-1234" | cve | CVE-2024-1234 | inferred from CVE record |
-| "How do they steal Kerberos tickets?" | technique | Kerberoasting (T1558.003) | ["service accounts", "AD environments"] |
-| "ransomware in healthcare" | concept | Ransomware targeting healthcare | ["healthcare sector", "PHI", "operational disruption"] |
-| "Volt Typhoon attacks on critical infrastructure" | campaign | Volt Typhoon (US critical infrastructure campaign) | ["critical infrastructure", "living-off-the-land"] |
-| "T1003.001" | technique | OS Credential Dumping: LSASS Memory (T1003.001) | ["Windows endpoints", "domain controllers"] |
+Cover all relevant Tactics — but skip a Tactic if it genuinely doesn't apply
+to this threat. Don't invent behaviours just to fill a Tactic slot.

@@ -109,9 +109,13 @@ function convertTools(geminiTools: any[] | undefined): any[] | undefined {
 // ────────────────────────────────────────────────────────────────────────────
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
-/** Per-call timeout. Long enough for Opus + tool-result-heavy contexts, short
- *  enough that one hung call doesn't burn the whole orchestrator wall budget. */
-const ANTHROPIC_CALL_TIMEOUT_MS = 90_000;
+/** Per-call timeout. Tight on purpose: the orchestrator's 270s wall budget
+ *  has to cover preflight + research + N×attack-research + N×detection +
+ *  N×QA. A single hung call cannot eat half of that. */
+const ANTHROPIC_CALL_TIMEOUT_MS = 45_000;
+/** Cap retries on 429 — each retry consumes wall time even if it eventually
+ *  succeeds. With concurrency=2 fan-out we shouldn't need more than 1 retry. */
+const MAX_RATE_LIMIT_RETRIES = 1;
 
 async function callAnthropicRaw(
   apiKey: string,
@@ -130,7 +134,7 @@ async function callAnthropicRaw(
   // server's retry-after hint when present. Max 3 retries.
   let res: Response | null = null;
   let lastErr = '';
-  for (let attempt = 0; attempt <= 3; attempt++) {
+  for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {
     const ctrl = new AbortController();
     const timeoutId = setTimeout(() => ctrl.abort(), ANTHROPIC_CALL_TIMEOUT_MS);
     try {
@@ -157,8 +161,8 @@ async function callAnthropicRaw(
       const retryAfterRaw = res.headers.get('retry-after') ?? '';
       const retryAfter = parseInt(retryAfterRaw) || (attempt + 1) * 5;
       lastErr = `Anthropic 429 (retry-after ${retryAfter}s)`;
-      if (attempt < 3) {
-        await new Promise(r => setTimeout(r, Math.min(retryAfter, 30) * 1000));
+      if (attempt < MAX_RATE_LIMIT_RETRIES) {
+        await new Promise(r => setTimeout(r, Math.min(retryAfter, 15) * 1000));
         continue;
       }
     }

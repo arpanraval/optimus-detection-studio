@@ -53,10 +53,16 @@ export async function executeTool(
   }
 }
 
-/** Subset helpers for declaring per-agent tool inventories. */
+/** Per-agent tool inventories.
+ *
+ *  - Research: web sweep + MITRE alias resolution.
+ *  - Attack Researcher: web ONLY — deep offensive research, no internal lookups.
+ *  - Detection Engineer: full kit — web for query docs, MITRE for technique data,
+ *    library for duplicate detection, feasibility for env-aware grounding.
+ *  - QA: feasibility check + library duplicate check. No web. */
 export const TOOLS_FOR = {
   research:           [webSearchToolDeclaration, mitreSearchToolDeclaration],
-  attackResearcher:   [webSearchToolDeclaration, mitreSearchToolDeclaration, librarySearchToolDeclaration],
+  attackResearcher:   [webSearchToolDeclaration],
   detectionEngineer:  [webSearchToolDeclaration, mitreSearchToolDeclaration, librarySearchToolDeclaration, feasibilityLookupToolDeclaration],
   qa:                 [feasibilityLookupToolDeclaration, librarySearchToolDeclaration],
 } as const;

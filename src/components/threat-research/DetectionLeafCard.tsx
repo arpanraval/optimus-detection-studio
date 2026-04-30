@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
 import { useToast } from '../../hooks/useToast';
@@ -13,6 +13,11 @@ interface Props {
   onClose: () => void;
   onMutated: () => void;          // parent re-fetches session
 }
+
+const PANEL_MIN_WIDTH = 360;
+const PANEL_MAX_WIDTH = 900;
+const PANEL_DEFAULT_WIDTH = 520;
+const PANEL_STORAGE_KEY = 'tr-leaf-panel-width';
 
 const VERDICT_STYLE: Record<string, string> = {
   pass:                'bg-tertiary-container text-on-tertiary-container',
@@ -30,6 +35,40 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
   const { showToast } = useToast();
   const det = opportunity.detection;
   const [busy, setBusy] = useState(false);
+
+  // Resizable / collapsible panel state
+  const [width, setWidth] = useState<number>(() => {
+    const stored = typeof window !== 'undefined' ? Number(localStorage.getItem(PANEL_STORAGE_KEY)) : NaN;
+    return Number.isFinite(stored) && stored >= PANEL_MIN_WIDTH ? Math.min(stored, PANEL_MAX_WIDTH) : PANEL_DEFAULT_WIDTH;
+  });
+  const [collapsed, setCollapsed] = useState(false);
+  const dragRef = useRef<{ startX: number; startW: number } | null>(null);
+
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      const d = dragRef.current;
+      if (!d) return;
+      const next = Math.max(PANEL_MIN_WIDTH, Math.min(PANEL_MAX_WIDTH, d.startW + (d.startX - e.clientX)));
+      setWidth(next);
+    }
+    function onUp() {
+      if (dragRef.current) {
+        localStorage.setItem(PANEL_STORAGE_KEY, String(width));
+      }
+      dragRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, [width]);
+
+  function startResize(e: React.MouseEvent) {
+    dragRef.current = { startX: e.clientX, startW: width };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }
 
   async function handleSave() {
     setBusy(true);
@@ -69,14 +108,56 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
     }
   }
 
+  // Collapsed: just a thin rail with an expand button.
+  if (collapsed) {
+    return (
+      <aside className="fixed right-0 top-0 z-40 flex h-full w-10 flex-col items-center border-l border-outline-variant bg-surface-container shadow-2xl">
+        <button
+          onClick={() => setCollapsed(false)}
+          aria-label="Expand detection panel"
+          className="mt-3 flex h-8 w-8 items-center justify-center rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
+        >
+          <Icon name="chevron-left" size={18} />
+        </button>
+        <button
+          onClick={onClose}
+          aria-label="Close detection panel"
+          className="mt-1 flex h-8 w-8 items-center justify-center rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
+        >
+          <Icon name="x" size={16} />
+        </button>
+        <div className="mt-3 -rotate-90 whitespace-nowrap text-[11px] font-medium text-on-surface-variant">
+          {det.name.slice(0, 40)}
+        </div>
+      </aside>
+    );
+  }
+
   return (
-    <aside className="fixed right-0 top-0 z-40 flex h-full w-[480px] flex-col border-l border-outline-variant bg-surface-container shadow-2xl">
-      <div className="flex items-center justify-between border-b border-outline-variant px-5 py-4">
+    <aside
+      className="fixed right-0 top-0 z-40 flex h-full flex-col border-l border-outline-variant bg-surface-container shadow-2xl"
+      style={{ width: `${width}px` }}
+    >
+      {/* Resize handle on the LEFT edge */}
+      <div
+        onMouseDown={startResize}
+        aria-label="Resize panel"
+        className="absolute left-0 top-0 h-full w-1.5 cursor-col-resize bg-transparent hover:bg-primary/30 active:bg-primary/50"
+      />
+
+      <div className="flex items-center justify-between gap-2 border-b border-outline-variant px-5 py-4">
         <div className="min-w-0 flex-1">
           <div className="text-xs text-on-surface-variant">{behaviour.title} → {opportunity.title}</div>
           <h3 className="truncate text-base font-semibold text-on-surface">{det.name}</h3>
         </div>
-        <button onClick={onClose} aria-label="Close" className="ml-2 text-on-surface-variant hover:text-on-surface">
+        <button
+          onClick={() => setCollapsed(true)}
+          aria-label="Collapse"
+          className="text-on-surface-variant hover:text-on-surface"
+        >
+          <Icon name="chevron-right" size={18} />
+        </button>
+        <button onClick={onClose} aria-label="Close" className="text-on-surface-variant hover:text-on-surface">
           <Icon name="x" size={18} />
         </button>
       </div>
