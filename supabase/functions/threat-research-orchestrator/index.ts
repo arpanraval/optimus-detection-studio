@@ -76,10 +76,23 @@ serve(async (req: Request) => {
         return corsErrorResponse('Failed to create session', req, 500);
       }
 
-      // Fire-and-forget orchestration with the service-role client.
-      runOrchestration(adminClient, serviceRoleKey, session.id, user.id).catch(e => {
+      // Background orchestration. The admin client is for server-side writes
+      // (events, tree mutations). Each agent calls Anthropic directly via
+      // lib/llm/anthropic-direct.ts using ANTHROPIC_API_KEY, with Cost Center
+      // attribution via the existing withAiTelemetry wrapper.
+      //
+      // EdgeRuntime.waitUntil keeps the Deno worker alive after the HTTP
+      // response is sent so the orchestrator can run the full multi-agent
+      // chain (potentially several minutes) without being terminated when
+      // the request finishes.
+      const job = runOrchestration(adminClient, session.id, user.id).catch(e => {
         console.error('[orchestrator] background run failed:', e);
       });
+      // @ts-ignore — EdgeRuntime is provided by the Supabase Deno runtime.
+      if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime?.waitUntil) {
+        // @ts-ignore
+        EdgeRuntime.waitUntil(job);
+      }
 
       return corsJsonResponse({ session_id: session.id }, req);
     }

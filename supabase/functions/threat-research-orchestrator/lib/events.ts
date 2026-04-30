@@ -11,9 +11,10 @@ import type { ResearchAgent, ResearchEventType } from "./types.ts";
 export interface RunContext {
   /** Service-role client used by all orchestrator-side writes. */
   supabase: SupabaseClient;
-  /** Service-role key, available to the agent loop for fetch-based ai-generate calls. */
-  serviceRoleKey: string;
   sessionId: string;
+  /** User the session belongs to. Used by Cost Center telemetry to attribute
+   *  per-agent spend. The orchestrator no longer forwards a JWT — Anthropic
+   *  is called directly via ANTHROPIC_API_KEY (see lib/llm/anthropic-direct.ts). */
   userId: string;
   budget: Budget;
 }

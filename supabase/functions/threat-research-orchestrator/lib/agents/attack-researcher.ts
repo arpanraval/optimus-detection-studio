@@ -1,96 +1,115 @@
 // supabase/functions/threat-research-orchestrator/lib/agents/attack-researcher.ts
 //
-// Attack Researcher Agent — produces 3-12 Attack Behaviours mapping how
-// the adversary actually operates.
-// Tools: web_search, mitre_search, library_search.
-// Knowledge Pack: adversary-research-methodology.
+// Attack Researcher — offensive-security researcher.
+//
+// RUNS ONCE PER BEHAVIOUR (fan-out from Phase 2). Each invocation receives
+// ONE attack behaviour from the Research Agent's output and reads the open web
+// to produce a deep offensive-side analysis: how the attack works, what
+// controls it bypasses, why an attacker does it, what they gain, what success
+// looks like, and notable variants. This deep-dive is then handed to the
+// Detection Engineer alongside the Knowledge Bundle so detections are written
+// with full offensive context.
+//
+// Tools: web_search ONLY. No library lookups, no MITRE structured queries —
+// those distract the agent from primary-source synthesis (the agent already
+// has MITRE knowledge from training).
 
 import { runAgentLoop, AgentLoopConfig } from "./agent-loop.ts";
 import { ToolContext, TOOLS_FOR } from "../tools/index.ts";
-import { RunContext, emit } from "../events.ts";
+import { RunContext } from "../events.ts";
 import { loadKnowledgePack } from "../skills-loader.ts";
-import type { AttackBehaviour, KillChainTactic, ResearchSubject } from "../types.ts";
+import type { AttackBehaviour, AttackResearchDeepDive, ResearchSubject } from "../types.ts";
 
-const SYSTEM = `You are the Attack Researcher Agent for the Threat Research feature.
-Your job: given the Subject Brief, produce a quality-driven list of Attack Behaviours.
-You MUST follow the adversary-research-methodology knowledge pack.
-You MUST cite at least one authoritative source per behaviour.
-Use library_search to check whether the user already covers each behaviour, and populate library_already_covers_ids[] from those results.
-Aim for 3-12 behaviours. Quality > quantity. Hard ceiling: 12.
-≤ 8 model calls. ≤ 6 tool calls.
-When done, output a SINGLE JSON ARRAY matching the schema in the knowledge pack (no fences, no commentary outside JSON).`;
+const SYSTEM = `You are the Attack Researcher for one specific Attack Behaviour identified by the Research Agent.
 
-const VALID_PHASES: ReadonlySet<string> = new Set([
-  'reconnaissance','resource-development','initial-access',
-  'execution','persistence','privilege-escalation',
-  'defense-evasion','credential-access','discovery',
-  'lateral-movement','collection','command-and-control',
-  'exfiltration','impact',
-]);
+Your single job: produce an offensive-security deep dive on THIS behaviour.
+Use Tavily web_search to read primary sources (vendor research, threat-intel
+blogs, security conference talks, atomic-red-team write-ups). Synthesise from
+sources + your own knowledge of offensive tradecraft.
 
-function validateBehaviours(text: string): AttackBehaviour[] | null {
+Answer these specifically:
+  • how_it_works: step-by-step, concrete, technical
+  • controls_bypassed: which security controls fail to catch this and WHY
+  • attacker_motivation: why the attacker chooses this technique
+  • attacker_gain: what the attacker walks away with
+  • success_signal: what a successful execution looks like (defender's view)
+  • variants: notable evasions, known sub-patterns, second-stage choices
+
+Cite every claim. No invented facts.
+
+OUTPUT (single JSON object, no fences):
+{
+  "how_it_works": "...",
+  "controls_bypassed": ["control 1 — why it fails", "..."],
+  "attacker_motivation": "...",
+  "attacker_gain": "...",
+  "success_signal": "...",
+  "variants": ["..."],
+  "citations": [{ "source": "...", "url": "...", "claim": "..." }]
+}`;
+
+function validate(text: string): AttackResearchDeepDive | null {
   try {
     const t = text.trim();
-    const start = t.indexOf('[');
+    const start = t.indexOf('{');
     if (start < 0) return null;
-    const json = JSON.parse(t.slice(start, t.lastIndexOf(']') + 1));
-    if (!Array.isArray(json) || json.length === 0) return null;
-    const out: AttackBehaviour[] = [];
-    for (const item of json) {
-      if (!item?.title || !item?.narrative_description) return null;
-      if (!VALID_PHASES.has(String(item.kill_chain_phase))) return null;
-      if (!Array.isArray(item.citations) || item.citations.length === 0) return null;
-      out.push({
-        id: String(item.id ?? `b${out.length + 1}`),
-        title: String(item.title),
-        narrative_description: String(item.narrative_description),
-        kill_chain_phase: item.kill_chain_phase as KillChainTactic,
-        mitre_technique_ids: Array.isArray(item.mitre_technique_ids) ? item.mitre_technique_ids.map(String) : [],
-        data_sources: Array.isArray(item.data_sources) ? item.data_sources.map(String) : [],
-        artefacts: Array.isArray(item.artefacts) ? item.artefacts.map(String) : [],
-        citations: item.citations.map((c: any) => ({ source: String(c?.source ?? ''), url: String(c?.url ?? ''), claim: String(c?.claim ?? '') })),
-        library_already_covers_ids: Array.isArray(item.library_already_covers_ids) ? item.library_already_covers_ids.map(String) : [],
-        opportunities: [],
-      });
-      if (out.length >= 12) break;
-    }
-    return out.length > 0 ? out : null;
+    const json = JSON.parse(t.slice(start, t.lastIndexOf('}') + 1));
+    if (typeof json.how_it_works !== 'string' || !json.how_it_works) return null;
+    if (typeof json.attacker_motivation !== 'string') return null;
+    if (typeof json.success_signal !== 'string') return null;
+    return {
+      how_it_works: json.how_it_works,
+      controls_bypassed: Array.isArray(json.controls_bypassed) ? json.controls_bypassed.map(String) : [],
+      attacker_motivation: json.attacker_motivation,
+      attacker_gain: String(json.attacker_gain ?? ''),
+      success_signal: json.success_signal,
+      variants: Array.isArray(json.variants) ? json.variants.map(String) : [],
+      citations: Array.isArray(json.citations)
+        ? json.citations.map((c: any) => ({
+            source: String(c?.source ?? ''),
+            url: String(c?.url ?? ''),
+            claim: String(c?.claim ?? ''),
+          }))
+        : [],
+    };
   } catch {
     return null;
   }
 }
 
-export async function runAttackResearcher(
+export async function runAttackResearcherForBehaviour(
   toolCtx: ToolContext,
   runCtx: RunContext,
   subject: ResearchSubject,
-): Promise<AttackBehaviour[]> {
+  behaviour: AttackBehaviour,
+): Promise<AttackResearchDeepDive | null> {
   const pack = await loadKnowledgePack('adversary-research-methodology');
-  const cfg: AgentLoopConfig<AttackBehaviour[]> = {
+  const cfg: AgentLoopConfig<AttackResearchDeepDive> = {
     agent: 'attack-researcher',
     model: 'claude-sonnet-4-6',
-    systemInstruction: `${SYSTEM}\n\n---\n\n${pack}`,
+    systemInstruction: SYSTEM,
+    knowledgePack: pack,
     toolDeclarations: TOOLS_FOR.attackResearcher,
-    iterationCap: 8,
+    iterationCap: 6,
     feature: 'tr-attack-researcher',
-    validateFinalOutput: validateBehaviours,
+    validateFinalOutput: validate,
   };
 
   const initialMessage =
-    `Subject Brief:\n${JSON.stringify(subject, null, 2)}\n\n` +
-    `Map how this threat actually operates. Produce 3-12 Attack Behaviours per the knowledge pack's quality bar.`;
+    `Subject context:\n${JSON.stringify({
+      subject: subject.subject,
+      brief: subject.brief,
+      intel_summary: subject.intel_summary,
+    }, null, 2)}\n\n` +
+    `BEHAVIOUR TO DEEP-DIVE (only this one):\n${JSON.stringify({
+      title: behaviour.title,
+      tactic: behaviour.tactic,
+      narrative_description: behaviour.narrative_description,
+      mitre_technique_ids: behaviour.mitre_technique_ids,
+      data_sources: behaviour.data_sources,
+    }, null, 2)}\n\n` +
+    `Use web_search to research how this attack actually works. Output the JSON deep-dive.`;
 
-  const outcome = await runAgentLoop<AttackBehaviour[]>(cfg, toolCtx, runCtx, initialMessage);
-  const behaviours = outcome.output ?? [];
-
-  for (const b of behaviours) {
-    await emit(runCtx, {
-      agent: 'attack-researcher',
-      event_type: 'behaviour_created',
-      message: b.title,
-      payload: { id: b.id, kill_chain_phase: b.kill_chain_phase, mitre_technique_ids: b.mitre_technique_ids },
-    });
-  }
-
-  return behaviours;
+  const outcome = await runAgentLoop<AttackResearchDeepDive>(cfg, toolCtx, runCtx, initialMessage);
+  return outcome.output;
 }

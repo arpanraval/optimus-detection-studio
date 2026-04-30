@@ -1,28 +1,31 @@
 // supabase/functions/threat-research-orchestrator/lib/agents/agent-loop.ts
 //
-// Shared tool-use loop scaffold. Each agent declares a config (model, system
-// instruction including its knowledge pack, tool inventory, iteration cap,
-// final-output validator); this loop runs the conversation with the existing
-// `ai-generate` edge function, executes any tool calls the model requests,
-// and emits per-step events for the UI.
+// Shared tool-use loop scaffold. All four agents call this with their config.
+// The loop drives an Anthropic Messages API conversation directly (not via
+// ai-generate, which strips tool_use_id and breaks the round-trip), preserves
+// every tool_use_id end-to-end, executes tool calls, and emits per-step events.
 //
-// The loop intentionally does NOT know about agent semantics — it just drives
-// "send → tool calls? execute, repeat. Final output? validate, exit. Cap hit?
-// emit failure."
+// Cost Center attribution still flows through the standard `withAiTelemetry`
+// helper inside the Anthropic adapter, so spend shows up in /settings/cost-center
+// per agent (each agent sets its own feature code).
 
 import type { ResearchAgent } from "../types.ts";
 import { ToolContext, executeTool } from "../tools/index.ts";
 import { RunContext, emit } from "../events.ts";
+import { callAnthropic, AnthropicMessage, AnthropicContentBlock } from "../llm/anthropic-direct.ts";
 
 export interface AgentLoopConfig<T> {
   agent: ResearchAgent;
+  /** Anthropic model id, e.g. claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5. */
   model: string;
-  /** Concatenated system instruction (base prompt + knowledge pack). */
+  /** Base agent role + output schema. Goes into Anthropic `system`. */
   systemInstruction: string;
-  /** Gemini-format tool declarations the model is allowed to call. */
+  /** Knowledge pack content; embedded in the first user message. */
+  knowledgePack: string;
+  /** Gemini-format tool declarations; converted to Anthropic shape internally. */
   toolDeclarations: any[];
   iterationCap: number;
-  /** AI feature code for cost-center attribution. */
+  /** AI feature code for Cost Center attribution. */
   feature: string;
   /** Validator that parses final model text into the agent's output type, or returns null. */
   validateFinalOutput: (text: string) => T | null;
@@ -35,28 +38,24 @@ export interface AgentLoopOutcome<T> {
   reason: string | null;
 }
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
-const AI_GENERATE_URL = `${SUPABASE_URL}/functions/v1/ai-generate`;
-
-interface FunctionResponseTurn {
-  role: 'function';
-  parts: Array<{ functionResponse: { name: string; response: unknown } }>;
-}
-
-type Turn =
-  | { role: 'user'; parts: Array<{ text: string }> }
-  | { role: 'model'; parts: Array<{ text: string }> }
-  | FunctionResponseTurn;
+/** Cap individual tool-result payloads so an exuberant search doesn't bloat
+ *  the model context. 8 KB is enough for most structured tool responses. */
+const TOOL_RESULT_MAX_CHARS = 8000;
 
 export async function runAgentLoop<T>(
   cfg: AgentLoopConfig<T>,
   toolCtx: ToolContext,
   runCtx: RunContext,
-  initialUserMessage: string,
+  initialTaskMessage: string,
 ): Promise<AgentLoopOutcome<T>> {
   const startedAt = Date.now();
-  const history: Turn[] = [
-    { role: 'user', parts: [{ text: initialUserMessage }] },
+
+  // First user turn: knowledge pack + the task.
+  const messages: AnthropicMessage[] = [
+    {
+      role: 'user',
+      content: `${cfg.knowledgePack}\n\n---\n\n${initialTaskMessage}`,
+    },
   ];
 
   await emit(runCtx, { agent: cfg.agent, event_type: 'agent_started', message: `${cfg.agent} loop start` });
@@ -76,99 +75,113 @@ export async function runAgentLoop<T>(
     });
 
     const callStart = Date.now();
-    const res = await fetch(AI_GENERATE_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${runCtx.serviceRoleKey}`,
-      },
-      body: JSON.stringify({
-        model: cfg.model,
-        responseFormat: 'text',
-        systemInstruction: cfg.systemInstruction,
-        tools: cfg.toolDeclarations,
-        history,
-        feature: cfg.feature,
-      }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
+    let response;
+    try {
+      response = await callAnthropic(
+        { userId: runCtx.userId, feature: cfg.feature, model: cfg.model },
+        {
+          model: cfg.model,
+          systemInstruction: cfg.systemInstruction,
+          tools: cfg.toolDeclarations,
+          messages,
+        },
+      );
+    } catch (e) {
+      const errMsg = (e as Error)?.message ?? String(e);
       await emit(runCtx, {
         agent: cfg.agent,
         event_type: 'agent_failed',
-        message: `ai-generate ${res.status}`,
-        payload: { status: res.status, body: errText.slice(0, 500) },
+        message: `anthropic: ${errMsg.slice(0, 300)}`,
+        payload: { error: errMsg.slice(0, 800) },
       });
-      return { success: false, output: null, iterations: iteration, reason: 'ai_generate_failed' };
+      return { success: false, output: null, iterations: iteration, reason: 'anthropic_failed' };
     }
 
-    const body = await res.json();
-    const text: string = body?.text ?? '';
-    const functionCalls: Array<{ name: string; args: Record<string, unknown> }> = body?.functionCalls ?? [];
-
-    if (text) {
+    if (response.text) {
       await emit(runCtx, {
         agent: cfg.agent,
         event_type: 'agent_narration',
-        narration: text,
+        narration: response.text,
         duration_ms: Date.now() - callStart,
       });
     }
 
-    if (functionCalls.length > 0) {
-      // Append the model's turn (it may include narration text).
-      history.push({ role: 'model', parts: [{ text }] });
+    // Push the assistant turn into history with FULL content blocks. This is
+    // critical: the next call must include the assistant's tool_use blocks
+    // (with their ids) immediately before our tool_result blocks, otherwise
+    // Anthropic returns 400.
+    messages.push({
+      role: 'assistant',
+      content: response.rawAssistantContent,
+    });
 
-      // Execute tools and append responses.
-      const responses: Array<{ functionResponse: { name: string; response: unknown } }> = [];
-      for (const call of functionCalls) {
-        if (!runCtx.budget.canSpendToolCall()) {
-          responses.push({ functionResponse: { name: call.name, response: { over_budget: true, results: [], error: 'tool-call budget exhausted' } } });
-          await emit(runCtx, {
-            agent: cfg.agent,
-            event_type: 'agent_tool_call',
-            message: `${call.name} (over_budget)`,
-            payload: { tool: call.name, over_budget: true },
-          });
-          continue;
-        }
-        runCtx.budget.spendToolCall();
+    // No tool calls → try to finalise.
+    if (response.toolUses.length === 0) {
+      const parsed = cfg.validateFinalOutput(response.text);
+      if (parsed !== null) {
         await emit(runCtx, {
           agent: cfg.agent,
-          event_type: 'agent_tool_call',
-          message: call.name,
-          payload: { tool: call.name, args: call.args },
+          event_type: 'agent_completed',
+          message: `${cfg.agent} succeeded`,
+          duration_ms: Date.now() - startedAt,
+          payload: { iteration_count: iteration },
         });
-        try {
-          const result = await executeTool(toolCtx, call.name, call.args);
-          responses.push({ functionResponse: { name: call.name, response: result } });
-        } catch (e) {
-          responses.push({ functionResponse: { name: call.name, response: { error: String(e) } } });
-        }
+        return { success: true, output: parsed, iterations: iteration, reason: null };
       }
-      history.push({ role: 'function', parts: responses });
+      // Output didn't validate — ask for revision.
+      messages.push({
+        role: 'user',
+        content: 'That output did not validate against the required schema. Re-read the schema in the knowledge pack and produce a valid JSON output now (no fences, no commentary outside the JSON).',
+      });
       continue;
     }
 
-    // No tool calls — try to parse final output.
-    const parsed = cfg.validateFinalOutput(text);
-    if (parsed !== null) {
+    // Tool calls → execute each, build matching tool_result blocks (each with
+    // tool_use_id matching the assistant's tool_use block id).
+    const toolResultBlocks: AnthropicContentBlock[] = [];
+    for (const call of response.toolUses) {
+      if (!runCtx.budget.canSpendToolCall()) {
+        toolResultBlocks.push({
+          type: 'tool_result',
+          tool_use_id: call.id,
+          content: JSON.stringify({ over_budget: true, error: 'tool-call budget exhausted' }),
+          is_error: true,
+        });
+        await emit(runCtx, {
+          agent: cfg.agent,
+          event_type: 'agent_tool_call',
+          message: `${call.name} (over_budget)`,
+          payload: { tool: call.name, over_budget: true },
+        });
+        continue;
+      }
+      runCtx.budget.spendToolCall();
       await emit(runCtx, {
         agent: cfg.agent,
-        event_type: 'agent_completed',
-        message: `${cfg.agent} succeeded`,
-        duration_ms: Date.now() - startedAt,
-        payload: { iteration_count: iteration },
+        event_type: 'agent_tool_call',
+        message: call.name,
+        payload: { tool: call.name, args: call.args },
       });
-      return { success: true, output: parsed, iterations: iteration, reason: null };
+      try {
+        const result = await executeTool(toolCtx, call.name, call.args);
+        toolResultBlocks.push({
+          type: 'tool_result',
+          tool_use_id: call.id,
+          content: JSON.stringify(result).slice(0, TOOL_RESULT_MAX_CHARS),
+        });
+      } catch (e) {
+        toolResultBlocks.push({
+          type: 'tool_result',
+          tool_use_id: call.id,
+          content: JSON.stringify({ error: String(e).slice(0, 500) }),
+          is_error: true,
+        });
+      }
     }
 
-    // Output didn't validate — push as model turn and ask for revision.
-    history.push({ role: 'model', parts: [{ text }] });
-    history.push({
+    messages.push({
       role: 'user',
-      parts: [{ text: 'That output did not validate against the required schema. Re-read the output schema in your system instructions and produce a valid JSON output now (no fences, no commentary outside the JSON).' }],
+      content: toolResultBlocks,
     });
   }
 

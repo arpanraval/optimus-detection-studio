@@ -109,6 +109,11 @@ export function ThreatResearchDetailPage() {
               tree={session.tree}
               status={session.status}
               onLeafClick={(b, o) => setSelected({ behaviour: b, opportunity: o })}
+              onLibraryMatchClick={(b) => {
+                if (b.library_match) {
+                  window.open(`/library/detections/${b.library_match.existing_detection_id}`, '_blank');
+                }
+              }}
             />
           ) : (
             <ResearchList

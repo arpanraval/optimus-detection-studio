@@ -1,10 +1,6 @@
 // supabase/functions/threat-research-orchestrator/lib/types.ts
 //
 // Server-side mirror of src/types/threatResearch.ts. Kept in sync by hand.
-// Deno cannot import Vite/TypeScript paths from src/, so the duplication is
-// deliberate. Keep these definitions byte-equivalent to the client copy
-// (excluding the `import { QUERY_LANGUAGES }` line — server uses a literal
-// union since the constants file is in the client tree).
 
 export type ResearchStatus =
   | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
@@ -23,9 +19,11 @@ export type ResearchEventType =
   | 'behaviour_created' | 'opportunity_created' | 'detection_generated'
   | 'qa_verdict' | 'qa_refinement_started' | 'qa_refinement_completed'
   | 'session_completed' | 'session_cancelled' | 'session_failed'
-  | 'tool_call' | 'tool_cache_hit';
+  | 'tool_call' | 'tool_cache_hit'
+  | 'library_match_found' | 'attack_research_completed';
 
-export type KillChainTactic =
+/** MITRE ATT&CK Tactic (post-exploitation phases). NOT "kill chain phases". */
+export type MitreTacticName =
   | 'reconnaissance' | 'resource-development' | 'initial-access'
   | 'execution' | 'persistence' | 'privilege-escalation'
   | 'defense-evasion' | 'credential-access' | 'discovery'
@@ -48,11 +46,21 @@ export interface ResearchCitation {
   claim: string;
 }
 
+/** The Knowledge Bundle is the Research Agent's full output: a complete
+ *  intel picture organised by MITRE Tactic. Passed forward to BOTH the
+ *  Attack Researcher (per-behaviour deep dive) and the Detection Engineer. */
 export interface ResearchSubject {
   classification: ResearchInputClassification;
   subject: string;
   brief: string;
-  scope_hints: string[];
+  intel_summary: {
+    actor?: string;
+    infrastructure?: string;
+    victimology?: string;
+    timing?: string;
+    tooling?: string;
+    attribution?: string;
+  };
   citations: ResearchCitation[];
 }
 
@@ -62,6 +70,31 @@ export interface PreflightSummary {
   gap_techniques: string[];
   skipped: boolean;
   ran_at: string;
+}
+
+/** When the Detection Engineer finds an existing detection in the user's
+ *  library that already covers a behaviour (combined_score >= 0.75 by default),
+ *  it sets `library_match` on the behaviour and skips generation entirely. The
+ *  UI renders the leaf with a sage-green glow and a link to the existing
+ *  detection. */
+export interface LibraryMatch {
+  existing_detection_id: string;
+  name: string;
+  query_language: string;
+  combined_score: number;
+  semantic_score: number;
+  keyword_score: number;
+}
+
+/** The Attack Researcher's per-behaviour deep dive. Built once per behaviour. */
+export interface AttackResearchDeepDive {
+  how_it_works: string;
+  controls_bypassed: string[];
+  attacker_motivation: string;
+  attacker_gain: string;
+  success_signal: string;
+  variants: string[];
+  citations: ResearchCitation[];
 }
 
 export interface QaIteration {
@@ -87,7 +120,7 @@ export interface GeneratedDetection {
   query_language: ResearchQueryLanguage;
   query: string;
   mitre_technique_ids: string[];
-  kill_chain_phase: KillChainTactic;
+  tactic: MitreTacticName;
   suggested_severity: 'Critical' | 'High' | 'Medium' | 'Low' | 'Informational';
   suggested_detection_type: 'Detection' | 'Hunting';
   feasibility: FeasibilityVerdict;
@@ -110,12 +143,23 @@ export interface AttackBehaviour {
   id: string;
   title: string;
   narrative_description: string;
-  kill_chain_phase: KillChainTactic;
+  tactic: MitreTacticName;
   mitre_technique_ids: string[];
   data_sources: string[];
   artefacts: string[];
   citations: ResearchCitation[];
-  library_already_covers_ids: string[];
+
+  /** The Attack Researcher's per-behaviour offensive deep dive. Filled by
+   *  Phase 2 (one Attack Researcher invocation per behaviour). */
+  deep_dive: AttackResearchDeepDive | null;
+
+  /** When set, the user's library already covers this behaviour and the
+   *  Detection Engineer did not generate a new detection. UI renders the
+   *  leaf with a sage-green glow border. Mutually exclusive with
+   *  `opportunities[]` populated content. */
+  library_match: LibraryMatch | null;
+
+  /** Detection Engineer's generated opportunities. Empty when library_match is set. */
   opportunities: DetectionOpportunity[];
 }
 

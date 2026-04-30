@@ -163,7 +163,7 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
               </a>
             ))}
             <span className="inline-flex items-center rounded-md bg-surface-variant px-2 py-1 text-xs text-on-surface-variant">
-              {det.kill_chain_phase}
+              {det.tactic}
             </span>
           </div>
         </Section>
