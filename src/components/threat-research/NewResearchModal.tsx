@@ -11,14 +11,8 @@ interface NewResearchModalProps {
   onClose: () => void;
 }
 
-const PLACEHOLDERS = [
-  'Tell me about Scattered Spider data exfiltration',
-  'CVE-2024-1234',
-  'How does Lazarus deploy ransomware?',
-  'Detect lateral movement via WMI',
-  'T1003.001',
-];
-
+const PLACEHOLDER = 'Tell me about Scattered Spider data exfiltration';
+const EXAMPLE_CHIPS = ['CVE-2024-1234', 'Lazarus ransomware', 'T1003.001'];
 const MAX_INPUT = 1000;
 
 export function NewResearchModal({ open, onClose }: NewResearchModalProps) {
@@ -28,8 +22,6 @@ export function NewResearchModal({ open, onClose }: NewResearchModalProps) {
   const [submitting, setSubmitting] = useState(false);
 
   if (!open) return null;
-
-  const placeholder = PLACEHOLDERS[Math.floor(Math.random() * PLACEHOLDERS.length)];
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -51,18 +43,25 @@ export function NewResearchModal({ open, onClose }: NewResearchModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="relative w-full max-w-2xl mx-4 rounded-lg bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b px-6 py-4">
-          <h2 className="text-lg font-semibold">New Threat Research</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-900" aria-label="Close">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="new-research-title"
+    >
+      <div className="absolute inset-0 bg-black/50 animate-in fade-in duration-150" onClick={onClose} aria-hidden="true" />
+
+      <div className="relative w-full max-w-2xl overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface-container-high shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+        <div className="flex items-center justify-between border-b border-outline-variant px-6 py-4">
+          <h2 id="new-research-title" className="text-lg font-semibold text-on-surface">New Threat Research</h2>
+          <button onClick={onClose} className="text-on-surface-variant hover:text-on-surface" aria-label="Close">
             <Icon name="x" size={20} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
           <div>
-            <label htmlFor="tr-input" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="tr-input" className="mb-2 block text-sm font-medium text-on-surface">
               What do you want to research?
             </label>
             <textarea
@@ -72,17 +71,31 @@ export function NewResearchModal({ open, onClose }: NewResearchModalProps) {
               value={input}
               onChange={e => setInput(e.target.value)}
               maxLength={MAX_INPUT}
-              placeholder={placeholder}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+              placeholder={PLACEHOLDER}
+              className="w-full rounded-md border border-outline-variant bg-surface px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               disabled={submitting}
             />
-            <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+            <div className="mt-2 flex items-center justify-between text-xs text-on-surface-variant">
               <span>CVE, threat actor, campaign, technique, or any detection idea</span>
               <span>{input.length} / {MAX_INPUT}</span>
             </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-on-surface-variant">Try:</span>
+              {EXAMPLE_CHIPS.map(chip => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() => setInput(chip)}
+                  disabled={submitting}
+                  className="rounded-full border border-outline-variant bg-surface px-2.5 py-1 text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface disabled:opacity-50"
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="rounded-md bg-violet-50 px-4 py-3 text-sm text-violet-900">
+          <div className="rounded-md bg-primary-container px-4 py-3 text-sm text-on-primary-container">
             <div className="flex items-start gap-2">
               <Icon name="info" size={16} className="mt-0.5 flex-shrink-0" />
               <div>
@@ -93,7 +106,7 @@ export function NewResearchModal({ open, onClose }: NewResearchModalProps) {
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outlined" onClick={onClose} disabled={submitting}>Cancel</Button>
+            <Button type="button" variant="text" color="surface" onClick={onClose} disabled={submitting}>Cancel</Button>
             <Button type="submit" disabled={submitting || !input.trim()}>
               {submitting ? 'Starting...' : 'Start Research'}
             </Button>

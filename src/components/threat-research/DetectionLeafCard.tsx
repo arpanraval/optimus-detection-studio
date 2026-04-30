@@ -15,15 +15,15 @@ interface Props {
 }
 
 const VERDICT_STYLE: Record<string, string> = {
-  pass:                'bg-emerald-100 text-emerald-800',
-  pass_with_concerns:  'bg-amber-100 text-amber-800',
-  fail:                'bg-red-100 text-red-800',
+  pass:                'bg-tertiary-container text-on-tertiary-container',
+  pass_with_concerns:  'bg-secondary-container text-on-secondary-container',
+  fail:                'bg-error-container text-on-error-container',
 };
 
 const FEASIBILITY_STYLE: Record<string, string> = {
-  covered:    'bg-emerald-100 text-emerald-800',
-  partial:    'bg-amber-100 text-amber-800',
-  uncovered:  'bg-red-100 text-red-800',
+  covered:    'bg-tertiary-container text-on-tertiary-container',
+  partial:    'bg-secondary-container text-on-secondary-container',
+  uncovered:  'bg-error-container text-on-error-container',
 };
 
 export function DetectionLeafCard({ session, behaviour, opportunity, onClose, onMutated }: Props) {
@@ -70,32 +70,32 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
   }
 
   return (
-    <aside className="fixed right-0 top-0 z-40 flex h-full w-[480px] flex-col border-l bg-white shadow-xl">
-      <div className="flex items-center justify-between border-b px-5 py-4">
+    <aside className="fixed right-0 top-0 z-40 flex h-full w-[480px] flex-col border-l border-outline-variant bg-surface-container shadow-2xl">
+      <div className="flex items-center justify-between border-b border-outline-variant px-5 py-4">
         <div className="min-w-0 flex-1">
-          <div className="text-xs text-gray-500">{behaviour.title} → {opportunity.title}</div>
-          <h3 className="text-base font-semibold text-gray-900 truncate">{det.name}</h3>
+          <div className="text-xs text-on-surface-variant">{behaviour.title} → {opportunity.title}</div>
+          <h3 className="truncate text-base font-semibold text-on-surface">{det.name}</h3>
         </div>
-        <button onClick={onClose} aria-label="Close" className="text-gray-500 hover:text-gray-900 ml-2">
+        <button onClick={onClose} aria-label="Close" className="ml-2 text-on-surface-variant hover:text-on-surface">
           <Icon name="x" size={18} />
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+      <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
         {det.archived && (
-          <div className="rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-700">
+          <div className="rounded-md bg-surface-variant px-3 py-2 text-sm text-on-surface-variant">
             This detection has been discarded for this session.
           </div>
         )}
         {det.saved_detection_id && (
-          <div className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 flex items-center gap-2">
+          <div className="flex items-center gap-2 rounded-md bg-tertiary-container px-3 py-2 text-sm text-on-tertiary-container">
             <Icon name="check-circle" size={16} />
             Saved to library as a Draft.
           </div>
         )}
 
         <Section title="Description">
-          <p className="text-sm text-gray-700">{det.description}</p>
+          <p className="text-sm text-on-surface">{det.description}</p>
         </Section>
 
         <Section title="Verdict">
@@ -105,10 +105,10 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${VERDICT_STYLE[det.qa.verdict]}`}>
                   QA: {det.qa.verdict.replace(/_/g, ' ')}
                 </span>
-                <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-700">
+                <span className="inline-flex items-center rounded-full bg-surface-variant px-2 py-0.5 font-medium text-on-surface-variant">
                   Coverage: {det.qa.coverage_quality}
                 </span>
-                <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-700">
+                <span className="inline-flex items-center rounded-full bg-surface-variant px-2 py-0.5 font-medium text-on-surface-variant">
                   Iterations: {det.qa.iteration_count}
                 </span>
               </>
@@ -116,28 +116,28 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
             <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${FEASIBILITY_STYLE[det.feasibility]}`}>
               Feasibility: {det.feasibility}
             </span>
-            <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-700">
+            <span className="inline-flex items-center rounded-full bg-surface-variant px-2 py-0.5 font-medium text-on-surface-variant">
               {det.suggested_severity}
             </span>
-            <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-700">
+            <span className="inline-flex items-center rounded-full bg-surface-variant px-2 py-0.5 font-medium text-on-surface-variant">
               {det.suggested_detection_type}
             </span>
           </div>
           {det.feasibility_notes && (
-            <div className="mt-2 text-xs text-gray-600">{det.feasibility_notes}</div>
+            <div className="mt-2 text-xs text-on-surface-variant">{det.feasibility_notes}</div>
           )}
           {det.qa && det.qa.concerns.length > 0 && (
             <div className="mt-3">
-              <div className="text-xs font-semibold text-gray-700 mb-1">Concerns</div>
-              <ul className="list-disc pl-4 space-y-1 text-xs text-gray-700">
+              <div className="mb-1 text-xs font-semibold text-on-surface">Concerns</div>
+              <ul className="list-disc space-y-1 pl-4 text-xs text-on-surface-variant">
                 {det.qa.concerns.map((c, i) => <li key={i}>{c}</li>)}
               </ul>
             </div>
           )}
           {det.qa && det.qa.suggested_changes.length > 0 && (
             <div className="mt-3">
-              <div className="text-xs font-semibold text-gray-700 mb-1">Suggested changes</div>
-              <ul className="list-disc pl-4 space-y-1 text-xs text-gray-700">
+              <div className="mb-1 text-xs font-semibold text-on-surface">Suggested changes</div>
+              <ul className="list-disc space-y-1 pl-4 text-xs text-on-surface-variant">
                 {det.qa.suggested_changes.map((c, i) => <li key={i}>{c}</li>)}
               </ul>
             </div>
@@ -145,7 +145,7 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
         </Section>
 
         <Section title={`Query (${det.query_language})`}>
-          <pre className="overflow-x-auto rounded-md bg-gray-900 px-3 py-2.5 text-xs text-gray-100">
+          <pre className="overflow-x-auto rounded-md bg-surface-container-highest px-3 py-2.5 text-xs text-on-surface">
             <code>{det.query}</code>
           </pre>
         </Section>
@@ -157,12 +157,12 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
                 key={id}
                 href={`https://attack.mitre.org/techniques/${id.replace('.', '/')}/`}
                 target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center rounded-md bg-violet-50 px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100"
+                className="inline-flex items-center rounded-md bg-primary-container px-2 py-1 text-xs font-medium text-on-primary-container hover:opacity-80"
               >
                 {id}
               </a>
             ))}
-            <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-600">
+            <span className="inline-flex items-center rounded-md bg-surface-variant px-2 py-1 text-xs text-on-surface-variant">
               {det.kill_chain_phase}
             </span>
           </div>
@@ -171,11 +171,11 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
         <Section title="Citations">
           <ul className="space-y-1.5">
             {det.citations.length === 0
-              ? <li className="text-xs text-gray-500 italic">No citations.</li>
+              ? <li className="text-xs italic text-on-surface-variant">No citations.</li>
               : det.citations.map((c, i) => (
                 <li key={i} className="text-xs">
-                  <a href={c.url} target="_blank" rel="noopener noreferrer" className="font-medium text-violet-700 hover:underline">{c.source}</a>
-                  <span className="text-gray-700"> — {c.claim}</span>
+                  <a href={c.url} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">{c.source}</a>
+                  <span className="text-on-surface"> — {c.claim}</span>
                 </li>
               ))}
           </ul>
@@ -183,14 +183,14 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
 
         {det.covers_behaviour_ids.length > 1 && (
           <Section title="Cross-references">
-            <div className="text-xs text-gray-700">
+            <div className="text-xs text-on-surface">
               This detection also covers: {det.covers_behaviour_ids.filter(id => id !== behaviour.id).join(', ')}
             </div>
           </Section>
         )}
       </div>
 
-      <div className="flex items-center gap-2 border-t px-5 py-3">
+      <div className="flex items-center gap-2 border-t border-outline-variant px-5 py-3">
         {det.saved_detection_id ? (
           <Button
             variant="outlined"
@@ -216,7 +216,7 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">{title}</div>
+      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">{title}</div>
       {children}
     </div>
   );

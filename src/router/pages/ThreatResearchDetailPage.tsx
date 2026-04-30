@@ -39,15 +39,25 @@ export function ThreatResearchDetailPage() {
   const session = overrideSession ?? liveSession;
 
   if (loading) {
-    return <div className="flex h-full items-center justify-center text-sm text-gray-500">Loading session...</div>;
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-on-surface-variant">
+        <Icon name="loader" size={20} className="mr-2 animate-spin" />
+        Loading session...
+      </div>
+    );
   }
   if (error) {
-    return <div className="flex h-full items-center justify-center text-sm text-red-600">Error: {error}</div>;
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-on-error">
+        <Icon name="alert-triangle" size={16} className="mr-2" />
+        {error}
+      </div>
+    );
   }
   if (!session) {
     return (
-      <div className="flex h-full items-center justify-center flex-col gap-3">
-        <div className="text-sm text-gray-500">Session not found.</div>
+      <div className="flex h-full flex-col items-center justify-center gap-3">
+        <div className="text-sm text-on-surface-variant">Session not found.</div>
         <Button onClick={() => navigate(ROUTES.RESEARCH)}>Back to Research</Button>
       </div>
     );
@@ -69,19 +79,19 @@ export function ThreatResearchDetailPage() {
     <div className="flex h-full flex-col">
       <ResearchHeader session={session} view={view} onViewChange={setView} />
 
-      <div className="flex flex-1 min-h-0">
-        <div className="flex flex-1 flex-col min-w-0">
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
           {(session.status === 'pending' || session.status === 'running') && (
-            <div className="bg-blue-50 border-b border-blue-200 px-6 py-2 flex items-center justify-between text-sm text-blue-900">
+            <div className="flex items-center justify-between border-b border-outline-variant bg-secondary-container px-6 py-2 text-sm text-on-secondary-container">
               <div className="flex items-center gap-2">
                 <Icon name="loader" size={14} className="animate-spin" />
                 <span>Research in progress…</span>
               </div>
-              <Button variant="text" size="sm" onClick={handleCancel}>Cancel</Button>
+              <Button variant="text" color="surface" size="sm" onClick={handleCancel}>Cancel</Button>
             </div>
           )}
           {session.status === 'failed' && (
-            <div className="bg-red-50 border-b border-red-200 px-6 py-2 text-sm text-red-900">
+            <div className="border-b border-outline-variant bg-error-container px-6 py-2 text-sm text-on-error-container">
               Failed: {session.failure_reason ?? 'unknown'}
             </div>
           )}
