@@ -85,6 +85,10 @@ export async function webSearch(opts: WebSearchOpts): Promise<WebSearchResult> {
 
   const includeDomains = DOMAINS_BY_FOCUS[focus] || [];
 
+  // Tavily occasionally hangs on advanced searches; cap at 30s.
+  const TAVILY_TIMEOUT_MS = 30_000;
+  const ctrl = new AbortController();
+  const timeoutId = setTimeout(() => ctrl.abort(), TAVILY_TIMEOUT_MS);
   try {
     const response = await fetch('https://api.tavily.com/search', {
       method: 'POST',
@@ -97,6 +101,7 @@ export async function webSearch(opts: WebSearchOpts): Promise<WebSearchResult> {
         include_domains: includeDomains.length > 0 ? includeDomains : undefined,
         max_results: 8,
       }),
+      signal: ctrl.signal,
     });
 
     if (!response.ok) {
@@ -125,7 +130,12 @@ export async function webSearch(opts: WebSearchOpts): Promise<WebSearchResult> {
     if (cache) cache.set(cacheKey, result);
     return result;
   } catch (e) {
+    if ((e as Error).name === 'AbortError') {
+      return { query, results: [], error: 'Web search timed out.' };
+    }
     console.error('Web search error:', e);
     return { query, results: [], error: 'Web search failed.' };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
