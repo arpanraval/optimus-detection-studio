@@ -1,4 +1,5 @@
 // src/types/threatResearch.ts
+import { QUERY_LANGUAGES } from '../constants';
 
 export type ResearchStatus =
   | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
@@ -19,7 +20,7 @@ export type ResearchEventType =
   | 'session_completed' | 'session_cancelled' | 'session_failed'
   | 'tool_call' | 'tool_cache_hit';
 
-export type KillChainPhase =
+export type KillChainTactic =
   | 'reconnaissance' | 'resource-development' | 'initial-access'
   | 'execution' | 'persistence' | 'privilege-escalation'
   | 'defense-evasion' | 'credential-access' | 'discovery'
@@ -52,7 +53,7 @@ export interface AttackBehaviour {
   id: string;
   title: string;
   narrative_description: string;
-  kill_chain_phase: KillChainPhase;
+  kill_chain_phase: KillChainTactic;
   mitre_technique_ids: string[];
   data_sources: string[];
   artefacts: string[];
@@ -70,15 +71,23 @@ export interface DetectionOpportunity {
 
 export type FeasibilityVerdict = 'covered' | 'partial' | 'uncovered';
 
+/** Query language used for a generated detection. Derived from the canonical
+ *  list in `src/constants.ts` so the agent's choices are restricted to the same
+ *  set the rest of the app already understands. */
+export type ResearchQueryLanguage = (typeof QUERY_LANGUAGES)[number];
+
+export type QaVerdict = 'pass' | 'pass_with_concerns' | 'fail';
+export type QaCoverageQuality = 'tight' | 'acceptable' | 'loose';
+
 export interface QaIteration {
-  verdict: 'pass' | 'pass_with_concerns' | 'fail';
+  verdict: QaVerdict;
   concerns: string[];
   diff_from_previous: string | null;     // unified diff vs prior iteration's query
 }
 
 export interface QaResult {
-  verdict: 'pass' | 'pass_with_concerns' | 'fail';
-  coverage_quality: 'tight' | 'acceptable' | 'loose';
+  verdict: QaVerdict;
+  coverage_quality: QaCoverageQuality;
   concerns: string[];
   suggested_changes: string[];
   duplicate_of: string | null;            // existing detection id
@@ -90,10 +99,10 @@ export interface GeneratedDetection {
   id: string;
   name: string;
   description: string;
-  query_language: string;                 // 'KQL' | 'SPL' | 'Sigma' | …
+  query_language: ResearchQueryLanguage;
   query: string;
   mitre_technique_ids: string[];
-  kill_chain_phase: KillChainPhase;
+  kill_chain_phase: KillChainTactic;
   suggested_severity: 'Critical' | 'High' | 'Medium' | 'Low' | 'Informational';
   suggested_detection_type: 'Detection' | 'Hunting';
   feasibility: FeasibilityVerdict;
