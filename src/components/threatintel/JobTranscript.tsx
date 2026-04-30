@@ -154,39 +154,45 @@ const StageShell: React.FC<{
 }> = ({ index, title, subtitle, summary, detail, state, defaultOpen = false }) => {
   const [open, setOpen] = useState(defaultOpen);
 
+  // Stronger dot + ring opacities than v1 — at /30 the cards melted into
+  // the parent's tint. The ring now reads at a glance and the dot has
+  // enough contrast to identify state without staring.
   const tone = {
-    success: { dot: 'bg-emerald-500',          ring: 'border-emerald-500/30' },
-    error:   { dot: 'bg-red-400',              ring: 'border-red-400/30' },
-    mixed:   { dot: 'bg-amber-400',            ring: 'border-amber-400/30' },
-    empty:   { dot: 'bg-on-surface-variant/30',ring: 'border-outline-variant/30' },
-    running: { dot: 'bg-amber-400 animate-pulse', ring: 'border-amber-400/30' },
+    success: { dot: 'bg-emerald-500',             ring: 'border-emerald-500/60' },
+    error:   { dot: 'bg-red-400',                 ring: 'border-red-400/60' },
+    mixed:   { dot: 'bg-amber-400',               ring: 'border-amber-400/60' },
+    empty:   { dot: 'bg-on-surface-variant/40',   ring: 'border-outline-variant/40' },
+    running: { dot: 'bg-amber-400 animate-pulse', ring: 'border-amber-400/60' },
   }[state];
 
   return (
-    <div className={`rounded-lg border ${tone.ring} bg-surface-container-low/40`}>
+    <div className={`relative rounded-lg border ${tone.ring} bg-surface-container-low/80 shadow-sm`}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-surface-container-low/60 transition-colors rounded-lg"
+        className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-surface-container-low transition-colors rounded-lg"
       >
-        <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${tone.dot}`} />
+        {/* Larger dot (3×3 instead of 2×2) so the tone signal reads from
+            across the page, with a subtle ring outline so the dot stays
+            visible against the parent rail. */}
+        <span className={`relative mt-1.5 w-3 h-3 rounded-full shrink-0 ring-2 ring-surface-container ${tone.dot}`} />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2 flex-wrap">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/60">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/70">
               Stage {index}
             </span>
             <span className="text-sm font-semibold text-on-surface">{title}</span>
           </div>
-          <div className="text-xs text-on-surface-variant/60 mt-0.5">{subtitle}</div>
+          <div className="text-xs text-on-surface-variant/70 mt-0.5">{subtitle}</div>
           <div className="text-sm text-on-surface mt-1.5">{summary}</div>
         </div>
         <Icon
           name={open ? 'chevron-down' : 'chevron-right'}
-          className="w-4 h-4 text-on-surface-variant/50 shrink-0 mt-1"
+          className="w-4 h-4 text-on-surface-variant/60 shrink-0 mt-1"
         />
       </button>
       {open && (
-        <div className="border-t border-outline-variant/15 px-4 py-3 text-xs">
+        <div className="border-t border-outline-variant/20 px-4 py-3 text-xs">
           {detail}
         </div>
       )}
@@ -352,25 +358,30 @@ function ClassifyStage({ events }: { events: DigestEvent[] }) {
     </span>
   );
 
-  // Per-row tone label. "Skipped" is ambiguous — it could mean either
-  // "AI judged not relevant" (a verdict) or "system couldn't process"
-  // (a failure). Use "Not relevant" for the verdict and reserve "Error"
-  // for actual classifier failures.
+  // Per-row tone label. "Skipped" was ambiguous — "Not relevant" reads
+  // as the verdict it is. "Error" remains for actual classifier failures.
+  // Tags now render as small filled chips so the verdict reads at a
+  // glance instead of getting lost as faint uppercase text.
   const detail = (
-    <ul className="space-y-1.5">
+    <ul className="space-y-2">
       {[...passed, ...skipped, ...errored].map((e) => {
         const isErr = e.event_type === 'article_classify_failed';
-        const tone = isErr ? 'text-red-400' : (e.passed ? 'text-emerald-500' : 'text-on-surface-variant/70');
-        const label = isErr ? 'Error' : (e.passed ? 'Passed' : 'Not relevant');
+        const isPassed = e.passed === true;
+        const chipClass = isErr
+          ? 'bg-red-500/15 text-red-300 border-red-500/30'
+          : isPassed
+          ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+          : 'bg-amber-500/15 text-amber-300 border-amber-500/30';
+        const label = isErr ? 'Error' : (isPassed ? 'Passed' : 'Not relevant');
         return (
           <li key={e.id}>
             <div className="flex items-baseline gap-2">
-              <span className={`text-[10px] font-bold uppercase tracking-wider w-20 shrink-0 ${tone}`}>{label}</span>
-              <span className="text-[11px] text-on-surface-variant/40 font-mono tabular-nums shrink-0">{formatTime(e.created_at)}</span>
+              <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border shrink-0 ${chipClass}`}>{label}</span>
+              <span className="text-[11px] text-on-surface-variant/50 font-mono tabular-nums shrink-0">{formatTime(e.created_at)}</span>
               <span className="min-w-0 flex-1 truncate"><ArticleLink event={e} /></span>
             </div>
             {e.reason && (
-              <div className="text-[11px] text-on-surface-variant ml-[5.5rem] mt-0.5">{e.reason}</div>
+              <div className="text-[11px] text-on-surface-variant ml-[5.25rem] mt-1 leading-snug">{e.reason}</div>
             )}
           </li>
         );
@@ -419,17 +430,17 @@ function RankStage({ events, classifyPassed, jobIsActive }: { events: DigestEven
   );
 
   const detail = (
-    <ul className="space-y-1.5">
+    <ul className="space-y-2">
       {droppedDailyCap.map((e) => (
         <li key={e.id}>
           <div className="flex items-baseline gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider w-16 shrink-0 text-amber-400">
+            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-amber-500/15 text-amber-300 border-amber-500/30 shrink-0">
               Daily cap
             </span>
-            <span className="text-[11px] text-on-surface-variant/40 font-mono tabular-nums shrink-0">{formatTime(e.created_at)}</span>
+            <span className="text-[11px] text-on-surface-variant/50 font-mono tabular-nums shrink-0">{formatTime(e.created_at)}</span>
             <span className="min-w-0 flex-1 truncate"><ArticleLink event={e} /></span>
           </div>
-          {e.reason && <div className="text-[11px] text-on-surface-variant ml-[5.5rem] mt-0.5">{e.reason}</div>}
+          {e.reason && <div className="text-[11px] text-on-surface-variant ml-[5.5rem] mt-1 leading-snug">{e.reason}</div>}
         </li>
       ))}
     </ul>
@@ -475,10 +486,12 @@ function DigestStage({ events, jobIsActive }: { events: DigestEvent[]; jobIsActi
   );
 
   const detail = (
-    <ul className="space-y-1.5">
+    <ul className="space-y-2">
       {[...digested, ...failed].map((e) => {
         const isErr = e.event_type === 'article_digest_failed';
-        const tone = isErr ? 'text-red-400' : 'text-emerald-500';
+        const chipClass = isErr
+          ? 'bg-red-500/15 text-red-300 border-red-500/30'
+          : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
         const label = isErr ? 'Failed' : 'Digested';
         const payload = e.payload as Record<string, unknown> | null;
         const ttp = (payload?.ttp_count as number | undefined) ?? null;
@@ -487,15 +500,15 @@ function DigestStage({ events, jobIsActive }: { events: DigestEvent[]; jobIsActi
         return (
           <li key={e.id}>
             <div className="flex items-baseline gap-2">
-              <span className={`text-[10px] font-bold uppercase tracking-wider w-14 shrink-0 ${tone}`}>{label}</span>
-              <span className="text-[11px] text-on-surface-variant/40 font-mono tabular-nums shrink-0">{formatTime(e.created_at)}</span>
+              <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border shrink-0 ${chipClass}`}>{label}</span>
+              <span className="text-[11px] text-on-surface-variant/50 font-mono tabular-nums shrink-0">{formatTime(e.created_at)}</span>
               <span className="min-w-0 flex-1 truncate"><ArticleLink event={e} /></span>
               {e.duration_ms != null && (
                 <span className="text-[11px] text-on-surface-variant/60 tabular-nums shrink-0">{formatDuration(e.duration_ms)}</span>
               )}
             </div>
             {!isErr && (ttp != null || ioc != null || rule != null) && (
-              <div className="text-[11px] text-on-surface-variant ml-[4.5rem] mt-0.5">
+              <div className="text-[11px] text-on-surface-variant ml-[4.5rem] mt-1">
                 {ttp != null && <span>{ttp} TTPs</span>}
                 {ttp != null && ioc != null && <span> · </span>}
                 {ioc != null && <span>{ioc} IoCs</span>}
@@ -504,7 +517,7 @@ function DigestStage({ events, jobIsActive }: { events: DigestEvent[]; jobIsActi
               </div>
             )}
             {isErr && e.reason && (
-              <div className="text-[11px] text-red-400/80 ml-[4.5rem] mt-0.5">{e.reason}</div>
+              <div className="text-[11px] text-red-400/80 ml-[4.5rem] mt-1">{e.reason}</div>
             )}
           </li>
         );
@@ -576,18 +589,14 @@ export const JobTranscript: React.FC<JobTranscriptProps> = ({ job }) => {
 
   return (
     <div className="px-4 py-3 bg-surface-container-lowest/30 rounded-b-xl">
-      {/* Stage list with a thin connector rail at the dot column so the four
-          stages read as a sequence (Harvest → Classify → Rank → Digest)
-          rather than four parallel cards. The rail sits at the same x as
-          the tone dot inside each StageShell (top: ~22px from the row top
-          for "mt-1.5 w-2 h-2"; left: 4 px of card padding + 16 px of gap
-          ≈ 25 px). Tweak the offsets if the StageShell padding changes. */}
-      <div className="relative">
-        <div className="absolute left-[25px] top-6 bottom-6 w-px bg-outline-variant/40 pointer-events-none" />
-        <div className="relative space-y-2">
-          {stages.map((s, i) => (
+      {/* Stages render as a clear sequence using small chevron connectors
+          between cards. We tried an absolute-positioned rail through the
+          dot column but the card backgrounds occluded it; per-gap chevrons
+          are simpler, visible, and don't fight z-stacking. */}
+      <div className="space-y-2">
+        {stages.map((s, i) => (
+          <React.Fragment key={s.key}>
             <StageShell
-              key={s.key}
               index={i + 1}
               stageKey={s.key}
               title={s.label}
@@ -597,8 +606,13 @@ export const JobTranscript: React.FC<JobTranscriptProps> = ({ job }) => {
               state={s.state}
               defaultOpen={i === defaultOpenIdx}
             />
-          ))}
-        </div>
+            {i < stages.length - 1 && (
+              <div className="flex justify-start pl-[22px] py-0.5">
+                <Icon name="chevron-down" className="w-3 h-3 text-on-surface-variant/50" />
+              </div>
+            )}
+          </React.Fragment>
+        ))}
       </div>
     </div>
   );

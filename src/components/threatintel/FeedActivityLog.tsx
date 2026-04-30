@@ -110,7 +110,7 @@ function jobToneAndLabel(job: AutoDigestJob): { tone: JobStatusTone; label: stri
     return { tone: 'partial', label: `Completed with ${n} error${n === 1 ? '' : 's'}`, iconName: 'alert-triangle' };
   }
   if (digested === 0 && n === 0) {
-    return { tone: 'success', label: 'Completed — nothing relevant today', iconName: 'check-circle' };
+    return { tone: 'success', label: 'Completed — no threat-relevant articles', iconName: 'check-circle' };
   }
   // digested === 0 && n > 0
   return { tone: 'partial', label: `Completed with ${n} error${n === 1 ? '' : 's'}`, iconName: 'alert-triangle' };
@@ -140,14 +140,14 @@ function jobOneLineSummary(job: AutoDigestJob): string {
   if (job.status === 'failed') return job.error || 'Run failed before reporting any stats';
 
   // Show feeds, harvest, and the productive outcomes. AI-skip is a verdict,
-  // not a failure — surface it neutrally. Only systemErrors get the "error"
-  // label since "failed" was already misleading.
+  // not a failure — surface it as "not relevant" to match the per-row label
+  // in the Classify stage. Only systemErrors get the "error" label.
   const parts: string[] = [];
   parts.push(`${feedsFetched} feed${feedsFetched === 1 ? '' : 's'}`);
   if (harvested > 0) parts.push(`${harvested} harvested`);
   if (recovered > 0) parts.push(`${recovered} recovered`);
   if (digested > 0) parts.push(`${digested} digested`);
-  if (skipped > 0) parts.push(`${skipped} skipped`);
+  if (skipped > 0) parts.push(`${skipped} not relevant`);
   if (systemErrors.length > 0) parts.push(`${systemErrors.length} error${systemErrors.length === 1 ? '' : 's'}`);
   return parts.join(' · ');
 }
@@ -340,9 +340,22 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
   return (
     <div className="bg-surface-container rounded-2xl border border-outline-variant/10 flex flex-col"
          style={{ maxHeight: 'calc(100vh - 260px)' }}>
-      <div className="flex items-center justify-between px-6 pt-5 pb-3 shrink-0 gap-4 flex-wrap">
-        <h3 className="text-base font-semibold text-on-surface">Activity Log</h3>
-        <div className="flex items-center gap-1">
+      {/* Activity Log header. Title + run-count on row 1, filter pills
+          on row 2. The previous layout collapsed three different-priority
+          elements (title, chips, "X RUNS" label) onto one line; the chips
+          ended up cramped in the middle and the "RUNS" tiny-caps label
+          added noise without value. The count is folded into the run
+          range as "Showing X of Y" only when filtering. */}
+      <div className="px-6 pt-5 pb-3 shrink-0 space-y-3">
+        <div className="flex items-baseline justify-between gap-3 flex-wrap">
+          <h3 className="text-base font-semibold text-on-surface">Activity Log</h3>
+          <span className="text-xs text-on-surface-variant/70 tabular-nums">
+            {filter === 'all'
+              ? `${jobs.length} run${jobs.length === 1 ? '' : 's'}`
+              : `Showing ${filteredJobs.length} of ${jobs.length}`}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">
           {ACTIVITY_FILTERS.map((f) => {
             const isActive = filter === f.id;
             return (
@@ -350,10 +363,10 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
                 key={f.id}
                 type="button"
                 onClick={() => setFilter(f.id)}
-                className={`text-[11px] font-medium px-2.5 py-1 rounded-md transition-colors ${
+                className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
                   isActive
-                    ? 'bg-primary/15 text-primary'
-                    : 'text-on-surface-variant/70 hover:text-on-surface hover:bg-surface-container-high/50'
+                    ? 'bg-primary text-on-primary border-primary'
+                    : 'bg-transparent text-on-surface-variant border-outline-variant/40 hover:text-on-surface hover:border-outline-variant'
                 }`}
               >
                 {f.label}
@@ -361,11 +374,6 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
             );
           })}
         </div>
-        <span className="text-[10px] font-bold text-on-surface-variant/50 uppercase tracking-widest tabular-nums">
-          {filter === 'all'
-            ? `${jobs.length} run${jobs.length === 1 ? '' : 's'}`
-            : `${filteredJobs.length} of ${jobs.length}`}
-        </span>
       </div>
 
       {filteredJobs.length === 0 && (
@@ -374,7 +382,7 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
         </div>
       )}
 
-      <div className="overflow-y-auto px-6 pb-6 space-y-4 scrollbar-thin">
+      <div className="overflow-y-auto px-6 pb-6 space-y-5 scrollbar-thin">
         {grouped.map((group) => {
           const collapsed = collapsedDays.has(group.dateKey);
           return (
@@ -396,7 +404,7 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
                 </span>
               </button>
               {!collapsed && (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {group.jobs.map((j) => (
                     <JobCard
                       key={j.id}
