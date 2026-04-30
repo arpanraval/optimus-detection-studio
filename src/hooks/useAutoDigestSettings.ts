@@ -15,6 +15,11 @@ export interface AutoDigestSettings {
   ai_model: string;
   classification_model: string;
   digest_model: string;
+  /** Cached frontend prompt templates for the background orchestrator.
+   *  Null until the user has triggered at least one manual run from the
+   *  UI (which seeds the cache). The Activity tab uses this to show a
+   *  bootstrap-needed banner when null + Auto-run is ON. */
+  prompt_templates: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }
@@ -56,11 +61,25 @@ export interface FeedHealth {
   feed_id: string;
 }
 
+/** A user-added feed (curated_source_id IS NULL) shown in its own section
+ *  on the Sources tab. Same threat_intel_feeds table; just keyed and
+ *  rendered separately so the curated list stays clean. */
+export interface CustomFeed {
+  id: string;
+  name: string;
+  url: string;
+  feed_type: string;
+  is_enabled: boolean;
+  last_fetched_at: string | null;
+  last_error: string | null;
+}
+
 export function useAutoDigestSettings(userId: string) {
   const [settings, setSettings] = useState<AutoDigestSettings | null>(null);
   const [curatedSources, setCuratedSources] = useState<CuratedFeedSource[]>([]);
   const [enabledSourceIds, setEnabledSourceIds] = useState<Set<string>>(new Set());
   const [feedHealth, setFeedHealth] = useState<Map<string, FeedHealth>>(new Map());
+  const [customFeeds, setCustomFeeds] = useState<CustomFeed[]>([]);
   const [recentJobs, setRecentJobs] = useState<AutoDigestJob[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { showToast } = useToast();
@@ -116,6 +135,88 @@ export function useAutoDigestSettings(userId: string) {
       setFeedHealth(health);
     }
   }, [userId]);
+
+  // Custom feeds are user-added rows in threat_intel_feeds with
+  // curated_source_id IS NULL. Same table, just rendered as a separate
+  // section so the curated list isn't polluted with one-off entries.
+  const fetchCustomFeeds = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('threat_intel_feeds')
+      .select('id, name, url, feed_type, is_enabled, last_fetched_at, last_error')
+      .eq('user_id', userId)
+      .eq('is_auto_digest', true)
+      .is('curated_source_id', null)
+      .order('created_at', { ascending: true });
+    if (!error) setCustomFeeds((data || []) as CustomFeed[]);
+  }, [userId]);
+
+  const addCustomFeed = useCallback(async (input: { name: string; url: string; feedType: 'rss' | 'atom' }) => {
+    // Light client-side validation — the DB has its own NOT NULL/CHECK
+    // guards, but a friendlier error here is worth the few lines.
+    const name = input.name.trim();
+    let parsedUrl: URL;
+    try { parsedUrl = new URL(input.url); }
+    catch { showToast('error', 'Invalid URL'); return false; }
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+      showToast('error', 'Only http:// and https:// feeds are supported');
+      return false;
+    }
+    if (!name) { showToast('error', 'Source name is required'); return false; }
+
+    const feedType = input.feedType === 'atom' ? 'rss' : input.feedType; // table only has 'rss' | 'taxii'
+
+    const { error } = await supabase
+      .from('threat_intel_feeds')
+      .insert({
+        user_id: userId,
+        name,
+        url: parsedUrl.toString(),
+        feed_type: feedType,
+        curated_source_id: null,
+        is_auto_digest: true,
+        is_enabled: true,
+        extraction_method: 'direct',
+        schedule_cron: '0 0 * * *',
+      });
+
+    if (error) {
+      showToast('error', `Failed to add source: ${error.message}`);
+      return false;
+    }
+    showToast('success', `Added ${name}`);
+    await fetchCustomFeeds();
+    return true;
+  }, [userId, fetchCustomFeeds, showToast]);
+
+  const removeCustomFeed = useCallback(async (feedId: string) => {
+    const { error } = await supabase
+      .from('threat_intel_feeds')
+      .delete()
+      .eq('id', feedId)
+      .eq('user_id', userId)
+      .is('curated_source_id', null); // belt-and-suspenders: never let this delete a curated row
+    if (error) {
+      showToast('error', `Failed to remove source: ${error.message}`);
+      return false;
+    }
+    showToast('success', 'Source removed');
+    await fetchCustomFeeds();
+    return true;
+  }, [userId, fetchCustomFeeds, showToast]);
+
+  const toggleCustomFeed = useCallback(async (feedId: string, nextEnabled: boolean) => {
+    const { error } = await supabase
+      .from('threat_intel_feeds')
+      .update({ is_enabled: nextEnabled })
+      .eq('id', feedId)
+      .eq('user_id', userId)
+      .is('curated_source_id', null);
+    if (error) {
+      showToast('error', `Failed to update source: ${error.message}`);
+      return;
+    }
+    await fetchCustomFeeds();
+  }, [userId, fetchCustomFeeds, showToast]);
 
   const fetchRecentJobs = useCallback(async () => {
     const { data, error } = await supabase
@@ -209,9 +310,10 @@ export function useAutoDigestSettings(userId: string) {
     await Promise.all([
       fetchSettings(),
       fetchEnabledSources(),
+      fetchCustomFeeds(),
       fetchRecentJobs(),
     ]);
-  }, [fetchSettings, fetchEnabledSources, fetchRecentJobs]);
+  }, [fetchSettings, fetchEnabledSources, fetchCustomFeeds, fetchRecentJobs]);
 
   useEffect(() => {
     if (!userId) return;
@@ -220,9 +322,10 @@ export function useAutoDigestSettings(userId: string) {
       fetchSettings(),
       fetchCuratedSources(),
       fetchEnabledSources(),
+      fetchCustomFeeds(),
       fetchRecentJobs(),
     ]).finally(() => setIsLoading(false));
-  }, [userId, fetchSettings, fetchCuratedSources, fetchEnabledSources, fetchRecentJobs]);
+  }, [userId, fetchSettings, fetchCuratedSources, fetchEnabledSources, fetchCustomFeeds, fetchRecentJobs]);
 
   // Poll job status while a job is active so the UI can reflect the live state
   // (button stuck on "Run" after refresh was the user-visible symptom of this
@@ -241,14 +344,19 @@ export function useAutoDigestSettings(userId: string) {
     curatedSources,
     enabledSourceIds,
     feedHealth,
+    customFeeds,
     recentJobs,
     isLoading,
     fetchSettings,
     fetchCuratedSources,
     fetchEnabledSources,
+    fetchCustomFeeds,
     fetchRecentJobs,
     saveSettings,
     toggleSource,
+    addCustomFeed,
+    removeCustomFeed,
+    toggleCustomFeed,
     triggerManualRun,
     refresh,
   };

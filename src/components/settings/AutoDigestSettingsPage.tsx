@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
 import { Select } from '../ui/Select';
 import { Toggle } from '../ui/Toggle';
 import { ModelSelector } from '../ModelSelector';
-import { useAutoDigestSettings, CuratedFeedSource, FeedHealth } from '../../hooks/useAutoDigestSettings';
+import { useAutoDigestSettings, CuratedFeedSource, FeedHealth, CustomFeed } from '../../hooks/useAutoDigestSettings';
 import { FeedActivityLog } from '../threatintel/FeedActivityLog';
 import { useAppData } from '../../router/AppDataContext';
 
@@ -166,6 +166,83 @@ const SourceRow: React.FC<{
 };
 
 // =============================================================================
+// CUSTOM SOURCE ROW (user-added feed)
+// =============================================================================
+
+const CustomSourceRow: React.FC<{
+  feed: CustomFeed;
+  onToggle: () => void;
+  onRemove: () => void;
+}> = ({ feed, onToggle, onRemove }) => {
+  const domain = getDomain(feed.url);
+
+  // Same health-pill rules as curated rows: red if last_error, otherwise
+  // a relative timestamp, otherwise "Awaiting first fetch".
+  let healthLabel: React.ReactNode = <span className="text-on-surface-variant/40">Awaiting first fetch</span>;
+  let healthTitle: string | undefined;
+  if (feed.is_enabled) {
+    if (feed.last_error) {
+      healthLabel = feed.last_fetched_at
+        ? <span className="text-red-400">Failed · last fetched {formatRelativeShort(feed.last_fetched_at)}</span>
+        : <span className="text-red-400">Failed</span>;
+      healthTitle = feed.last_error;
+    } else if (feed.last_fetched_at) {
+      healthLabel = <span className="text-on-surface-variant">Fetched {formatRelativeShort(feed.last_fetched_at)}</span>;
+    }
+  } else {
+    healthLabel = <span className="text-on-surface-variant/30">—</span>;
+  }
+
+  return (
+    <tr className={`border-b border-outline-variant/50 transition-colors group ${
+      feed.is_enabled ? 'bg-primary/[0.05]' : 'hover:bg-surface-container-highest/50'
+    }`}>
+      <td className="py-3 pl-5 pr-3 w-12">
+        <div className="w-7 h-7 rounded-lg overflow-hidden bg-surface-container-highest flex items-center justify-center">
+          <Icon name="rss" className="w-3.5 h-3.5 text-on-surface-variant/50" />
+        </div>
+      </td>
+      <td className="py-3 pr-4">
+        <span className={`text-sm font-medium ${feed.is_enabled ? 'text-on-surface' : 'text-on-surface-variant'}`}>
+          {feed.name}
+        </span>
+      </td>
+      <td className="py-3 pr-4">
+        <span className="text-xs text-on-surface-variant/50 font-mono">{domain}</span>
+      </td>
+      <td className="py-3 pr-4">
+        <span className="text-[11px] tabular-nums" title={healthTitle}>{healthLabel}</span>
+      </td>
+      <td className="py-3 pr-4 text-right">
+        <button
+          type="button"
+          onClick={onRemove}
+          className="text-[11px] text-on-surface-variant/40 hover:text-red-400 transition-colors"
+          title="Remove this source"
+        >
+          Remove
+        </button>
+      </td>
+      <td className="py-3 pr-5 w-16 text-center">
+        <button
+          type="button"
+          onClick={onToggle}
+          className={`relative inline-block w-10 h-[22px] rounded-full transition-colors text-left align-middle ${
+            feed.is_enabled ? 'bg-primary' : 'bg-outline-variant'
+          }`}
+          role="switch"
+          aria-checked={feed.is_enabled}
+        >
+          <span className={`absolute top-[3px] left-[3px] w-4 h-4 rounded-full bg-white shadow transition-transform ${
+            feed.is_enabled ? 'translate-x-[18px]' : 'translate-x-0'
+          }`} />
+        </button>
+      </td>
+    </tr>
+  );
+};
+
+// =============================================================================
 // MAIN COMPONENT
 // =============================================================================
 
@@ -178,12 +255,33 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     curatedSources,
     enabledSourceIds,
     feedHealth,
+    customFeeds,
     recentJobs,
     isLoading,
     saveSettings,
     toggleSource,
+    addCustomFeed,
+    removeCustomFeed,
+    toggleCustomFeed,
     triggerManualRun,
   } = useAutoDigestSettings(userId);
+
+  // Add Custom Source modal state
+  const [addCustomOpen, setAddCustomOpen] = useState(false);
+  const [customName, setCustomName] = useState('');
+  const [customUrl, setCustomUrl] = useState('');
+  const [customSubmitting, setCustomSubmitting] = useState(false);
+  const handleAddCustom = useCallback(async () => {
+    if (customSubmitting) return;
+    setCustomSubmitting(true);
+    const ok = await addCustomFeed({ name: customName, url: customUrl, feedType: 'rss' });
+    setCustomSubmitting(false);
+    if (ok) {
+      setCustomName('');
+      setCustomUrl('');
+      setAddCustomOpen(false);
+    }
+  }, [addCustomFeed, customName, customUrl, customSubmitting]);
 
   // Tab state lives in the URL (?tab=...) so refresh, browser back/forward,
   // and external deep-links all behave naturally. Default tab is Activity —
@@ -254,8 +352,16 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
   const hasUnsavedChanges = pendingToggles.size > 0 || configDirty;
   const changeCount = pendingToggles.size + (configDirty ? 1 : 0);
 
+  // Track save inflight up here so handleToggleSource can ignore clicks
+  // while a save is in progress. Without this guard, a user rapid-clicking
+  // a feed row while Save is mid-flight could desync the optimistic
+  // pendingToggles state from what the DB ends up with — possibly leading
+  // to duplicate threat_intel_feeds rows.
+  const [isSaving, setIsSaving] = useState(false);
+
   // Handle source toggle (local only, not persisted until Save)
   const handleToggleSource = useCallback((source: CuratedFeedSource) => {
+    if (isSaving) return; // ignore clicks while a save is committing
     const currentlyEnabled = effectiveEnabled.has(source.id);
     setPendingToggles(prev => {
       const next = new Map(prev);
@@ -269,17 +375,18 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
       }
       return next;
     });
-  }, [effectiveEnabled, enabledSourceIds]);
+  }, [effectiveEnabled, enabledSourceIds, isSaving]);
 
   // Handle config change
   const updateConfig = useCallback((key: string, value: any) => {
+    if (isSaving) return;
     setLocalConfig(prev => ({ ...prev, [key]: value }));
     setConfigDirty(true);
-  }, []);
+  }, [isSaving]);
 
   // Save all changes
-  const [isSaving, setIsSaving] = useState(false);
   const handleSave = useCallback(async () => {
+    if (isSaving) return; // re-entrancy guard — Save button shouldn't fire twice
     setIsSaving(true);
     try {
       // Save config if dirty
@@ -296,7 +403,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     } finally {
       setIsSaving(false);
     }
-  }, [configDirty, localConfig, pendingToggles, curatedSources, saveSettings, toggleSource]);
+  }, [isSaving, configDirty, localConfig, pendingToggles, curatedSources, saveSettings, toggleSource]);
 
   // Discard changes
   const handleDiscard = useCallback(() => {
@@ -473,18 +580,31 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
         <div className="bg-surface-container rounded-2xl border border-outline-variant/10 overflow-hidden">
           {/* Header bar — matches the "Activity Log" header in
               FeedActivityLog and the "Pipeline Settings" header in
-              Configuration. */}
+              Configuration. Now includes an Add Custom Source button so
+              the page stops looking like a walled garden. */}
           <div className="px-6 pt-5 pb-3 flex items-center justify-between gap-4 flex-wrap">
             <div>
-              <h3 className="text-base font-semibold text-on-surface">Curated Sources</h3>
+              <h3 className="text-base font-semibold text-on-surface">Sources</h3>
               <p className="text-xs text-on-surface-variant/70 mt-0.5">
                 <span className="font-medium text-on-surface tabular-nums">{effectiveEnabled.size}</span>
-                {' '}of {curatedSources.length} enabled
+                {' '}of {curatedSources.length} curated enabled
+                {customFeeds.length > 0 && (
+                  <>
+                    {' · '}
+                    <span className="font-medium text-on-surface tabular-nums">{customFeeds.length}</span>
+                    {' '}custom
+                  </>
+                )}
               </p>
             </div>
-            <span className="text-[11px] text-on-surface-variant/60 max-w-xs text-right">
-              Curated by Optimus — to request a new source, contact support.
-            </span>
+            <Button
+              size="sm"
+              color="secondary"
+              leadingIcon="plus"
+              onClick={() => setAddCustomOpen(true)}
+            >
+              Add Custom Source
+            </Button>
           </div>
 
           {/* Source table — now lives inside the page-level container so
@@ -534,15 +654,113 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
                   </tbody>
                 );
               })}
+              {/* Custom (user-added) feeds. Same table, separate tbody +
+                  category heading so visually they read as a distinct
+                  collection. Toggle here flips is_enabled directly (no
+                  "save changes" buffering — user-added feeds are simpler:
+                  any change is committed immediately). The trash icon
+                  removes the row entirely. */}
+              {customFeeds.length > 0 && (
+                <tbody>
+                  <tr className="bg-surface-container">
+                    <td colSpan={6} className="px-5 py-1.5 border-y border-outline-variant/50">
+                      <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">
+                        Custom Sources
+                      </span>
+                    </td>
+                  </tr>
+                  {customFeeds.map((feed) => (
+                    <CustomSourceRow
+                      key={feed.id}
+                      feed={feed}
+                      onToggle={() => toggleCustomFeed(feed.id, !feed.is_enabled)}
+                      onRemove={() => {
+                        if (window.confirm(`Remove "${feed.name}" from your sources?`)) {
+                          removeCustomFeed(feed.id);
+                        }
+                      }}
+                    />
+                  ))}
+                </tbody>
+              )}
             </table>
 
-            {curatedSources.length === 0 && (
+            {curatedSources.length === 0 && customFeeds.length === 0 && (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <Icon name="globe" className="w-8 h-8 text-on-surface-variant/20 mb-3" />
                 <p className="text-sm text-on-surface-variant/40">No sources available</p>
-                <p className="text-xs text-on-surface-variant/25 mt-1">Run the database migration to populate curated sources</p>
+                <p className="text-xs text-on-surface-variant/25 mt-1">Add a custom source above, or run the curated-sources migration</p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Add Custom Source modal — minimalist inline modal so we don't
+          drag in another dependency for a one-shot dialog. Validates
+          inside the hook (URL parse, http/https only). */}
+      {addCustomOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={() => !customSubmitting && setAddCustomOpen(false)}
+        >
+          <div
+            className="bg-surface-container rounded-2xl border border-outline-variant/20 max-w-md w-full p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-semibold text-on-surface mb-1">Add Custom Source</h3>
+            <p className="text-xs text-on-surface-variant mb-5">
+              Add an RSS or Atom feed that isn't on the curated list. The orchestrator
+              will harvest it on the same schedule as your other sources.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant mb-1.5 block">
+                  Source name
+                </label>
+                <input
+                  type="text"
+                  value={customName}
+                  onChange={(e) => setCustomName(e.target.value)}
+                  placeholder="e.g. Internal Threat Intel Blog"
+                  className="w-full px-3 py-2 rounded-lg bg-surface-container-low border border-outline-variant/30 text-sm text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary"
+                  disabled={customSubmitting}
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant mb-1.5 block">
+                  Feed URL
+                </label>
+                <input
+                  type="url"
+                  value={customUrl}
+                  onChange={(e) => setCustomUrl(e.target.value)}
+                  placeholder="https://example.com/feed.xml"
+                  className="w-full px-3 py-2 rounded-lg bg-surface-container-low border border-outline-variant/30 text-sm text-on-surface placeholder:text-on-surface-variant/40 font-mono focus:outline-none focus:border-primary"
+                  disabled={customSubmitting}
+                />
+                <p className="text-[11px] text-on-surface-variant/60 mt-1.5">
+                  RSS or Atom XML feed. Must be http:// or https://.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                onClick={() => setAddCustomOpen(false)}
+                disabled={customSubmitting}
+                className="px-4 py-2 text-sm text-on-surface-variant hover:text-on-surface transition-colors rounded-lg disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <Button
+                size="sm"
+                color="primary"
+                onClick={handleAddCustom}
+                loading={customSubmitting}
+              >
+                Add Source
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -646,21 +864,23 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
                   <div>
                     <p className="text-sm font-medium text-on-surface">Environment Relevance</p>
                     <p className="text-xs text-on-surface-variant/60 mt-0.5">
-                      Scores articles by relevance to your industry, platforms, and log sources
+                      Scored automatically against your{' '}
+                      <Link to="/settings/environment" className="text-primary hover:underline">
+                        Environment Profile
+                      </Link>
+                      {' '}— industry, platforms, and log sources.
                     </p>
                   </div>
-                  {/* AUTO badge: explain what's happening so the user
-                      doesn't see a control they can't operate. The
-                      relevance scoring runs against the user's
-                      Environment Profile — link there as the way to
-                      change behavior, since this control itself isn't
-                      configurable. */}
-                  <span
-                    className="text-[10px] px-2 py-1 rounded-full bg-primary/10 text-primary font-bold uppercase tracking-wider cursor-help"
-                    title="Automatically scored against your Environment Profile (industry, platforms, log sources). To change scoring behavior, edit your Environment Profile in Settings."
+                  {/* The AUTO badge is now a Link too, so users can edit
+                      behavior in one click rather than reading a tooltip
+                      and having to navigate manually. */}
+                  <Link
+                    to="/settings/environment"
+                    className="text-[10px] px-2 py-1 rounded-full bg-primary/10 text-primary font-bold uppercase tracking-wider hover:bg-primary/20 transition-colors"
+                    title="Edit your Environment Profile to change relevance scoring"
                   >
-                    Auto
-                  </span>
+                    Auto · Edit
+                  </Link>
                 </div>
               </div>
             </div>
@@ -737,7 +957,39 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
           are the right home for cumulative numbers if/when we want
           them again. */}
       {activeTab === 'activity' && (
-        <div className="space-y-5">
+        <div className="space-y-4">
+          {/* Bootstrap banner — shown when Auto-run is ON but the user
+              has never triggered a manual run, so prompt_templates is
+              still null. The orchestrator can't digest anything until
+              prompts are seeded; without this banner a brand-new user
+              would see scheduled cron runs land as "completed with N
+              errors" with no obvious explanation. One click on Run Now
+              fixes it permanently. */}
+          {settings && settings.is_enabled && !settings.prompt_templates && (
+            <div className="rounded-2xl border border-amber-400/30 bg-amber-400/5 px-5 py-4 flex items-start gap-3">
+              <Icon name="alert-triangle" className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-on-surface">Trigger a manual run to enable scheduled digests</p>
+                <p className="text-xs text-on-surface-variant/80 mt-1 leading-relaxed">
+                  Auto-run is ON but the background orchestrator hasn't received your AI prompt
+                  templates yet. The next scheduled run will fail until you click <span className="font-medium text-on-surface">Run Now</span> at
+                  least once — that one manual run seeds the templates so all future cron-triggered
+                  runs work too.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                color="secondary"
+                leadingIcon="play"
+                loading={isRunning || isJobActive}
+                onClick={handleRunNow}
+                title="Trigger a digest now to seed the prompt cache"
+              >
+                {isJobActive ? 'Running…' : 'Run Now'}
+              </Button>
+            </div>
+          )}
+
           {userId ? (
             <FeedActivityLog userId={userId} />
           ) : (
