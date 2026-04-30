@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useToast } from './useToast';
+import { getAllThreatIntelPromptTemplates } from '../lib/ai/prompts/threat-intel';
 
 // ============================================
 // TYPES
@@ -182,7 +183,15 @@ export function useAutoDigestSettings(userId: string) {
   }, [userId, fetchEnabledSources, showToast]);
 
   const triggerManualRun = useCallback(async (): Promise<{ jobId: string } | null> => {
-    const { data, error } = await supabase.functions.invoke('trigger-auto-digest', { body: {} });
+    // Plan A: send the canonical threat-intel prompt templates with the
+    // trigger so the orchestrator (which can't import frontend modules)
+    // has them when it picks up the job. The trigger function caches
+    // them on auto_digest_settings.prompt_templates so subsequent
+    // cron-triggered runs can use the most-recently-seeded set too.
+    const promptTemplates = getAllThreatIntelPromptTemplates();
+    const { data, error } = await supabase.functions.invoke('trigger-auto-digest', {
+      body: { promptTemplates },
+    });
     if (error) {
       showToast('error', `Failed to start: ${error.message}`);
       return null;
