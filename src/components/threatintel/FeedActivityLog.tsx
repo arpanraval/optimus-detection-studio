@@ -346,7 +346,11 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
           ended up cramped in the middle and the "RUNS" tiny-caps label
           added noise without value. The count is folded into the run
           range as "Showing X of Y" only when filtering. */}
-      <div className="px-6 pt-5 pb-3 shrink-0 space-y-3">
+      {/* Header bar matches the sibling tab containers (Sources tab,
+          Configuration panels) — same px-6 pt-5 pb-3 + text-base
+          font-semibold + border-b under the header. Visual consistency
+          across the three tab bodies. */}
+      <div className="px-6 pt-5 pb-3 shrink-0 space-y-3 border-b border-outline-variant/15">
         <div className="flex items-baseline justify-between gap-3 flex-wrap">
           <h3 className="text-base font-semibold text-on-surface">Activity Log</h3>
           <span className="text-xs text-on-surface-variant/70 tabular-nums">
@@ -382,7 +386,7 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
         </div>
       )}
 
-      <div className="overflow-y-auto px-6 pb-6 space-y-5 scrollbar-thin">
+      <div className="overflow-y-auto px-6 pt-4 pb-6 space-y-5 scrollbar-thin">
         {grouped.map((group) => {
           const collapsed = collapsedDays.has(group.dateKey);
           return (
