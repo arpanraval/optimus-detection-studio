@@ -47,6 +47,45 @@ serve(async (req: Request) => {
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
+    // Read prompt templates from the body (Plan A: frontend is the canonical
+    // source of truth for AI prompts; the orchestrator can't access them
+    // directly so we cache them per-user here at trigger time and the
+    // orchestrator reads from auto_digest_settings.prompt_templates). The
+    // exact shape is whatever getAllThreatIntelPromptTemplates() in
+    // src/lib/ai/prompts/threat-intel/index.ts emits — we don't validate
+    // structure here so prompt evolution doesn't require touching this
+    // function. We do guard against accidentally clobbering an existing
+    // cache with empty/missing values.
+    let promptTemplatesFromBody: Record<string, unknown> | null = null;
+    try {
+      const body = await req.json();
+      const pt = body?.promptTemplates;
+      if (pt && typeof pt === 'object' && Object.keys(pt).length > 0) {
+        promptTemplatesFromBody = pt;
+      }
+    } catch {
+      // No body or unparseable — that's fine. Cron-triggered runs and
+      // legacy clients won't send one.
+    }
+
+    if (promptTemplatesFromBody) {
+      // Persist to settings so the orchestrator can read them when it picks
+      // up the job — and so future cron-triggered runs (no UI) inherit the
+      // most recent set of templates the user provided.
+      const { error: cacheError } = await adminClient
+        .from('auto_digest_settings')
+        .update({
+          prompt_templates: promptTemplatesFromBody,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', user.id);
+      if (cacheError) {
+        // Log but don't fail the trigger — the orchestrator will surface
+        // a clear "no templates cached" error if needed.
+        console.warn('[trigger-auto-digest] Failed to cache prompt templates:', cacheError.message);
+      }
+    }
+
     // If a job is already pending or processing, return it instead of creating
     // a duplicate. But also: if the orchestrator was killed mid-run (deno
     // sandbox eviction, function timeout, unhandled exception that escaped
