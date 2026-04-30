@@ -17,12 +17,10 @@ interface Node {
   height: number;
   x?: number;
   y?: number;
-  /** detection-specific state */
   qaVerdict?: 'pass' | 'pass_with_concerns' | 'fail' | null;
   saved?: boolean;
   archived?: boolean;
   feasibility?: 'covered' | 'partial' | 'uncovered';
-  /** for click-routing on leaves */
   behaviour?: AttackBehaviour;
   opportunity?: DetectionOpportunity;
 }
@@ -32,17 +30,47 @@ interface Edge { from: string; to: string }
 const NODE_W = 220;
 const NODE_H = 56;
 
+/**
+ * Node fills/strokes use M3 token CSS variables directly so they auto-flip
+ * with the theme. Tailwind classes can't be applied to SVG attributes.
+ */
+function nodeColours(n: Node): { fillVar: string; strokeVar: string; textClass: string; strokeWidth: number } {
+  if (n.kind === 'subject') {
+    return { fillVar: '--md-sys-color-primary-container', strokeVar: '--md-sys-color-primary', textClass: 'text-on-primary-container', strokeWidth: 2 };
+  }
+  if (n.kind === 'behaviour') {
+    return { fillVar: '--md-sys-color-secondary-container', strokeVar: '--md-sys-color-secondary', textClass: 'text-on-secondary-container', strokeWidth: 1.5 };
+  }
+  if (n.kind === 'opportunity') {
+    return { fillVar: '--md-sys-color-surface-container-high', strokeVar: '--md-sys-color-outline', textClass: 'text-on-surface', strokeWidth: 1.5 };
+  }
+  // detection node
+  if (n.archived) {
+    return { fillVar: '--md-sys-color-surface-variant', strokeVar: '--md-sys-color-outline-variant', textClass: 'text-on-surface-variant line-through', strokeWidth: 1.5 };
+  }
+  if (n.saved) {
+    return { fillVar: '--md-sys-color-tertiary-container', strokeVar: '--md-sys-color-tertiary', textClass: 'text-on-tertiary-container', strokeWidth: 1.5 };
+  }
+  if (n.qaVerdict === 'fail') {
+    return { fillVar: '--md-sys-color-error-container', strokeVar: '--md-sys-color-error', textClass: 'text-on-error-container', strokeWidth: 1.5 };
+  }
+  if (n.qaVerdict === 'pass') {
+    return { fillVar: '--md-sys-color-tertiary-container', strokeVar: '--md-sys-color-tertiary', textClass: 'text-on-tertiary-container', strokeWidth: 1.5 };
+  }
+  return { fillVar: '--md-sys-color-surface-container', strokeVar: '--md-sys-color-outline', textClass: 'text-on-surface', strokeWidth: 1.5 };
+}
+
 export function ResearchCanvas({ tree, status, onLeafClick }: Props) {
   const layout = useMemo(() => buildLayout(tree), [tree]);
 
   if (!tree.subject) {
     return (
-      <div className="flex flex-1 items-center justify-center bg-gray-50">
+      <div className="flex flex-1 items-center justify-center bg-surface">
         <div className="text-center">
           <div className="mb-2 inline-block animate-spin">
-            <Icon name="loader" size={28} className="text-violet-600" />
+            <Icon name="loader" size={28} className="text-primary" />
           </div>
-          <div className="text-sm text-gray-600">
+          <div className="text-sm text-on-surface-variant">
             {status === 'running' ? 'Research Agent is preparing the subject brief…' : 'No subject brief yet.'}
           </div>
         </div>
@@ -53,8 +81,14 @@ export function ResearchCanvas({ tree, status, onLeafClick }: Props) {
   const { nodes, edges, width, height } = layout;
 
   return (
-    <div className="flex-1 overflow-auto bg-[radial-gradient(circle,_rgba(0,0,0,0.04)_1px,_transparent_1px)] bg-[size:20px_20px]">
-      <svg width={width + 80} height={height + 80} className="block mx-auto my-6">
+    <div
+      className="flex-1 overflow-auto bg-surface"
+      style={{
+        backgroundImage: 'radial-gradient(circle, rgb(var(--md-sys-color-on-surface) / 0.08) 1px, transparent 1px)',
+        backgroundSize: '20px 20px',
+      }}
+    >
+      <svg width={width + 80} height={height + 80} className="mx-auto my-6 block">
         <g transform="translate(40, 40)">
           {edges.map(e => {
             const from = nodes.find(n => n.id === e.from)!;
@@ -70,7 +104,7 @@ export function ResearchCanvas({ tree, status, onLeafClick }: Props) {
                 key={`${e.from}->${e.to}`}
                 d={`M ${x1} ${y1} L ${x1} ${my} L ${x2} ${my} L ${x2} ${y2}`}
                 fill="none"
-                stroke="#cbd5e1"
+                stroke="rgb(var(--md-sys-color-outline-variant))"
                 strokeWidth={1.5}
               />
             );
@@ -93,7 +127,7 @@ export function ResearchCanvas({ tree, status, onLeafClick }: Props) {
 function NodeBox({ node, onClick }: { node: Node; onClick?: () => void }) {
   const x = node.x ?? 0;
   const y = node.y ?? 0;
-  const { fill, stroke, textColour } = nodeColours(node);
+  const { fillVar, strokeVar, textClass, strokeWidth } = nodeColours(node);
   const cursor = onClick ? 'cursor-pointer' : '';
 
   return (
@@ -102,14 +136,14 @@ function NodeBox({ node, onClick }: { node: Node; onClick?: () => void }) {
         width={NODE_W}
         height={NODE_H}
         rx={8}
-        fill={fill}
-        stroke={stroke}
-        strokeWidth={node.kind === 'subject' ? 2 : 1.5}
+        fill={`rgb(var(${fillVar}))`}
+        stroke={`rgb(var(${strokeVar}))`}
+        strokeWidth={strokeWidth}
       />
       <foreignObject x={8} y={8} width={NODE_W - 16} height={NODE_H - 16}>
-        <div className={`flex h-full items-center gap-2 text-xs leading-tight ${textColour}`}>
+        <div className={`flex h-full items-center gap-2 text-xs leading-tight ${textClass}`}>
           <Icon name={iconFor(node)} size={14} className="flex-shrink-0" />
-          <div className="flex-1 min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="truncate font-medium">{node.label}</div>
             {node.kind === 'detection' && (
               <div className="mt-0.5 flex items-center gap-1 text-[10px] opacity-80">
@@ -130,18 +164,6 @@ function iconFor(n: Node): string {
   if (n.kind === 'behaviour') return 'crosshair';
   if (n.kind === 'opportunity') return 'lightbulb';
   return n.saved ? 'check-circle' : 'shield';
-}
-
-function nodeColours(n: Node): { fill: string; stroke: string; textColour: string } {
-  if (n.kind === 'subject') return { fill: '#ede9fe', stroke: '#7c3aed', textColour: 'text-violet-900' };
-  if (n.kind === 'behaviour') return { fill: '#fff7ed', stroke: '#ea580c', textColour: 'text-orange-900' };
-  if (n.kind === 'opportunity') return { fill: '#fefce8', stroke: '#ca8a04', textColour: 'text-yellow-900' };
-  // detection node
-  if (n.archived) return { fill: '#f3f4f6', stroke: '#9ca3af', textColour: 'text-gray-500 line-through' };
-  if (n.saved) return { fill: '#d1fae5', stroke: '#059669', textColour: 'text-emerald-900' };
-  if (n.qaVerdict === 'fail') return { fill: '#fee2e2', stroke: '#dc2626', textColour: 'text-red-900' };
-  if (n.qaVerdict === 'pass') return { fill: '#d1fae5', stroke: '#10b981', textColour: 'text-emerald-900' };
-  return { fill: '#dbeafe', stroke: '#2563eb', textColour: 'text-blue-900' };
 }
 
 function buildLayout(tree: ThreatResearchTree): { nodes: Node[]; edges: Edge[]; width: number; height: number } {

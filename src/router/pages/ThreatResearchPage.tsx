@@ -8,11 +8,11 @@ import type { ThreatResearchSession } from '../../types/threatResearch';
 import { NewResearchModal } from '../../components/threat-research/NewResearchModal';
 
 const STATUS_STYLE: Record<string, string> = {
-  pending:   'bg-gray-100 text-gray-700',
-  running:   'bg-blue-100 text-blue-700',
-  completed: 'bg-emerald-100 text-emerald-700',
-  failed:    'bg-red-100 text-red-700',
-  cancelled: 'bg-amber-100 text-amber-700',
+  pending:   'bg-surface-variant text-on-surface-variant',
+  running:   'bg-secondary-container text-on-secondary-container',
+  completed: 'bg-tertiary-container text-on-tertiary-container',
+  failed:    'bg-error-container text-on-error-container',
+  cancelled: 'bg-surface-variant text-on-surface-variant',
 };
 
 function countSavedDetections(session: ThreatResearchSession): number {
@@ -33,6 +33,31 @@ function countTotalDetections(session: ThreatResearchSession): number {
   return n;
 }
 
+/** Pull a human-readable string out of any thrown value. */
+function toMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'string') return e;
+  if (e && typeof e === 'object') {
+    const obj = e as { message?: string; error?: string; details?: string };
+    return obj.message ?? obj.error ?? obj.details ?? 'Unknown error';
+  }
+  return String(e);
+}
+
+/**
+ * Treat "table doesn't exist" / "relation not found" as empty rather than as
+ * a hard error — this is what users see on a brand-new deploy before the
+ * migration has run, and the right response is "no sessions yet, here's how
+ * to start one" rather than a red error blob.
+ */
+function looksLikeMissingSchema(message: string): boolean {
+  const m = message.toLowerCase();
+  return m.includes('does not exist')
+    || m.includes('relation') && m.includes('not')
+    || m.includes('404')
+    || m.includes('schema cache');
+}
+
 export function ThreatResearchPage() {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<ThreatResearchSession[]>([]);
@@ -44,33 +69,50 @@ export function ThreatResearchPage() {
     let active = true;
     listSessions()
       .then(rows => { if (active) { setSessions(rows); setLoading(false); } })
-      .catch(e => { if (active) { setError(e instanceof Error ? e.message : String(e)); setLoading(false); } });
+      .catch(e => {
+        if (!active) return;
+        const msg = toMessage(e);
+        if (looksLikeMissingSchema(msg)) {
+          setSessions([]);
+          setError(null);
+        } else {
+          setError(msg);
+        }
+        setLoading(false);
+      });
     return () => { active = false; };
   }, []);
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b bg-white px-6 py-4">
-        <div>
-          <h1 className="text-xl font-semibold">Threat Research</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Multi-agent detection research from any threat input.</p>
-        </div>
+      <div className="flex items-center justify-end px-6 py-4">
         <Button onClick={() => setModalOpen(true)}>
           <Icon name="plus" size={14} />
           New Research
         </Button>
       </div>
 
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto px-6 pb-6">
         {loading ? (
-          <div className="text-center text-sm text-gray-500 py-12">Loading sessions...</div>
+          <div className="flex items-center justify-center py-16 text-sm text-on-surface-variant">
+            <Icon name="loader" size={20} className="mr-2 animate-spin" />
+            Loading sessions...
+          </div>
         ) : error ? (
-          <div className="text-center text-sm text-red-600 py-12">{error}</div>
+          <div className="rounded-2xl border border-outline-variant bg-error-container p-6 text-on-error-container">
+            <div className="flex items-start gap-3">
+              <Icon name="alert-triangle" size={20} className="mt-0.5 flex-shrink-0" />
+              <div className="text-sm">
+                <div className="font-medium">Couldn't load research sessions.</div>
+                <div className="mt-1 opacity-90">{error}</div>
+              </div>
+            </div>
+          </div>
         ) : sessions.length === 0 ? (
-          <div className="rounded-lg border-2 border-dashed border-gray-300 p-12 text-center">
-            <Icon name="compass" size={32} className="mx-auto text-gray-400 mb-3" />
-            <h3 className="text-base font-semibold text-gray-900">No research sessions yet</h3>
-            <p className="text-sm text-gray-500 mt-1 mb-4">
+          <div className="rounded-2xl border-2 border-dashed border-outline-variant bg-surface-container p-12 text-center">
+            <Icon name="compass" size={32} className="mx-auto mb-3 text-on-surface-variant" />
+            <h3 className="text-base font-semibold text-on-surface">No research sessions yet</h3>
+            <p className="mx-auto mt-1 mb-5 max-w-md text-sm text-on-surface-variant">
               Enter a threat actor, CVE, technique, or detection idea — four agents will collaborate to research it and produce committable detections.
             </p>
             <Button onClick={() => setModalOpen(true)}>
@@ -79,9 +121,9 @@ export function ThreatResearchPage() {
             </Button>
           </div>
         ) : (
-          <div className="rounded-lg border bg-white overflow-hidden">
+          <div className="overflow-hidden rounded-2xl border border-outline-variant bg-surface-container">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-600">
+              <thead className="bg-surface-container-high text-xs uppercase tracking-wide text-on-surface-variant">
                 <tr>
                   <th className="px-4 py-2.5 text-left font-medium">Subject</th>
                   <th className="px-4 py-2.5 text-left font-medium">Type</th>
@@ -90,7 +132,7 @@ export function ThreatResearchPage() {
                   <th className="px-4 py-2.5 text-left font-medium">Created</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-outline-variant">
                 {sessions.map(s => {
                   const subject = s.tree?.subject?.subject ?? s.input_text;
                   const total = countTotalDetections(s);
@@ -99,24 +141,24 @@ export function ThreatResearchPage() {
                     <tr
                       key={s.id}
                       onClick={() => navigate(routeHelpers.researchDetail(s.id))}
-                      className="cursor-pointer hover:bg-violet-50"
+                      className="cursor-pointer hover:bg-surface-container-high"
                     >
                       <td className="px-4 py-3">
-                        <div className="font-medium text-gray-900 truncate">{subject}</div>
-                        <div className="text-xs text-gray-500 truncate mt-0.5">{s.input_text}</div>
+                        <div className="truncate font-medium text-on-surface">{subject}</div>
+                        <div className="mt-0.5 truncate text-xs text-on-surface-variant">{s.input_text}</div>
                       </td>
-                      <td className="px-4 py-3 text-xs text-gray-700">
+                      <td className="px-4 py-3 text-xs text-on-surface-variant">
                         {s.input_classification ?? '—'}
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[s.status] ?? 'bg-gray-100 text-gray-700'}`}>
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[s.status] ?? 'bg-surface-variant text-on-surface-variant'}`}>
                           {s.status}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-xs text-gray-700">
+                      <td className="px-4 py-3 text-xs text-on-surface-variant">
                         {total > 0 ? `${saved} / ${total} saved` : '—'}
                       </td>
-                      <td className="px-4 py-3 text-xs text-gray-500">
+                      <td className="px-4 py-3 text-xs text-on-surface-variant">
                         {new Date(s.created_at).toLocaleString()}
                       </td>
                     </tr>

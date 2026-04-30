@@ -9,7 +9,7 @@ interface Props {
 export function CoverageImpactBadge({ impact }: Props) {
   if (!impact || impact <= 0) return null;
   return (
-    <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700">
+    <div className="inline-flex items-center gap-1.5 rounded-full bg-tertiary-container px-3 py-1 text-sm font-medium text-on-tertiary-container">
       <Icon name="trending-down" size={14} />
       <span>{impact.toFixed(1)} gap points</span>
     </div>
