@@ -42,17 +42,17 @@ function buildSystemPrompt(language: ResearchQueryLanguage): string {
   • the Attack Researcher's offensive deep-dive on this specific behaviour
   • the user's resolved SIEM language: ${language}
 
-Your job: produce 1-3 Detection Opportunities for this behaviour, each with
-ONE Detection (a runnable ${language} query). Use the deep-dive's
-"controls_bypassed" and "success_signal" sections to ground the query.
+OPERATING DISCIPLINE (strict):
+  1. Make AT MOST 3 tool calls TOTAL across all tool types. Pick the most
+     useful: feasibility_lookup for primary technique, mitre_search to confirm
+     a data source, library_search to anchor style. Do NOT search the web
+     unless the language is something exotic.
+  2. After your tool calls, your VERY NEXT response MUST be the JSON output
+     (no more tool calls).
+  3. Quality over quantity: 1 strong opportunity beats 3 weak ones.
 
-Use feasibility_lookup BEFORE writing each query. Mark each detection's
-feasibility from the user's environment profile.
-
-Use web_search sparingly — only for query-language idioms or PoCs.
-Use mitre_search for technique → data-source mapping if needed.
-
-Inline citations (// Source: …) belong inside the query itself.
+Use the deep-dive's "controls_bypassed" and "success_signal" sections to
+ground the query. Inline citations (// Source: …) belong inside the query.
 
 OUTPUT (single JSON array, no fences):
 [
@@ -168,7 +168,9 @@ async function reviseDetection(
 ): Promise<GeneratedDetection> {
   const cfg: AgentLoopConfig<DetectionOpportunity[]> = {
     agent: 'detection-engineer',
-    model: 'claude-opus-4-7',
+    // Using Haiku for v1 to fit in the 270s wall budget. Upgrade to Opus
+    // once the orchestrator has more time to spend on query writing.
+    model: 'claude-haiku-4-5',
     systemInstruction: buildSystemPrompt(language),
     knowledgePack: pack,
     toolDeclarations: TOOLS_FOR.detectionEngineer,
@@ -234,11 +236,13 @@ export async function runDetectionEngineerForBehaviour(
   const pack = await loadKnowledgePack('detection-engineering');
   const cfg: AgentLoopConfig<DetectionOpportunity[]> = {
     agent: 'detection-engineer',
-    model: 'claude-opus-4-7',
+    // Using Haiku for v1 to fit in the 270s wall budget. Upgrade to Opus
+    // once the orchestrator has more time to spend on query writing.
+    model: 'claude-haiku-4-5',
     systemInstruction: buildSystemPrompt(language),
     knowledgePack: pack,
     toolDeclarations: TOOLS_FOR.detectionEngineer,
-    iterationCap: 5,
+    iterationCap: 8,
     feature: 'tr-detection-engineer',
     validateFinalOutput: (text) => validateOpportunities(text, language),
   };

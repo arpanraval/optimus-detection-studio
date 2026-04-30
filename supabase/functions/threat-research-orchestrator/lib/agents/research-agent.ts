@@ -14,14 +14,17 @@ import { RunContext, emit } from "../events.ts";
 import { loadKnowledgePack } from "../skills-loader.ts";
 import type { AttackBehaviour, MitreTacticName, ResearchSubject } from "../types.ts";
 
-const SYSTEM = `You are the Research Agent for Threat Research, working as a senior threat-intel researcher.
+const SYSTEM = `You are the Research Agent for Threat Research.
 
-Your job has TWO outputs in a single JSON response:
-  1. A Subject Brief — complete, sourced intelligence picture
-  2. A list of Attack Behaviours organised by MITRE ATT&CK Tactic
+Your job: produce ONE JSON response containing a Subject Brief and a list
+of Attack Behaviours grouped by MITRE ATT&CK Tactic.
 
-You MUST use Tavily web_search to read primary sources (vendor research, MITRE,
-news, threat-intel blogs). Do not invent facts; cite every claim.
+OPERATING DISCIPLINE (strict):
+  1. Make AT MOST 3 tool calls TOTAL (any combination of web_search and
+     mitre_search). After 3, you MUST emit the JSON.
+  2. Combine angles into a single search query — Tavily returns 8 hits.
+  3. After your final tool call returns, your next response MUST be the
+     JSON (no more tool calls).
 
 You will see the threat-classification knowledge pack below. Follow it.
 
@@ -138,7 +141,7 @@ export async function runResearchAgent(
     systemInstruction: SYSTEM,
     knowledgePack: pack,
     toolDeclarations: TOOLS_FOR.research,
-    iterationCap: 6,
+    iterationCap: 5,
     feature: 'tr-research-agent',
     validateFinalOutput: validate,
   };

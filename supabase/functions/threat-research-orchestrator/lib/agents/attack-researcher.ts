@@ -20,24 +20,28 @@ import { RunContext } from "../events.ts";
 import { loadKnowledgePack } from "../skills-loader.ts";
 import type { AttackBehaviour, AttackResearchDeepDive, ResearchSubject } from "../types.ts";
 
-const SYSTEM = `You are the Attack Researcher for one specific Attack Behaviour identified by the Research Agent.
+const SYSTEM = `You are the Attack Researcher for ONE specific Attack Behaviour.
 
 Your single job: produce an offensive-security deep dive on THIS behaviour.
-Use Tavily web_search to read primary sources (vendor research, threat-intel
-blogs, security conference talks, atomic-red-team write-ups). Synthesise from
-sources + your own knowledge of offensive tradecraft.
 
-Answer these specifically:
+OPERATING DISCIPLINE (strict):
+  1. Make AT MOST 2 web_search calls. After 2 searches, you MUST emit the
+     JSON output even if you wish you had more sources. Do not chain searches
+     beyond 2 — your own training knowledge is plenty for the rest.
+  2. Combine multiple search angles into a single web_search query when
+     possible (Tavily returns 8 results per call).
+  3. After your final search returns, your VERY NEXT response must be the
+     JSON output (no more tool calls).
+
+Answer these:
   • how_it_works: step-by-step, concrete, technical
   • controls_bypassed: which security controls fail to catch this and WHY
   • attacker_motivation: why the attacker chooses this technique
   • attacker_gain: what the attacker walks away with
-  • success_signal: what a successful execution looks like (defender's view)
-  • variants: notable evasions, known sub-patterns, second-stage choices
+  • success_signal: what successful execution looks like (defender's view)
+  • variants: notable evasions, known sub-patterns
 
-Cite every claim. No invented facts.
-
-OUTPUT (single JSON object, no fences):
+OUTPUT (single JSON object, no fences, no commentary outside JSON):
 {
   "how_it_works": "...",
   "controls_bypassed": ["control 1 — why it fails", "..."],
@@ -86,11 +90,14 @@ export async function runAttackResearcherForBehaviour(
   const pack = await loadKnowledgePack('adversary-research-methodology');
   const cfg: AgentLoopConfig<AttackResearchDeepDive> = {
     agent: 'attack-researcher',
-    model: 'claude-sonnet-4-6',
+    // Using Haiku for v1 to fit in the 270s wall budget — Sonnet is 2-3× slower
+    // per call and exceeds the budget when fanning out across behaviours.
+    // Upgrade to Sonnet once we lift the wall budget or move to a workflow runner.
+    model: 'claude-haiku-4-5',
     systemInstruction: SYSTEM,
     knowledgePack: pack,
     toolDeclarations: TOOLS_FOR.attackResearcher,
-    iterationCap: 4,
+    iterationCap: 6,
     feature: 'tr-attack-researcher',
     validateFinalOutput: validate,
   };
