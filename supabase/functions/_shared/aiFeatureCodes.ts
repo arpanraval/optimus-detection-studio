@@ -19,6 +19,10 @@ const KNOWN_FEATURES = new Set<string>([
   'embedding-batch',
   'embedding-threat-intel',
   'optimus-tool-call',
+  'tr-research-agent',
+  'tr-attack-researcher',
+  'tr-detection-engineer',
+  'tr-qa-agent',
   'unknown',
 ]);
 

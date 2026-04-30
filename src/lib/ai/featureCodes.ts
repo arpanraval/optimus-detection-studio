@@ -33,6 +33,12 @@ export const AI_FEATURE_CODES = {
   // Optimus tool calls (when invoked from agent)
   OPTIMUS_TOOL_CALL:      'optimus-tool-call',
 
+  // Threat Research (multi-agent)
+  TR_RESEARCH:            'tr-research-agent',
+  TR_ATTACK_RESEARCHER:   'tr-attack-researcher',
+  TR_DETECTION_ENGINEER:  'tr-detection-engineer',
+  TR_QA:                  'tr-qa-agent',
+
   // Catch-all for new code that hasn't been classified yet
   UNKNOWN:                'unknown',
 } as const;
@@ -62,5 +68,9 @@ export const FEATURE_DISPLAY: Record<AiFeatureCode, { label: string; group: stri
   'embedding-batch':        { label: 'Batch Embedding',        group: 'Embeddings',       icon: 'database' },
   'embedding-threat-intel': { label: 'Threat Intel Embedding', group: 'Embeddings',       icon: 'database' },
   'optimus-tool-call':      { label: 'Optimus Tool Call',      group: 'AI Tools',         icon: 'tool' },
+  'tr-research-agent':      { label: 'TR · Research',          group: 'Threat Research',  icon: 'compass' },
+  'tr-attack-researcher':   { label: 'TR · Attack Researcher', group: 'Threat Research',  icon: 'crosshair' },
+  'tr-detection-engineer':  { label: 'TR · Detection Engineer',group: 'Threat Research',  icon: 'shield' },
+  'tr-qa-agent':            { label: 'TR · QA',                group: 'Threat Research',  icon: 'check-circle' },
   'unknown':                { label: 'Unclassified',           group: 'Other',            icon: 'help-circle' },
 };
