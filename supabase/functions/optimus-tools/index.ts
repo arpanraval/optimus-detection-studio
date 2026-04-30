@@ -5,6 +5,7 @@ import { checkRateLimit } from '../_shared/rate-limiter.ts'
 import { withAiTelemetry } from '../_shared/aiTelemetry.ts'
 import { parseGeminiEmbeddingUsage } from '../_shared/aiUsageParsers.ts'
 import { runRansomwareAssessment } from './behavioral-matcher.ts'
+import { webSearch } from '../_shared/web-search.ts'
 
 // =============================================================================
 // CONFIGURATION
@@ -694,124 +695,14 @@ async function handleGenerateNavigatorLayer(supabase: any, params: any) {
 }
 
 /**
- * Web search for external knowledge
- * Uses Tavily API for AI-powered security-focused web results
+ * Web search for external knowledge.
+ * Implementation lives in `_shared/web-search.ts` so the Threat Research
+ * orchestrator can reuse the same Tavily wrapper. Behaviour for this caller
+ * is unchanged: same response shape, same focus enum, same env var.
  */
 async function handleWebSearch(params: any) {
   const { query, focus = 'general' } = params
-
-  const TAVILY_API_KEY = Deno.env.get('TAVILY_API_KEY')
-
-  if (!TAVILY_API_KEY) {
-    return {
-      query,
-      results: [],
-      error: 'Web search is not configured. Ask your administrator to add TAVILY_API_KEY.',
-      suggestion: 'Try using the MITRE query or library search tools instead.'
-    }
-  }
-
-  // Security-focused domain filtering based on focus area
-  const domainsByFocus: Record<string, string[]> = {
-    threat_intel: [
-      'attack.mitre.org',
-      'mandiant.com',
-      'microsoft.com',
-      'crowdstrike.com',
-      'unit42.paloaltonetworks.com',
-      'secureworks.com',
-      'talosintelligence.com',
-      'thedfirreport.com',
-      'bleepingcomputer.com'
-    ],
-    tools: [
-      'attack.mitre.org',
-      'lolbas-project.github.io',
-      'gtfobins.github.io',
-      'github.com',
-      'atomic-red-team.org'
-    ],
-    vulnerabilities: [
-      'nvd.nist.gov',
-      'cve.org',
-      'cvedetails.com',
-      'rapid7.com',
-      'tenable.com',
-      'qualys.com'
-    ],
-    documentation: [
-      'learn.microsoft.com',
-      'docs.aws.amazon.com',
-      'cloud.google.com',
-      'elastic.co',
-      'splunk.com'
-    ],
-    news: [
-      'bleepingcomputer.com',
-      'therecord.media',
-      'darkreading.com',
-      'securityweek.com',
-      'krebsonsecurity.com'
-    ],
-    general: [] // No domain restriction
-  }
-
-  const includeDomains = domainsByFocus[focus] || []
-
-  try {
-    const response = await fetch('https://api.tavily.com/search', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        api_key: TAVILY_API_KEY,
-        query: query,
-        search_depth: 'advanced', // Deeper search for better results
-        include_answer: true, // Get AI-summarized answer
-        include_domains: includeDomains.length > 0 ? includeDomains : undefined,
-        max_results: 8
-      })
-    })
-
-    if (!response.ok) {
-      const error = await response.text()
-      console.error('Tavily API error:', error)
-      return {
-        query,
-        results: [],
-        error: 'Web search failed. Try the MITRE or library search tools.'
-      }
-    }
-
-    const data = await response.json()
-
-    // Format results for the AI
-    const results = (data.results || []).map((r: any) => ({
-      title: r.title,
-      url: r.url,
-      description: r.content?.slice(0, 400) || '',
-      source: new URL(r.url).hostname,
-      score: r.score
-    }))
-
-    return {
-      query,
-      focus,
-      total: results.length,
-      results,
-      // Tavily provides an AI-generated answer summarizing the results
-      summary: data.answer || null,
-      sources: results.map((r: any) => r.source).filter((s: string, i: number, a: string[]) => a.indexOf(s) === i)
-    }
-  } catch (e) {
-    console.error('Web search error:', e)
-    return {
-      query,
-      results: [],
-      error: 'Web search failed. Try the MITRE or library search tools.'
-    }
-  }
+  return await webSearch({ query, focus })
 }
 
 // =============================================================================
