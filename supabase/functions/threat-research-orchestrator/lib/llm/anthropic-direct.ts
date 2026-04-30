@@ -126,32 +126,48 @@ async function callAnthropicRaw(
   const tools = convertTools(params.tools);
   if (tools) body.tools = tools;
 
-  const ctrl = new AbortController();
-  const timeoutId = setTimeout(() => ctrl.abort(), ANTHROPIC_CALL_TIMEOUT_MS);
-  let res: Response;
-  try {
-    res = await fetch(ANTHROPIC_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
-  } catch (e) {
-    if ((e as Error).name === 'AbortError') {
-      throw new Error(`Anthropic call timed out after ${ANTHROPIC_CALL_TIMEOUT_MS / 1000}s`);
+  // Retry on 429 (rate-limit) with exponential backoff guided by the
+  // server's retry-after hint when present. Max 3 retries.
+  let res: Response | null = null;
+  let lastErr = '';
+  for (let attempt = 0; attempt <= 3; attempt++) {
+    const ctrl = new AbortController();
+    const timeoutId = setTimeout(() => ctrl.abort(), ANTHROPIC_CALL_TIMEOUT_MS);
+    try {
+      res = await fetch(ANTHROPIC_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+    } catch (e) {
+      clearTimeout(timeoutId);
+      if ((e as Error).name === 'AbortError') {
+        throw new Error(`Anthropic call timed out after ${ANTHROPIC_CALL_TIMEOUT_MS / 1000}s`);
+      }
+      throw e;
     }
-    throw e;
-  } finally {
     clearTimeout(timeoutId);
+
+    if (res.status === 429) {
+      const retryAfterRaw = res.headers.get('retry-after') ?? '';
+      const retryAfter = parseInt(retryAfterRaw) || (attempt + 1) * 5;
+      lastErr = `Anthropic 429 (retry-after ${retryAfter}s)`;
+      if (attempt < 3) {
+        await new Promise(r => setTimeout(r, Math.min(retryAfter, 30) * 1000));
+        continue;
+      }
+    }
+    break;
   }
 
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`Anthropic ${res.status}: ${errText.slice(0, 600)}`);
+  if (!res || !res.ok) {
+    const errText = res ? await res.text().catch(() => '') : lastErr;
+    throw new Error(`Anthropic ${res?.status ?? 'no-response'}: ${errText.slice(0, 600)}`);
   }
 
   const data = await res.json();

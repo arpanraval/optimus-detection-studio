@@ -23,6 +23,37 @@ import type { ThreatResearchTree } from "./types.ts";
 
 const TIME_BUDGET_MS = 270_000;
 
+/** Cap parallel agent invocations so we don't blow Anthropic's input TPM
+ *  rate limit (tier-1 is 30,000 input tokens/min for Sonnet/Opus). 2 is the
+ *  highest safe concurrency given each call carries a knowledge pack
+ *  (~5-10K input tokens). Combined with retry-on-429 backoff in the Anthropic
+ *  adapter, this is enough to keep parallel work flowing without burning
+ *  half the run on rate-limit retries. */
+const FAN_OUT_CONCURRENCY = 2;
+
+/** Run an async fn over each item with a max concurrency cap. */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (true) {
+      const idx = cursor++;
+      if (idx >= items.length) return;
+      results[idx] = await fn(items[idx], idx);
+    }
+  }
+  const workers = Array.from(
+    { length: Math.min(Math.max(concurrency, 1), items.length) },
+    () => worker(),
+  );
+  await Promise.all(workers);
+  return results;
+}
+
 export async function runOrchestration(
   supabase: SupabaseClient,
   sessionId: string,
@@ -103,10 +134,15 @@ export async function runOrchestration(
       })
       .eq('id', sessionId);
 
-    // Phase 2: attack research per behaviour
-    for (const behaviour of tree.behaviours) {
-      if (Date.now() - start > TIME_BUDGET_MS) throw new Error('time_budget_exceeded');
-      if (await checkCancelled()) return await markCancelled(supabase, runCtx, sessionId, start, tree, budget);
+    // Phase 2: attack research per behaviour, in PARALLEL.
+    //
+    // Each behaviour's deep-dive is independent — they read different parts
+    // of the web. Running them sequentially turned 9 behaviours × ~60s into
+    // ~9 minutes (over the wall-clock budget). Parallel collapses that to
+    // roughly the slowest single invocation.
+    if (Date.now() - start > TIME_BUDGET_MS) throw new Error('time_budget_exceeded');
+    if (await checkCancelled()) return await markCancelled(supabase, runCtx, sessionId, start, tree, budget);
+    await mapWithConcurrency(tree.behaviours, FAN_OUT_CONCURRENCY, async (behaviour) => {
       const deep = await runAttackResearcherForBehaviour(toolCtx, runCtx, tree.subject!, behaviour);
       behaviour.deep_dive = deep;
       await emit(runCtx, {
@@ -115,20 +151,22 @@ export async function runOrchestration(
         message: behaviour.title,
         payload: { behaviour_id: behaviour.id, has_deep_dive: !!deep },
       });
-      await persistTree();
-    }
+    });
+    await persistTree();
 
-    // Phase 3: detections per behaviour (library-first → generate → QA)
-    for (const behaviour of tree.behaviours) {
-      if (Date.now() - start > TIME_BUDGET_MS) throw new Error('time_budget_exceeded');
-      if (await checkCancelled()) return await markCancelled(supabase, runCtx, sessionId, start, tree, budget);
+    // Phase 3: detections per behaviour, in PARALLEL.
+    // Each behaviour is independently library-checked then generated; same
+    // parallelisation benefit as Phase 2.
+    if (Date.now() - start > TIME_BUDGET_MS) throw new Error('time_budget_exceeded');
+    if (await checkCancelled()) return await markCancelled(supabase, runCtx, sessionId, start, tree, budget);
+    await mapWithConcurrency(tree.behaviours, FAN_OUT_CONCURRENCY, async (behaviour) => {
       const result = await runDetectionEngineerForBehaviour(
         toolCtx, runCtx, tree.subject!, behaviour, queryLanguage,
       );
       behaviour.library_match = result.library_match;
       behaviour.opportunities = result.opportunities;
-      await persistTree();
-    }
+    });
+    await persistTree();
 
     // Phase 4: finalise
     const coverageImpact = await computeCoverageImpact(supabase, userId, tree);
