@@ -130,13 +130,25 @@ async function callAnthropicRaw(
   const tools = convertTools(params.tools);
   if (tools) body.tools = tools;
 
-  // Retry on 429 (rate-limit) with exponential backoff guided by the
-  // server's retry-after hint when present. Max 3 retries.
+  // The timeout MUST cover BOTH the fetch (header receipt) AND the body
+  // parse (`res.json()`). `fetch()` resolves as soon as response headers
+  // arrive — if Anthropic returns 200 OK and then stalls the body stream
+  // (which we've observed), an unprotected `await res.json()` will hang
+  // forever.
+  //
+  // We use `AbortSignal.timeout()` rather than a manual setTimeout +
+  // AbortController for a critical reason: in a Deno Deploy / Supabase
+  // Edge isolate, when the worker is fully blocked on network I/O the
+  // hypervisor hibernates the JS event loop. JS-level setTimeout never
+  // fires while paused, so nothing wakes the worker. AbortSignal.timeout
+  // is enforced by the Rust networking layer — when it fires it severs
+  // the socket, which produces a network error that wakes the isolate
+  // and rejects the await.
   let res: Response | null = null;
+  let data: unknown = null;
   let lastErr = '';
   for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {
-    const ctrl = new AbortController();
-    const timeoutId = setTimeout(() => ctrl.abort(), ANTHROPIC_CALL_TIMEOUT_MS);
+    const signal = AbortSignal.timeout(ANTHROPIC_CALL_TIMEOUT_MS);
     try {
       res = await fetch(ANTHROPIC_URL, {
         method: 'POST',
@@ -146,36 +158,47 @@ async function callAnthropicRaw(
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify(body),
-        signal: ctrl.signal,
+        signal,
       });
+
+      if (res.status === 429) {
+        const retryAfterRaw = res.headers.get('retry-after') ?? '';
+        const retryAfter = parseInt(retryAfterRaw) || (attempt + 1) * 5;
+        lastErr = `Anthropic 429 (retry-after ${retryAfter}s)`;
+        if (attempt < MAX_RATE_LIMIT_RETRIES) {
+          await new Promise(r => setTimeout(r, Math.min(retryAfter, 15) * 1000));
+          continue;
+        }
+        break;
+      }
+
+      if (!res.ok) {
+        // Body read MUST also use the same signal-bound stream; passing
+        // through to the catch via throw lets the same TimeoutError
+        // protection apply if the error body itself stalls.
+        const errText = await res.text().catch(() => '');
+        throw new Error(`Anthropic ${res.status}: ${errText.slice(0, 600)}`);
+      }
+
+      data = await res.json();
+      break;
     } catch (e) {
-      clearTimeout(timeoutId);
-      if ((e as Error).name === 'AbortError') {
-        throw new Error(`Anthropic call timed out after ${ANTHROPIC_CALL_TIMEOUT_MS / 1000}s`);
+      const name = (e as Error).name;
+      if (name === 'TimeoutError' || name === 'AbortError') {
+        throw new Error(`Anthropic call timed out after ${ANTHROPIC_CALL_TIMEOUT_MS / 1000}s (${name})`);
       }
       throw e;
     }
-    clearTimeout(timeoutId);
-
-    if (res.status === 429) {
-      const retryAfterRaw = res.headers.get('retry-after') ?? '';
-      const retryAfter = parseInt(retryAfterRaw) || (attempt + 1) * 5;
-      lastErr = `Anthropic 429 (retry-after ${retryAfter}s)`;
-      if (attempt < MAX_RATE_LIMIT_RETRIES) {
-        await new Promise(r => setTimeout(r, Math.min(retryAfter, 15) * 1000));
-        continue;
-      }
-    }
-    break;
   }
 
-  if (!res || !res.ok) {
-    const errText = res ? await res.text().catch(() => '') : lastErr;
-    throw new Error(`Anthropic ${res?.status ?? 'no-response'}: ${errText.slice(0, 600)}`);
+  if (data === null) {
+    throw new Error(`Anthropic ${res?.status ?? 'no-response'}: ${lastErr || 'no data returned'}`);
   }
-
-  const data = await res.json();
-  const rawAssistantContent: AnthropicContentBlock[] = data.content ?? [];
+  const parsed = data as {
+    content?: AnthropicContentBlock[];
+    usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number };
+  };
+  const rawAssistantContent: AnthropicContentBlock[] = parsed.content ?? [];
 
   let text = '';
   const toolUses: ToolUse[] = [];
@@ -196,9 +219,9 @@ async function callAnthropicRaw(
     toolUses,
     rawAssistantContent,
     usage: {
-      inputTokens: data.usage?.input_tokens ?? 0,
-      outputTokens: data.usage?.output_tokens ?? 0,
-      cachedInputTokens: data.usage?.cache_read_input_tokens ?? 0,
+      inputTokens: parsed.usage?.input_tokens ?? 0,
+      outputTokens: parsed.usage?.output_tokens ?? 0,
+      cachedInputTokens: parsed.usage?.cache_read_input_tokens ?? 0,
     },
   };
 }

@@ -85,10 +85,11 @@ export async function webSearch(opts: WebSearchOpts): Promise<WebSearchResult> {
 
   const includeDomains = DOMAINS_BY_FOCUS[focus] || [];
 
-  // Tavily occasionally hangs on advanced searches; cap at 30s.
+  // Tavily occasionally hangs on advanced searches. Use AbortSignal.timeout
+  // (Rust-runtime enforced) rather than setTimeout + AbortController — when
+  // the Deno isolate hibernates during network I/O, JS timers don't fire,
+  // but the native socket-level abort still does.
   const TAVILY_TIMEOUT_MS = 30_000;
-  const ctrl = new AbortController();
-  const timeoutId = setTimeout(() => ctrl.abort(), TAVILY_TIMEOUT_MS);
   try {
     const response = await fetch('https://api.tavily.com/search', {
       method: 'POST',
@@ -101,7 +102,7 @@ export async function webSearch(opts: WebSearchOpts): Promise<WebSearchResult> {
         include_domains: includeDomains.length > 0 ? includeDomains : undefined,
         max_results: 8,
       }),
-      signal: ctrl.signal,
+      signal: AbortSignal.timeout(TAVILY_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -130,12 +131,11 @@ export async function webSearch(opts: WebSearchOpts): Promise<WebSearchResult> {
     if (cache) cache.set(cacheKey, result);
     return result;
   } catch (e) {
-    if ((e as Error).name === 'AbortError') {
+    const name = (e as Error).name;
+    if (name === 'TimeoutError' || name === 'AbortError') {
       return { query, results: [], error: 'Web search timed out.' };
     }
     console.error('Web search error:', e);
     return { query, results: [], error: 'Web search failed.' };
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
