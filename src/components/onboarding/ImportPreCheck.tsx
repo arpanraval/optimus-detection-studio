@@ -36,6 +36,18 @@ export function ImportPreCheck({
     return () => cancelAnimationFrame(frame);
   }, []);
 
+  // ESC dismisses the modal
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent): void {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onCancel();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
+
   const actionCount = summary.netNew.length + summary.updatedUpstream.length;
   const unchangedCount = summary.unchanged.length;
   const rejectCount = summary.hardRejects.length;
@@ -66,9 +78,12 @@ export function ImportPreCheck({
         opacity: visible ? 1 : 0,
         transition: 'opacity 250ms ease-out',
       }}
+      onClick={onCancel}
+      role="presentation"
     >
       <div
         className="max-w-md w-full mx-4 flex flex-col overflow-hidden bg-surface-container/80 backdrop-blur-xl rounded-xl border border-outline-variant/20 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
         style={{
           opacity: visible ? 1 : 0,
           transform: visible ? 'translateY(0) scale(1)' : 'translateY(12px) scale(0.98)',
@@ -185,6 +200,11 @@ export function ImportPreCheck({
           {actionCount > 0 && (
             <Button color="primary" variant="filled" size="sm" leadingIcon="download" onClick={handleConfirm}>
               Import {actionCount.toLocaleString()} rules
+            </Button>
+          )}
+          {actionCount === 0 && unchangedCount > 0 && !forceAll && (
+            <Button color="primary" variant="filled" size="sm" leadingIcon="check" onClick={onCancel}>
+              Done
             </Button>
           )}
         </div>
