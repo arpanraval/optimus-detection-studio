@@ -1,11 +1,17 @@
 /**
  * GlobalImportBar - Floating progress pill for background imports
  *
- * Fixed-bottom-center pill (z-40) visible on ALL pages when an import
- * is running in the background. Follows MinimizedImportBar visual pattern.
+ * Fixed-bottom-center pill (z-40) shown on routes that don't already
+ * render their own progress UI, so the user always sees feedback when
+ * an import is running in the background.
  *
- * Shows when: isMinimized OR status is 'complete', AND status is one of
- * importing, paused, resumed, complete, rolling_back.
+ * Visibility rule:
+ *   - status must be one of: importing, paused, resumed, complete, rolling_back
+ *   - AND (status is 'complete', OR not on a dedicated import route
+ *     (/onboarding, /arsenal/bulk-import), OR the import was explicitly
+ *     minimised).
+ *
+ * On completion the pill stays until dismissed (no auto-dismiss).
  */
 
 import React from 'react';
@@ -63,11 +69,11 @@ function getProgressBarClass(status: GlobalImportStatus): string {
 }
 
 interface Props {
-  /** Override navigate target when expanding (defaults to /import) */
+  /** Override navigate target when expanding (defaults to /arsenal/bulk-import) */
   importRoute?: string;
 }
 
-export function GlobalImportBar({ importRoute = '/import' }: Props): React.JSX.Element | null {
+export function GlobalImportBar({ importRoute = '/arsenal/bulk-import' }: Props): React.JSX.Element | null {
   const navigate = useNavigate();
   const {
     status,
@@ -90,7 +96,7 @@ export function GlobalImportBar({ importRoute = '/import' }: Props): React.JSX.E
   const location = useLocation();
   const onDedicatedRoute =
     location.pathname.startsWith('/onboarding') ||
-    location.pathname.startsWith('/import');
+    location.pathname.startsWith('/arsenal/bulk-import');
 
   const isVisible =
     VISIBLE_STATUSES.includes(status) &&
