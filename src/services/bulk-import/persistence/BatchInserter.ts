@@ -155,6 +155,8 @@ export class BatchInserter {
    * Rollback a bulk import by deleting all detections from that job
    */
   async rollbackImport(jobId: string, userId: string): Promise<RollbackResult> {
+    let rpcError: string | null = null;
+
     try {
       // Try using the database function first
       const { data, error } = await supabase.rpc('rollback_bulk_import', {
@@ -163,17 +165,34 @@ export class BatchInserter {
       });
 
       if (error) {
-        console.warn('RPC rollback_bulk_import failed, using fallback:', error.message);
-        return this.fallbackRollback(jobId, userId);
+        rpcError = error.message;
+      } else {
+        // Trust the SQL function's response -- it now correctly returns
+        // success: false when no rows are affected
+        return data as RollbackResult;
       }
-
-      // Trust the SQL function's response -- it now correctly returns
-      // success: false when no rows are affected
-      return data as RollbackResult;
     } catch (error) {
-      console.warn('RPC rollback_bulk_import threw, using fallback:', error);
-      return this.fallbackRollback(jobId, userId);
+      rpcError = error instanceof Error ? error.message : String(error);
     }
+
+    // RPC failed (timeout, RLS, connection drop, …). Fall back to a direct
+    // DELETE through PostgREST. Only surface the RPC error if the fallback
+    // also fails — otherwise it's just noise.
+    const fallbackResult = await this.fallbackRollback(jobId, userId);
+
+    if (!fallbackResult.success && rpcError) {
+      console.warn(
+        'rollback_bulk_import: RPC failed and fallback also failed.',
+        { rpcError, fallbackError: fallbackResult.error }
+      );
+    } else if (rpcError) {
+      console.info(
+        'rollback_bulk_import: RPC failed, fallback DELETE succeeded.',
+        { rpcError }
+      );
+    }
+
+    return fallbackResult;
   }
 
   /**
