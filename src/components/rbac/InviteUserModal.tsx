@@ -229,7 +229,7 @@ export const InviteUserModal: React.FC<InviteUserModalProps> = ({
 
                         {/* Right Panel - Permissions */}
                         {showPermissions && (
-                            <div className="w-1/2 p-6 max-h-[60vh] overflow-y-auto team-scroll">
+                            <div className="w-1/2 p-6 max-h-[60vh] overflow-y-auto permission-scroll">
                                 <div className="space-y-4">
                                     <div className="flex items-center justify-between">
                                         <h4 className="text-sm font-medium text-on-surface">Permissions</h4>
@@ -320,9 +320,9 @@ export const InviteUserModal: React.FC<InviteUserModalProps> = ({
             </div>
 
             <style>{`
-                .team-scroll::-webkit-scrollbar { width: 5px; }
-                .team-scroll::-webkit-scrollbar-track { background: transparent; }
-                .team-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+                .permission-scroll::-webkit-scrollbar { width: 5px; }
+                .permission-scroll::-webkit-scrollbar-track { background: transparent; }
+                .permission-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
             `}</style>
         </div>
     );

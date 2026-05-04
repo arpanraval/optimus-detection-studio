@@ -89,8 +89,7 @@ export type AuditAction =
   | 'review_requested'
   | 'review_approved'
   | 'review_rejected'
-  | 'comment_added'
-  | 'moved_to_team';
+  | 'comment_added';
 
 export interface AuditLogEntry {
   id: string;

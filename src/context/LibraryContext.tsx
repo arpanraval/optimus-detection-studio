@@ -687,7 +687,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       .update({ visibility: VISIBILITY_SHARED })
       .eq('id', detectionId);
     if (error) throw error;
-    showToast('success', 'Shared', 'Detection is now visible to the team');
+    showToast('success', 'Shared', 'Detection is now shared');
     await refreshAll();
   }, [refreshAll, showToast]);
 

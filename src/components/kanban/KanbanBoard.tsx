@@ -79,7 +79,7 @@ export const KanbanBoard: React.FC = () => {
     return map;
   }, [allUsers]);
 
-  // H3 note: Supabase Realtime doesn't support row-level filters for team-shared tables.
+  // H3 note: Supabase Realtime doesn't support row-level filters for shared tables.
   // The channel receives events for all detections, but actual data is re-fetched via RLS-protected queries.
   // We only use the event as a signal to refresh - we don't read payload.new fields for display.
   useEffect(() => {
@@ -511,7 +511,7 @@ export const KanbanBoard: React.FC = () => {
             }`}
           >
             <Icon name="user" className="w-3.5 h-3.5" />
-            {myWorkOnly ? 'My Work' : 'All Team'}
+            {myWorkOnly ? 'My Work' : 'All'}
           </button>
 
           <button
