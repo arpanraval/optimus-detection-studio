@@ -5,7 +5,6 @@
  * Uses Jina Reader for JavaScript-rendered content with direct fetch fallback.
  * Includes SSRF protection via URL validation.
  *
- * Extracted from v1 threat-intel-digest/index.ts lines 952-1095
  */
 
 import type { FetchResult } from './types.ts'

@@ -4,7 +4,6 @@
  * Pattern-based extraction of detection rules and queries from content.
  * Supports KQL, YARA, Sigma, SPL, and Snort rule formats.
  *
- * Extracted from v1 threat-intel-digest/index.ts lines 680-946
  */
 
 import type { ExtractedRule } from './types.ts'

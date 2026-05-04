@@ -1,6 +1,6 @@
 // Environment Profile types — v2
 
-// ── Legacy: kept for backward compat (IndustryStep → SectorStep migration) ──
+// ── Legacy: retained for runtime profile data migration (industry → sectors auto-fill in useEnvironmentProfile) ──
 export const INDUSTRIES = [
   'Financial Services',
   'Healthcare',

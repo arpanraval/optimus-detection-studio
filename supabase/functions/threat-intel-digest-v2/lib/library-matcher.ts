@@ -4,7 +4,6 @@
  * Finds existing detections in the library that cover extracted TTPs.
  * Matches detections by TTP overlap and group relationships.
  *
- * Extracted from v1 threat-intel-digest/index.ts lines 1489-1603
  */
 
 import type {
