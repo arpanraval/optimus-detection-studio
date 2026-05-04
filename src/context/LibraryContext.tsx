@@ -1180,7 +1180,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
 
   const getFilteredCount = useCallback(async (filters: Record<string, any>): Promise<number> => {
     try {
-      let query = supabase.from('detections').select('id', { count: 'estimated', head: true });
+      let query = supabase.from('detections').select('id', { count: 'exact', head: true });
       query = buildFilterQuery(query, filters);
 
       const { count, error } = await query;
