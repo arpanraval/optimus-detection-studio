@@ -105,6 +105,8 @@ const OnboardingPage = lazy(() => import('../components/onboarding/OnboardingPag
 const PlaybooksPage = lazy(() => import('./pages/PlaybooksPage').then(m => ({ default: m.PlaybooksPage })));
 const PipelinePage = lazy(() => import('./pages/PipelinePage').then(m => ({ default: m.PipelinePage })));
 const DetectionActionPlanPage = lazy(() => import('./pages/DetectionActionPlanPage').then(m => ({ default: m.DetectionActionPlanPage })));
+const ActionPlanTechnologyPage = lazy(() => import('./pages/ActionPlanTechnologyPage').then(m => ({ default: m.ActionPlanTechnologyPage })));
+const ActionPlanThreatPage = lazy(() => import('./pages/ActionPlanThreatPage').then(m => ({ default: m.ActionPlanThreatPage })));
 const StateSponsoredReportPage = lazy(() => import('./pages/StateSponsoredReportPage').then(m => ({ default: m.StateSponsoredReportPage })));
 const DigestCampaignDetailPage = lazy(() => import('./pages/DigestCampaignDetailPage').then(m => ({ default: m.DigestCampaignDetailPage })));
 const ThreatIntelFeedsPage = lazy(() => import('./pages/ThreatIntelFeedsPage').then(m => ({ default: m.ThreatIntelFeedsPage })));
@@ -252,6 +254,8 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
 
       // Action Plan
       { path: 'action-plan', element: <DetectionActionPlanPage /> },
+      { path: 'action-plan/technology/:slug', element: <ActionPlanTechnologyPage /> },
+      { path: 'action-plan/threat/:slug', element: <ActionPlanThreatPage /> },
 
       // Defense Exercises
       { path: 'exercises/state-sponsored', element: <StateSponsoredReportPage /> },
