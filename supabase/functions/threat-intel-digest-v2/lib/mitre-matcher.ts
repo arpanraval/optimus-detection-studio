@@ -4,7 +4,6 @@
  * Validates extracted TTPs against the MITRE ATT&CK database and
  * matches threat groups, software, and campaigns mentioned in reports.
  *
- * Extracted from v1 threat-intel-digest/index.ts lines 1349-1483
  */
 
 import type {

@@ -5,7 +5,6 @@ export * from './detection';
 export * from './user';
 export * from './workflow';
 export * from './integration';
-export * from './ui-config';
 export * from './environment';
 
 // NOTE: optimus.ts, mitre-stix.ts, attack-rule-map.ts, threatIntel.ts

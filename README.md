@@ -532,8 +532,7 @@ Backend (Supabase)
     ├── generate-embedding (vector embedding generation)
     ├── manage-users (user CRUD with role enforcement)
     ├── review-ops (review workflow with authorization)
-    ├── enrich-threat-groups (MISP-based enrichment)
-    └── threat-intel-digest (legacy v1)
+    └── enrich-threat-groups (MISP-based enrichment)
 
 External Services
 ├── Google Gemini API (AI generation + embeddings)
@@ -698,7 +697,6 @@ optimus-detection-studio/
 ├── services/                      # Domain services
 │   ├── sigma/                     # Sigma conversion engine
 │   │   ├── SigmaConverterService.ts
-│   │   ├── SigmaWorker.ts        # Web Worker for Pyodide
 │   │   └── backends.ts           # 14 target platform configs
 │   └── bulk-import/               # Bulk import orchestration
 │       ├── orchestrator/          # Import job management
