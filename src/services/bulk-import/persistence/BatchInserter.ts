@@ -219,7 +219,10 @@ export class BatchInserter {
         }
       }
 
-      // Delete detections by bulk_import_id
+      // Delete detections by bulk_import_id. count: 'exact' is required so
+      // we can distinguish "0 rows matched" from "deletion succeeded but
+      // count not reported". Without it PostgREST returns count: null
+      // even on success, which would otherwise read as a failure.
       const { error: deleteError, count } = await supabase
         .from('detections')
         .delete({ count: 'exact' })
@@ -232,15 +235,15 @@ export class BatchInserter {
         };
       }
 
-      // Safety check: if job claims success_count > 0 but we deleted 0 rows,
-      // the detections likely don't have bulk_import_id set (legacy import).
-      // Return failure WITHOUT updating job status -- the job is not actually reverted.
-      if ((count === 0 || count === null) && job.success_count > 0) {
+      // count === 0 specifically means the rows weren't tagged with this
+      // bulk_import_id (a legacy import predating the safety column).
+      // count === null is impossible here because we asked for 'exact'.
+      if (count === 0 && job.success_count > 0) {
         return {
           success: false,
           expected_count: job.success_count,
           deleted_count: 0,
-          error: `No detections found linked to this import job. ${job.success_count} detections were imported but lack rollback tracking. They may need to be deleted manually.`,
+          error: `Rollback could not find any detections tagged with this import job. ${job.success_count} rules were recorded as imported but predate the rollback-tracking column added in 20260318. Delete them manually or contact an admin.`,
         };
       }
 
