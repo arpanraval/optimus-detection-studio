@@ -56,6 +56,8 @@ export const ROUTES = {
 
   // Action Plan
   ACTION_PLAN: '/action-plan',
+  ACTION_PLAN_TECHNOLOGY: '/action-plan/technology/:slug',
+  ACTION_PLAN_THREAT: '/action-plan/threat/:slug',
 
   // Defense Exercises
   EXERCISES_STATE_SPONSORED: '/exercises/state-sponsored',
@@ -136,6 +138,8 @@ export const routeHelpers = {
   siemHome: (id: string) => `/siem/${id}`,
   enterpriseDashboard: (id: string) => `/dashboard/enterprise/${id}`,
   stateSponsoredReport: () => `/exercises/state-sponsored`,
+  actionPlanTechnology: (slug: string) => `/action-plan/technology/${encodeURIComponent(slug)}`,
+  actionPlanThreat: (slug: string) => `/action-plan/threat/${encodeURIComponent(slug)}`,
 
   // Library with filter params
   libraryWithFilter: (filter: string) => `/library?filter=${encodeURIComponent(filter)}`,
@@ -183,6 +187,8 @@ export const viewToRoute: Record<string, string> = {
   'auto_digest': ROUTES.AUTO_DIGEST,
   'siem-health': ROUTES.SIEM_HEALTH,
   'action_plan': ROUTES.ACTION_PLAN,
+  'action_plan_technology': ROUTES.ACTION_PLAN_TECHNOLOGY,
+  'action_plan_threat': ROUTES.ACTION_PLAN_THREAT,
   'exercises-state-sponsored': '/exercises/state-sponsored',
   'audit_log': ROUTES.AUDIT_LOG,
   'users': ROUTES.USERS,
@@ -264,6 +270,8 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.SIEM_HEALTH]: { title: 'SIEM Home', description: 'Manage your SIEM and EDR integrations' },
   [ROUTES.SIEM_HOME]: { title: 'SIEM Home', description: undefined },
   [ROUTES.ACTION_PLAN]: { title: 'Detection Action Plan', description: 'Prioritized detection deployment roadmap' },
+  [ROUTES.ACTION_PLAN_TECHNOLOGY]: { title: 'Action Plan — Technology', description: 'Focused detection plan for one technology area' },
+  [ROUTES.ACTION_PLAN_THREAT]: { title: 'Action Plan — Threat', description: 'Focused detection plan for one threat actor or origin country' },
   [ROUTES.EXERCISES_STATE_SPONSORED]: { title: 'State Sponsored Attack Report', description: 'Defense exercise: state-sponsored threat posture analysis' },
   [ROUTES.ACCOUNT]: { title: 'Account Settings', description: 'Manage your profile and preferences' },
   [ROUTES.SUBMISSIONS]: { title: 'My Submissions', description: 'Track your publication requests' },
