@@ -25,6 +25,7 @@ import { LIBRARY_PRODUCTION } from '../../constants/library';
 import { supabase } from '../../lib/supabaseClient';
 import { PipelineController } from './pipeline/PipelineController';
 import { useRegisterNavigationBlocker } from '../../context/NavigationBlockerContext';
+import { useGlobalImport } from '../../context/GlobalImportContext';
 
 import type {
   OnboardingPhase,
@@ -52,7 +53,6 @@ interface OnboardingReducerState {
   stages: StageState[];
   streams: StreamState[];
   liveStats: LiveStats;
-  consoleEntries: ConsoleEntry[];
   incompleteJobId?: string;
 }
 
@@ -69,7 +69,6 @@ type OnboardingAction =
   | { type: 'DESELECT_ALL_FOLDERS'; sourceId: string }
   | { type: 'SET_PHASE'; phase: OnboardingPhase }
   | { type: 'UPDATE_PROGRESS'; sourceId: string; progress: ImportProgress }
-  | { type: 'ADD_CONSOLE_ENTRY'; entry: ConsoleEntry }
   | { type: 'UPDATE_STAGE'; stage: PipelineStage; status: StageState['status']; counter?: number; secondaryCounter?: number }
   | { type: 'UPDATE_STREAM'; stream: StreamState }
   | { type: 'UPDATE_LIVE_STATS'; liveStats: LiveStats }
@@ -171,12 +170,6 @@ function onboardingReducer(
         })),
       };
 
-    case 'ADD_CONSOLE_ENTRY':
-      return {
-        ...state,
-        consoleEntries: [...state.consoleEntries, action.entry],
-      };
-
     case 'UPDATE_STAGE':
       return {
         ...state,
@@ -271,7 +264,6 @@ function createInitialState(): OnboardingReducerState {
       mitreTechniques: new Set(),
       avgQualityScore: 0,
     },
-    consoleEntries: [],
   };
 }
 
@@ -423,6 +415,7 @@ export const useOnboarding = (): OnboardingContextValue => {
 
 export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(onboardingReducer, undefined, createInitialState);
+  const { addConsoleEntry, consoleEntries } = useGlobalImport();
 
   /** Map of sourceId -> BulkImportJobManager (mutable, not state) */
   const managersRef = useRef<Map<string, BulkImportJobManager>>(new Map());
@@ -465,12 +458,9 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // ------------------------------------------
   const logConsole = useCallback(
     (sourceId: string, sourceName: string, message: string, level: ConsoleLevel) => {
-      dispatch({
-        type: 'ADD_CONSOLE_ENTRY',
-        entry: makeConsoleEntry(sourceId, sourceName, message, level),
-      });
+      addConsoleEntry(makeConsoleEntry(sourceId, sourceName, message, level));
     },
-    []
+    [addConsoleEntry]
   );
 
   // ------------------------------------------
@@ -1081,7 +1071,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     stages: state.stages,
     streams: state.streams,
     liveStats: state.liveStats,
-    consoleEntries: state.consoleEntries,
+    consoleEntries,
     incompleteJobId: state.incompleteJobId,
 
     // Actions
