@@ -8,8 +8,8 @@
  * importing, paused, resumed, complete, rolling_back.
  */
 
-import React, { useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useGlobalImport, type GlobalImportStatus } from '../../context/GlobalImportContext';
 import { Icon } from '../Icon';
 
@@ -21,9 +21,6 @@ const VISIBLE_STATUSES: GlobalImportStatus[] = [
   'complete',
   'rolling_back',
 ];
-
-/** Auto-dismiss delay for completion state (ms) */
-const COMPLETION_DISMISS_MS = 10_000;
 
 function formatCount(n: number): string {
   if (n >= 1000) {
@@ -82,27 +79,22 @@ export function GlobalImportBar({ importRoute = '/import' }: Props): React.JSX.E
     abortImport,
   } = useGlobalImport();
 
-  const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // No auto-dismiss on completion: users were missing confirmation
+  // when not actively watching the bottom of the screen. The pill
+  // stays until the user clicks the X.
 
-  // Auto-dismiss on completion after 10 seconds
-  useEffect(() => {
-    if (status === 'complete') {
-      dismissTimerRef.current = setTimeout(() => {
-        abortImport();
-      }, COMPLETION_DISMISS_MS);
-    }
+  // Hide the global pill when the user is on a route that already
+  // renders its own progress UI (the onboarding canvas and the
+  // bulk-import wizard). Everywhere else, surface progress regardless
+  // of whether the user explicitly minimised.
+  const location = useLocation();
+  const onDedicatedRoute =
+    location.pathname.startsWith('/onboarding') ||
+    location.pathname.startsWith('/import');
 
-    return () => {
-      if (dismissTimerRef.current) {
-        clearTimeout(dismissTimerRef.current);
-        dismissTimerRef.current = null;
-      }
-    };
-  }, [status, abortImport]);
-
-  // Determine visibility
   const isVisible =
-    VISIBLE_STATUSES.includes(status) && (isMinimized || status === 'complete');
+    VISIBLE_STATUSES.includes(status) &&
+    (status === 'complete' || !onDedicatedRoute || isMinimized);
 
   if (!isVisible) return null;
 
@@ -123,10 +115,6 @@ export function GlobalImportBar({ importRoute = '/import' }: Props): React.JSX.E
   }
 
   function handleDismiss(): void {
-    if (dismissTimerRef.current) {
-      clearTimeout(dismissTimerRef.current);
-      dismissTimerRef.current = null;
-    }
     abortImport();
   }
 
