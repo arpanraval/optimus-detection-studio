@@ -237,13 +237,15 @@ export class BatchInserter {
 
       // count === 0 specifically means the rows weren't tagged with this
       // bulk_import_id (a legacy import predating the safety column).
-      // count === null is impossible here because we asked for 'exact'.
+      // PostgREST returns a number when count: 'exact' is requested and
+      // Content-Range is intact, which is always the case under normal
+      // operation. (Remaining `count || 0` defaults below cover edge cases.)
       if (count === 0 && job.success_count > 0) {
         return {
           success: false,
           expected_count: job.success_count,
           deleted_count: 0,
-          error: `Rollback could not find any detections tagged with this import job. ${job.success_count} rules were recorded as imported but predate the rollback-tracking column added in 20260318. Delete them manually or contact an admin.`,
+          error: `Rollback could not find any detections tagged with this import job. ${job.success_count} rules were recorded as imported but lack a bulk_import_id link (likely created before rollback tracking was added in supabase/migrations/add_bulk_import_safety_columns.sql). Delete them manually or contact an admin.`,
         };
       }
 
