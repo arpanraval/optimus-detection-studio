@@ -67,6 +67,8 @@ export interface GapTechnique {
   mitreId: string;
   name: string;
   threatGroupCount: number;
+  /** Names of threat groups using this technique (mirrors threatGroupCount). */
+  threatGroupNames: string[];
   /** False for Reconnaissance (TA0043) and Resource Development (TA0042) techniques that occur on attacker infrastructure */
   siemDetectable: boolean;
 }
@@ -457,15 +459,21 @@ export function useProfileIntelligence(
           }
 
           const gapIds = Array.from(groupTechniqueIds).filter(id => !matchedTechIds.has(id));
+          const stixIdToName = new Map<string, string>();
+          for (const g of threatGroups) stixIdToName.set(g.stixId, g.name);
           const gapTechniques: GapTechnique[] = gapIds.map(id => {
-            let tgCount = 0;
-            for (const [, gTechs] of groupTechMap) {
-              if (gTechs.has(id)) tgCount++;
+            const tgNames: string[] = [];
+            for (const [stixId, gTechs] of groupTechMap) {
+              if (gTechs.has(id)) {
+                const name = stixIdToName.get(stixId);
+                if (name) tgNames.push(name);
+              }
             }
             return {
               mitreId: id,
               name: mitreToName.get(id) || id,
-              threatGroupCount: tgCount,
+              threatGroupCount: tgNames.length,
+              threatGroupNames: tgNames,
               siemDetectable: isSiemDetectable(id),
             };
           }).sort((a, b) => b.threatGroupCount - a.threatGroupCount);
