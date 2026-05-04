@@ -30,6 +30,7 @@ import type {
   ParsedRule,
   ValidatedRule,
 } from '../services/bulk-import/types';
+import type { ConsoleEntry } from '../components/onboarding/types';
 
 // ============================================
 // TYPES
@@ -66,6 +67,9 @@ export interface GlobalImportContextValue {
   interruptedJob: InterruptedJobInfo | null;
   isMinimized: boolean;
   importResult: any | null;
+  consoleEntries: ConsoleEntry[];
+  addConsoleEntry: (entry: ConsoleEntry) => void;
+  clearConsoleEntries: () => void;
 
   // Actions
   startPreCheck: (parsedRules: ParsedRule[], userId: string) => Promise<PreCheckSummary>;
@@ -105,6 +109,7 @@ interface GlobalImportState {
   isMinimized: boolean;
   importResult: any | null;
   retryCount: number;
+  consoleEntries: ConsoleEntry[];
 }
 
 type GlobalImportAction =
@@ -117,6 +122,8 @@ type GlobalImportAction =
   | { type: 'SET_MINIMIZED'; payload: boolean }
   | { type: 'SET_RESULT'; payload: any }
   | { type: 'SET_RETRY'; payload: number }
+  | { type: 'ADD_CONSOLE_ENTRY'; payload: ConsoleEntry }
+  | { type: 'CLEAR_CONSOLE_ENTRIES' }
   | { type: 'RESET' };
 
 const INITIAL_STATE: GlobalImportState = {
@@ -129,6 +136,7 @@ const INITIAL_STATE: GlobalImportState = {
   isMinimized: false,
   importResult: null,
   retryCount: 0,
+  consoleEntries: [],
 };
 
 function globalImportReducer(
@@ -154,8 +162,24 @@ function globalImportReducer(
       return { ...state, importResult: action.payload };
     case 'SET_RETRY':
       return { ...state, retryCount: action.payload };
+    case 'ADD_CONSOLE_ENTRY':
+      // Cap at 500 entries to avoid unbounded growth on long imports.
+      return {
+        ...state,
+        consoleEntries:
+          state.consoleEntries.length >= 500
+            ? [...state.consoleEntries.slice(-499), action.payload]
+            : [...state.consoleEntries, action.payload],
+      };
+    case 'CLEAR_CONSOLE_ENTRIES':
+      return { ...state, consoleEntries: [] };
     case 'RESET':
-      return { ...INITIAL_STATE, networkStatus: state.networkStatus, interruptedJob: state.interruptedJob };
+      return {
+        ...INITIAL_STATE,
+        networkStatus: state.networkStatus,
+        interruptedJob: state.interruptedJob,
+        consoleEntries: state.consoleEntries,
+      };
     default:
       return state;
   }
@@ -718,6 +742,14 @@ const dismissInterruptedJob = useCallback(
     dispatch({ type: 'SET_MINIMIZED', payload: false });
   }, []);
 
+  const addConsoleEntry = useCallback((entry: ConsoleEntry): void => {
+    dispatch({ type: 'ADD_CONSOLE_ENTRY', payload: entry });
+  }, []);
+
+  const clearConsoleEntries = useCallback((): void => {
+    dispatch({ type: 'CLEAR_CONSOLE_ENTRIES' });
+  }, []);
+
   // ------------------------------------------
   // Context value
   // ------------------------------------------
@@ -731,6 +763,9 @@ const dismissInterruptedJob = useCallback(
     interruptedJob: state.interruptedJob,
     isMinimized: state.isMinimized,
     importResult: state.importResult,
+    consoleEntries: state.consoleEntries,
+    addConsoleEntry,
+    clearConsoleEntries,
 
     startPreCheck,
     confirmAndImport,
