@@ -1029,13 +1029,12 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
           <button
             onClick={() => setCurrentLibrary(LIBRARY_PRODUCTION)}
             className={libBtnBase}
-            style={currentLibrary === LIBRARY_PRODUCTION 
-              ? { backgroundColor: SOLID_BLUE, color: 'white' } 
+            style={currentLibrary === LIBRARY_PRODUCTION
+              ? { backgroundColor: SOLID_TERTIARY, color: 'white' }
               : { color: 'var(--md-sys-color-on-surface-variant)' }
             }
           >
-            <Icon name="user" className="w-4 h-4" />
-            <span>{LIBRARY_LABELS[LIBRARY_PRODUCTION]}</span>
+            <span>Production</span>
             <span
               className="text-xs font-bold px-2 py-0.5 rounded-lg"
               style={currentLibrary === LIBRARY_PRODUCTION
@@ -1050,12 +1049,11 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
             onClick={() => setCurrentLibrary(LIBRARY_DEVELOPMENT)}
             className={libBtnBase}
             style={currentLibrary === LIBRARY_DEVELOPMENT
-              ? { backgroundColor: SOLID_BLUE, color: 'white' }
+              ? { backgroundColor: SOLID_TERTIARY, color: 'white' }
               : { color: 'var(--md-sys-color-on-surface-variant)' }
             }
           >
-            <Icon name="globe" className="w-4 h-4" />
-            <span>{LIBRARY_LABELS_SHORT[LIBRARY_DEVELOPMENT]}</span>
+            <span>Development</span>
             <span
               className="text-xs font-bold px-2 py-0.5 rounded-lg"
               style={currentLibrary === LIBRARY_DEVELOPMENT
@@ -1095,8 +1093,8 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
 
         {/* New Button - solid tertiary */}
         {currentLibrary === LIBRARY_PRODUCTION && onNewDetection && (
-          <button 
-            onClick={onNewDetection} 
+          <button
+            onClick={onNewDetection}
             className="h-10 px-5 rounded-xl text-sm font-medium text-white transition-all inline-flex items-center gap-2 hover:brightness-110"
             style={{ backgroundColor: SOLID_TERTIARY }}
           >
@@ -1105,8 +1103,8 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
           </button>
         )}
         {currentLibrary === LIBRARY_DEVELOPMENT && onNewUniversalDetection && isAdmin && (
-          <button 
-            onClick={onNewUniversalDetection} 
+          <button
+            onClick={onNewUniversalDetection}
             className="h-10 px-5 rounded-xl text-sm font-medium text-white transition-all inline-flex items-center gap-2 hover:brightness-110"
             style={{ backgroundColor: SOLID_TERTIARY }}
           >
