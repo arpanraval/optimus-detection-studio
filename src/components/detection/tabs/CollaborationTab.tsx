@@ -211,7 +211,7 @@ const AssignmentPanel: React.FC<AssignmentPanelProps> = ({
                                     <div className="p-2 border-b border-outline-variant/10">
                                         <input
                                             type="text"
-                                            placeholder="Search team members..."
+                                            placeholder="Search users..."
                                             value={searchQuery}
                                             onChange={(e) => setSearchQuery(e.target.value)}
                                             className="w-full px-3 py-2 text-sm bg-surface-container border border-outline-variant/10 rounded-lg text-on-surface placeholder-on-surface-variant/50 focus:outline-none focus:border-tertiary/30"

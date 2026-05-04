@@ -5,12 +5,8 @@
 /**
  * Global user role - stored in profiles.role
  * This is the single source of truth for user permissions across the app.
- * Roles are NOT team-specific - a user has the same role everywhere.
  */
 export type Role = 'owner' | 'admin' | 'lead' | 'analyst' | 'viewer';
-
-/** @deprecated Use Role instead. TeamRole is now an alias for backward compatibility. */
-export type TeamRole = Role;
 
 /** Role hierarchy for permission inheritance */
 export const ROLE_HIERARCHY: Record<Role, number> = {
@@ -36,10 +32,6 @@ export type Permission =
   | 'detection:update:any'
   | 'detection:delete:own'
   | 'detection:delete:any'
-  // Team library permissions
-  | 'team_library:read'
-  | 'team_library:contribute'
-  | 'team_library:manage'
   // Development library permissions
   | 'development:read'
   | 'development:promote'
@@ -63,7 +55,6 @@ export type Permission =
   | 'user:view'
   // Activity & audit permissions
   | 'activity:view:own'
-  | 'activity:view:team'
   | 'activity:export';
 
 /** Permission sets by role */
@@ -71,40 +62,36 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   owner: [
     'detection:create', 'detection:read', 'detection:update:own', 'detection:update:assigned',
     'detection:update:any', 'detection:delete:own', 'detection:delete:any',
-    'team_library:read', 'team_library:contribute', 'team_library:manage',
     'development:read', 'development:promote', 'development:approve_promotion',
     'assignment:self', 'assignment:others', 'assignment:view',
     'review:request', 'review:perform', 'review:view',
     'comment:create', 'comment:edit:own', 'comment:delete:own', 'comment:resolve',
     'user:invite', 'user:manage', 'user:view',
-    'activity:view:own', 'activity:view:team', 'activity:export',
+    'activity:view:own', 'activity:export',
   ],
   admin: [
     'detection:create', 'detection:read', 'detection:update:own', 'detection:update:assigned',
     'detection:update:any', 'detection:delete:own', 'detection:delete:any',
-    'team_library:read', 'team_library:contribute', 'team_library:manage',
     'development:read', 'development:promote', 'development:approve_promotion',
     'assignment:self', 'assignment:others', 'assignment:view',
     'review:request', 'review:perform', 'review:view',
     'comment:create', 'comment:edit:own', 'comment:delete:own', 'comment:resolve',
     'user:invite', 'user:manage', 'user:view',
-    'activity:view:own', 'activity:view:team', 'activity:export',
+    'activity:view:own', 'activity:export',
   ],
   lead: [
     'detection:create', 'detection:read', 'detection:update:own', 'detection:update:assigned',
     'detection:update:any', 'detection:delete:own', 'detection:delete:any',
-    'team_library:read', 'team_library:contribute', 'team_library:manage',
     'development:read', 'development:promote',
     'assignment:self', 'assignment:others', 'assignment:view',
     'review:request', 'review:perform', 'review:view',
     'comment:create', 'comment:edit:own', 'comment:delete:own', 'comment:resolve',
     'user:view',
-    'activity:view:own', 'activity:view:team',
+    'activity:view:own',
   ],
   analyst: [
     'detection:create', 'detection:read', 'detection:update:own', 'detection:update:assigned',
     'detection:delete:own',
-    'team_library:read', 'team_library:contribute',
     'development:read',
     'assignment:self', 'assignment:view',
     'review:request', 'review:view',
@@ -114,7 +101,6 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   ],
   viewer: [
     'detection:read',
-    'team_library:read',
     'development:read',
     'assignment:view',
     'review:view',
@@ -131,7 +117,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
 /** User's resolved permissions */
 export interface UserPermissions {
   user_id: string;
-  role: TeamRole;
+  role: Role;
   is_global_admin: boolean;
   permissions: Record<string, boolean>;
 }
@@ -139,7 +125,7 @@ export interface UserPermissions {
 /** Permission check result from database */
 export interface PermissionCheckResult {
   user_id: string;
-  role: TeamRole;
+  role: Role;
   is_global_admin: boolean;
   permissions: Record<string, boolean>;
 }
@@ -169,7 +155,6 @@ export type GranularPermission =
   | 'assignment:remove'
   // Library Access
   | 'library:view_personal'
-  | 'library:view_team'
   | 'library:view_development'
   | 'library:copy_development'
   | 'library:publish'
@@ -185,13 +170,6 @@ export type GranularPermission =
   | 'mitre:view_software'
   | 'mitre:view_campaigns'
   | 'mitre:link_entities'
-  // Team & User Management
-  | 'team:view_members'
-  | 'team:invite_users'
-  | 'team:change_roles'
-  | 'team:deactivate_users'
-  | 'team:delete_users'
-  | 'team:view_activity'
   // Integrations
   | 'integrations:view'
   | 'integrations:configure'
@@ -199,9 +177,7 @@ export type GranularPermission =
   // Settings
   | 'settings:edit_profile'
   | 'settings:change_password'
-  | 'settings:enable_mfa'
-  | 'settings:view_team'
-  | 'settings:edit_team';
+  | 'settings:enable_mfa';
 
 /**
  * Permission categories for UI grouping
@@ -228,9 +204,9 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
     permissions: [
       { key: 'detection:create', label: 'Create detections', description: 'Create new detection rules' },
       { key: 'detection:edit_own', label: 'Edit own detections', description: 'Edit detections you created' },
-      { key: 'detection:edit_any', label: 'Edit any detection', description: 'Edit any detection in the team' },
+      { key: 'detection:edit_any', label: 'Edit any detection', description: 'Edit any detection in the library' },
       { key: 'detection:delete_own', label: 'Delete own detections', description: 'Delete detections you created' },
-      { key: 'detection:delete_any', label: 'Delete any detection', description: 'Delete any detection in the team' },
+      { key: 'detection:delete_any', label: 'Delete any detection', description: 'Delete any detection in the library' },
       { key: 'detection:export', label: 'Export detections', description: 'Export to PDF, JSON, YAML' },
       { key: 'detection:import', label: 'Import detections', description: 'Import from external sources' },
     ],
@@ -244,7 +220,7 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
       { key: 'review:perform', label: 'Perform reviews', description: 'Review detections submitted by others' },
       { key: 'review:approve', label: 'Approve/Reject', description: 'Final approval authority' },
       { key: 'assignment:self', label: 'Self-assign', description: 'Assign detections to yourself' },
-      { key: 'assignment:others', label: 'Assign to others', description: 'Assign detections to team members' },
+      { key: 'assignment:others', label: 'Assign to others', description: 'Assign detections to other users' },
       { key: 'assignment:remove', label: 'Remove assignments', description: 'Unassign detections' },
     ],
   },
@@ -254,7 +230,6 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
     description: 'Access to detection libraries',
     permissions: [
       { key: 'library:view_personal', label: 'View personal library', description: 'Access your own detections' },
-      { key: 'library:view_team', label: 'View team library', description: 'Access team shared detections' },
       { key: 'library:view_development', label: 'View development library', description: 'Access the development library' },
       { key: 'library:copy_development', label: 'Fork from production', description: 'Fork rules from production library' },
       { key: 'library:publish', label: 'Submit for promotion', description: 'Submit rules for promotion to production' },
@@ -285,19 +260,6 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
     ],
   },
   {
-    id: 'team',
-    label: 'Team Management',
-    description: 'Manage team members and access',
-    permissions: [
-      { key: 'team:view_members', label: 'View members', description: 'See team member list' },
-      { key: 'team:invite_users', label: 'Invite users', description: 'Send team invitations' },
-      { key: 'team:change_roles', label: 'Change roles', description: 'Modify user roles' },
-      { key: 'team:deactivate_users', label: 'Deactivate users', description: 'Remove users from team' },
-      { key: 'team:delete_users', label: 'Delete users', description: 'Permanently delete users' },
-      { key: 'team:view_activity', label: 'View activity log', description: 'See team activity history' },
-    ],
-  },
-  {
     id: 'integrations',
     label: 'Integrations',
     description: 'External tool integrations',
@@ -310,13 +272,11 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
   {
     id: 'settings',
     label: 'Settings',
-    description: 'Personal and team settings',
+    description: 'Personal settings',
     permissions: [
       { key: 'settings:edit_profile', label: 'Edit profile', description: 'Change display name, avatar' },
       { key: 'settings:change_password', label: 'Change password', description: 'Update account password' },
       { key: 'settings:enable_mfa', label: 'Enable MFA', description: 'Set up two-factor authentication' },
-      { key: 'settings:view_team', label: 'View team settings', description: 'See team configuration' },
-      { key: 'settings:edit_team', label: 'Edit team settings', description: 'Modify team configuration' },
     ],
   },
 ];
@@ -329,47 +289,42 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, GranularPermission[]> = {
     // All permissions
     'detection:create', 'detection:edit_own', 'detection:edit_any', 'detection:delete_own', 'detection:delete_any', 'detection:export', 'detection:import',
     'review:request', 'review:perform', 'review:approve', 'assignment:self', 'assignment:others', 'assignment:remove',
-    'library:view_personal', 'library:view_team', 'library:view_development', 'library:copy_development', 'library:publish', 'library:approve_publish',
+    'library:view_personal', 'library:view_development', 'library:copy_development', 'library:publish', 'library:approve_publish',
     'tools:ai_query_gen', 'tools:sigma_converter', 'tools:ai_agent', 'tools:export_reports',
     'mitre:view_coverage', 'mitre:view_groups', 'mitre:view_software', 'mitre:view_campaigns', 'mitre:link_entities',
-    'team:view_members', 'team:invite_users', 'team:change_roles', 'team:deactivate_users', 'team:delete_users', 'team:view_activity',
     'integrations:view', 'integrations:configure', 'integrations:sync',
-    'settings:edit_profile', 'settings:change_password', 'settings:enable_mfa', 'settings:view_team', 'settings:edit_team',
+    'settings:edit_profile', 'settings:change_password', 'settings:enable_mfa',
   ],
   admin: [
     'detection:create', 'detection:edit_own', 'detection:edit_any', 'detection:delete_own', 'detection:delete_any', 'detection:export', 'detection:import',
     'review:request', 'review:perform', 'review:approve', 'assignment:self', 'assignment:others', 'assignment:remove',
-    'library:view_personal', 'library:view_team', 'library:view_development', 'library:copy_development', 'library:publish', 'library:approve_publish',
+    'library:view_personal', 'library:view_development', 'library:copy_development', 'library:publish', 'library:approve_publish',
     'tools:ai_query_gen', 'tools:sigma_converter', 'tools:ai_agent', 'tools:export_reports',
     'mitre:view_coverage', 'mitre:view_groups', 'mitre:view_software', 'mitre:view_campaigns', 'mitre:link_entities',
-    'team:view_members', 'team:invite_users', 'team:change_roles', 'team:deactivate_users', 'team:view_activity',
     'integrations:view', 'integrations:configure', 'integrations:sync',
-    'settings:edit_profile', 'settings:change_password', 'settings:enable_mfa', 'settings:view_team', 'settings:edit_team',
+    'settings:edit_profile', 'settings:change_password', 'settings:enable_mfa',
   ],
   lead: [
     'detection:create', 'detection:edit_own', 'detection:edit_any', 'detection:delete_own', 'detection:export', 'detection:import',
     'review:request', 'review:perform', 'review:approve', 'assignment:self', 'assignment:others', 'assignment:remove',
-    'library:view_personal', 'library:view_team', 'library:view_development', 'library:copy_development', 'library:publish',
+    'library:view_personal', 'library:view_development', 'library:copy_development', 'library:publish',
     'tools:ai_query_gen', 'tools:sigma_converter', 'tools:ai_agent', 'tools:export_reports',
     'mitre:view_coverage', 'mitre:view_groups', 'mitre:view_software', 'mitre:view_campaigns', 'mitre:link_entities',
-    'team:view_members', 'team:view_activity',
     'integrations:view', 'integrations:sync',
-    'settings:edit_profile', 'settings:change_password', 'settings:enable_mfa', 'settings:view_team',
+    'settings:edit_profile', 'settings:change_password', 'settings:enable_mfa',
   ],
   analyst: [
     'detection:create', 'detection:edit_own', 'detection:delete_own', 'detection:export',
     'review:request', 'assignment:self',
-    'library:view_personal', 'library:view_team', 'library:view_development', 'library:copy_development',
+    'library:view_personal', 'library:view_development', 'library:copy_development',
     'tools:ai_query_gen', 'tools:sigma_converter', 'tools:ai_agent', 'tools:export_reports',
     'mitre:view_coverage', 'mitre:view_groups', 'mitre:view_software', 'mitre:view_campaigns', 'mitre:link_entities',
-    'team:view_members',
     'integrations:view',
     'settings:edit_profile', 'settings:change_password', 'settings:enable_mfa',
   ],
   viewer: [
-    'library:view_personal', 'library:view_team', 'library:view_development',
+    'library:view_personal', 'library:view_development',
     'mitre:view_coverage', 'mitre:view_groups', 'mitre:view_software', 'mitre:view_campaigns',
-    'team:view_members',
     'integrations:view',
     'settings:edit_profile', 'settings:change_password', 'settings:enable_mfa',
   ],
@@ -380,7 +335,6 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, GranularPermission[]> = {
  */
 export interface UserPermissionOverrides {
   userId: string;
-  teamId: string;
   /** Permissions added beyond role defaults */
   granted: GranularPermission[];
   /** Permissions removed from role defaults */

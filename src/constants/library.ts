@@ -33,7 +33,7 @@ export const LIBRARY_ICONS: Record<LibraryType, string> = {
 
 export const LIBRARY_DESCRIPTIONS: Record<LibraryType, string> = {
   [LIBRARY_DEVELOPMENT]: 'Draft area for experiments, imports, and collaboration',
-  [LIBRARY_PRODUCTION]: 'Curated, deploy-ready detections shared with the team',
+  [LIBRARY_PRODUCTION]: 'Curated, deploy-ready detections',
 };
 
 export const PROMOTION_LABELS: Record<PromotionStatus, string> = {

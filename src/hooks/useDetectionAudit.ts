@@ -59,7 +59,6 @@ export function useDetectionAudit(): UseDetectionAuditResult {
       'review_approved': 'Review approved',
       'review_rejected': 'Review rejected',
       'comment_added': 'Comment added',
-      'moved_to_team': 'Moved to team'
     };
     return labels[action] || action;
   }, []);
@@ -85,7 +84,6 @@ export function useDetectionAudit(): UseDetectionAuditResult {
       'review_approved': 'check-circle',
       'review_rejected': 'x-circle',
       'comment_added': 'message-square',
-      'moved_to_team': 'users'
     };
     return icons[action] || 'activity';
   }, []);
@@ -111,7 +109,6 @@ export function useDetectionAudit(): UseDetectionAuditResult {
       'review_approved': 'text-emerald-400',
       'review_rejected': 'text-red-400',
       'comment_added': 'text-violet-400',
-      'moved_to_team': 'text-indigo-400'
     };
     return colors[action] || 'text-gray-400';
   }, []);
