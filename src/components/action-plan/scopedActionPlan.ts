@@ -66,6 +66,41 @@ export function bucketCountsFor(
   return out;
 }
 
+interface TechniqueLike {
+  mitreId: string;
+  covered: boolean;
+}
+
+interface TacticCoverageLike {
+  techniques: TechniqueLike[];
+}
+
+/**
+ * For a given bucket, count how many of the threat-relevant techniques are covered.
+ * Used by the landing page widget to show coverage % per bucket — the same
+ * metric ThreatLandscapeWidget shows for actor groups.
+ */
+export function bucketCoverage(
+  tacticCoverage: TacticCoverageLike[],
+  bucket: TechBucket,
+  buckets: BucketMap,
+): { covered: number; total: number; pct: number } {
+  let covered = 0;
+  let total = 0;
+  const seen = new Set<string>();
+  for (const t of tacticCoverage) {
+    for (const tech of t.techniques) {
+      if (seen.has(tech.mitreId)) continue;
+      if (!buckets.get(tech.mitreId)?.has(bucket)) continue;
+      seen.add(tech.mitreId);
+      total++;
+      if (tech.covered) covered++;
+    }
+  }
+  const pct = total === 0 ? 100 : Math.round((covered / total) * 100);
+  return { covered, total, pct };
+}
+
 export function filterDetectionsByThreatGroup<T extends DetectionLike>(
   detections: T[],
   groupName: string,
