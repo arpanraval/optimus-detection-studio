@@ -79,6 +79,24 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
     });
   }, []);
 
+  const feasibility = useFeasibilityLive(
+    profile.log_sources,
+    profile.custom_log_sources || [],
+    profile.edr_tools || [],
+    profile.cloud_platforms || {}
+  );
+
+  const intel = useProfileIntelligence(
+    profile.sectors || [],
+    profile.siem_platforms,
+    feasibility.matchResult,
+    profile.user_country || null,
+    profile.threat_origin_countries || [],
+    profile.crown_jewels || []
+  );
+
+  const refetchIntel = intel.refetch;
+
   const handleBatchCreateDrafts = useCallback(async (techniqueIds: Set<string>, gapTechniques: Array<{ mitreId: string; name: string }>) => {
     if (techniqueIds.size === 0) return;
     if (!window.confirm(`Create ${techniqueIds.size} draft detections?`)) return;
@@ -106,26 +124,11 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
       }
       showToast('success', 'Drafts Created', `Created ${inserts.length} draft detections`);
       setSelectedGapIds(new Set());
+      refetchIntel();
     } catch (err) {
       showToast('error', 'Failed', err instanceof Error ? err.message : 'Could not create drafts');
     }
-  }, [user, showToast]);
-
-  const feasibility = useFeasibilityLive(
-    profile.log_sources,
-    profile.custom_log_sources || [],
-    profile.edr_tools || [],
-    profile.cloud_platforms || {}
-  );
-
-  const intel = useProfileIntelligence(
-    profile.sectors || [],
-    profile.siem_platforms,
-    feasibility.matchResult,
-    profile.user_country || null,
-    profile.threat_origin_countries || [],
-    profile.crown_jewels || []
-  );
+  }, [user, showToast, refetchIntel]);
 
   const isLoading = feasibility.loading || intel.loading;
 

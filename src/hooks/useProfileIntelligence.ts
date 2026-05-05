@@ -1,5 +1,5 @@
 // src/hooks/useProfileIntelligence.ts
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import type { MatchResult, MatchedDetection } from '../services/logSourceDiscovery';
 import {
@@ -104,6 +104,8 @@ export interface ProfileIntelligence {
   tacticThreatCoverage: TacticThreatCoverage[];
   loading: boolean;
   error: string | null;
+  /** Trigger a re-fetch of the intelligence data (e.g. after creating new detections). */
+  refetch: () => void;
 }
 
 /** Maps SIEM platform names to detection queryLanguage values */
@@ -236,7 +238,9 @@ export function useProfileIntelligence(
   threatOriginCountries: string[],
   crownJewels: string[]
 ): ProfileIntelligence {
-  const [state, setState] = useState<ProfileIntelligence>({
+  const [refetchTick, setRefetchTick] = useState(0);
+  const refetch = useCallback(() => setRefetchTick(t => t + 1), []);
+  const [state, setState] = useState<Omit<ProfileIntelligence, 'refetch'>>({
     threatGroups: [], recommendedDetections: [], gapTechniques: [], gapTechniqueCount: 0,
     siemReadiness: [], totalRecommended: 0, groupTechniqueDetails: {}, tacticThreatCoverage: [], loading: false, error: null,
   });
@@ -572,7 +576,8 @@ export function useProfileIntelligence(
     userCountry,
     JSON.stringify(threatOriginCountries),
     JSON.stringify(crownJewels),
+    refetchTick,
   ]);
 
-  return state;
+  return { ...state, refetch };
 }
