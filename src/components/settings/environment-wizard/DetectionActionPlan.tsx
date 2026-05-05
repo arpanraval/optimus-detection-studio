@@ -183,12 +183,27 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
     const ids = top50.map(d => d.id);
     if (ids.length === 0) return;
     try {
+      // Only promote Idea/Draft into Backlog. Detections already in
+      // Review/Testing/Production must not be demoted.
+      const { data: eligibleData, error: queryError } = await supabase
+        .from('detections')
+        .select('id')
+        .in('id', ids)
+        .in('status', ['Idea', 'Draft']);
+      if (queryError) throw queryError;
+      const eligibleIds = (eligibleData ?? []).map((r: { id: string }) => r.id);
+      const skipped = ids.length - eligibleIds.length;
+      if (eligibleIds.length === 0) {
+        showToast('info', 'Nothing to add', `All ${ids.length} are already in pipeline or production`);
+        return;
+      }
       const { error } = await supabase
         .from('detections')
         .update({ status: 'Backlog' })
-        .in('id', ids);
+        .in('id', eligibleIds);
       if (error) throw error;
-      showToast('success', 'Added to Backlog', `${ids.length} detections added to pipeline backlog`);
+      const skipMsg = skipped > 0 ? ` (${skipped} skipped — already past Draft)` : '';
+      showToast('success', 'Added to Backlog', `${eligibleIds.length} detection${eligibleIds.length === 1 ? '' : 's'} added${skipMsg}`);
       navigate(ROUTES.DETECTION_BOARD);
     } catch (err) {
       showToast('error', 'Failed', err instanceof Error ? err.message : 'Could not deploy');
