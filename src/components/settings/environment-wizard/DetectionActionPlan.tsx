@@ -33,6 +33,8 @@ interface DetectionActionPlanProps {
 const RING_R = 52;
 const RING_C = 2 * Math.PI * RING_R; // ~326.7
 
+const DISMISSED_STORAGE_KEY = 'optimus:action-plan:dismissed';
+
 export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
   profile,
   scope = 'production',
@@ -49,7 +51,7 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
 
   // Dismissed gap items (persisted in localStorage)
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => {
-    const stored = localStorage.getItem('optimus:action-plan:dismissed');
+    const stored = localStorage.getItem(DISMISSED_STORAGE_KEY);
     return new Set(stored ? JSON.parse(stored) : []);
   });
   const [showDismissed, setShowDismissed] = useState(false);
@@ -58,19 +60,23 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
   const [selectedGapIds, setSelectedGapIds] = useState<Set<string>>(new Set());
 
   const handleDismissGap = useCallback((techniqueId: string) => {
-    const dismissed = JSON.parse(localStorage.getItem('optimus:action-plan:dismissed') || '[]');
-    if (!dismissed.includes(techniqueId)) {
-      dismissed.push(techniqueId);
-      localStorage.setItem('optimus:action-plan:dismissed', JSON.stringify(dismissed));
-      setDismissedIds(new Set(dismissed));
-    }
+    setDismissedIds(prev => {
+      if (prev.has(techniqueId)) return prev;
+      const next = new Set(prev);
+      next.add(techniqueId);
+      localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify(Array.from(next)));
+      return next;
+    });
   }, []);
 
   const handleRestoreGap = useCallback((techniqueId: string) => {
-    const dismissed: string[] = JSON.parse(localStorage.getItem('optimus:action-plan:dismissed') || '[]');
-    const updated = dismissed.filter(id => id !== techniqueId);
-    localStorage.setItem('optimus:action-plan:dismissed', JSON.stringify(updated));
-    setDismissedIds(new Set(updated));
+    setDismissedIds(prev => {
+      if (!prev.has(techniqueId)) return prev;
+      const next = new Set(prev);
+      next.delete(techniqueId);
+      localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify(Array.from(next)));
+      return next;
+    });
   }, []);
 
   const handleBatchCreateDrafts = useCallback(async (techniqueIds: Set<string>, gapTechniques: Array<{ mitreId: string; name: string }>) => {
