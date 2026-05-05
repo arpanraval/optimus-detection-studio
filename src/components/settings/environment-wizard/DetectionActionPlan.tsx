@@ -11,11 +11,12 @@ import { ROUTES } from '../../../router/routes';
 import { createEmptyDetection } from '../../../types/detection';
 import { Status } from '../../../types';
 import { DetectionActionQueue } from './DetectionActionQueue';
-import { ThreatGroupCards } from './ThreatGroupCards';
 import { CriticalGapsList } from './CriticalGapsList';
 import { TacticCoverageHeatmap } from './TacticCoverageHeatmap';
 import { MiniMitreMatrix } from './MiniMitreMatrix';
 import { SiemReadinessBar } from './SiemReadinessBar';
+import { TechnologyWidget } from '../../action-plan/TechnologyWidget';
+import { ThreatLandscapeWidget } from '../../action-plan/ThreatLandscapeWidget';
 import { Icon } from '../../Icon';
 import { ScopeToggle } from '../../common/ScopeToggle';
 import { computeMissingLogSourceSuggestions } from '../../../services/logSourceDiscovery';
@@ -471,46 +472,32 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
             KEY METRICS BAR
             ═══════════════════════════════════════════ */}
         <div
-          className="rounded-xl px-6 py-4 mb-8 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4"
+          className="rounded-xl px-6 py-4 mb-8 grid grid-cols-2 md:grid-cols-4 gap-4"
           style={{ backgroundColor: 'rgb(var(--md-sys-color-surface-container))' }}
         >
           <div>
-            <div className="text-xl font-brand font-bold text-ext-rose leading-none">{intel.threatGroups.length}</div>
+            <div className="text-xl font-brand font-bold text-ext-rose leading-none tabular-nums">{intel.threatGroups.length}</div>
             <div className="text-[9px] text-on-surface-variant uppercase tracking-wider mt-1">
               Threat Groups
             </div>
             {sectorLabel && <div className="text-[8px] text-outline mt-0.5">targeting {sectorLabel}</div>}
           </div>
           <div>
-            <div className="text-xl font-brand font-bold text-ext-coral leading-none">{actionableGapCount}</div>
+            <div className="text-xl font-brand font-bold text-ext-coral leading-none tabular-nums">{actionableGapCount}</div>
             <div className="text-[9px] text-on-surface-variant uppercase tracking-wider mt-1">
               Coverage Gaps
             </div>
             <div className="text-[8px] text-outline mt-0.5">actionable from SIEM</div>
           </div>
           <div>
-            <div className="text-xl font-brand font-bold text-ext-teal leading-none">{deployReadyDetections.length}</div>
-            <div className="text-[9px] text-on-surface-variant uppercase tracking-wider mt-1">
-              Native Queries
-            </div>
-            <div className="text-[8px] text-outline mt-0.5">no conversion needed</div>
-          </div>
-          <div>
-            <div className="text-xl font-brand font-bold text-ext-indigo leading-none">{sigmaCount.toLocaleString()}</div>
-            <div className="text-[9px] text-on-surface-variant uppercase tracking-wider mt-1">
-              Sigma Convertible
-            </div>
-            <div className="text-[8px] text-outline mt-0.5">need conversion</div>
-          </div>
-          <div>
-            <div className="text-xl font-brand font-bold text-on-surface leading-none">{uniqueTechniqueCount}</div>
+            <div className="text-xl font-brand font-bold text-on-surface leading-none tabular-nums">{uniqueTechniqueCount}</div>
             <div className="text-[9px] text-on-surface-variant uppercase tracking-wider mt-1">
               Techniques Covered
             </div>
             <div className="text-[8px] text-outline mt-0.5">unique MITRE ATT&CK</div>
           </div>
           <div>
-            <div className={`text-xl font-brand font-bold leading-none ${
+            <div className={`text-xl font-brand font-bold leading-none tabular-nums ${
               qualityBreakdown.good >= qualityBreakdown.total * 0.6 ? 'text-ext-green' : 'text-ext-amber'
             }`}>
               {qualityBreakdown.total > 0 ? Math.round((qualityBreakdown.good / qualityBreakdown.total) * 100) : 0}%
@@ -534,41 +521,20 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
         </div>
 
         {/* ═══════════════════════════════════════════
-            THREAT LANDSCAPE: Groups + Gaps
+            DRILL-DOWN WIDGETS: Technology + Threat Landscape
             ═══════════════════════════════════════════ */}
         <div className="mb-8">
-          <div className="mb-4">
-            <h2 className="text-[10px] font-brand font-bold text-on-surface-variant tracking-[0.2em] uppercase">
-              Threat Landscape
-            </h2>
-            <div className="text-[9px] text-outline mt-0.5">
-              Based on MITRE ATT&CK threat intelligence data
-            </div>
-          </div>
-          <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
-            <div className="xl:col-span-3">
-              <ThreatGroupCards
-                groups={intel.threatGroups}
-                groupTechniqueDetails={intel.groupTechniqueDetails}
-                sectorLabel={sectorLabel}
-                loading={isLoading}
-              />
-            </div>
-            <div className="xl:col-span-2">
-              <CriticalGapsList
-                gaps={intel.gapTechniques}
-                crownJewels={profile.crown_jewels || []}
-                loading={isLoading}
-                coveredTechniqueIds={coveredTechniqueIds}
-                dismissedIds={dismissedIds}
-                showDismissed={showDismissed}
-                onDismiss={handleDismissGap}
-                onRestore={handleRestoreGap}
-                selectedIds={selectedGapIds}
-                onSelectionChange={setSelectedGapIds}
-                onBatchCreateDrafts={handleBatchCreateDrafts}
-              />
-            </div>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <TechnologyWidget
+              detections={intel.recommendedDetections}
+              gaps={intel.gapTechniques}
+              loading={isLoading}
+            />
+            <ThreatLandscapeWidget
+              groups={intel.threatGroups}
+              sectorLabel={sectorLabel}
+              loading={isLoading}
+            />
           </div>
         </div>
 
