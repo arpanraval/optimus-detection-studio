@@ -4,8 +4,11 @@ import { useTechniqueBuckets } from '../../hooks/useTechniqueBuckets';
 import { Icon } from '../Icon';
 import { routeHelpers } from '../../router/routes';
 import { BUCKET_ORDER, BUCKET_LABELS, type TechBucket } from '../../lib/actionPlan/technologyBuckets';
-import { bucketCountsFor, filterGapsByBucket } from './scopedActionPlan';
-import type { RecommendedDetection, GapTechnique } from '../../hooks/useProfileIntelligence';
+import { bucketCountsFor, filterGapsByBucket, bucketCoverage } from './scopedActionPlan';
+import type { RecommendedDetection, GapTechnique, TacticThreatCoverage } from '../../hooks/useProfileIntelligence';
+
+const HIGH_RISK = 50;
+const MED_RISK = 80;
 
 const BUCKET_ICON: Record<TechBucket, string> = {
   endpoint: 'monitor',
@@ -18,10 +21,17 @@ const BUCKET_ICON: Record<TechBucket, string> = {
 interface Props {
   detections: RecommendedDetection[];
   gaps: GapTechnique[];
+  tacticCoverage: TacticThreatCoverage[];
   loading: boolean;
 }
 
-export const TechnologyWidget: React.FC<Props> = ({ detections, gaps, loading }) => {
+function risk(p: number): { tx: string; bar: string } {
+  if (p < HIGH_RISK) return { tx: 'text-ext-coral', bar: 'bg-ext-coral' };
+  if (p < MED_RISK) return { tx: 'text-ext-amber', bar: 'bg-ext-amber' };
+  return { tx: 'text-ext-teal', bar: 'bg-ext-teal' };
+}
+
+export const TechnologyWidget: React.FC<Props> = ({ detections, gaps, tacticCoverage, loading }) => {
   const navigate = useNavigate();
   const { buckets, loading: bucketsLoading } = useTechniqueBuckets();
 
@@ -35,19 +45,35 @@ export const TechnologyWidget: React.FC<Props> = ({ detections, gaps, loading })
     }
     return out;
   }, [gaps, buckets]);
+  const coverage = useMemo(() => {
+    const out: Record<TechBucket, { covered: number; total: number; pct: number }> = {
+      endpoint: { covered: 0, total: 0, pct: 100 },
+      cloud: { covered: 0, total: 0, pct: 100 },
+      identity: { covered: 0, total: 0, pct: 100 },
+      saas: { covered: 0, total: 0, pct: 100 },
+      network: { covered: 0, total: 0, pct: 100 },
+    };
+    for (const b of BUCKET_ORDER) {
+      out[b] = bucketCoverage(tacticCoverage, b, buckets);
+    }
+    return out;
+  }, [tacticCoverage, buckets]);
 
   if (isLoading) {
     return (
       <div className="rounded-2xl p-5 h-full" style={{ backgroundColor: 'rgb(var(--md-sys-color-surface-container-high))' }}>
         <div className="h-3 w-32 bg-surface-container rounded animate-pulse mb-4" />
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+        <div className="space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-24 bg-surface-container/50 rounded-xl animate-pulse" style={{ opacity: 1 - i * 0.1 }} />
+            <div key={i} className="h-12 bg-surface-container/50 rounded-lg animate-pulse" style={{ opacity: 1 - i * 0.15 }} />
           ))}
         </div>
       </div>
     );
   }
+
+  // Sort buckets: lowest coverage first (matches Threat widget's "highest risk first")
+  const sorted = [...BUCKET_ORDER].sort((a, b) => coverage[a].pct - coverage[b].pct);
 
   return (
     <div className="rounded-2xl p-5 h-full" style={{ backgroundColor: 'rgb(var(--md-sys-color-surface-container-high))' }}>
@@ -55,38 +81,49 @@ export const TechnologyWidget: React.FC<Props> = ({ detections, gaps, loading })
         <h3 className="text-[10px] font-brand font-bold text-on-surface tracking-[0.2em] uppercase">
           By Technology
         </h3>
-        <span className="text-[10px] text-on-surface-variant">Click a bucket for a focused plan</span>
+        <span className="text-xs font-mono text-ext-teal tabular-nums">{BUCKET_ORDER.length}</span>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-        {BUCKET_ORDER.map(b => {
+      <div className="space-y-1.5">
+        {sorted.map(b => {
           const dCount = counts[b];
           const gCount = gapCounts[b];
-          const empty = dCount === 0 && gCount === 0;
+          const { covered, total, pct } = coverage[b];
+          const r = risk(pct);
+          const empty = dCount === 0 && total === 0;
+
           return (
             <button
               key={b}
               onClick={() => !empty && navigate(routeHelpers.actionPlanTechnology(b))}
               disabled={empty}
-              className={`text-left rounded-xl p-3 transition-all ${
-                empty
-                  ? 'opacity-40 cursor-not-allowed'
-                  : 'hover:scale-[1.02] hover:bg-surface-container-highest/40 cursor-pointer'
+              className={`w-full text-left px-3 py-2.5 rounded-xl transition-colors group ${
+                empty ? 'opacity-40 cursor-not-allowed' : 'hover:bg-surface-container-highest/30 cursor-pointer'
               }`}
-              style={{ backgroundColor: 'rgb(var(--md-sys-color-surface-container) / 0.5)' }}
             >
-              <div className="flex items-center justify-between mb-2">
-                <Icon name={BUCKET_ICON[b]} className="w-4 h-4 text-ext-teal" />
-                <Icon name="arrow-right" className="w-3 h-3 text-outline" />
+              <div className="flex items-center gap-2">
+                <Icon name={BUCKET_ICON[b]} className="w-3.5 h-3.5 text-on-surface-variant flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[12px] font-medium text-on-surface truncate">{BUCKET_LABELS[b]}</span>
+                    {gCount > 0 && (
+                      <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full flex-shrink-0 bg-ext-coral/15 text-ext-coral">
+                        {gCount} gap{gCount === 1 ? '' : 's'}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-on-surface-variant mt-0.5 tabular-nums">
+                    {dCount.toLocaleString()} detection{dCount === 1 ? '' : 's'} · {covered}/{total} techniques covered
+                  </div>
+                </div>
+                <Icon name="arrow-right" className="w-3 h-3 text-outline opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
               </div>
-              <div className="text-[10px] font-bold text-on-surface uppercase tracking-wider">{BUCKET_LABELS[b]}</div>
-              <div className="text-base font-brand font-bold text-on-surface leading-none mt-1 tabular-nums">
-                {dCount.toLocaleString()}
+              <div className="mt-2 flex items-center gap-2">
+                <div className="flex-1 h-1.5 rounded-full bg-surface-container overflow-hidden">
+                  <div className={`h-full rounded-full ${r.bar}`} style={{ width: `${pct}%` }} />
+                </div>
+                <span className={`text-[10px] font-mono font-bold tabular-nums ${r.tx}`}>{pct}%</span>
               </div>
-              <div className="text-[9px] text-on-surface-variant mt-0.5">detections</div>
-              {gCount > 0 && (
-                <div className="text-[9px] text-ext-coral mt-1 tabular-nums">{gCount} gap{gCount === 1 ? '' : 's'}</div>
-              )}
             </button>
           );
         })}

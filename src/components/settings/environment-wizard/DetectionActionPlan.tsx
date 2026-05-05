@@ -543,6 +543,7 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
             <TechnologyWidget
               detections={intel.recommendedDetections}
               gaps={intel.gapTechniques}
+              tacticCoverage={intel.tacticThreatCoverage}
               loading={isLoading}
             />
             <ThreatLandscapeWidget
