@@ -128,11 +128,6 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
     [profile.siem_platforms]
   );
 
-  const deployReadyDetections = useMemo(() =>
-    intel.recommendedDetections.filter(d => userQueryLanguages.includes(d.queryLanguage)),
-    [intel.recommendedDetections, userQueryLanguages]
-  );
-
   const coveragePct = feasibility.totalCount > 0
     ? Math.round((feasibility.matchedCount / feasibility.totalCount) * 100)
     : 0;
@@ -222,26 +217,10 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
     `${(profile.log_sources || []).length} log sources`,
   ].filter(Boolean);
 
-  // Unique technique count from matched detections
-  const uniqueTechniqueCount = useMemo(() => {
-    const set = new Set<string>();
-    for (const d of intel.recommendedDetections) {
-      for (const id of d.mitreAttackIds) if (id) set.add(id);
-    }
-    return set.size;
-  }, [intel.recommendedDetections]);
-
-  const sigmaCount = useMemo(() =>
-    intel.recommendedDetections.filter(d => d.queryLanguage === 'Sigma').length,
-    [intel.recommendedDetections]
-  );
-
   const missingLogSourceSuggestions = useMemo(() => {
     if (!feasibility.matchResult) return [];
     return computeMissingLogSourceSuggestions(feasibility.matchResult.unmatchedByGroup);
   }, [feasibility.matchResult]);
-
-  const actionableGapCount = intel.gapTechniques.filter(g => g.siemDetectable).length;
 
   // Build set of technique IDs that have at least one detection in progress (Development+)
   const coveredTechniqueIds = useMemo(() => {
@@ -358,112 +337,109 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
             backgroundImage: `radial-gradient(ellipse at 0% 50%, rgb(var(--md-ext-color-teal) / 0.06), transparent 60%)`,
           }}
         >
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 items-center">
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 items-stretch">
             {/* Step 1: Library Total */}
-            <div className="text-center lg:text-left">
-              <div className="text-3xl font-brand font-bold text-on-surface-variant leading-none">
+            <div
+              className="rounded-xl p-4 flex flex-col justify-between min-h-[148px]"
+              style={{ backgroundColor: 'rgb(var(--md-sys-color-surface-container) / 0.5)' }}
+            >
+              <div className="text-[10px] font-bold text-outline uppercase tracking-wider">
+                In Library
+              </div>
+              <div className="text-3xl font-brand font-bold text-on-surface-variant leading-none tabular-nums mt-2">
                 {feasibility.totalCount.toLocaleString()}
               </div>
-              <div className="text-[10px] font-bold text-outline uppercase tracking-wider mt-1">
-                In Library
+              <div className="text-[9px] text-outline mt-1">
+                Detections across all sources
               </div>
             </div>
 
-            {/* Arrow + Step 2: Relevant to You */}
-            <div className="flex items-center gap-3">
-              <Icon name="chevron-right" className="w-5 h-5 text-outline hidden lg:block flex-shrink-0" />
-              <div className="flex items-center gap-3 flex-1">
+            {/* Step 2: Relevant to You */}
+            <div
+              className="rounded-xl p-4 flex flex-col justify-between min-h-[148px]"
+              style={{ backgroundColor: 'rgb(var(--md-sys-color-surface-container) / 0.5)' }}
+            >
+              <div className="text-[10px] font-bold text-ext-teal uppercase tracking-wider">
+                Relevant to You
+              </div>
+              <div className="flex items-center gap-3 mt-2">
                 <div className="relative flex-shrink-0">
-                  <svg viewBox="0 0 120 120" className="w-20 h-20">
-                    <circle cx="60" cy="60" r={RING_R} fill="none" stroke="rgb(var(--md-sys-color-surface-container))" strokeWidth="7" />
+                  <svg viewBox="0 0 120 120" className="w-14 h-14">
+                    <circle cx="60" cy="60" r={RING_R} fill="none" stroke="rgb(var(--md-sys-color-surface-container))" strokeWidth="9" />
                     <circle
                       cx="60" cy="60" r={RING_R} fill="none"
-                      stroke="rgb(var(--md-ext-color-teal))" strokeWidth="7"
+                      stroke="rgb(var(--md-ext-color-teal))" strokeWidth="9"
                       strokeDasharray={RING_C} strokeDashoffset={ringOffset}
                       strokeLinecap="round" transform="rotate(-90 60 60)"
                       style={{ transition: 'stroke-dashoffset 1.2s cubic-bezier(0.4, 0, 0.2, 1)' }}
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-lg font-brand font-bold text-on-surface leading-none">{coveragePct}%</span>
+                    <span className="text-[11px] font-brand font-bold text-on-surface leading-none tabular-nums">{coveragePct}%</span>
                   </div>
                 </div>
-                <div className="min-w-0">
-                  <div className="text-2xl font-brand font-bold text-ext-teal leading-none">
-                    {feasibility.matchedCount.toLocaleString()}
-                  </div>
-                  <div className="text-[10px] font-bold text-ext-teal uppercase tracking-wider mt-0.5">
-                    Relevant to You
-                  </div>
-                  <div className="text-[9px] text-on-surface-variant mt-0.5">
-                    Compatible with your {(profile.log_sources || []).length} log sources
-                  </div>
+                <div className="text-3xl font-brand font-bold text-ext-teal leading-none tabular-nums">
+                  {feasibility.matchedCount.toLocaleString()}
                 </div>
+              </div>
+              <div className="text-[9px] text-outline mt-1">
+                Compatible with your {(profile.log_sources || []).length} log sources
               </div>
             </div>
 
-            {/* Arrow + Step 3: Week 1 Priority */}
-            <div className="flex items-center gap-3">
-              <Icon name="chevron-right" className="w-5 h-5 text-outline hidden lg:block flex-shrink-0" />
-              <div
-                className="flex-1 rounded-xl p-4"
-                style={{ backgroundColor: 'rgb(var(--md-ext-color-teal) / 0.08)' }}
+            {/* Step 3: Week 1 Priority CTA */}
+            <div
+              className="rounded-xl p-4 flex flex-col justify-between min-h-[148px]"
+              style={{ backgroundColor: 'rgb(var(--md-ext-color-teal) / 0.08)' }}
+            >
+              <div className="text-[10px] font-bold text-ext-teal uppercase tracking-wider">
+                Week 1 Priority
+              </div>
+              <div className="text-3xl font-brand font-bold text-ext-teal leading-none tabular-nums mt-2">
+                Top {top50.length}
+              </div>
+              <button
+                onClick={handleAddTop50ToBacklog}
+                className="mt-2 w-full py-1.5 rounded-lg font-bold text-[10px] tracking-wide uppercase transition-all hover:opacity-90 active:scale-[0.98]"
+                style={{
+                  background: 'linear-gradient(135deg, rgb(var(--md-ext-color-teal)), rgb(var(--md-ext-color-cyan)))',
+                  color: 'rgb(var(--md-ext-color-on-teal))',
+                }}
               >
-                <div className="text-2xl font-brand font-bold text-ext-teal leading-none">
-                  Top {top50.length}
+                <span className="flex items-center justify-center gap-1.5">
+                  <Icon name="plus" className="w-3 h-3" />
+                  Add All to Backlog
+                </span>
+              </button>
+            </div>
+
+            {/* Step 4: After Week 1 Impact */}
+            <div
+              className="rounded-xl p-4 flex flex-col justify-between min-h-[148px]"
+              style={{ backgroundColor: 'rgb(var(--md-sys-color-surface-container) / 0.5)' }}
+            >
+              <div className="text-[10px] font-bold text-ext-green uppercase tracking-wider">
+                After Week 1
+              </div>
+              <div className="space-y-1.5 mt-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-on-surface-variant">Techniques covered</span>
+                  <span className="text-[11px] font-mono font-bold text-on-surface tabular-nums">{weekOneImpact.techniquesAdded}</span>
                 </div>
-                <div className="text-[10px] font-bold text-on-surface mt-0.5">
-                  Week 1 Priority
-                </div>
-                <div className="text-[9px] text-on-surface-variant mt-0.5">
-                  Highest impact detections to deploy first
-                </div>
-                <button
-                  onClick={handleAddTop50ToBacklog}
-                  className="mt-2.5 w-full py-1.5 rounded-lg font-bold text-[10px] tracking-wide uppercase transition-all hover:opacity-90 active:scale-[0.98]"
-                  style={{
-                    background: 'linear-gradient(135deg, rgb(var(--md-ext-color-teal)), rgb(var(--md-ext-color-cyan)))',
-                    color: 'rgb(var(--md-ext-color-on-teal))',
-                  }}
-                >
-                  <span className="flex items-center justify-center gap-1.5">
-                    <Icon name="plus" className="w-3 h-3" />
-                    Add All to Backlog
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-on-surface-variant">Gaps closed</span>
+                  <span className="text-[11px] font-mono font-bold text-ext-green tabular-nums">
+                    {weekOneImpact.gapsClosed}/{weekOneImpact.totalActionableGaps}
                   </span>
-                </button>
-              </div>
-            </div>
-
-            {/* Arrow + Step 4: After Week 1 Impact */}
-            <div className="flex items-center gap-3">
-              <Icon name="chevron-right" className="w-5 h-5 text-outline hidden lg:block flex-shrink-0" />
-              <div
-                className="flex-1 rounded-xl p-4"
-                style={{ backgroundColor: 'rgb(var(--md-ext-color-green) / 0.06)' }}
-              >
-                <div className="text-[10px] font-bold text-ext-green uppercase tracking-wider mb-2">
-                  After Week 1
                 </div>
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-on-surface-variant">Techniques covered</span>
-                    <span className="text-[11px] font-mono font-bold text-on-surface">{weekOneImpact.techniquesAdded}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-on-surface-variant">Gaps closed</span>
-                    <span className="text-[11px] font-mono font-bold text-ext-green">
-                      {weekOneImpact.gapsClosed}/{weekOneImpact.totalActionableGaps}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-on-surface-variant">Quality</span>
-                    <span className="text-[11px] font-mono font-bold text-on-surface">
-                      {qualityBreakdown.good} A/B
-                      {qualityBreakdown.poor > 0 && (
-                        <span className="text-ext-coral ml-1">{qualityBreakdown.poor} D/F</span>
-                      )}
-                    </span>
-                  </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-on-surface-variant">Quality</span>
+                  <span className="text-[11px] font-mono font-bold text-on-surface tabular-nums">
+                    {qualityBreakdown.good} A/B
+                    {qualityBreakdown.poor > 0 && (
+                      <span className="text-ext-coral ml-1">{qualityBreakdown.poor} D/F</span>
+                    )}
+                  </span>
                 </div>
               </div>
             </div>
@@ -484,58 +460,6 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
         </div>
 
         {/* ═══════════════════════════════════════════
-            KEY METRICS BAR
-            ═══════════════════════════════════════════ */}
-        <div
-          className="rounded-xl px-6 py-4 mb-8 grid grid-cols-2 md:grid-cols-4 gap-4"
-          style={{ backgroundColor: 'rgb(var(--md-sys-color-surface-container))' }}
-        >
-          <div>
-            <div className="text-xl font-brand font-bold text-ext-rose leading-none tabular-nums">{intel.threatGroups.length}</div>
-            <div className="text-[9px] text-on-surface-variant uppercase tracking-wider mt-1">
-              Threat Groups
-            </div>
-            {sectorLabel && <div className="text-[8px] text-outline mt-0.5">targeting {sectorLabel}</div>}
-          </div>
-          <div>
-            <div className="text-xl font-brand font-bold text-ext-coral leading-none tabular-nums">{actionableGapCount}</div>
-            <div className="text-[9px] text-on-surface-variant uppercase tracking-wider mt-1">
-              Coverage Gaps
-            </div>
-            <div className="text-[8px] text-outline mt-0.5">actionable from SIEM</div>
-          </div>
-          <div>
-            <div className="text-xl font-brand font-bold text-on-surface leading-none tabular-nums">{uniqueTechniqueCount}</div>
-            <div className="text-[9px] text-on-surface-variant uppercase tracking-wider mt-1">
-              Techniques Covered
-            </div>
-            <div className="text-[8px] text-outline mt-0.5">unique MITRE ATT&CK</div>
-          </div>
-          <div>
-            <div className={`text-xl font-brand font-bold leading-none tabular-nums ${
-              qualityBreakdown.good >= qualityBreakdown.total * 0.6 ? 'text-ext-green' : 'text-ext-amber'
-            }`}>
-              {qualityBreakdown.total > 0 ? Math.round((qualityBreakdown.good / qualityBreakdown.total) * 100) : 0}%
-            </div>
-            <div className="text-[9px] text-on-surface-variant uppercase tracking-wider mt-1">
-              Quality A/B
-            </div>
-            <div className="text-[8px] text-outline mt-0.5">of top {top50.length} detections</div>
-          </div>
-        </div>
-
-        {/* ═══════════════════════════════════════════
-            PRIORITY QUEUE
-            ═══════════════════════════════════════════ */}
-        <div className="mb-8">
-          <DetectionActionQueue
-            detections={intel.recommendedDetections}
-            userQueryLanguages={userQueryLanguages}
-            loading={isLoading}
-          />
-        </div>
-
-        {/* ═══════════════════════════════════════════
             DRILL-DOWN WIDGETS: Technology + Threat Landscape
             ═══════════════════════════════════════════ */}
         <div className="mb-8">
@@ -552,6 +476,17 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
               loading={isLoading}
             />
           </div>
+        </div>
+
+        {/* ═══════════════════════════════════════════
+            PRIORITY QUEUE
+            ═══════════════════════════════════════════ */}
+        <div className="mb-8">
+          <DetectionActionQueue
+            detections={intel.recommendedDetections}
+            userQueryLanguages={userQueryLanguages}
+            loading={isLoading}
+          />
         </div>
 
         {/* ═══════════════════════════════════════════
