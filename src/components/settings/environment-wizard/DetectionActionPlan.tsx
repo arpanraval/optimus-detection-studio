@@ -299,7 +299,12 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
           </div>
           <div className="flex items-center gap-3">
             {onScopeChange && (
-              <ScopeToggle includeMyLab={scope === 'all'} onChange={onScopeChange} />
+              <span
+                title="Affects which detections count as 'addressed' on the progress bar. Recommendations and gaps always reflect your full library."
+                className="cursor-help"
+              >
+                <ScopeToggle includeMyLab={scope === 'all'} onChange={onScopeChange} />
+              </span>
             )}
             <div className="flex items-center gap-1.5 flex-wrap justify-end">
               {profileTags.map((tag, i) => (
