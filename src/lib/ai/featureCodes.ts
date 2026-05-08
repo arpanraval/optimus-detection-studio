@@ -29,6 +29,7 @@ export const AI_FEATURE_CODES = {
   EMBEDDING_DETECTION:    'embedding-detection',
   EMBEDDING_BATCH:        'embedding-batch',
   EMBEDDING_THREAT_INTEL: 'embedding-threat-intel',
+  EMBEDDING_INTERNAL:     'embedding-internal',
 
   // Optimus tool calls (when invoked from agent)
   OPTIMUS_TOOL_CALL:      'optimus-tool-call',
@@ -67,6 +68,7 @@ export const FEATURE_DISPLAY: Record<AiFeatureCode, { label: string; group: stri
   'embedding-detection':    { label: 'Detection Embedding',    group: 'Embeddings',       icon: 'database' },
   'embedding-batch':        { label: 'Batch Embedding',        group: 'Embeddings',       icon: 'database' },
   'embedding-threat-intel': { label: 'Threat Intel Embedding', group: 'Embeddings',       icon: 'database' },
+  'embedding-internal':     { label: 'Internal Embedding',     group: 'Embeddings',       icon: 'database' },
   'optimus-tool-call':      { label: 'Optimus Tool Call',      group: 'AI Tools',         icon: 'tool' },
   'tr-research-agent':      { label: 'TR · Research',          group: 'Threat Research',  icon: 'compass' },
   'tr-attack-researcher':   { label: 'TR · Attack Researcher', group: 'Threat Research',  icon: 'crosshair' },
