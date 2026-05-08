@@ -9,6 +9,7 @@ interface SiemCardProps {
   selected: boolean;
   connectionStatus: DisplayStatus;
   onClick: () => void;
+  onConnectClick?: () => void;
   index: number;
 }
 
@@ -17,50 +18,87 @@ export const SiemCard: React.FC<SiemCardProps> = ({
   selected,
   connectionStatus,
   onClick,
+  onConnectClick,
   index,
 }) => {
   const badge = STATUS_BADGE_CONFIG[connectionStatus];
 
+  const primaryQueryLang = providerMeta.queryLanguages?.[0];
+  const isConnected = connectionStatus === 'connected';
+  const isComingSoon = connectionStatus === 'coming-soon';
+  const dotClass = (() => {
+    switch (connectionStatus) {
+      case 'connected': return 'bg-[#4D7C6F]';
+      case 'configured': return 'bg-amber-500';
+      case 'error': return 'bg-[#A63D40]';
+      case 'coming-soon': return 'bg-on-surface-variant/30';
+      default: return 'bg-on-surface-variant/40';
+    }
+  })();
+
+  const handleConnectClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onConnectClick?.();
+  };
+
   return (
-    <button
+    <div
       onClick={onClick}
-      className={`relative text-left p-4 rounded-xl border transition-all duration-200 group
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+      className={`relative text-left px-4 py-3.5 rounded-xl border transition-all duration-150 cursor-pointer
         ${selected
-          ? 'ring-2 ring-primary bg-primary/5 border-primary/50'
-          : 'border-outline-variant/20 hover:border-outline-variant/60 hover:scale-[1.02] hover:shadow-[0_4px_20px_rgba(0,0,0,0.15)]'
+          ? 'bg-surface-container-high border-primary ring-1 ring-primary'
+          : 'bg-surface-container-low border-outline-variant/40 hover:border-outline-variant hover:bg-surface-container-high'
         }`}
       style={{
-        animation: `slideUp 400ms cubic-bezier(0.05, 0.7, 0.1, 1.0) ${index * 40}ms both`,
+        animation: `slideUp 300ms cubic-bezier(0.05, 0.7, 0.1, 1.0) ${index * 30}ms both`,
       }}
     >
-      {selected && (
-        <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
-          <Icon name="check" className="w-3 h-3 text-on-primary" />
-        </div>
-      )}
       <div className="flex items-center gap-3">
         <IntegrationLogo provider={providerMeta} size="lg" />
         <div className="min-w-0 flex-1">
-          <div className={`text-sm font-medium ${selected ? 'text-on-surface' : 'text-on-surface-variant'}`}>
-            {providerMeta.name}
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-on-surface truncate">
+              {providerMeta.name}
+            </span>
+            <span
+              className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass}`}
+              title={badge.label}
+            />
           </div>
-          {providerMeta.queryLanguages && providerMeta.queryLanguages.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1">
-              {providerMeta.queryLanguages.map(lang => (
-                <span
-                  key={lang}
-                  className="text-[10px] px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface-variant"
-                >
-                  {lang}
-                </span>
-              ))}
+          {primaryQueryLang && (
+            <div className="text-[11px] text-on-surface-variant mt-0.5 truncate">
+              {primaryQueryLang}
             </div>
           )}
-          <span className={`inline-block mt-1.5 text-[10px] px-2 py-0.5 rounded-full border ${badge.className}`}>
-            {badge.label}
-          </span>
         </div>
+        {selected && (
+          <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
+            <Icon name="check" className="w-3 h-3 text-on-primary" />
+          </div>
+        )}
       </div>
-    </button>
+
+      {onConnectClick && !isComingSoon && (
+        <div className="mt-3 pt-3 border-t border-outline-variant/30 flex items-center justify-between">
+          <span className="text-[11px] text-on-surface-variant">
+            {isConnected ? 'Connected' : 'Not connected'}
+          </span>
+          <button
+            type="button"
+            onClick={handleConnectClick}
+            className={`text-[11px] font-medium px-2.5 py-1 rounded-md transition-colors ${
+              isConnected
+                ? 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest'
+                : 'text-primary hover:bg-primary/10'
+            }`}
+          >
+            {isConnected ? 'Reconfigure' : 'Connect'}
+          </button>
+        </div>
+      )}
+    </div>
   );
 };

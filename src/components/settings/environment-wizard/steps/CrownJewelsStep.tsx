@@ -49,7 +49,7 @@ export const CrownJewelsStep: React.FC<CrownJewelsStepProps> = ({ selected, onSe
       <p className="text-sm text-on-surface-variant mb-6">
         Identifying critical assets helps prioritize detection rules that protect what matters most.
       </p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {CROWN_JEWELS.map((jewel, i) => (
           <SelectionCard
             key={jewel}

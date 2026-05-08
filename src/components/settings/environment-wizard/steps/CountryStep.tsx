@@ -49,18 +49,17 @@ export const CountryStep: React.FC<CountryStepProps> = ({
 
       {/* Section 1: User's country */}
       <div className="mb-8">
-        <h3 className="text-sm font-medium text-on-surface mb-3 flex items-center gap-2">
-          <Icon name="map-pin" className="w-4 h-4 text-primary" />
+        <h3 className="text-sm font-semibold text-on-surface mb-3">
           Your Country / Region
         </h3>
         <div className="relative mb-3">
-          <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/50" />
+          <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/70" />
           <input
             type="text"
             value={countrySearch}
             onChange={e => setCountrySearch(e.target.value)}
             placeholder="Search countries..."
-            className="w-full h-10 pl-10 pr-4 rounded-xl text-sm border border-outline-variant/30 bg-transparent text-on-surface placeholder:text-on-surface-variant/50 focus:border-primary/50 focus:outline-none"
+            className="w-full h-10 pl-10 pr-4 rounded-xl text-sm border border-outline-variant/40 bg-surface-container-low text-on-surface placeholder:text-on-surface-variant/60 focus:border-primary focus:outline-none"
           />
         </div>
         <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto scrollbar-thin">
@@ -86,8 +85,7 @@ export const CountryStep: React.FC<CountryStepProps> = ({
       {/* Section 2: Threat origins */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-medium text-on-surface flex items-center gap-2">
-            <Icon name="crosshair" className="w-4 h-4 text-red-400" />
+          <h3 className="text-sm font-semibold text-on-surface">
             Threat Origin Countries
           </h3>
           <button

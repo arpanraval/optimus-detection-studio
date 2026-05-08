@@ -1,5 +1,4 @@
 import React from 'react';
-import { Icon } from '../../../Icon';
 
 interface ToggleChipProps {
   label: string;
@@ -11,13 +10,12 @@ export const ToggleChip: React.FC<ToggleChipProps> = ({ label, selected, onClick
   return (
     <button
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm border transition-all duration-150
+      className={`inline-flex items-center rounded-full px-3.5 py-1.5 text-sm font-medium border transition-all duration-150
         ${selected
-          ? 'bg-primary/10 border-primary/50 text-primary'
-          : 'bg-surface-container border-outline-variant/20 text-on-surface-variant hover:bg-surface-container-high/50'
+          ? 'bg-primary border-primary text-on-primary'
+          : 'bg-surface-container-high border-outline-variant/40 text-on-surface hover:border-outline-variant hover:bg-surface-container-highest'
         }`}
     >
-      {selected && <Icon name="check" className="w-3.5 h-3.5" />}
       {label}
     </button>
   );

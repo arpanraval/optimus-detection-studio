@@ -176,7 +176,7 @@ const ComingSoonCard: React.FC<{ providerMeta: ProviderMeta }> = ({ providerMeta
 // Connection Setup Modal
 // =============================================================================
 
-const ConnectionSetupModal: React.FC<{
+export const ConnectionSetupModal: React.FC<{
   provider: IntegrationProvider;
   providerMeta: ProviderMeta;
   onConnected: () => void;
