@@ -153,7 +153,11 @@ async function checkBudgets(ctx: AiTelemetryContext): Promise<BudgetMatch | null
   return null;
 }
 
-interface InsertEventInput extends AiTelemetryContext {
+// AiTelemetryContext narrows category to llm/embedding/image (caller-provided
+// before any work runs). InsertEventInput is the post-call record, where a
+// failed call needs the 'failed' category — so we Omit + redeclare to widen
+// rather than try to extend an incompatible field.
+interface InsertEventInput extends Omit<AiTelemetryContext, 'category'> {
   category: AiCategory;
   inputTokens: number;
   outputTokens: number;

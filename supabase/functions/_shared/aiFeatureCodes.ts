@@ -18,6 +18,7 @@ const KNOWN_FEATURES = new Set<string>([
   'embedding-detection',
   'embedding-batch',
   'embedding-threat-intel',
+  'embedding-internal',
   'optimus-tool-call',
   'tr-research-agent',
   'tr-attack-researcher',

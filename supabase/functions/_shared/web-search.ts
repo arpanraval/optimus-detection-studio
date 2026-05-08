@@ -111,13 +111,28 @@ export async function webSearch(opts: WebSearchOpts): Promise<WebSearchResult> {
     }
 
     const data = await response.json();
+    // 1500 chars per result × 8 results ≈ 12K total — fits the agent-loop
+    // TOOL_RESULT_MAX_CHARS=12000 cap with overhead. Was 400, which gave the
+    // Research Agent ~3.2K chars of source material across 3 search calls
+    // and forced fallback to training memory (= hallucinations). DFIR-Report
+    // / Unit 42 posts are 5-10K words; we want enough to extract real IOCs.
     const results = (data.results || []).map((r: any) => ({
       title: r.title,
       url: r.url,
-      description: r.content?.slice(0, 400) || '',
+      description: r.content?.slice(0, 1500) || '',
       source: new URL(r.url).hostname,
       score: r.score,
     }));
+
+    // Deterministic ordering: same query → same sequence of results handed
+    // to the LLM. Tavily's natural ordering rotates with freshness/cache,
+    // which was a source of run-to-run variance in agent output. Sort by
+    // (score desc, url asc) — score is the relevance signal, URL breaks ties.
+    results.sort((a: any, b: any) => {
+      const s = (b.score ?? 0) - (a.score ?? 0);
+      if (s !== 0) return s;
+      return a.url < b.url ? -1 : a.url > b.url ? 1 : 0;
+    });
 
     const result: WebSearchResult = {
       query,
