@@ -6,8 +6,9 @@ import { Select } from '../ui/Select';
 import { Toggle } from '../ui/Toggle';
 import { ModelSelector } from '../ModelSelector';
 import { useAutoDigestSettings, CuratedFeedSource, FeedHealth, CustomFeed } from '../../hooks/useAutoDigestSettings';
-import { FeedActivityLog } from '../threatintel/FeedActivityLog';
+import { FeedActivityLog, countSystemErrors, countFeedErrors } from '../threatintel/FeedActivityLog';
 import { useAppData } from '../../router/AppDataContext';
+import { useToast } from '../../hooks/useToast';
 
 // =============================================================================
 // TYPES & CONSTANTS
@@ -20,11 +21,14 @@ interface AutoDigestSettingsPageProps {
 type TabId = 'activity' | 'sources' | 'configuration';
 
 // Activity is intentionally first — established users land here to check
-// "did the last run work?" far more often than they tweak Sources or Config.
-const TABS: { id: TabId; label: string; icon: string }[] = [
-  { id: 'activity', label: 'Activity', icon: 'trending-up' },
-  { id: 'sources', label: 'Sources', icon: 'globe' },
-  { id: 'configuration', label: 'Configuration', icon: 'settings' },
+// "did the last run work?" far more often than they tweak Sources or
+// Config. Tab labels render plain text (no leading icons) — the icons
+// read as toy-like for an enterprise pipeline tool and added visual
+// noise without information.
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'activity', label: 'Activity' },
+  { id: 'sources', label: 'Sources' },
+  { id: 'configuration', label: 'Configuration' },
 ];
 
 const VALID_TAB_IDS: TabId[] = ['activity', 'sources', 'configuration'];
@@ -78,7 +82,8 @@ function getDomain(feedUrl: string): string {
 // enough to answer "is this feed alive?".
 function formatRelativeShort(ts: string | null): string {
   if (!ts) return '—';
-  const ms = Date.now() - new Date(ts).getTime();
+  const date = new Date(ts);
+  const ms = Date.now() - date.getTime();
   if (Number.isNaN(ms) || ms < 0) return '—';
   const min = Math.round(ms / 60000);
   if (min < 1)  return 'just now';
@@ -87,7 +92,14 @@ function formatRelativeShort(ts: string | null): string {
   if (hr < 24)  return `${hr}h ago`;
   const day = Math.round(hr / 24);
   if (day < 7)  return `${day}d ago`;
-  return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  // Include year when the date is from a previous calendar year so
+  // "Apr 28" doesn't read as recent when it's actually 12 months old.
+  // Same year stays compact (Apr 28); cross-year shows the year too
+  // (Apr 28, 2024).
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString('en-US', sameYear
+    ? { month: 'short', day: 'numeric' }
+    : { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 const SourceRow: React.FC<{
@@ -121,15 +133,32 @@ const SourceRow: React.FC<{
     }
   }
 
+  // Whole row is the click target. We keep the visual spacing of a TR but
+  // make it keyboard-activatable: focusable via tabIndex, switchable via
+  // Space/Enter, and the role moves to the row (not the visual switch
+  // shape, which is decorative). Without this, screen-reader users had no
+  // path to toggle a source — the only working interaction was a sighted
+  // mouse click on the row.
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTableRowElement>) => {
+    if (e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault();
+      onToggle();
+    }
+  };
   return (
     <tr
       onClick={onToggle}
-      className={`cursor-pointer border-b border-outline-variant/50 transition-colors group
-        ${isEnabled ? 'bg-primary/[0.05]' : 'hover:bg-surface-container-highest/50'}`}
+      onKeyDown={handleKeyDown}
+      role="switch"
+      aria-checked={isEnabled}
+      aria-label={`Toggle ${source.name} source`}
+      tabIndex={0}
+      className={`cursor-pointer border-b border-outline-variant/30 last:border-b-0 transition-colors group focus:outline-none focus-visible:ring-2 focus-visible:ring-primary
+        ${isEnabled ? '' : 'opacity-60 hover:opacity-100 hover:bg-surface-container'}`}
       title={source.description || undefined}
     >
-      <td className="py-3 pl-5 pr-3 w-12">
-        <div className="w-7 h-7 rounded-lg overflow-hidden bg-surface-container-highest flex items-center justify-center">
+      <td className="py-2 pl-4 pr-2 w-10">
+        <div className="w-6 h-6 rounded-md overflow-hidden bg-surface-container flex items-center justify-center">
           {faviconUrl ? (
             <img src={faviconUrl} alt="" className="w-4 h-4" loading="lazy"
               onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
@@ -138,24 +167,29 @@ const SourceRow: React.FC<{
           )}
         </div>
       </td>
-      <td className="py-3 pr-4">
+      <td className="py-2 pr-3">
         <span className={`text-sm font-medium transition-colors ${
           isEnabled ? 'text-on-surface' : 'text-on-surface-variant group-hover:text-on-surface'
         }`}>{source.name}</span>
       </td>
-      <td className="py-3 pr-4">
-        <span className="text-xs text-on-surface-variant/50 font-mono">{domain}</span>
+      <td className="py-2 pr-3">
+        <span className="text-xs text-on-surface-variant/60 font-mono">{domain}</span>
       </td>
-      <td className="py-3 pr-4">
-        <span className="text-[11px] tabular-nums" title={healthTitle}>{healthLabel}</span>
+      <td className="py-2 pr-3">
+        <span className="text-xs tabular-nums" title={healthTitle}>{healthLabel}</span>
       </td>
-      <td className="py-3 pr-4 text-right">
-        <span className="text-[11px] text-on-surface-variant/40 tabular-nums">~{source.avg_articles_week}/wk</span>
+      <td className="py-2 pr-3 text-right">
+        <span className="text-xs text-on-surface-variant/60 tabular-nums">~{source.avg_articles_week}/wk</span>
       </td>
-      <td className="py-3 pr-5 w-16 text-center">
-        <div className={`relative inline-block w-10 h-[22px] rounded-full transition-colors text-left align-middle ${
-          isEnabled ? 'bg-primary' : 'bg-outline-variant'
-        }`} role="switch" aria-checked={isEnabled}>
+      <td className="py-2 pr-4 w-16 text-center">
+        {/* Decorative switch shape — actual toggle behaviour lives on
+            the row. aria-hidden so SR users only hear the row's switch. */}
+        <div
+          aria-hidden="true"
+          className={`relative inline-block w-10 h-[22px] rounded-full transition-colors text-left align-middle ${
+            isEnabled ? 'bg-primary' : 'bg-outline-variant'
+          }`}
+        >
           <span className={`absolute top-[3px] left-[3px] w-4 h-4 rounded-full bg-white shadow transition-transform ${
             isEnabled ? 'translate-x-[18px]' : 'translate-x-0'
           }`} />
@@ -194,36 +228,36 @@ const CustomSourceRow: React.FC<{
   }
 
   return (
-    <tr className={`border-b border-outline-variant/50 transition-colors group ${
-      feed.is_enabled ? 'bg-primary/[0.05]' : 'hover:bg-surface-container-highest/50'
+    <tr className={`border-b border-outline-variant/30 last:border-b-0 transition-colors group ${
+      feed.is_enabled ? '' : 'opacity-60 hover:opacity-100 hover:bg-surface-container'
     }`}>
-      <td className="py-3 pl-5 pr-3 w-12">
-        <div className="w-7 h-7 rounded-lg overflow-hidden bg-surface-container-highest flex items-center justify-center">
+      <td className="py-2 pl-4 pr-2 w-10">
+        <div className="w-6 h-6 rounded-md overflow-hidden bg-surface-container flex items-center justify-center">
           <Icon name="rss" className="w-3.5 h-3.5 text-on-surface-variant/50" />
         </div>
       </td>
-      <td className="py-3 pr-4">
+      <td className="py-2 pr-3">
         <span className={`text-sm font-medium ${feed.is_enabled ? 'text-on-surface' : 'text-on-surface-variant'}`}>
           {feed.name}
         </span>
       </td>
-      <td className="py-3 pr-4">
-        <span className="text-xs text-on-surface-variant/50 font-mono">{domain}</span>
+      <td className="py-2 pr-3">
+        <span className="text-xs text-on-surface-variant/60 font-mono">{domain}</span>
       </td>
-      <td className="py-3 pr-4">
-        <span className="text-[11px] tabular-nums" title={healthTitle}>{healthLabel}</span>
+      <td className="py-2 pr-3">
+        <span className="text-xs tabular-nums" title={healthTitle}>{healthLabel}</span>
       </td>
-      <td className="py-3 pr-4 text-right">
+      <td className="py-2 pr-3 text-right">
         <button
           type="button"
           onClick={onRemove}
-          className="text-[11px] text-on-surface-variant/40 hover:text-red-400 transition-colors"
+          className="text-xs text-on-surface-variant/60 hover:text-error transition-colors"
           title="Remove this source"
         >
           Remove
         </button>
       </td>
-      <td className="py-3 pr-5 w-16 text-center">
+      <td className="py-2 pr-4 w-16 text-center">
         <button
           type="button"
           onClick={onToggle}
@@ -249,6 +283,7 @@ const CustomSourceRow: React.FC<{
 export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ onBack }) => {
   const { user } = useAppData();
   const userId = user?.id ?? '';
+  const { showToast } = useToast();
 
   const {
     settings,
@@ -384,26 +419,64 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     setConfigDirty(true);
   }, [isSaving]);
 
-  // Save all changes
+  // Save all changes. Each step (config save + per-source toggle) is
+  // tracked individually so a mid-loop failure leaves the rest of the
+  // pending state intact for retry. Without this, if toggleSource for
+  // source #5 of 10 threw, the first 4 toggles AND the config were
+  // already committed but the user-visible "Save Changes" pill stayed
+  // dirty for ALL 10 — hiding which 4 already landed.
   const handleSave = useCallback(async () => {
     if (isSaving) return; // re-entrancy guard — Save button shouldn't fire twice
     setIsSaving(true);
+    const failedToggleIds: string[] = [];
+    let configCommitted = false;
     try {
-      // Save config if dirty
       if (configDirty) {
         await saveSettings(localConfig);
+        configCommitted = true;
+      } else {
+        configCommitted = true;
       }
-      // Apply pending source toggles
+      const succeeded = new Set<string>();
       for (const [sourceId, enabled] of pendingToggles) {
         const source = curatedSources.find(s => s.id === sourceId);
-        if (source) await toggleSource(source, enabled);
+        if (!source) {
+          // Source disappeared from curated list mid-flight; treat as failed.
+          failedToggleIds.push(sourceId);
+          continue;
+        }
+        // toggleSource returns boolean — true on success, false on the
+        // RLS/insert/update error paths (it shows its own per-source toast
+        // for the failure detail). We aggregate the boolean here.
+        const ok = await toggleSource(source, enabled);
+        if (ok) succeeded.add(sourceId);
+        else failedToggleIds.push(sourceId);
       }
-      setPendingToggles(new Map());
-      setConfigDirty(false);
+      // Drop succeeded toggles from pending; keep failures so the user
+      // can retry just the ones that didn't land.
+      if (succeeded.size > 0) {
+        setPendingToggles(prev => {
+          const next = new Map(prev);
+          for (const id of succeeded) next.delete(id);
+          return next;
+        });
+      }
+      if (configCommitted) setConfigDirty(false);
+      if (failedToggleIds.length > 0) {
+        showToast(
+          'error',
+          `Saved config + ${succeeded.size} source toggle${succeeded.size === 1 ? '' : 's'}; ${failedToggleIds.length} source toggle${failedToggleIds.length === 1 ? '' : 's'} failed — retry available`,
+        );
+      }
+    } catch (e) {
+      // saveSettings threw — config didn't commit. Source toggles weren't
+      // attempted. Pending state intact so the user can retry the whole
+      // save. Surface a clean error.
+      showToast('error', e instanceof Error ? e.message : 'Save failed');
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, configDirty, localConfig, pendingToggles, curatedSources, saveSettings, toggleSource]);
+  }, [isSaving, configDirty, localConfig, pendingToggles, curatedSources, saveSettings, toggleSource, showToast]);
 
   // Discard changes
   const handleDiscard = useCallback(() => {
@@ -434,39 +507,97 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
   // Header status-line computations. Must live above the `if (isLoading)`
   // early-return so the hook count is stable across renders (Rules of Hooks).
   const lastRun = recentJobs[0];
+
+  // Live "next auto-run in 17h 42m" countdown. Refreshes every 60s
+  // (lower bound of useful resolution for a daily schedule) so the
+  // user sees the wait-time decreasing without having to refresh.
+  // The static "06:00 UTC" alone read as configuration; pairing it
+  // with a relative figure makes the page feel like it knows the time.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!localConfig.is_enabled) return;
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, [localConfig.is_enabled]);
+
   const nextScheduledLabel = useMemo(() => {
     if (!localConfig.is_enabled) return 'Auto-run paused';
     const hour = localConfig.schedule_hour_utc;
-    return `Next auto-run ${String(hour).padStart(2, '0')}:00 UTC`;
-  }, [localConfig.is_enabled, localConfig.schedule_hour_utc]);
+    const next = new Date(now);
+    next.setUTCMinutes(0, 0, 0);
+    next.setUTCHours(hour);
+    if (next.getTime() <= now) next.setUTCDate(next.getUTCDate() + 1);
+    const diffMs = next.getTime() - now;
+    const totalMin = Math.max(0, Math.round(diffMs / 60_000));
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    const rel =
+      h > 0 && m > 0 ? `${h}h ${m}m` :
+      h > 0 ? `${h}h` :
+      `${m}m`;
+    return `Next auto-run in ${rel} (${String(hour).padStart(2, '0')}:00 UTC)`;
+  }, [localConfig.is_enabled, localConfig.schedule_hour_utc, now]);
 
   const lastRunLabel = useMemo(() => {
     if (!lastRun) return 'No runs yet — click Run Now to start one';
     const summary = lastRun.result_summary as Record<string, any> | null;
     const errors: string[] = Array.isArray(summary?.errors) ? summary!.errors : [];
+    const sysErrors = countSystemErrors(summary);
+    const feedErrs = countFeedErrors(summary);
     const digested = summary?.digested ?? summary?.articles_digested ?? 0;
-    const time = new Date(lastRun.started_at || lastRun.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const skipped = summary?.skipped ?? summary?.articles_skipped ?? 0;
+    const harvested = summary?.articles_harvested ?? 0;
+    // HH:MM:SS so it lines up with the per-event timestamps in the
+    // Activity transcript — mixing HH:MM with HH:MM:SS within one
+    // viewport read as a formatting bug.
+    const time = new Date(lastRun.started_at || lastRun.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     if (lastRun.status === 'pending' || lastRun.status === 'processing') return `Running since ${time}`;
-    if (lastRun.status === 'failed') return `Last run ${time} — failed`;
-    const errorPart = errors.length > 0 ? ` · ${errors.length} error${errors.length === 1 ? '' : 's'}` : '';
-    return `Last run ${time} · ${digested} digested${errorPart}`;
+    if (lastRun.status === 'failed') {
+      // Surface the failure reason inline instead of just "failed". Most
+      // helpful piece is the orchestrator's `error` field (set by the
+      // watchdog) or the first entry in errors[]. Falls back to "no
+      // reason captured" when both are empty (job died too fast to log).
+      const reason = lastRun.error
+        || (errors[0] ? String(errors[0]).slice(0, 80) : 'no reason captured');
+      return `Last run ${time} — failed: ${reason}`;
+    }
+    // Surface system errors prominently; feed-transport blips render as
+    // a soft "(N feed unreachable)" parenthetical so the user knows
+    // upstream had a hiccup without thinking the pipeline broke.
+    const errorPart = sysErrors > 0 ? ` · ${sysErrors} error${sysErrors === 1 ? '' : 's'}` : '';
+    const feedNote = feedErrs > 0 ? ` (${feedErrs} feed${feedErrs === 1 ? '' : 's'} unreachable)` : '';
+    if (digested === 0 && sysErrors === 0 && skipped > 0) {
+      return `Last run ${time} · 0 relevant articles · ${skipped} filtered out as noise${feedNote}`;
+    }
+    if (digested === 0 && sysErrors === 0 && harvested === 0) {
+      return `Last run ${time} · no new articles published in your sources${feedNote}`;
+    }
+    return `Last run ${time} · ${digested} digested${errorPart}${feedNote}`;
   }, [lastRun]);
 
   // Last-run tone for the prominent status pill in the header. Mirrors
   // the FeedActivityLog tone math so a user sees the same color signal
   // here that they'd see if they scrolled to the matching job card.
   // Hook must live above the early-return below (Rules of Hooks).
-  const lastRunTone: 'success' | 'partial' | 'failure' | 'running' | 'pending' | 'idle' = useMemo(() => {
+  // 'neutral' is used for "completed cleanly but produced nothing" — a
+  // run with 0 errors AND 0 digested is operationally healthy but
+  // shouldn't read as success-green at a glance. Mapping to a muted
+  // colour distinguishes "the pipeline ran and nothing was relevant"
+  // from "the pipeline ran and produced 5 reports".
+  const lastRunTone: 'success' | 'partial' | 'failure' | 'running' | 'pending' | 'neutral' | 'idle' = useMemo(() => {
     if (!lastRun) return 'idle';
     const summary = lastRun.result_summary as Record<string, any> | null;
-    const errors: string[] = Array.isArray(summary?.errors) ? summary!.errors : [];
+    const sysErrors = countSystemErrors(summary);
     const digested = summary?.digested ?? summary?.articles_digested ?? 0;
     if (lastRun.status === 'pending') return 'pending';
     if (lastRun.status === 'processing') return 'running';
     if (lastRun.status === 'failed') return 'failure';
-    if (digested > 0 && errors.length === 0) return 'success';
-    if (errors.length > 0) return 'partial';
-    return 'success';
+    // Only system errors flip the tone to amber. Feed-transport blips
+    // (counted by countFeedErrors) are routine flakiness and the run
+    // can still be "success" if it produced reports.
+    if (sysErrors > 0) return 'partial';
+    if (digested > 0) return 'success';
+    return 'neutral';
   }, [lastRun]);
 
   // ─────────────────────────────────────────────────────────────
@@ -481,86 +612,77 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     );
   }
 
+  // Map last-run tone to a single CSS color class. Brand tokens only —
+  // no Tailwind emerald/amber/red. The dot is a small status glyph,
+  // not a chip; the user's eye lands on the text next to it.
+  const lastRunDot =
+    lastRunTone === 'success' ? 'bg-secondary'
+    : lastRunTone === 'partial' ? 'bg-ext-amber'
+    : lastRunTone === 'failure' ? 'bg-error'
+    : lastRunTone === 'running' ? 'bg-ext-amber animate-pulse'
+    : lastRunTone === 'neutral' ? 'bg-on-surface-variant/60'
+    : 'bg-outline-variant';
+
   return (
-    <div className="max-w-5xl mx-auto px-4 py-4 animate-page-enter">
-      {/* Page header — name + run controls on row 1, status pill on row 2.
-          The first version put the entire status line in faint subtitle text
-          which made the most-important "what just happened" info nearly
-          invisible. Promoting it to its own row at the same vertical
-          weight as the title fixes that. */}
-      <div className="flex items-start justify-between mb-3 gap-4 flex-wrap">
-        <h2 className="text-lg font-bold text-on-surface">Auto-Digest</h2>
-        <div className="flex items-center gap-3 shrink-0">
-          <Button
-            size="sm"
-            color="secondary"
-            leadingIcon="play"
-            loading={isRunning || isJobActive}
-            onClick={handleRunNow}
-            title={isJobActive ? 'A digest job is already in progress' : 'Run the pipeline now instead of waiting for the next scheduled slot'}
-          >
-            {isJobActive ? 'Running…' : 'Run Now'}
-          </Button>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-on-surface-variant whitespace-nowrap">
-              Auto-run: <span className={localConfig.is_enabled ? 'text-emerald-500 font-medium' : 'text-on-surface-variant/70 font-medium'}>{localConfig.is_enabled ? 'ON' : 'OFF'}</span>
-            </span>
-            <Toggle
-              size="md"
-              checked={localConfig.is_enabled}
-              onChange={() => updateConfig('is_enabled', !localConfig.is_enabled)}
-              aria-label={localConfig.is_enabled ? 'Disable auto-digest schedule' : 'Enable auto-digest schedule'}
-            />
-          </div>
+    <div className="max-w-7xl mx-auto px-6 py-6 animate-page-enter">
+      {/* Page header — title + supporting subtitle + primary action.
+          The previous version started straight with status text which
+          read as a notification, not a page. Title gives the page an
+          anchor; subtitle explains what the pipeline does. The auto-
+          run toggle was previously crammed into this header but is a
+          configuration preference (not an action), so it now lives at
+          the top of the Configuration tab. */}
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold text-on-surface">Auto-Digest Pipeline</h1>
+          <p className="text-sm text-on-surface-variant mt-1">
+            Daily intelligence harvest — fetch, classify, rank and digest threat-research articles into your library.
+          </p>
         </div>
+        <Button
+          size="md"
+          color="primary"
+          leadingIcon="play"
+          loading={isRunning || isJobActive}
+          onClick={handleRunNow}
+          title={isJobActive ? 'A digest job is already in progress' : 'Run the pipeline now instead of waiting for the next scheduled slot'}
+        >
+          {isJobActive ? 'Running…' : 'Run Now'}
+        </Button>
       </div>
 
-      {/* Status pill row — the page's primary signal. The dot color matches
-          the last-run job-card tone so this reads as a one-line summary of
-          "what's the pipeline's state right now". */}
-      <div className="mb-6 flex items-center gap-3 flex-wrap text-sm">
-        <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-container-low border border-outline-variant/30">
-          <span className={`w-2 h-2 rounded-full shrink-0 ${
-            lastRunTone === 'success' ? 'bg-emerald-500'
-            : lastRunTone === 'partial' ? 'bg-amber-400'
-            : lastRunTone === 'failure' ? 'bg-red-400'
-            : lastRunTone === 'running' ? 'bg-amber-400 animate-pulse'
-            : 'bg-on-surface-variant/40'
-          }`} />
-          <span className="text-on-surface font-medium">{lastRunLabel}</span>
+      {/* Status banner — a rounded info card, not a pill. Holds the
+          one-line "what just happened" summary plus the next-run
+          countdown. Sits between the page title and the tabs so the
+          eye answers "is the pipeline OK?" before drilling in. */}
+      <div className="mb-6 rounded-lg border border-outline-variant/40 bg-surface-container-low px-4 py-3 flex items-center gap-4 flex-wrap">
+        <span className="flex items-center gap-2.5">
+          <span className={`w-2 h-2 rounded-full shrink-0 ${lastRunDot}`} />
+          <span className="text-sm text-on-surface font-medium">{lastRunLabel}</span>
         </span>
-        <span className="text-on-surface-variant text-xs">{nextScheduledLabel}</span>
+        <span className="w-px h-4 bg-outline-variant/60" />
+        <span className="text-sm text-on-surface-variant">{nextScheduledLabel}</span>
       </div>
 
-      {/* Segmented tab strip. The previous underline-only tabs read as
-          loose floating text on the page canvas — you couldn't tell they
-          were tabs until clicking. This is a proper M3-style segmented
-          control with an enclosing container, hover state, and a clearly
-          "raised" active button using the surface token a level above
-          the strip background. */}
-      <div className="inline-flex items-center bg-surface-container-low rounded-xl p-1 mb-5 border border-outline-variant/15 gap-1">
+      {/* Underline tabs — flat, no leading icons. Active tab has a
+          2px brand-primary underline so the row sits in the page
+          chrome rather than competing with content. */}
+      <div className="flex items-center gap-1 mb-6 border-b border-outline-variant/40">
         {TABS.map(tab => {
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              className={`relative flex items-center gap-2 px-4 py-2.5 text-sm transition-colors -mb-px ${
                 isActive
-                  ? 'bg-surface-container-highest text-on-surface shadow-sm'
-                  : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
+                  ? 'text-on-surface font-semibold border-b-2 border-primary'
+                  : 'text-on-surface-variant hover:text-on-surface border-b-2 border-transparent'
               }`}
             >
-              <Icon name={tab.icon} className="w-3.5 h-3.5" />
               {tab.label}
-              {/* Sources badge: enabled/total to match the body counter
-                  ("12/13"). Slightly more prominent in the active tab. */}
               {tab.id === 'sources' && curatedSources.length > 0 && (
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold tabular-nums ${
-                  isActive
-                    ? 'bg-primary/15 text-primary'
-                    : 'bg-on-surface-variant/10 text-on-surface-variant'
-                }`}>
+                <span className="text-xs tabular-nums text-on-surface-variant">
                   {effectiveEnabled.size}/{curatedSources.length}
                 </span>
               )}
@@ -572,34 +694,27 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
       {/* ═══════════════════════════════════════════════════════ */}
       {/* TAB: SOURCES                                           */}
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* Wrapped in the same canonical container shape used by Activity
-          (FeedActivityLog) and Configuration. Was a bare table on the
-          page background which read as a different visual language than
-          the other two tabs. */}
+      {/* Sources tab — no duplicate "Sources" panel title (the active
+          tab + page title already carry that). Just an inline count
+          summary on the same row as the action button so the table
+          starts immediately. */}
       {activeTab === 'sources' && (
-        <div className="bg-surface-container rounded-2xl border border-outline-variant/10 overflow-hidden">
-          {/* Header bar — matches the "Activity Log" header in
-              FeedActivityLog and the "Pipeline Settings" header in
-              Configuration. Now includes an Add Custom Source button so
-              the page stops looking like a walled garden. */}
-          <div className="px-6 pt-5 pb-3 flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <h3 className="text-base font-semibold text-on-surface">Sources</h3>
-              <p className="text-xs text-on-surface-variant/70 mt-0.5">
-                <span className="font-medium text-on-surface tabular-nums">{effectiveEnabled.size}</span>
-                {' '}of {curatedSources.length} curated enabled
-                {customFeeds.length > 0 && (
-                  <>
-                    {' · '}
-                    <span className="font-medium text-on-surface tabular-nums">{customFeeds.length}</span>
-                    {' '}custom
-                  </>
-                )}
-              </p>
-            </div>
+        <div className="rounded-xl border border-outline-variant/40 bg-surface-container-low overflow-hidden">
+          <div className="px-4 py-3 flex items-center justify-between gap-4 flex-wrap border-b border-outline-variant/30">
+            <p className="text-sm text-on-surface-variant">
+              <span className="font-medium text-on-surface tabular-nums">{effectiveEnabled.size}</span>
+              {' '}of {curatedSources.length} enabled
+              {customFeeds.length > 0 && (
+                <>
+                  {' · '}
+                  <span className="font-medium text-on-surface tabular-nums">{customFeeds.length}</span>
+                  {' '}custom
+                </>
+              )}
+            </p>
             <Button
               size="sm"
-              color="secondary"
+              color="primary"
               leadingIcon="plus"
               onClick={() => setAddCustomOpen(true)}
             >
@@ -607,64 +722,44 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
             </Button>
           </div>
 
-          {/* Source table — now lives inside the page-level container so
-              it doesn't have its own competing border/shadow. */}
-          <div className="border-t border-outline-variant/15">
+          <div>
             <table className="w-full">
+              {/* Compact column header — no heavy bg fill, just a thin
+                  border under it. Smaller font + lighter weight so it
+                  reads as a label row, not a section title. */}
               <thead>
-                <tr className="bg-surface-container-high/50 text-left">
-                  <th className="py-2.5 pl-5 pr-3 w-12" />
-                  <th className="py-2.5 pr-4 text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">Source</th>
-                  <th className="py-2.5 pr-4 text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">Domain</th>
-                  <th className="py-2.5 pr-4 text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">Health</th>
-                  <th className="py-2.5 pr-4 text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider text-right">Frequency</th>
-                  <th className="py-2.5 pr-5 w-16 text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider text-center">Active</th>
+                <tr className="text-left border-b border-outline-variant/30">
+                  <th className="py-2 pl-4 pr-2 w-10" />
+                  <th className="py-2 pr-3 text-[11px] font-medium text-on-surface-variant/70 uppercase tracking-wider">Source</th>
+                  <th className="py-2 pr-3 text-[11px] font-medium text-on-surface-variant/70 uppercase tracking-wider">Domain</th>
+                  <th className="py-2 pr-3 text-[11px] font-medium text-on-surface-variant/70 uppercase tracking-wider">Health</th>
+                  <th className="py-2 pr-3 text-[11px] font-medium text-on-surface-variant/70 uppercase tracking-wider text-right">Frequency</th>
+                  <th className="py-2 pr-4 w-16 text-[11px] font-medium text-on-surface-variant/70 uppercase tracking-wider text-center">Active</th>
                 </tr>
               </thead>
-              {/* Category rendering: when a category has only 1 source we
-                  fold it into the previous block (no orphan section
-                  heading), so "Government & Advisory" with one row no
-                  longer looks like a half-finished section. Headings only
-                  render for categories with 2+ rows. */}
-              {CATEGORY_ORDER.map((cat) => {
-                const sources = grouped[cat];
-                if (!sources?.length) return null;
-                const showHeading = sources.length >= 2;
-                return (
-                  <tbody key={cat}>
-                    {showHeading && (
-                      <tr className="bg-surface-container">
-                        <td colSpan={6} className="px-5 py-1.5 border-y border-outline-variant/50">
-                          <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">
-                            {CATEGORY_LABELS[cat] ?? cat}
-                          </span>
-                        </td>
-                      </tr>
-                    )}
-                    {sources.map((source, i) => (
-                      <SourceRow
-                        key={source.id}
-                        source={source}
-                        isEnabled={effectiveEnabled.has(source.id)}
-                        health={feedHealth.get(source.id)}
-                        onToggle={() => handleToggleSource(source)}
-                        index={i}
-                      />
-                    ))}
-                  </tbody>
-                );
-              })}
-              {/* Custom (user-added) feeds. Same table, separate tbody +
-                  category heading so visually they read as a distinct
-                  collection. Toggle here flips is_enabled directly (no
-                  "save changes" buffering — user-added feeds are simpler:
-                  any change is committed immediately). The trash icon
-                  removes the row entirely. */}
+              {/* All curated sources rendered flat — no per-category
+                  divider rows. With only one populated category
+                  ("Threat Research") plus a one-off (CISA), the
+                  category dividers added chrome without information.
+                  Custom (user-added) feeds still get their own divider
+                  since they're a different class of row. */}
+              <tbody>
+                {CATEGORY_ORDER.flatMap((cat) => grouped[cat] ?? []).map((source, i) => (
+                  <SourceRow
+                    key={source.id}
+                    source={source}
+                    isEnabled={effectiveEnabled.has(source.id)}
+                    health={feedHealth.get(source.id)}
+                    onToggle={() => handleToggleSource(source)}
+                    index={i}
+                  />
+                ))}
+              </tbody>
               {customFeeds.length > 0 && (
                 <tbody>
-                  <tr className="bg-surface-container">
-                    <td colSpan={6} className="px-5 py-1.5 border-y border-outline-variant/50">
-                      <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">
+                  <tr>
+                    <td colSpan={6} className="px-4 py-1.5 border-y border-outline-variant/40">
+                      <span className="text-[11px] font-medium text-on-surface-variant/70 uppercase tracking-wider">
                         Custom Sources
                       </span>
                     </td>
@@ -769,21 +864,40 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
       {/* TAB: CONFIGURATION                                     */}
       {/* ═══════════════════════════════════════════════════════ */}
       {activeTab === 'configuration' && (
-        // Two panels in series, both using the canonical
-        // bg-surface-container rounded-2xl shape that Activity Log and
-        // Sources also use. Header bars are matched (px-6 pt-5 pb-3
-        // text-base font-semibold) so all three tabs feel like the
-        // same component family.
-        <div className="space-y-4">
-          {/* Pipeline settings */}
-          <div className="bg-surface-container rounded-2xl border border-outline-variant/10 overflow-hidden">
-            <div className="px-6 pt-5 pb-3 border-b border-outline-variant/15">
+        // Each settings group is a real container — rounded-lg border +
+        // surface-container-low background — so the eye reads them as
+        // discrete cards, not floating form fields. Headings carry
+        // visual weight (text-base font-semibold) instead of being
+        // tiny uppercase labels.
+        <div className="space-y-6">
+          <section className="rounded-xl border border-outline-variant/40 bg-surface-container-low overflow-hidden">
+            <div className="px-6 pt-5 pb-3 border-b border-outline-variant/30">
               <h3 className="text-base font-semibold text-on-surface">Pipeline Settings</h3>
-              <p className="text-xs text-on-surface-variant/70 mt-0.5">
+              <p className="text-sm text-on-surface-variant/80 mt-0.5">
                 Controls when and how articles are fetched and processed
               </p>
             </div>
             <div className="p-6 space-y-5">
+              {/* Auto-run schedule switch — moved here from the page
+                  header. It's a preference (governs the cron), not a
+                  runtime action, so its natural home is Configuration.
+                  Kept at the top of Pipeline Settings since it's the
+                  most-toggled setting. */}
+              <div className="flex items-start justify-between gap-4 pb-5 border-b border-outline-variant/30">
+                <div>
+                  <p className="text-sm font-medium text-on-surface">Auto-run on schedule</p>
+                  <p className="text-xs text-on-surface-variant/80 mt-0.5">
+                    When enabled, the pipeline runs automatically at the time below. Run Now still works either way.
+                  </p>
+                </div>
+                <Toggle
+                  size="md"
+                  checked={localConfig.is_enabled}
+                  onChange={() => updateConfig('is_enabled', !localConfig.is_enabled)}
+                  aria-label={localConfig.is_enabled ? 'Disable auto-digest schedule' : 'Enable auto-digest schedule'}
+                />
+              </div>
+            <div className="space-y-5">
               {/* Schedule & Limits */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -871,74 +985,136 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
                       {' '}— industry, platforms, and log sources.
                     </p>
                   </div>
-                  {/* The AUTO badge is now a Link too, so users can edit
-                      behavior in one click rather than reading a tooltip
-                      and having to navigate manually. */}
-                  <Link
-                    to="/settings/environment"
-                    className="text-[10px] px-2 py-1 rounded-full bg-primary/10 text-primary font-bold uppercase tracking-wider hover:bg-primary/20 transition-colors"
-                    title="Edit your Environment Profile to change relevance scoring"
-                  >
-                    Auto · Edit
-                  </Link>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-[11px] text-on-surface-variant/70">Automatic</span>
+                    <Link
+                      to="/settings/environment"
+                      className="text-xs text-primary hover:underline font-medium"
+                      title="Edit your Environment Profile to change relevance scoring"
+                    >
+                      Edit
+                    </Link>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+            </div>
+          </section>
 
-          {/* Pipeline stats panel — replaces the dead empty space below
-              the small settings group. Mirrors of the most important
-              cumulative numbers so this tab feels populated and gives
-              the user a quick health snapshot without bouncing to
-              Activity. Counts come straight from recentJobs (last 7
-              runs from the hook) so we don't pay for an extra query. */}
+          {/* Pipeline Health — same container shape as Pipeline Settings.
+              Headline metric (reports produced) is the only stat the
+              eye should land on first; the four-tile sub-row is
+              supporting context. */}
+          {recentJobs.length === 0 && (
+            <section className="rounded-xl border border-outline-variant/40 bg-surface-container-low overflow-hidden">
+              <div className="px-6 pt-5 pb-3 border-b border-outline-variant/30">
+                <h3 className="text-base font-semibold text-on-surface">Pipeline Health</h3>
+                <p className="text-sm text-on-surface-variant/80 mt-0.5">
+                  Runs your pipeline has executed will roll up here once you have one
+                </p>
+              </div>
+              <div className="p-6">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
+                  {(['Reports', 'Not relevant', 'System errors', 'Success rate'] as const).map((label) => (
+                    <div key={label}>
+                      <div className="text-3xl font-semibold text-on-surface-variant/30 tabular-nums">—</div>
+                      <div className="text-xs uppercase tracking-wider text-on-surface-variant/70 font-medium mt-1">{label}</div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-sm text-on-surface-variant/80 mt-5">
+                  Click <span className="font-medium text-on-surface">Run Now</span> at the top of the page or wait for the next scheduled run to populate this panel.
+                </p>
+              </div>
+            </section>
+          )}
           {recentJobs.length > 0 && (() => {
-            // Success rate counts only error-free completed runs as "clean".
-            // The previous version counted any 'completed' status, which
-            // gave 100% even when every run shipped with errors — useless
-            // signal. Now: clean = status==='completed' AND errors.length===0.
             const totals = recentJobs.reduce(
               (acc, j) => {
                 const s = j.result_summary as Record<string, any> | null;
-                const errs = Array.isArray(s?.errors) ? s!.errors.length : 0;
+                const sys = countSystemErrors(s);
+                const feed = countFeedErrors(s);
                 acc.digested += s?.digested ?? s?.articles_digested ?? 0;
                 acc.skipped  += s?.skipped  ?? s?.articles_skipped  ?? 0;
-                acc.errors   += errs;
-                if (j.status === 'completed' && errs === 0) acc.cleanRuns += 1;
+                acc.sysErrors  += sys;
+                acc.feedErrors += feed;
+                if (j.status === 'completed' && sys === 0) acc.cleanRuns += 1;
+                acc.runsProducedReports += (s?.digested ?? s?.articles_digested ?? 0) > 0 ? 1 : 0;
                 return acc;
               },
-              { digested: 0, skipped: 0, errors: 0, cleanRuns: 0 },
+              { digested: 0, skipped: 0, sysErrors: 0, feedErrors: 0, cleanRuns: 0, runsProducedReports: 0 },
             );
             const successRate = recentJobs.length > 0
               ? Math.round((totals.cleanRuns / recentJobs.length) * 100)
               : 0;
+            // One dot per recent run, filled when the run produced
+            // ≥1 report. Lets the eye answer "am I getting reports?"
+            // without parsing four equally-weighted stat tiles.
+            const runDots = recentJobs.map((j) => {
+              const s = j.result_summary as Record<string, any> | null;
+              const sys = countSystemErrors(s);
+              const dig = s?.digested ?? s?.articles_digested ?? 0;
+              if (j.status === 'failed' || sys > 0) return 'error' as const;
+              if (dig > 0) return 'produced' as const;
+              return 'empty' as const;
+            }).reverse(); // oldest → newest, left → right
             return (
-              <div className="bg-surface-container rounded-2xl border border-outline-variant/10 overflow-hidden">
-                <div className="px-6 pt-5 pb-3 border-b border-outline-variant/15">
+              <section className="rounded-xl border border-outline-variant/40 bg-surface-container-low overflow-hidden">
+                <div className="px-6 pt-5 pb-3 border-b border-outline-variant/30">
                   <h3 className="text-base font-semibold text-on-surface">Pipeline Health</h3>
-                  <p className="text-xs text-on-surface-variant/70 mt-0.5">
-                    Last {recentJobs.length} run{recentJobs.length === 1 ? '' : 's'} · Success rate counts error-free completions only
+                  <p className="text-sm text-on-surface-variant/80 mt-0.5">
+                    Last {recentJobs.length} run{recentJobs.length === 1 ? '' : 's'} — reports produced is the headline metric
                   </p>
                 </div>
-                <div className="p-6 grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  <div>
-                    <div className="text-lg font-bold text-on-surface tabular-nums">{totals.digested}</div>
-                    <div className="text-[10px] uppercase tracking-wider text-on-surface-variant/60 font-bold mt-0.5">Digested</div>
+                <div className="p-6">
+                  {/* Hero metric + supporting sentence on the same line so
+                      the user can answer "am I getting reports?" with
+                      one read. */}
+                  <div className="flex items-baseline gap-3 flex-wrap">
+                    <span className="text-5xl font-semibold text-on-surface tabular-nums leading-none">{totals.digested}</span>
+                    <span className="text-base text-on-surface-variant">
+                      report{totals.digested === 1 ? '' : 's'} from your last {recentJobs.length} run{recentJobs.length === 1 ? '' : 's'}
+                    </span>
                   </div>
-                  <div>
-                    <div className="text-lg font-bold text-on-surface-variant tabular-nums">{totals.skipped}</div>
-                    <div className="text-[10px] uppercase tracking-wider text-on-surface-variant/60 font-bold mt-0.5">Not relevant</div>
+                  <div className="flex items-center gap-3 mt-4 flex-wrap">
+                    <span className="text-xs uppercase tracking-wider text-on-surface-variant/70 font-medium">Run history</span>
+                    <span className="flex items-center gap-1.5">
+                      {runDots.map((d, i) => (
+                        <span
+                          key={i}
+                          className={`w-2.5 h-2.5 rounded-full ${
+                            d === 'produced' ? 'bg-secondary'
+                            : d === 'error' ? 'bg-error'
+                            : 'border border-outline-variant'
+                          }`}
+                          aria-label={d === 'produced' ? 'Produced reports' : d === 'error' ? 'System error' : 'No reports'}
+                        />
+                      ))}
+                    </span>
+                    <span className="text-sm tabular-nums text-on-surface-variant">
+                      {totals.runsProducedReports} of {recentJobs.length} produced reports
+                    </span>
                   </div>
-                  <div>
-                    <div className={`text-lg font-bold tabular-nums ${totals.errors > 0 ? 'text-amber-400' : 'text-on-surface-variant'}`}>{totals.errors}</div>
-                    <div className="text-[10px] uppercase tracking-wider text-on-surface-variant/60 font-bold mt-0.5">Errors</div>
-                  </div>
-                  <div>
-                    <div className={`text-lg font-bold tabular-nums ${successRate >= 80 ? 'text-emerald-500' : successRate >= 50 ? 'text-amber-400' : 'text-red-400'}`}>{successRate}%</div>
-                    <div className="text-[10px] uppercase tracking-wider text-on-surface-variant/60 font-bold mt-0.5">Success rate</div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 mt-6 pt-5 border-t border-outline-variant/30">
+                    <div>
+                      <div className="text-2xl font-semibold text-on-surface tabular-nums">{totals.skipped}</div>
+                      <div className="text-xs uppercase tracking-wider text-on-surface-variant/70 font-medium mt-1">Not relevant</div>
+                    </div>
+                    <div title="Real pipeline failures (orchestrator, AI, db). Feed transport blips are excluded.">
+                      <div className={`text-2xl font-semibold tabular-nums ${totals.sysErrors > 0 ? 'text-ext-amber' : 'text-on-surface'}`}>{totals.sysErrors}</div>
+                      <div className="text-xs uppercase tracking-wider text-on-surface-variant/70 font-medium mt-1">System errors</div>
+                    </div>
+                    <div title="Upstream RSS feeds that returned a network error. Routine flakiness.">
+                      <div className="text-2xl font-semibold text-on-surface-variant tabular-nums">{totals.feedErrors}</div>
+                      <div className="text-xs uppercase tracking-wider text-on-surface-variant/70 font-medium mt-1">Feed blips</div>
+                    </div>
+                    <div>
+                      <div className={`text-2xl font-semibold tabular-nums ${successRate >= 80 ? 'text-secondary' : successRate >= 50 ? 'text-ext-amber' : 'text-error'}`}>{successRate}%</div>
+                      <div className="text-xs uppercase tracking-wider text-on-surface-variant/70 font-medium mt-1">Success rate</div>
+                    </div>
                   </div>
                 </div>
-              </div>
+              </section>
             );
           })()}
         </div>
@@ -966,8 +1142,8 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
               errors" with no obvious explanation. One click on Run Now
               fixes it permanently. */}
           {settings && settings.is_enabled && !settings.prompt_templates && (
-            <div className="rounded-2xl border border-amber-400/30 bg-amber-400/5 px-5 py-4 flex items-start gap-3">
-              <Icon name="alert-triangle" className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+            <div className="rounded-lg border border-ext-amber/40 bg-ext-amber-container/20 px-5 py-4 flex items-start gap-3">
+              <Icon name="alert-triangle" className="w-5 h-5 text-ext-amber mt-0.5 shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-on-surface">Trigger a manual run to enable scheduled digests</p>
                 <p className="text-xs text-on-surface-variant/80 mt-1 leading-relaxed">
@@ -979,7 +1155,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
               </div>
               <Button
                 size="sm"
-                color="secondary"
+                color="primary"
                 leadingIcon="play"
                 loading={isRunning || isJobActive}
                 onClick={handleRunNow}

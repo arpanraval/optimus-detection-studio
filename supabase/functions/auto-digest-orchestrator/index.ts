@@ -50,8 +50,11 @@ import { emit, type RunContext } from './lib/events.ts'
  *  process one article per phase invocation now anyway. */
 const PHASE_BUDGET_MS = 240_000;
 
-/** Per-article digest call timeout. */
-const DIGEST_TIMEOUT_MS = 120_000;
+/** Per-article digest call timeout. The digest function runs 4 sequential AI
+ *  calls (summary, classification, TTPs, IoCs+rules); on long technical
+ *  articles the IoC pass alone can take 60-90s with Gemini, so 120s was too
+ *  tight. 200s leaves ~40s headroom inside the 240s phase budget. */
+const DIGEST_TIMEOUT_MS = 200_000;
 
 type Phase = 'harvesting' | 'classifying' | 'ranking' | 'digesting' | 'finalising';
 
@@ -153,7 +156,7 @@ async function processOneDigestArticle(
   try {
     const { data: entry, error: entryErr } = await supabase
       .from('threat_intel_feed_entries')
-      .select('id, url, title, content, feed_id, threat_intel_feeds(id, name)')
+      .select('id, url, title, content, feed_id, relevance_score, threat_intel_feeds(id, name)')
       .eq('id', entryId)
       .single();
 
@@ -203,6 +206,19 @@ async function processOneDigestArticle(
         'No prompt templates cached for this user. Trigger a manual run from the Auto-Digest UI to seed them.',
       );
       result.articles_failed += 1;
+      // The earlier write set digest_status='digesting' (line below in
+      // the previous code path); without an update here, the entry would
+      // sit forever in 'digesting' state and never re-enter the queue
+      // (the harvester's recovery loop only picks up 'harvested'). Setting
+      // 'digest_failed' makes the failure visible in the UI and lets a
+      // future retry surface re-trigger it deliberately.
+      await supabase
+        .from('threat_intel_feed_entries')
+        .update({
+          digest_status: 'digest_failed',
+          extract_error: 'No prompt templates cached at digest time',
+        })
+        .eq('id', entry.id);
       await emit(ctx, 'article_digest_failed', {
         feed_id: feedId,
         feed_name: feedName,
@@ -284,8 +300,18 @@ async function processOneDigestArticle(
       : 0;
     const coveragePercent = ttpCount > 0 ? Math.round((coveredTTPs / ttpCount) * 100) : 0;
 
-    const reportRow = {
-      user_id: job.user_id,
+    // Read the entry's selection-time relevance_score so we can attach it
+    // to the report row. Previously `relevance_score: 0` was hardcoded,
+    // so every report shipped with score=0 even when the ranker had
+    // computed a real value at selection time.
+    const entryRelevanceScore = typeof (entry as any).relevance_score === 'number'
+      ? (entry as any).relevance_score
+      : 0;
+
+    // Server-derived columns. These are always written on insert AND
+    // update — the digest's own output shouldn't be preserved across
+    // re-runs. Kept as a single object so the column list stays grep-able.
+    const serverDerivedFields: Record<string, unknown> = {
       name: summary.title || entry.title || 'Untitled Report',
       source_type: 'url',
       source_url: entry.url,
@@ -311,8 +337,16 @@ async function processOneDigestArticle(
       source: 'auto',
       source_feed_name: feedName,
       source_article_url: entry.url,
+      relevance_score: entryRelevanceScore,
+    };
+
+    // Insert-only columns. Preserved across re-runs so a user who has
+    // already triaged a report doesn't lose their work when the article
+    // is re-digested. The previous version always wrote these on update,
+    // wiping review_status back to 'pending' on every re-run.
+    const insertOnlyFields: Record<string, unknown> = {
+      user_id: job.user_id,
       review_status: 'pending',
-      relevance_score: 0,
     };
 
     let savedReport: { id: string } | null = null;
@@ -328,9 +362,11 @@ async function processOneDigestArticle(
         .maybeSingle();
 
       if (existing) {
+        // UPDATE only the server-derived fields, preserving the user's
+        // review_status and any other insert-only state.
         const { data, error } = await supabase
           .from('threat_intel_reports')
-          .update(reportRow)
+          .update(serverDerivedFields)
           .eq('id', existing.id)
           .select('id')
           .single();
@@ -339,7 +375,7 @@ async function processOneDigestArticle(
       } else {
         const { data, error } = await supabase
           .from('threat_intel_reports')
-          .insert(reportRow)
+          .insert({ ...serverDerivedFields, ...insertOnlyFields })
           .select('id')
           .single();
         savedReport = data;
@@ -348,7 +384,7 @@ async function processOneDigestArticle(
     } else {
       const { data, error } = await supabase
         .from('threat_intel_reports')
-        .insert(reportRow)
+        .insert({ ...serverDerivedFields, ...insertOnlyFields })
         .select('id')
         .single();
       savedReport = data;
@@ -385,11 +421,28 @@ async function processOneDigestArticle(
       })
       .eq('id', entry.id);
 
-    await enrichFeasibility(supabase, reportId, job.user_id, envProfile);
-    await detectAndMergeCampaign(supabase, reportId, job.user_id, result);
-
+    // The report has been saved to the library — that's the load-bearing
+    // success. Count it as digested NOW so a downstream enrichment failure
+    // can't roll back the count and leave the user looking at "0 digested,
+    // 1 failed" while a real report sits in their library. Enrichment +
+    // campaign detection are best-effort follow-ups; their failures get
+    // logged separately as 'errors[]' entries on the result, but they do
+    // not retroactively flip the digest verdict.
     result.articles_digested += 1;
     result.articles_resolved += 1;
+
+    try {
+      await enrichFeasibility(supabase, reportId, job.user_id, envProfile);
+    } catch (e: any) {
+      console.error(`[orchestrator] enrichFeasibility ${reportId} failed:`, e?.message);
+      result.errors.push(`Feasibility ${entryId}: ${e?.message || 'unknown'}`);
+    }
+    try {
+      await detectAndMergeCampaign(supabase, reportId, job.user_id, result);
+    } catch (e: any) {
+      console.error(`[orchestrator] detectAndMergeCampaign ${reportId} failed:`, e?.message);
+      result.errors.push(`Campaign-detect ${entryId}: ${e?.message || 'unknown'}`);
+    }
 
     await emit(ctx, 'article_digested', {
       feed_id: feedId,

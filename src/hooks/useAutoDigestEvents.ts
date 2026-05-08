@@ -11,6 +11,7 @@ export type DigestEventType =
   | 'article_classified'
   | 'article_classify_failed'
   | 'article_skipped_daily_limit'
+  | 'article_ranked'
   | 'article_digested'
   | 'article_digest_failed';
 
@@ -54,6 +55,25 @@ export function useAutoDigestEvents(jobId: string | null, options: UseAutoDigest
   const [error, setError] = useState<Error | null>(null);
   const lastSeenRef = useRef<string | null>(null);
 
+  // De-dupe by id when merging into state. Two paths produce duplicates:
+  //   1. React StrictMode mounts effects twice in dev — without a guard the
+  //      same row from the initial fetch gets pushed into state twice.
+  //   2. Concurrent polls: setInterval fires every 2s but doesn't await the
+  //      previous fetchSince. If a query takes >2s, two polls share the same
+  //      lastSeenRef and both append the same rows.
+  // Result was the "Encountered two children with the same key" warning
+  // in JobTranscript:501. Keep the union deterministic (sort by created_at)
+  // so list order doesn't flicker as polls land.
+  const mergeEvents = (prev: DigestEvent[], next: DigestEvent[]): DigestEvent[] => {
+    if (next.length === 0) return prev;
+    const byId = new Map<string, DigestEvent>();
+    for (const e of prev) byId.set(e.id, e);
+    for (const e of next) byId.set(e.id, e);
+    return Array.from(byId.values()).sort((a, b) =>
+      a.created_at.localeCompare(b.created_at),
+    );
+  };
+
   const fetchAll = useCallback(async () => {
     if (!jobId) return;
     setIsLoading(true);
@@ -66,8 +86,12 @@ export function useAutoDigestEvents(jobId: string | null, options: UseAutoDigest
         .order('created_at', { ascending: true });
       if (err) throw err;
       const rows = (data ?? []) as DigestEvent[];
-      setEvents(rows);
-      lastSeenRef.current = rows.length > 0 ? rows[rows.length - 1].created_at : null;
+      // Replace, not append — fetchAll is the source of truth for a fresh load.
+      // Dedupe within rows themselves as a belt-and-suspenders against any
+      // accidental DB-level duplicates.
+      const unique = Array.from(new Map(rows.map((r) => [r.id, r])).values());
+      setEvents(unique);
+      lastSeenRef.current = unique.length > 0 ? unique[unique.length - 1].created_at : null;
     } catch (e) {
       setError(e as Error);
     } finally {
@@ -87,11 +111,17 @@ export function useAutoDigestEvents(jobId: string | null, options: UseAutoDigest
       if (err) throw err;
       const rows = (data ?? []) as DigestEvent[];
       if (rows.length > 0) {
-        setEvents((prev) => [...prev, ...rows]);
+        setEvents((prev) => mergeEvents(prev, rows));
         lastSeenRef.current = rows[rows.length - 1].created_at;
       }
-    } catch (e) {
-      // Silent — polling errors shouldn't surface in the UI; the next tick may succeed.
+    } catch (e: any) {
+      // AbortError fires on normal teardown (job ended → live flipped false →
+      // useEffect cleanup cancels the in-flight fetch). It's not a real
+      // failure and shouldn't surface as a warning. Same for the
+      // supabase-js wrapper that re-throws DOMException(name='AbortError')
+      // as a plain object with `message: "AbortError: ..."`.
+      const msg = typeof e?.message === 'string' ? e.message : String(e ?? '');
+      if (e?.name === 'AbortError' || /AbortError|aborted/i.test(msg)) return;
       console.warn('[useAutoDigestEvents] poll failed:', e);
     }
   }, [jobId]);

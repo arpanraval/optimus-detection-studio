@@ -200,7 +200,7 @@ serve(async (req: Request) => {
     }
 
     // Validate promptTemplates field lengths
-    const MAX_TEMPLATE_LEN = 5000
+    const MAX_TEMPLATE_LEN = 10_000
     if (promptTemplates) {
       for (const [key, val] of Object.entries(promptTemplates as Record<string, unknown>)) {
         if (typeof val === 'string' && val.length > MAX_TEMPLATE_LEN) {

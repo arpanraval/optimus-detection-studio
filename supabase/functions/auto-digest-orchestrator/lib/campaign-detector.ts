@@ -13,7 +13,19 @@ import type { JobResultSummary } from './types.ts';
 // ---------------------------------------------------------------------------
 
 const CAMPAIGN_WINDOW_MS = 48 * 60 * 60 * 1000; // 48 hours
-const CAMPAIGN_THRESHOLD = 3; // minimum reports to form a campaign
+/** Minimum number of reports referencing the same actor within
+ *  CAMPAIGN_WINDOW_MS to form (or join) a campaign. Override per-deployment
+ *  via AUTO_DIGEST_CAMPAIGN_THRESHOLD; clamped to [2, 10]. Default lowered
+ *  from 3 → 2 because curated feeds at the default max_articles_per_day=3
+ *  rarely produce 3 same-actor reports in 48h, leaving the campaign
+ *  surface effectively dead in low-volume installations. 2 is the smallest
+ *  count that's meaningfully a "pattern" rather than a single report. */
+const CAMPAIGN_THRESHOLD: number = (() => {
+  const raw = (typeof Deno !== 'undefined' ? Deno.env.get('AUTO_DIGEST_CAMPAIGN_THRESHOLD') : undefined) ?? '';
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) return 2;
+  return Math.max(2, Math.min(10, parsed));
+})();
 const STOP_WORDS = new Set([
   'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
   'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been',
@@ -306,6 +318,28 @@ export async function updateCampaignMerge(
   const coveragePercent = totalTTPs > 0 ? Math.round((coveredTTPs / totalTTPs) * 100) : 0;
 
   // --- Update campaign ---
+  // Aggregate the per-report feasible/infeasible/unknown counts. The
+  // previous version hardcoded uncovered_ttps into feasible_gap_count and
+  // 0 into infeasible — meaning every campaign showed "100% feasible"
+  // regardless of underlying data. We now read the real per-report
+  // numbers and sum them, which mirrors the per-report UI.
+  const { data: feasRows } = await supabase
+    .from('threat_intel_reports')
+    .select('feasible_gap_count, infeasible_gap_count, unknown_gap_count')
+    .in('id', reportIds);
+  let feasibleSum = 0;
+  let infeasibleSum = 0;
+  let unknownSum = 0;
+  for (const r of (feasRows || []) as Array<{
+    feasible_gap_count?: number | null;
+    infeasible_gap_count?: number | null;
+    unknown_gap_count?: number | null;
+  }>) {
+    feasibleSum   += r.feasible_gap_count   ?? 0;
+    infeasibleSum += r.infeasible_gap_count ?? 0;
+    unknownSum    += r.unknown_gap_count    ?? 0;
+  }
+
   await supabase
     .from('auto_digest_campaigns')
     .update({
@@ -315,8 +349,9 @@ export async function updateCampaignMerge(
       coverage_percent: coveragePercent,
       total_ttp_count: totalTTPs,
       covered_ttp_count: coveredTTPs,
-      feasible_gap_count: uncoveredTTPs,
-      infeasible_gap_count: 0,
+      feasible_gap_count: feasibleSum,
+      infeasible_gap_count: infeasibleSum,
+      unknown_gap_count: unknownSum,
       article_count: articles.length,
       last_updated_at: new Date().toISOString(),
     })

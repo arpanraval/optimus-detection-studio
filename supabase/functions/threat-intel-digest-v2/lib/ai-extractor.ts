@@ -490,9 +490,12 @@ export async function extractIoCsWithAI(
     throw new Error('Missing iocsAndRules prompt template')
   }
 
-  // Build prompt by replacing placeholders
+  // Cap content at 80K chars — matches the spirit of the other extractors
+  // (summary 30K, classification 15K, TTPs 50K). IoC extraction wants more
+  // context than TTPs, but uncapped content on long technical articles
+  // pushed the Gemini call past the orchestrator's per-digest timeout.
   const prompt = promptTemplates.iocsAndRules
-    .replace('{{CONTENT}}', content)
+    .replace('{{CONTENT}}', content.substring(0, 80000))
     .replace('{{SOURCE_URL}}', sourceUrl || 'unknown')
 
   try {

@@ -207,6 +207,27 @@ export async function classifyEntries(
       console.error(`[classifier] ${msg}`);
       result.errors.push(msg);
 
+      // Distinguish recoverable failures (network blip, transient 5xx,
+      // timeout) from irrecoverable ones (model emitted unparseable JSON
+      // even after the truncation-repair pass). Recoverable failures stay
+      // in 'harvested' so the next run can retry; irrecoverable failures
+      // move to 'classify_failed' so the entry doesn't cycle forever and
+      // burn AI calls on every run for an article we'll never classify.
+      const isUnparseable = typeof err?.message === 'string'
+        && err.message.startsWith('No parseable JSON in AI response');
+      const nextStatus = isUnparseable ? 'classify_failed' : null;
+      if (nextStatus) {
+        await supabase
+          .from('threat_intel_feed_entries')
+          .update({
+            digest_status: nextStatus,
+            skip_reason: 'classifier_unparseable',
+          })
+          .eq('id', entry.id);
+        result.articles_failed += 1;
+      }
+      // else: leave as 'harvested' so it retries on the next run
+
       await emit(ctx, 'article_classify_failed', {
         feed_id: feedId,
         feed_name: vendorName,
@@ -214,8 +235,8 @@ export async function classifyEntries(
         article_title: entry.title,
         article_url: entry.url,
         reason: err.message || 'Unknown error',
+        payload: { recoverable: !isUnparseable, next_status: nextStatus ?? 'harvested' },
       });
-      // Leave as 'harvested' so it retries on the next run
     }
   }
 
@@ -226,20 +247,22 @@ export async function classifyEntries(
 // AI Provider Routing
 // ---------------------------------------------------------------------------
 
-const ALLOWED_MODELS = new Set([
-  'gemini-3-flash-preview', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite-preview',
-  'gpt-5.4-mini', 'gpt-5.4-nano',
-]);
+// Allowed model prefixes — used to validate at runtime that the configured
+// classifier model is one of the providers we have routing for. The previous
+// version hardcoded a fixed set of model IDs (e.g. 'gemini-3-flash-preview',
+// 'gpt-5.4-mini') that excluded Anthropic entirely — even though the routing
+// below dispatches to callAnthropic when the id starts with 'claude'. The
+// effect was that a user picking any Claude model in settings broke the
+// pipeline ("Model X is not in the allowed list") even though the code was
+// fully prepared to use it. Switch to prefix-based validation so the routing
+// table is the source of truth.
+const ALLOWED_PROVIDERS = ['gemini', 'gpt', 'claude'] as const;
 
 async function callAI(
   model: string,
   userPrompt: string,
   userId: string | null,
 ): Promise<ClassificationResult> {
-  if (!ALLOWED_MODELS.has(model)) {
-    throw new Error(`Model "${model}" is not in the allowed list`);
-  }
-
   let provider: AiProvider;
   let runner: () => Promise<{ result: string; usage: TokenUsage }>;
 
@@ -253,7 +276,9 @@ async function callAI(
     provider = 'anthropic';
     runner = () => callAnthropic(model, userPrompt);
   } else {
-    throw new Error(`Unsupported model prefix: ${model}`);
+    throw new Error(
+      `Model "${model}" is not from a supported provider (${ALLOWED_PROVIDERS.join(', ')})`,
+    );
   }
 
   const rawText = await withAiTelemetry(
