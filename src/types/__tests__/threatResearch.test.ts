@@ -29,6 +29,9 @@ describe('threat research types', () => {
       total_tokens: null,
       total_cost_usd: null,
       tool_calls_used: null,
+      model_calls_used: null,
+      model_call_cap: null,
+      tool_call_cap: null,
       model_versions: null,
     };
     expect(session.status).toBe('pending');

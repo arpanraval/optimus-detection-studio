@@ -1,42 +1,69 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Icon } from '../../components/Icon';
 import { Button } from '../../components/ui/Button';
 import { useToast } from '../../hooks/useToast';
 import { useThreatResearchSession } from '../../hooks/useThreatResearchSession';
 import { useThreatResearchEvents } from '../../hooks/useThreatResearchEvents';
-import { cancelThreatResearch, getSession } from '../../lib/threatResearchService';
+import { cancelThreatResearch, resumeFailedSession, retryDetectionLeaf } from '../../lib/threatResearchService';
 import { ResearchHeader } from '../../components/threat-research/ResearchHeader';
 import { ResearchCanvas } from '../../components/threat-research/ResearchCanvas';
 import { ResearchList } from '../../components/threat-research/ResearchList';
 import { ResearchActivityConsole } from '../../components/threat-research/ResearchActivityConsole';
 import { DetectionLeafCard } from '../../components/threat-research/DetectionLeafCard';
-import { PreflightGapBanner } from '../../components/threat-research/PreflightGapBanner';
 import { ROUTES } from '../routes';
-import type { AttackBehaviour, DetectionOpportunity, ThreatResearchSession } from '../../types/threatResearch';
+import type { AttackBehaviour, DetectionOpportunity, ThreatResearchEvent } from '../../types/threatResearch';
+
+/** Count `agent_started` minus terminal events per behaviour_id; behaviours
+ *  with positive count have an agent running on them right now. The agent
+ *  loop emits exactly one agent_started and exactly one agent_completed/failed
+ *  per invocation, so this stays balanced even with QA refinements stacking
+ *  on top of the engineer pass.
+ *
+ *  Defence against stuck counts: if a session-terminal event has been emitted,
+ *  the session is over and nothing can still be running — return empty.
+ *  Workers that die before emitting agent_failed (e.g. reaper-killed) would
+ *  otherwise leave a behaviour pulsing forever. */
+function deriveActiveBehaviourIds(events: ThreatResearchEvent[]): Set<string> {
+  const sessionEnded = events.some(
+    e => e.event_type === 'session_completed'
+      || e.event_type === 'session_failed'
+      || e.event_type === 'session_cancelled',
+  );
+  if (sessionEnded) return new Set();
+
+  const counts = new Map<string, number>();
+  for (const ev of events) {
+    const payload = ev.payload as { behaviour_id?: unknown } | null;
+    const bid = typeof payload?.behaviour_id === 'string' ? payload.behaviour_id : null;
+    if (!bid) continue;
+    if (ev.event_type === 'agent_started') {
+      counts.set(bid, (counts.get(bid) ?? 0) + 1);
+    } else if (ev.event_type === 'agent_completed' || ev.event_type === 'agent_failed') {
+      counts.set(bid, (counts.get(bid) ?? 0) - 1);
+    }
+  }
+  const active = new Set<string>();
+  for (const [bid, count] of counts) {
+    if (count > 0) active.add(bid);
+  }
+  return active;
+}
 
 export function ThreatResearchDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const { session: liveSession, loading, error } = useThreatResearchSession(id ?? null);
+  // refetch is owned by the hook now — calling it triggers an immediate
+  // refetch and keeps the hook's session as the single source of truth.
+  // The previous overrideSession lift-to-parent pattern permanently masked
+  // realtime updates after any mutation; replaced.
+  const { session, loading, error, refetch } = useThreatResearchSession(id ?? null);
   const events = useThreatResearchEvents(id ?? null);
+  const activeBehaviourIds = useMemo(() => deriveActiveBehaviourIds(events), [events]);
   const [view, setView] = useState<'canvas' | 'list'>('canvas');
+  const [activityOpen, setActivityOpen] = useState(false);
   const [selected, setSelected] = useState<{ behaviour: AttackBehaviour; opportunity: DetectionOpportunity } | null>(null);
-  const [overrideSession, setOverrideSession] = useState<ThreatResearchSession | null>(null);
-
-  // After mutating (save / archive), pull a fresh copy so badges update.
-  const refetch = useCallback(async () => {
-    if (!id) return;
-    try {
-      const s = await getSession(id);
-      if (s) setOverrideSession(s);
-    } catch (e) {
-      console.warn('refetch failed', e);
-    }
-  }, [id]);
-
-  const session = overrideSession ?? liveSession;
 
   if (loading) {
     return (
@@ -73,41 +100,77 @@ export function ThreatResearchDetailPage() {
     }
   }
 
-  const preflightActive = !session.tree.subject && session.tree.preflight !== null;
+  async function handleResume() {
+    if (!session) return;
+    try {
+      const { retried } = await resumeFailedSession(session.id);
+      showToast('success', retried > 0 ? `Resumed ${retried} failed leaf${retried === 1 ? '' : 'es'}` : 'No failed leaves to resume');
+      await refetch();
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Resume failed');
+    }
+  }
+
+  async function handleRetryLeaf(behaviourId: string) {
+    if (!session) return;
+    try {
+      await retryDetectionLeaf(session.id, behaviourId);
+      showToast('info', 'Retry queued');
+      await refetch();
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Retry failed');
+    }
+  }
+
+  // Tree may be missing for a brief window between row-insert and the
+  // orchestrator's first persistTree() write. Treat as empty-shape so the
+  // page can render the "in progress" banner without crashing.
+  const tree = session.tree ?? { subject: null, preflight: null, behaviours: [], open_questions: [] };
 
   return (
     <div className="flex h-full flex-col">
       <ResearchHeader session={session} view={view} onViewChange={setView} />
 
-      <div className="flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
+      {/* List view: inline status banner row above the table — full width,
+          no overlap. */}
+      {view === 'list' && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-outline-variant bg-surface px-6 py-3">
           {(session.status === 'pending' || session.status === 'running') && (
-            <div className="flex items-center justify-between border-b border-outline-variant bg-secondary-container px-6 py-2 text-sm text-on-secondary-container">
-              <div className="flex items-center gap-2">
-                <Icon name="loader" size={14} className="animate-spin" />
-                <span>Research in progress…</span>
-              </div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-outline-variant bg-surface-container px-3 py-1 text-sm text-on-surface">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+              </span>
+              Research in progress
               <Button variant="text" color="surface" size="sm" onClick={handleCancel}>Cancel</Button>
             </div>
           )}
-          {session.status === 'failed' && (
-            <div className="border-b border-outline-variant bg-error-container px-6 py-2 text-sm text-on-error-container">
-              Failed: {session.failure_reason ?? 'unknown'}
+          {(session.status === 'failed' || session.status === 'cancelled') && (
+            <div className="inline-flex items-center gap-2 rounded-full border border-outline-variant bg-surface-container px-3 py-1 text-sm">
+              <Icon
+                name={session.status === 'failed' ? 'alert-triangle' : 'x-circle'}
+                size={14}
+                className={`flex-shrink-0 ${session.status === 'failed' ? 'text-error' : 'text-on-surface-variant'}`}
+              />
+              <span className="text-on-surface">
+                <span className="font-medium">{session.status === 'failed' ? 'Failed.' : 'Cancelled.'}</span>{' '}
+                <span className="text-on-surface-variant">{session.failure_reason ?? 'no reason'}</span>
+              </span>
+              <Button variant="tonal" color="primary" size="sm" onClick={handleResume}>Resume</Button>
             </div>
           )}
+        </div>
+      )}
 
-          <div className="px-6 pt-4">
-            <PreflightGapBanner
-              preflight={session.tree.preflight}
-              active={preflightActive}
-              onCancel={handleCancel}
-            />
-          </div>
-
-          {view === 'canvas' ? (
+      {/* Canvas / list area. Activity console is overlaid (absolute) so it
+          slides in over the canvas without resizing the layout. */}
+      <div className="relative flex min-h-0 flex-1">
+        {view === 'canvas' ? (
+          <>
             <ResearchCanvas
-              tree={session.tree}
+              tree={tree}
               status={session.status}
+              activeBehaviourIds={activeBehaviourIds}
               onLeafClick={(b, o) => setSelected({ behaviour: b, opportunity: o })}
               onLibraryMatchClick={(b) => {
                 if (b.library_match) {
@@ -115,15 +178,54 @@ export function ThreatResearchDetailPage() {
                 }
               }}
             />
-          ) : (
-            <ResearchList
-              tree={session.tree}
-              onLeafClick={(b, o) => setSelected({ behaviour: b, opportunity: o })}
-            />
-          )}
-        </div>
 
-        <ResearchActivityConsole events={events} />
+            {/* Floating chrome stack — ONLY on the canvas view. */}
+            <div className="pointer-events-none absolute left-3 top-3 z-10 flex max-w-[560px] flex-col gap-2">
+              {(session.status === 'pending' || session.status === 'running') && (
+                <div className="pointer-events-auto inline-flex items-center gap-3 rounded-2xl border border-outline-variant bg-surface px-4 py-2 shadow-sm">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+                  </span>
+                  <span className="text-sm text-on-surface">Research in progress</span>
+                  <Button variant="text" color="surface" size="sm" onClick={handleCancel}>Cancel</Button>
+                </div>
+              )}
+              {(session.status === 'failed' || session.status === 'cancelled') && (
+                <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-outline-variant bg-surface px-4 py-2 shadow-sm">
+                  <Icon
+                    name={session.status === 'failed' ? 'alert-triangle' : 'x-circle'}
+                    size={14}
+                    className={`flex-shrink-0 ${session.status === 'failed' ? 'text-error' : 'text-on-surface-variant'}`}
+                  />
+                  <span className="text-sm text-on-surface">
+                    <span className="font-medium">{session.status === 'failed' ? 'Failed.' : 'Cancelled.'}</span>{' '}
+                    <span className="text-on-surface-variant">{session.failure_reason ?? 'no reason'}</span>
+                  </span>
+                  <Button variant="tonal" color="primary" size="sm" onClick={handleResume}>
+                    {session.status === 'failed' ? 'Resume from failures' : 'Resume'}
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <ResearchActivityConsole
+              events={events}
+              open={activityOpen}
+              onToggle={() => setActivityOpen(o => !o)}
+            />
+          </>
+        ) : (
+          <ResearchList
+            session={session}
+            tree={tree}
+            activeBehaviourIds={activeBehaviourIds}
+            sessionFailed={session.status === 'failed'}
+            onLeafClick={(b, o) => setSelected({ behaviour: b, opportunity: o })}
+            onRetryLeaf={handleRetryLeaf}
+            onMutated={refetch}
+          />
+        )}
       </div>
 
       {selected && (

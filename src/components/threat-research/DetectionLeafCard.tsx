@@ -35,6 +35,9 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
   const { showToast } = useToast();
   const det = opportunity.detection;
   const [busy, setBusy] = useState(false);
+  // Acknowledgement gate for saving a QA-failed detection. Resets when the
+  // user opens a different leaf because the component remounts.
+  const [confirmFailedSave, setConfirmFailedSave] = useState(false);
 
   // Resizable / collapsible panel state
   const [width, setWidth] = useState<number>(() => {
@@ -73,8 +76,18 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
   async function handleSave() {
     setBusy(true);
     try {
-      const { detection_id } = await saveDetectionFromLeaf(session, behaviour.id, opportunity.id, det);
-      showToast('success', `Saved as Draft (id: ${detection_id.slice(0, 8)})`);
+      const result = await saveDetectionFromLeaf(session, behaviour.id, opportunity.id, det);
+      // tree_patched===false means library insert succeeded but the
+      // session-tree leaf badge couldn't be updated. The detection exists
+      // in the library; the badge will catch up on refresh.
+      if (result.tree_patched) {
+        showToast('success', `Saved as Draft (id: ${result.detection_id.slice(0, 8)})`);
+      } else {
+        showToast(
+          'info',
+          `Saved as Draft (id: ${result.detection_id.slice(0, 8)}) — leaf badge will update on refresh`,
+        );
+      }
       onMutated();
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Save failed');
@@ -189,9 +202,20 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
                 <span className="inline-flex items-center rounded-full bg-surface-variant px-2 py-0.5 font-medium text-on-surface-variant">
                   Coverage: {det.qa.coverage_quality}
                 </span>
-                <span className="inline-flex items-center rounded-full bg-surface-variant px-2 py-0.5 font-medium text-on-surface-variant">
-                  Iterations: {det.qa.iteration_count}
-                </span>
+                {/* Show iteration count only when actor-critic actually ran
+                    revisions (>0). Pre-revision-loop sessions always emit 0
+                    and rendering "Iterations: 0" misleadingly suggests the
+                    loop ran and chose not to revise. */}
+                {det.qa.iteration_count > 0 && (
+                  <span className="inline-flex items-center rounded-full bg-surface-variant px-2 py-0.5 font-medium text-on-surface-variant">
+                    Revisions: {det.qa.iteration_count}
+                  </span>
+                )}
+                {det.qa.duplicate_of && (
+                  <span className="inline-flex items-center rounded-full bg-tertiary-container px-2 py-0.5 font-medium text-on-tertiary-container">
+                    Duplicate
+                  </span>
+                )}
               </>
             )}
             <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${FEASIBILITY_STYLE[det.feasibility]}`}>
@@ -223,6 +247,9 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
               </ul>
             </div>
           )}
+          {det.qa && (det.qa.iteration_history?.length ?? 0) > 1 && (
+            <RevisionHistory history={det.qa.iteration_history} />
+          )}
         </Section>
 
         <Section title={`Query (${det.query_language})`}>
@@ -233,19 +260,46 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
 
         <Section title="MITRE">
           <div className="flex flex-wrap gap-1.5">
-            {det.mitre_technique_ids.map(id => (
-              <a
-                key={id}
-                href={`https://attack.mitre.org/techniques/${id.replace('.', '/')}/`}
-                target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center rounded-md bg-primary-container px-2 py-1 text-xs font-medium text-on-primary-container hover:opacity-80"
-              >
-                {id}
-              </a>
-            ))}
+            {det.mitre_technique_ids.map(id => {
+              const unverified = (det.unverified_mitre_ids ?? []).includes(id);
+              const inconsistent = (behaviour.tactic_inconsistent_mitre_ids ?? []).includes(id);
+              const flag = unverified ? 'unverified' : inconsistent ? 'tactic-mismatch' : null;
+              const cls = flag === 'unverified'
+                ? 'bg-error-container text-on-error-container'
+                : flag === 'tactic-mismatch'
+                  ? 'bg-secondary-container text-on-secondary-container'
+                  : 'bg-primary-container text-on-primary-container';
+              const titleAttr = flag === 'unverified'
+                ? `${id} not found in canonical MITRE table — possible hallucination`
+                : flag === 'tactic-mismatch'
+                  ? `${id}'s canonical tactic does not match this behaviour's tagged tactic (${behaviour.tactic})`
+                  : id;
+              return (
+                <a
+                  key={id}
+                  href={`https://attack.mitre.org/techniques/${id.replace('.', '/')}/`}
+                  target="_blank" rel="noopener noreferrer"
+                  title={titleAttr}
+                  className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium hover:opacity-80 ${cls}`}
+                >
+                  {id}
+                  {flag === 'unverified' && <Icon name="alert-triangle" size={11} />}
+                  {flag === 'tactic-mismatch' && <Icon name="alert-circle" size={11} />}
+                </a>
+              );
+            })}
             <span className="inline-flex items-center rounded-md bg-surface-variant px-2 py-1 text-xs text-on-surface-variant">
               {det.tactic}
             </span>
+            {behaviour.unsourced && (
+              <span
+                className="inline-flex items-center gap-1 rounded-md bg-secondary-container px-2 py-1 text-xs font-medium text-on-secondary-container"
+                title="Behaviour is from training knowledge, no specific source citation"
+              >
+                <Icon name="alert-circle" size={11} />
+                training-only
+              </span>
+            )}
           </div>
         </Section>
 
@@ -271,7 +325,53 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
         )}
       </div>
 
-      <div className="flex items-center gap-2 border-t border-outline-variant px-5 py-3">
+      {/* Footer: QA-fail detections are guarded behind a confirmation toggle
+          rather than just disabled — analysts may legitimately want to save
+          a flagged detection for manual review. The default-off state stops
+          accidental ship of broken queries. */}
+      <Footer
+        det={det}
+        busy={busy}
+        confirmFailedSave={confirmFailedSave}
+        setConfirmFailedSave={setConfirmFailedSave}
+        onSave={handleSave}
+        onArchive={handleArchive}
+        onUnarchive={handleUnarchive}
+      />
+    </aside>
+  );
+}
+
+function Footer({
+  det, busy, confirmFailedSave, setConfirmFailedSave, onSave, onArchive, onUnarchive,
+}: {
+  det: DetectionOpportunity['detection'];
+  busy: boolean;
+  confirmFailedSave: boolean;
+  setConfirmFailedSave: (v: boolean) => void;
+  onSave: () => void;
+  onArchive: () => void;
+  onUnarchive: () => void;
+}) {
+  const qaFailed = det.qa?.verdict === 'fail';
+  const saveBlocked = qaFailed && !confirmFailedSave;
+  return (
+    <div className="border-t border-outline-variant px-5 py-3">
+      {qaFailed && !det.saved_detection_id && (
+        <label className="mb-2 flex items-start gap-2 text-xs text-on-surface-variant">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={confirmFailedSave}
+            onChange={(e) => setConfirmFailedSave(e.target.checked)}
+          />
+          <span>
+            <span className="font-medium text-error">QA flagged this detection as failing.</span>{' '}
+            Review the concerns above before saving. Tick to acknowledge and enable Save.
+          </span>
+        </label>
+      )}
+      <div className="flex items-center gap-2">
         {det.saved_detection_id ? (
           <Button
             variant="outlined"
@@ -280,17 +380,17 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
             View in Library
           </Button>
         ) : (
-          <Button onClick={handleSave} disabled={busy || det.archived}>
+          <Button onClick={onSave} disabled={busy || det.archived || saveBlocked}>
             {busy ? 'Saving...' : 'Save to Library'}
           </Button>
         )}
         {det.archived ? (
-          <Button variant="outlined" onClick={handleUnarchive} disabled={busy}>Restore</Button>
+          <Button variant="outlined" onClick={onUnarchive} disabled={busy}>Restore</Button>
         ) : (
-          <Button variant="outlined" onClick={handleArchive} disabled={busy}>Discard</Button>
+          <Button variant="outlined" onClick={onArchive} disabled={busy}>Discard</Button>
         )}
       </div>
-    </aside>
+    </div>
   );
 }
 
@@ -299,6 +399,53 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     <div>
       <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">{title}</div>
       {children}
+    </div>
+  );
+}
+
+/** Collapsible accordion of QA iteration_history. The default-rendered
+ *  "Concerns" + "Suggested changes" lists show the FINAL round only —
+ *  this surfaces the prior rounds so users can see what changed between
+ *  revisions and whether the revision actually addressed each concern.
+ *  Hidden when there's ≤1 entry (only the initial QA pass with no
+ *  revisions to compare against). */
+function RevisionHistory({
+  history,
+}: {
+  history: NonNullable<DetectionOpportunity['detection']['qa']>['iteration_history'];
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-1 text-xs font-semibold text-on-surface hover:underline"
+      >
+        <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} />
+        Revision history ({history.length} round{history.length === 1 ? '' : 's'})
+      </button>
+      {open && (
+        <ol className="mt-2 space-y-2 border-l border-outline-variant pl-3 text-xs">
+          {history.map((round, i) => (
+            <li key={i}>
+              <div className="mb-1 flex items-center gap-2">
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${VERDICT_STYLE[round.verdict] ?? ''}`}>
+                  Round {i + 1}: {round.verdict.replace(/_/g, ' ')}
+                </span>
+              </div>
+              {round.concerns.length > 0 && (
+                <ul className="list-disc space-y-0.5 pl-4 text-on-surface-variant">
+                  {round.concerns.map((c, j) => <li key={j}>{c}</li>)}
+                </ul>
+              )}
+              {round.concerns.length === 0 && (
+                <div className="text-on-surface-variant italic">No concerns this round.</div>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }
