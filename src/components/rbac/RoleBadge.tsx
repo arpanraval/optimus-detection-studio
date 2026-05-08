@@ -21,27 +21,27 @@ export const RoleBadge: React.FC<RoleBadgeProps> = ({
     owner: {
       label: 'Owner',
       // Gold/Amber - prestigious, highest authority
-      className: 'bg-amber-500/15 text-amber-400 dark:bg-amber-400/15 dark:text-amber-300',
+      className: 'bg-amber-500/15 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300',
     },
     admin: {
       label: 'Admin',
       // Purple/Violet - administrative power
-      className: 'bg-violet-500/15 text-violet-400 dark:bg-violet-400/15 dark:text-violet-300',
+      className: 'bg-violet-500/15 text-violet-700 dark:bg-violet-400/15 dark:text-violet-300',
     },
     lead: {
       label: 'Lead',
       // Blue/Cyan - leadership, trust
-      className: 'bg-cyan-500/15 text-cyan-400 dark:bg-cyan-400/15 dark:text-cyan-300',
+      className: 'bg-cyan-500/15 text-cyan-700 dark:bg-cyan-400/15 dark:text-cyan-300',
     },
     analyst: {
       label: 'Analyst',
       // Green/Emerald - productive, active
-      className: 'bg-emerald-500/15 text-emerald-400 dark:bg-emerald-400/15 dark:text-emerald-300',
+      className: 'bg-emerald-500/15 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300',
     },
     viewer: {
       label: 'Viewer',
       // Gray/Slate - neutral, read-only
-      className: 'bg-slate-500/15 text-slate-400 dark:bg-slate-400/15 dark:text-slate-300',
+      className: 'bg-slate-500/15 text-slate-700 dark:bg-slate-400/15 dark:text-slate-300',
     },
   };
 
