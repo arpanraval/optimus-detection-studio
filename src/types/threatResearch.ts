@@ -58,9 +58,13 @@ export interface ResearchSubject {
 }
 
 export interface PreflightSummary {
-  existing_coverage_pct: number | null;
-  covered_techniques: string[];
-  gap_techniques: string[];
+  /** Number of detections matching the raw input via hybrid library search.
+   *  Not a coverage metric — purely "you have N nearby detections". */
+  library_hits: number;
+  /** Distinct MITRE technique IDs mentioned in the matching detections. NOT
+   *  a coverage claim — surface in UI as "techniques mentioned", never as
+   *  "covered techniques". */
+  techniques_seen_in_hits: string[];
   skipped: boolean;
   ran_at: string;
 }
@@ -111,6 +115,10 @@ export interface GeneratedDetection {
   query_language: ResearchQueryLanguage;
   query: string;
   mitre_technique_ids: string[];
+  /** Subset of mitre_technique_ids the post-step validator couldn't find in
+   *  the canonical mitre_techniques table. UI flags with a warning. Optional
+   *  for backward compatibility with sessions persisted before this field. */
+  unverified_mitre_ids?: string[];
   tactic: MitreTacticName;
   suggested_severity: 'Critical' | 'High' | 'Medium' | 'Low' | 'Informational';
   suggested_detection_type: 'Detection' | 'Hunting';
@@ -136,12 +144,41 @@ export interface AttackBehaviour {
   narrative_description: string;
   tactic: MitreTacticName;
   mitre_technique_ids: string[];
+  /** Subset of mitre_technique_ids that aren't in mitre_techniques.
+   *  Optional for backward compatibility with pre-validator sessions. */
+  unverified_mitre_ids?: string[];
+  /** Subset of mitre_technique_ids whose canonical tactic doesn't match
+   *  this behaviour's tagged tactic — the Research Agent likely
+   *  mis-classified. Optional for backward compatibility. */
+  tactic_inconsistent_mitre_ids?: string[];
   data_sources: string[];
   artefacts: string[];
   citations: ResearchCitation[];
+  /** Set true when behaviour comes from training knowledge with no source. */
+  unsourced?: boolean;
   deep_dive: AttackResearchDeepDive | null;
   library_match: LibraryMatch | null;
+  /** Behaviour-level detectability verdict + supporting fields. Optional for
+   *  backward compatibility — pre-Phase-3 sessions don't have these. */
+  detectability?: DetectabilityVerdict | null;
+  detectability_rationale?: string | null;
+  artefacts_required?: string[];
   opportunities: DetectionOpportunity[];
+}
+
+/** Where (if anywhere) a behaviour can be detected with current visibility.
+ *  Mirrors the server-side type. `engineer_failed` is a SEPARATE state
+ *  meaning the engineer agent loop crashed (budget/timeout/validation) —
+ *  recoverable via retry, NOT a model verdict that the behaviour is
+ *  undetectable. UI must render the two differently. */
+export type DetectabilityVerdict =
+  | 'siem' | 'edr' | 'needs_telemetry' | 'not_detectable' | 'engineer_failed';
+
+/** Per-Tactic accounting from the Research Agent — exactly 14 entries. */
+export interface TacticSummary {
+  tactic: MitreTacticName;
+  observed: boolean;
+  rationale: string;
 }
 
 export interface ResearchOpenQuestion {
@@ -150,9 +187,25 @@ export interface ResearchOpenQuestion {
   context: string;
 }
 
+/** A pre-existing detection in the user's library tagged with an alias of
+ *  the threat being researched. Surfaced as explicit-coverage signal. */
+export interface ActorCoverageSeedItem {
+  id: string;
+  name: string;
+  severity: string | null;
+  mitre_technique_ids: string[];
+  matching_aliases: string[];
+}
+
 export interface ThreatResearchTree {
   subject: ResearchSubject | null;
   preflight: PreflightSummary | null;
+  /** Walk-every-tactic accounting from the Research Agent. Optional for
+   *  backward compatibility with sessions persisted before this field. */
+  tactic_summary?: TacticSummary[];
+  /** Library detections tagged with this actor's aliases — populated once
+   *  after Research. Optional for backward compat with pre-Phase-4 sessions. */
+  actor_coverage_seed?: ActorCoverageSeedItem[];
   behaviours: AttackBehaviour[];
   open_questions: ResearchOpenQuestion[];
 }
@@ -174,6 +227,13 @@ export interface ThreatResearchSession {
   total_tokens: number | null;
   total_cost_usd: number | null;
   tool_calls_used: number | null;
+  /** Per-session budget consumption + caps. Tracked atomically by the
+   *  worker via tr_consume_budget and exposed here so the UI can render
+   *  "X / Y model calls" so users can attribute failures (was the leaf
+   *  out of budget? Or did the model fail validation?). */
+  model_calls_used: number | null;
+  model_call_cap: number | null;
+  tool_call_cap: number | null;
   model_versions: Record<string, string> | null;
 }
 

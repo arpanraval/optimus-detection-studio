@@ -58,17 +58,28 @@ function looksLikeMissingSchema(message: string): boolean {
     || m.includes('schema cache');
 }
 
+const PAGE_SIZE = 50;
+
 export function ThreatResearchPage() {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<ThreatResearchSession[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // hasMore is true when the last page returned exactly PAGE_SIZE rows —
+  // a partial page means we've reached the end. Avoids one extra request.
+  const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
-    listSessions()
-      .then(rows => { if (active) { setSessions(rows); setLoading(false); } })
+    listSessions({ limit: PAGE_SIZE })
+      .then(rows => {
+        if (!active) return;
+        setSessions(rows);
+        setHasMore(rows.length === PAGE_SIZE);
+        setLoading(false);
+      })
       .catch(e => {
         if (!active) return;
         const msg = toMessage(e);
@@ -82,6 +93,21 @@ export function ThreatResearchPage() {
       });
     return () => { active = false; };
   }, []);
+
+  async function handleLoadMore() {
+    if (sessions.length === 0 || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const oldest = sessions[sessions.length - 1].created_at;
+      const more = await listSessions({ limit: PAGE_SIZE, before: oldest });
+      setSessions(prev => [...prev, ...more]);
+      setHasMore(more.length === PAGE_SIZE);
+    } catch (e) {
+      setError(toMessage(e));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -166,6 +192,13 @@ export function ThreatResearchPage() {
                 })}
               </tbody>
             </table>
+            {hasMore && (
+              <div className="flex items-center justify-center border-t border-outline-variant bg-surface-container-high px-4 py-3">
+                <Button variant="text" color="surface" onClick={handleLoadMore} disabled={loadingMore}>
+                  {loadingMore ? 'Loading…' : 'Load more sessions'}
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>

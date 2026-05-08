@@ -11,8 +11,17 @@
 
 import type { ResearchAgent } from "../types.ts";
 import { ToolContext, executeTool } from "../tools/index.ts";
-import { RunContext, emit } from "../events.ts";
+import { RunContext, emit, consumeBudget } from "../events.ts";
 import { callAnthropic, AnthropicMessage, AnthropicContentBlock } from "../llm/anthropic-direct.ts";
+
+/** Discriminated result from a final-output validator. The `reason` lets the
+ *  agent loop give the model SPECIFIC feedback on retry instead of a generic
+ *  "didn't validate" — which was the single biggest cause of iteration-cap
+ *  deaths in v1 (the model retried with the same broken shape because it
+ *  couldn't see what was wrong). */
+export type ValidationResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; reason: string };
 
 export interface AgentLoopConfig<T> {
   agent: ResearchAgent;
@@ -22,13 +31,23 @@ export interface AgentLoopConfig<T> {
   systemInstruction: string;
   /** Knowledge pack content; embedded in the first user message. */
   knowledgePack: string;
-  /** Gemini-format tool declarations; converted to Anthropic shape internally. */
-  toolDeclarations: any[];
+  /** Gemini-format tool declarations; converted to Anthropic shape internally.
+   *  `readonly` so callers can pass `TOOLS_FOR.research` etc. directly without
+   *  the readonly→mutable assignability error. The convertTools step never
+   *  mutates this array. */
+  toolDeclarations: readonly any[];
   iterationCap: number;
   /** AI feature code for Cost Center attribution. */
   feature: string;
-  /** Validator that parses final model text into the agent's output type, or returns null. */
-  validateFinalOutput: (text: string) => T | null;
+  /** Parses final model text into the agent's output. On failure, returns a
+   *  `reason` string that gets fed back to the model on the next iteration
+   *  so it can self-correct. */
+  validateFinalOutput: (text: string) => ValidationResult<T>;
+  /** Optional payload merged into every event this loop emits. Lets callers
+   *  (orchestrator handlers, detection-engineer's QA call) attach behaviour_id
+   *  / opportunity_id / detection_id so the UI can show per-leaf progress
+   *  indicators ("which behaviour is currently being worked on"). */
+  contextPayload?: Record<string, unknown>;
 }
 
 export interface AgentLoopOutcome<T> {
@@ -39,8 +58,27 @@ export interface AgentLoopOutcome<T> {
 }
 
 /** Cap individual tool-result payloads so an exuberant search doesn't bloat
- *  the model context. 8 KB is enough for most structured tool responses. */
-const TOOL_RESULT_MAX_CHARS = 8000;
+ *  the model context. 12 KB lets web_search return 8 Tavily results × ~1.5KB
+ *  description each — Microsoft / Unit 42 / DFIR Report posts are 5–10K
+ *  words and need real space to be useful, otherwise the Research Agent
+ *  falls back to training memory and hallucinates. */
+const TOOL_RESULT_MAX_CHARS = 12000;
+
+/** Prepend current-date context to every agent's system prompt. The QA agent
+ *  in particular was flagging real Tavily-sourced current-year citations as
+ *  "future-dated/hypothetical/fabricated" because its training cutoff
+ *  predates the live calendar. Single point of injection — any agent that
+ *  goes through runAgentLoop gets the same anchor. */
+function buildDateContextHeader(): string {
+  const isoDate = new Date().toISOString().slice(0, 10);
+  const year = isoDate.slice(0, 4);
+  return `The current date is ${isoDate} (calendar year ${year}).
+Treat citations, CVE identifiers, blog posts, and advisories from the
+current calendar year as normal current events. Do NOT flag content from
+${year} as future-dated, hypothetical, or fabricated based on year alone —
+your training cutoff is older than the current date. Defer to web_search
+results and upstream agent sources for current-year information.`;
+}
 
 export async function runAgentLoop<T>(
   cfg: AgentLoopConfig<T>,
@@ -58,20 +96,34 @@ export async function runAgentLoop<T>(
     },
   ];
 
-  await emit(runCtx, { agent: cfg.agent, event_type: 'agent_started', message: `${cfg.agent} loop start` });
+  const ctxPayload = cfg.contextPayload ?? {};
+
+  await emit(runCtx, {
+    agent: cfg.agent,
+    event_type: 'agent_started',
+    message: `${cfg.agent} loop start`,
+    payload: { ...ctxPayload },
+  });
 
   for (let iteration = 1; iteration <= cfg.iterationCap; iteration++) {
-    if (!runCtx.budget.canSpendModelCall()) {
-      await emit(runCtx, { agent: cfg.agent, event_type: 'agent_failed', message: 'model-call budget exhausted' });
+    // Atomic check-and-spend at the session level. If the cap is reached,
+    // the RPC returns allowed:false and we exit.
+    const modelBudget = await consumeBudget(runCtx, { modelCalls: 1 });
+    if (!modelBudget.allowed) {
+      await emit(runCtx, {
+        agent: cfg.agent,
+        event_type: 'agent_failed',
+        message: `model-call budget exhausted: ${modelBudget.reason ?? ''}`,
+        payload: { ...ctxPayload, reason: 'model_budget_exhausted' },
+      });
       return { success: false, output: null, iterations: iteration - 1, reason: 'model_budget_exhausted' };
     }
-    runCtx.budget.spendModelCall();
 
     await emit(runCtx, {
       agent: cfg.agent,
       event_type: 'agent_iteration',
       message: `iteration ${iteration}`,
-      payload: { iteration },
+      payload: { ...ctxPayload, iteration },
     });
 
     const callStart = Date.now();
@@ -81,9 +133,16 @@ export async function runAgentLoop<T>(
         { userId: runCtx.userId, feature: cfg.feature, model: cfg.model },
         {
           model: cfg.model,
-          systemInstruction: cfg.systemInstruction,
+          // Date context is prepended at the use site rather than baked
+          // into each agent's prompt constant, so every agent gets a
+          // freshly-resolved ISO date on every call (not deploy time).
+          systemInstruction: `${buildDateContextHeader()}\n\n${cfg.systemInstruction}`,
           tools: cfg.toolDeclarations,
           messages,
+          // Force deterministic sampling. Default is 1.0 which produced
+          // wildly different behaviour lists across runs of the same input.
+          // Same-input runs should converge to the same TTP coverage.
+          temperature: 0,
         },
       );
     } catch (e) {
@@ -92,7 +151,7 @@ export async function runAgentLoop<T>(
         agent: cfg.agent,
         event_type: 'agent_failed',
         message: `anthropic: ${errMsg.slice(0, 300)}`,
-        payload: { error: errMsg.slice(0, 800) },
+        payload: { ...ctxPayload, error: errMsg.slice(0, 800) },
       });
       return { success: false, output: null, iterations: iteration, reason: 'anthropic_failed' };
     }
@@ -103,7 +162,18 @@ export async function runAgentLoop<T>(
         event_type: 'agent_narration',
         narration: response.text,
         duration_ms: Date.now() - callStart,
+        payload: { ...ctxPayload },
       });
+    }
+
+    // Record token usage post-call. consumeBudget is called pre-call with
+    // modelCalls:1 only (we don't know token counts until the response
+    // returns). This second call records the tokens for cost attribution
+    // and the soft alarm threshold. Fail-open: budget RPC errors here
+    // never block the loop — same posture as the pre-call gate.
+    const totalTokens = response.usage.inputTokens + response.usage.outputTokens;
+    if (totalTokens > 0) {
+      await consumeBudget(runCtx, { tokens: totalTokens });
     }
 
     // Push the assistant turn into history with FULL content blocks. This is
@@ -118,20 +188,30 @@ export async function runAgentLoop<T>(
     // No tool calls → try to finalise.
     if (response.toolUses.length === 0) {
       const parsed = cfg.validateFinalOutput(response.text);
-      if (parsed !== null) {
+      if (parsed.ok) {
         await emit(runCtx, {
           agent: cfg.agent,
           event_type: 'agent_completed',
           message: `${cfg.agent} succeeded`,
           duration_ms: Date.now() - startedAt,
-          payload: { iteration_count: iteration },
+          payload: { ...ctxPayload, iteration_count: iteration },
         });
-        return { success: true, output: parsed, iterations: iteration, reason: null };
+        return { success: true, output: parsed.value, iterations: iteration, reason: null };
       }
-      // Output didn't validate — ask for revision.
+      // Output didn't validate — surface the specific reason so the model can
+      // fix that exact thing instead of retrying blindly.
+      await emit(runCtx, {
+        agent: cfg.agent,
+        event_type: 'agent_validation_failed',
+        message: parsed.reason.slice(0, 200),
+        payload: { ...ctxPayload, iteration, reason: parsed.reason.slice(0, 800) },
+      });
       messages.push({
         role: 'user',
-        content: 'That output did not validate against the required schema. Re-read the schema in the knowledge pack and produce a valid JSON output now (no fences, no commentary outside the JSON).',
+        content:
+          `Your previous output failed validation: ${parsed.reason}\n\n` +
+          `Fix THAT specifically and re-emit the JSON. ` +
+          `Output the JSON object directly — no markdown fences, no commentary outside the JSON.`,
       });
       continue;
     }
@@ -140,27 +220,27 @@ export async function runAgentLoop<T>(
     // tool_use_id matching the assistant's tool_use block id).
     const toolResultBlocks: AnthropicContentBlock[] = [];
     for (const call of response.toolUses) {
-      if (!runCtx.budget.canSpendToolCall()) {
+      const toolBudget = await consumeBudget(runCtx, { toolCalls: 1 });
+      if (!toolBudget.allowed) {
         toolResultBlocks.push({
           type: 'tool_result',
           tool_use_id: call.id,
-          content: JSON.stringify({ over_budget: true, error: 'tool-call budget exhausted' }),
+          content: JSON.stringify({ over_budget: true, error: toolBudget.reason ?? 'tool-call budget exhausted' }),
           is_error: true,
         });
         await emit(runCtx, {
           agent: cfg.agent,
           event_type: 'agent_tool_call',
           message: `${call.name} (over_budget)`,
-          payload: { tool: call.name, over_budget: true },
+          payload: { ...ctxPayload, tool: call.name, over_budget: true, reason: toolBudget.reason },
         });
         continue;
       }
-      runCtx.budget.spendToolCall();
       await emit(runCtx, {
         agent: cfg.agent,
         event_type: 'agent_tool_call',
         message: call.name,
-        payload: { tool: call.name, args: call.args },
+        payload: { ...ctxPayload, tool: call.name, args: call.args },
       });
       try {
         const result = await executeTool(toolCtx, call.name, call.args);
@@ -185,6 +265,11 @@ export async function runAgentLoop<T>(
     });
   }
 
-  await emit(runCtx, { agent: cfg.agent, event_type: 'agent_failed', message: 'iteration cap reached' });
+  await emit(runCtx, {
+    agent: cfg.agent,
+    event_type: 'agent_failed',
+    message: 'iteration cap reached',
+    payload: { ...ctxPayload, reason: 'iteration_cap' },
+  });
   return { success: false, output: null, iterations: cfg.iterationCap, reason: 'iteration_cap' };
 }

@@ -1,65 +1,174 @@
 // src/hooks/useThreatResearchSession.ts
 //
-// Loads a research session and subscribes to UPDATE events on its row so the
-// canvas / list views update live as the orchestrator persists the tree
-// after each phase.
+// Loads a research session and stays in sync via the events table. The old
+// version subscribed to UPDATE on the session row, which shipped the entire
+// JSONB tree (often hundreds of KB) over the websocket on every per-leaf
+// patch. With multi-worker parallel writes that's both wasteful and a source
+// of UI thrash.
+//
+// New strategy:
+//   1. Initial fetch of full session.
+//   2. Subscribe to INSERTs on threat_research_events for this session.
+//   3. Coalesce tree-changing events into a single debounced refetch (250ms)
+//      so a burst of opportunity_created/detection_generated events doesn't
+//      trigger N round-trips.
+//   4. Terminal events (session_completed/failed/cancelled) trigger an
+//      immediate refetch so users see final state without delay.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { getSession } from '../lib/threatResearchService';
-import type { ThreatResearchSession } from '../types/threatResearch';
+import type { ResearchEventType, ThreatResearchSession } from '../types/threatResearch';
 
 export interface UseThreatResearchSessionResult {
   session: ThreatResearchSession | null;
   loading: boolean;
   error: string | null;
+  /** Triggers an immediate refetch through the hook's own state machine.
+   *  Replaces the older "lift to parent and shadow with overrideSession"
+   *  pattern, which permanently masked subsequent realtime updates after
+   *  any mutation. Now mutations call this and the hook stays the single
+   *  source of truth. */
+  refetch: () => Promise<void>;
 }
+
+// Events that mutate session.tree and therefore warrant a refetch.
+const TREE_CHANGE_EVENTS: ReadonlySet<ResearchEventType> = new Set<ResearchEventType>([
+  'preflight_completed',
+  'behaviour_created',
+  'opportunity_created',
+  'detection_generated',
+  'qa_verdict',
+  'qa_refinement_completed',
+  'library_match_found',
+  'attack_research_completed',
+]);
+
+// Events that change session.status and warrant an immediate refetch.
+const TERMINAL_EVENTS: ReadonlySet<ResearchEventType> = new Set<ResearchEventType>([
+  'session_completed',
+  'session_failed',
+  'session_cancelled',
+]);
+
+const REFETCH_DEBOUNCE_MS = 250;
 
 export function useThreatResearchSession(sessionId: string | null): UseThreatResearchSessionResult {
   const [session, setSession] = useState<ThreatResearchSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Track the latest sessionId requested so stale refetches don't overwrite
+  // newer state when the user navigates between sessions quickly.
+  const activeSessionRef = useRef<string | null>(null);
+  // Stable handle to the active refetch function so callers can trigger it
+  // even after re-renders. Updated each effect run.
+  const refetchRef = useRef<() => Promise<void>>(() => Promise.resolve());
+
   useEffect(() => {
     if (!sessionId) {
+      activeSessionRef.current = null;
       setSession(null);
       setLoading(false);
       return;
     }
 
-    let active = true;
+    activeSessionRef.current = sessionId;
+    let cancelled = false;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let inFlight = false;
+    let pendingRefetch = false;
+
     setLoading(true);
     setError(null);
 
+    const refetch = async () => {
+      if (cancelled || activeSessionRef.current !== sessionId) return;
+      if (inFlight) {
+        pendingRefetch = true;
+        return;
+      }
+      inFlight = true;
+      try {
+        const fresh = await getSession(sessionId);
+        if (cancelled || activeSessionRef.current !== sessionId) return;
+        setSession(fresh);
+      } catch (e) {
+        if (cancelled || activeSessionRef.current !== sessionId) return;
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        inFlight = false;
+        if (pendingRefetch && !cancelled && activeSessionRef.current === sessionId) {
+          pendingRefetch = false;
+          // Schedule the queued refetch through the debounce path so further
+          // events arriving in the same tick still coalesce.
+          scheduleDebouncedRefetch();
+        }
+      }
+    };
+    refetchRef.current = refetch;
+
+    const scheduleDebouncedRefetch = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        void refetch();
+      }, REFETCH_DEBOUNCE_MS);
+    };
+
+    // Initial fetch.
     getSession(sessionId)
       .then(s => {
-        if (!active) return;
+        if (cancelled || activeSessionRef.current !== sessionId) return;
         setSession(s);
         setLoading(false);
       })
       .catch(e => {
-        if (!active) return;
+        if (cancelled || activeSessionRef.current !== sessionId) return;
         setError(e instanceof Error ? e.message : String(e));
         setLoading(false);
       });
 
     const channel = supabase
-      .channel(`tr-session-${sessionId}`)
+      .channel(`tr-session-events-${sessionId}`)
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'threat_research_sessions', filter: `id=eq.${sessionId}` },
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'threat_research_events',
+          filter: `session_id=eq.${sessionId}`,
+        },
         (payload) => {
-          if (!active) return;
-          setSession(payload.new as ThreatResearchSession);
+          if (cancelled || activeSessionRef.current !== sessionId) return;
+          const eventType = (payload.new as { event_type?: ResearchEventType } | null)?.event_type;
+          if (!eventType) return;
+          if (TERMINAL_EVENTS.has(eventType)) {
+            if (debounceTimer) {
+              clearTimeout(debounceTimer);
+              debounceTimer = null;
+            }
+            void refetch();
+            return;
+          }
+          if (TREE_CHANGE_EVENTS.has(eventType)) {
+            scheduleDebouncedRefetch();
+          }
         },
       )
       .subscribe();
 
     return () => {
-      active = false;
+      cancelled = true;
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, [sessionId]);
 
-  return { session, loading, error };
+  return {
+    session,
+    loading,
+    error,
+    refetch: () => refetchRef.current(),
+  };
 }
