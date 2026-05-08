@@ -13,18 +13,18 @@ import { supabase } from '../lib/supabaseClient';
 // =============================================================================
 
 const AVATAR_COLORS = [
-    { bg: 'bg-violet-500/20', text: 'text-violet-300' },
-    { bg: 'bg-blue-500/20', text: 'text-blue-300' },
-    { bg: 'bg-cyan-500/20', text: 'text-cyan-300' },
-    { bg: 'bg-teal-500/20', text: 'text-teal-300' },
-    { bg: 'bg-emerald-500/20', text: 'text-emerald-300' },
-    { bg: 'bg-amber-500/20', text: 'text-amber-300' },
-    { bg: 'bg-orange-500/20', text: 'text-orange-300' },
-    { bg: 'bg-rose-500/20', text: 'text-rose-300' },
-    { bg: 'bg-pink-500/20', text: 'text-pink-300' },
-    { bg: 'bg-fuchsia-500/20', text: 'text-fuchsia-300' },
-    { bg: 'bg-indigo-500/20', text: 'text-indigo-300' },
-    { bg: 'bg-sky-500/20', text: 'text-sky-300' },
+    { bg: 'bg-violet-500/15 dark:bg-violet-500/20', text: 'text-violet-700 dark:text-violet-300' },
+    { bg: 'bg-blue-500/15 dark:bg-blue-500/20', text: 'text-blue-700 dark:text-blue-300' },
+    { bg: 'bg-cyan-500/15 dark:bg-cyan-500/20', text: 'text-cyan-700 dark:text-cyan-300' },
+    { bg: 'bg-teal-500/15 dark:bg-teal-500/20', text: 'text-teal-700 dark:text-teal-300' },
+    { bg: 'bg-emerald-500/15 dark:bg-emerald-500/20', text: 'text-emerald-700 dark:text-emerald-300' },
+    { bg: 'bg-amber-500/15 dark:bg-amber-500/20', text: 'text-amber-700 dark:text-amber-300' },
+    { bg: 'bg-orange-500/15 dark:bg-orange-500/20', text: 'text-orange-700 dark:text-orange-300' },
+    { bg: 'bg-rose-500/15 dark:bg-rose-500/20', text: 'text-rose-700 dark:text-rose-300' },
+    { bg: 'bg-pink-500/15 dark:bg-pink-500/20', text: 'text-pink-700 dark:text-pink-300' },
+    { bg: 'bg-fuchsia-500/15 dark:bg-fuchsia-500/20', text: 'text-fuchsia-700 dark:text-fuchsia-300' },
+    { bg: 'bg-indigo-500/15 dark:bg-indigo-500/20', text: 'text-indigo-700 dark:text-indigo-300' },
+    { bg: 'bg-sky-500/15 dark:bg-sky-500/20', text: 'text-sky-700 dark:text-sky-300' },
 ];
 
 const getAvatarColor = (seed: string) => {
@@ -80,13 +80,14 @@ export const UserManagementPage: React.FC = () => {
     const {
         allUsers, invitations, usersLoading, invitationsLoading,
         inviteUser, changeUserRole, deactivateUser, reactivateUser,
-        cancelInvitation, refreshAllUsers, refreshInvitations,
+        refreshAllUsers, refreshInvitations,
     } = useUserManagement();
 
     const handleSort = (field: SortField) => setSortConfig(prev => ({ field, direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc' }));
 
     const sortedUsers = useMemo(() => {
-        return [...allUsers].sort((a, b) => {
+        const source = allUsers.filter(u => u.password_set !== false);
+        return [...source].sort((a, b) => {
             let av: string | number, bv: string | number;
             switch (sortConfig.field) {
                 case 'name': av = a.full_name || a.email || ''; bv = b.full_name || b.email || ''; break;
@@ -94,7 +95,7 @@ export const UserManagementPage: React.FC = () => {
                 case 'role': { const o: Record<string, number> = { owner: 0, admin: 1, lead: 2, analyst: 3, viewer: 4 }; av = o[a.role] ?? 5; bv = o[b.role] ?? 5; break; }
                 case 'status': av = a.status || 'active'; bv = b.status || 'active'; break;
                 case 'created_at': av = new Date(a.created_at || 0).getTime(); bv = new Date(b.created_at || 0).getTime(); break;
-                case 'last_active_at': av = new Date(a.last_active_at || a.updated_at || a.created_at || 0).getTime(); bv = new Date(b.last_active_at || b.updated_at || b.created_at || 0).getTime(); break;
+                case 'last_active_at': av = a.last_active_at ? new Date(a.last_active_at).getTime() : 0; bv = b.last_active_at ? new Date(b.last_active_at).getTime() : 0; break;
                 default: av = ''; bv = '';
             }
             if (typeof av === 'string') { const c = av.toLowerCase().localeCompare(bv as string); return sortConfig.direction === 'asc' ? c : -c; }
@@ -157,27 +158,21 @@ export const UserManagementPage: React.FC = () => {
         } catch (err: unknown) { showToast('error', 'Failed', err instanceof Error ? err.message : 'Failed to set password.'); }
         finally { setIsSettingPassword(false); }
     };
-    const handleCancelInvitation = async (id: string, email: string) => {
-        if (!window.confirm(`Cancel invitation for ${email}?`)) return;
-        try { await cancelInvitation(id); } catch {}
-    };
-    const handleResendInvitation = async (inv: UserInvitation) => {
-        try { await cancelInvitation(inv.id); await inviteUser(inv.email, inv.role); showToast('success', 'Invitation Resent', `New invitation sent to ${inv.email}`); }
-        catch (err: unknown) { showToast('error', 'Failed', err instanceof Error ? err.message : 'Failed to resend invitation'); }
-    };
 
     // Helpers
     const getDisplayName = (u: Profile) => u.full_name || u.email?.split('@')[0] || 'Unknown';
     const fmtDate = (d: string | null | undefined) => { if (!d) return '—'; return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); };
     const fmtDateTime = (d: string | null | undefined) => { if (!d) return '—'; return new Date(d).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
     const getLastActive = (u: Profile) => {
-        const d = u.last_active_at || u.updated_at || u.created_at;
-        if (!d) return '—';
-        const ms = Date.now() - new Date(d).getTime();
+        if (!u.last_active_at) return 'Never';
+        const ms = Date.now() - new Date(u.last_active_at).getTime();
         const m = Math.floor(ms / 60000), h = Math.floor(ms / 3600000), dy = Math.floor(ms / 86400000);
-        if (m < 1) return 'Just now'; if (m < 60) return `${m} min ago`; if (h < 24) return `${h} hours ago`;
-        if (dy === 1) return 'Yesterday'; if (dy < 7) return `${dy} days ago`;
-        return fmtDate(d);
+        if (m < 1) return 'Just now';
+        if (m < 60) return `${m} min ago`;
+        if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`;
+        if (dy === 1) return 'Yesterday';
+        if (dy < 7) return `${dy} days ago`;
+        return fmtDate(u.last_active_at);
     };
     const isExpired = (d: string) => new Date(d) < new Date();
 
@@ -188,10 +183,33 @@ export const UserManagementPage: React.FC = () => {
     });
 
     const canManageUsers = hasRoleOrHigher('admin');
-    const activeCount = allUsers.filter(u => u.status !== 'deactivated').length;
-    const deactivatedCount = allUsers.length - activeCount;
-    const existingEmails = useMemo(() => new Set(allUsers.map(u => u.email?.toLowerCase()).filter(Boolean)), [allUsers]);
-    const pendingInvitations = useMemo(() => invitations.filter(i => !i.accepted_at && !existingEmails.has(i.email.toLowerCase())), [invitations, existingEmails]);
+
+    // A "pending" user has been invited (auth user + profile created by trigger) but
+    // has not yet completed setup (password_set is still false). password_set flips
+    // to true via complete_password_setup() once they finish onboarding.
+    const pendingProfiles = useMemo(
+        () => allUsers.filter(u => u.password_set === false),
+        [allUsers]
+    );
+    const memberProfiles = useMemo(
+        () => allUsers.filter(u => u.password_set !== false),
+        [allUsers]
+    );
+    const activeCount = memberProfiles.filter(u => u.status !== 'deactivated').length;
+    const deactivatedCount = memberProfiles.filter(u => u.status === 'deactivated').length;
+
+    // Match pending profiles back to invitation records (for token / resend / cancel).
+    const invitationByEmail = useMemo(() => {
+        const map = new Map<string, UserInvitation>();
+        for (const inv of invitations) {
+            const key = inv.email.toLowerCase();
+            const existing = map.get(key);
+            if (!existing || new Date(inv.created_at) > new Date(existing.created_at)) {
+                map.set(key, inv);
+            }
+        }
+        return map;
+    }, [invitations]);
 
     return (
         <div className="h-full overflow-y-auto bg-background scrollbar-page animate-page-enter">
@@ -215,9 +233,9 @@ export const UserManagementPage: React.FC = () => {
                 {/* STATS ROW - horizontal with visible dividers */}
                 <div className="flex items-stretch rounded-xl border border-outline-variant/40 mb-8 overflow-hidden">
                     {[
-                        { label: 'Members', value: allUsers.length, id: 'members', tab: 'users' as TabId },
+                        { label: 'Members', value: memberProfiles.length, id: 'members', tab: 'users' as TabId },
                         { label: 'Active', value: activeCount, id: 'active', tab: 'users' as TabId },
-                        { label: 'Pending', value: pendingInvitations.length, id: 'pending', tab: 'invitations' as TabId },
+                        { label: 'Pending', value: pendingProfiles.length, id: 'pending', tab: 'invitations' as TabId },
                         { label: 'Deactivated', value: deactivatedCount, id: 'deactivated', tab: 'users' as TabId },
                     ].map((stat, i) => (
                         <button
@@ -286,10 +304,23 @@ export const UserManagementPage: React.FC = () => {
                             />
                         )}
                         {activeTab === 'invitations' && (
-                            <InvitationsTable
-                                invitations={pendingInvitations} isLoading={invitationsLoading}
-                                onCancel={handleCancelInvitation} onResend={handleResendInvitation}
-                                fmtDate={fmtDate} fmtDateTime={fmtDateTime} isExpired={isExpired}
+                            <PendingMembersTable
+                                profiles={pendingProfiles}
+                                invitationByEmail={invitationByEmail}
+                                isLoading={usersLoading || invitationsLoading}
+                                onResend={async (profile) => {
+                                    try {
+                                        await inviteUser(profile.email, profile.role);
+                                        showToast('success', 'Invitation Resent', `New invitation sent to ${profile.email}`);
+                                    } catch (err: unknown) {
+                                        showToast('error', 'Failed', err instanceof Error ? err.message : 'Failed to resend invitation');
+                                    }
+                                }}
+                                onCancel={(profile) => setDeleteModal({ userId: profile.id, userName: getDisplayName(profile), email: profile.email || '' })}
+                                fmtDate={fmtDate}
+                                fmtDateTime={fmtDateTime}
+                                isExpired={isExpired}
+                                getDisplayName={getDisplayName}
                             />
                         )}
                     </div>
@@ -460,8 +491,15 @@ const UsersTable: React.FC<{
                                 <td className="px-4 py-2"><span className="text-[13px] text-on-surface-variant/70 truncate block">{user.email}</span></td>
 
                                 <td className="px-3 py-2 text-center">
-                                    {(isOwner || !canManageUsers || isSelf) ? <RoleBadge role={user.role} size="sm" />
-                                        : <RoleDropdown currentRole={user.role} isLoading={changingRoleFor === user.id} onChange={r => onRoleChange(user.id, r)} />}
+                                    <div className="inline-flex items-center justify-center gap-1.5">
+                                        <RoleBadge role={user.role} size="sm" />
+                                        <RoleDropdownChevron
+                                            visible={!isOwner && canManageUsers && !isSelf}
+                                            currentRole={user.role}
+                                            isLoading={changingRoleFor === user.id}
+                                            onChange={r => onRoleChange(user.id, r)}
+                                        />
+                                    </div>
                                 </td>
 
                                 <td className="px-4 py-2"><span className="text-[13px] text-on-surface-variant/60">{fmtDate(user.created_at)}</span></td>
@@ -474,10 +512,20 @@ const UsersTable: React.FC<{
 
                                 {/* Status */}
                                 <td className="px-3 py-2 text-center">
-                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-full ${
-                                        deactivated ? 'bg-red-500/15 text-red-400' : 'bg-teal-500/15 text-teal-400'
-                                    }`}>
-                                        <span className={`w-1.5 h-1.5 rounded-full ${deactivated ? 'bg-red-400' : 'bg-teal-400'}`} />
+                                    <span
+                                        className={`inline-flex items-center justify-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded-md min-w-[52px] ${
+                                            deactivated ? 'bg-red-500/15 text-red-700 dark:text-red-400' : ''
+                                        }`}
+                                        style={
+                                            deactivated
+                                                ? undefined
+                                                : { backgroundColor: 'rgba(77, 124, 111, 0.18)', color: '#4D7C6F' }
+                                        }
+                                    >
+                                        <span
+                                            className={`w-1.5 h-1.5 rounded-full ${deactivated ? 'bg-red-700 dark:bg-red-400' : ''}`}
+                                            style={deactivated ? undefined : { backgroundColor: '#4D7C6F' }}
+                                        />
                                         {deactivated ? 'Disabled' : 'Active'}
                                     </span>
                                 </td>
@@ -543,10 +591,20 @@ const DetailPanel: React.FC<{
                 </div>
                 <div className="flex items-center gap-2 mt-4">
                     <RoleBadge role={user.role} size="md" />
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full ${
-                        user.status === 'deactivated' ? 'bg-red-500/15 text-red-400' : 'bg-teal-500/15 text-teal-400'
-                    }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${user.status === 'deactivated' ? 'bg-red-400' : 'bg-teal-400'}`} />
+                    <span
+                        className={`inline-flex items-center justify-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md min-w-[62px] ${
+                            user.status === 'deactivated' ? 'bg-red-500/15 text-red-700 dark:text-red-400' : ''
+                        }`}
+                        style={
+                            user.status === 'deactivated'
+                                ? undefined
+                                : { backgroundColor: 'rgba(77, 124, 111, 0.18)', color: '#4D7C6F' }
+                        }
+                    >
+                        <span
+                            className={`w-1.5 h-1.5 rounded-full ${user.status === 'deactivated' ? 'bg-red-700 dark:bg-red-400' : ''}`}
+                            style={user.status === 'deactivated' ? undefined : { backgroundColor: '#4D7C6F' }}
+                        />
                         {user.status === 'deactivated' ? 'Disabled' : 'Active'}
                     </span>
                 </div>
@@ -571,7 +629,7 @@ const DetailPanel: React.FC<{
                         <div className="grid grid-cols-2 gap-2">
                             {(['admin', 'lead', 'analyst', 'viewer'] as Role[]).map(role => (
                                 <button key={role} onClick={() => onRoleChange(user.id, role)} disabled={isChangingRole || user.role === role}
-                                    className={`h-9 text-sm font-medium rounded-lg transition-all capitalize ${user.role === role ? 'bg-primary/15 text-primary ring-1 ring-primary/30' : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-highest border border-outline-variant/20'} disabled:opacity-50`}>
+                                    className={`h-9 text-sm font-medium rounded-lg transition-all capitalize ${user.role === role ? 'bg-primary-container text-on-primary-container ring-1 ring-primary/40' : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-highest border border-outline-variant/20'} disabled:opacity-100 disabled:cursor-default`}>
                                     {role}
                                 </button>
                             ))}
@@ -590,7 +648,8 @@ const DetailPanel: React.FC<{
                                 </div>
                                 <button
                                     onClick={() => user.status === 'deactivated' ? onReactivate(user.id) : onDeactivate(user.id, name)}
-                                    className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${user.status === 'deactivated' ? 'bg-zinc-600' : 'bg-teal-500'}`}
+                                    className="relative w-11 h-6 rounded-full transition-colors flex-shrink-0"
+                                    style={{ backgroundColor: user.status === 'deactivated' ? 'rgb(82 82 91)' : '#4D7C6F' }}
                                 >
                                     <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${user.status === 'deactivated' ? 'left-0.5' : 'left-[22px]'}`} />
                                 </button>
@@ -600,7 +659,9 @@ const DetailPanel: React.FC<{
                                     <p className="text-sm font-medium text-on-surface">2FA Authentication</p>
                                     <p className="text-xs text-on-surface-variant/50">Two-factor authentication status</p>
                                 </div>
-                                <span className="text-xs font-medium text-on-surface-variant/40 bg-surface-container px-2 py-1 rounded">OFF</span>
+                                <span className="inline-flex items-center justify-center px-2 py-1 text-[11px] font-semibold rounded-md min-w-[44px] bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">
+                                    OFF
+                                </span>
                             </div>
                         </div>
                     </div>
@@ -612,7 +673,11 @@ const DetailPanel: React.FC<{
                     <button onClick={onSetPassword} className="w-full h-10 text-sm font-medium text-on-surface border border-outline-variant/30 hover:bg-surface-container-highest rounded-lg transition-colors flex items-center justify-center gap-2">
                         <Icon name="key" className="w-4 h-4" /> Set Password
                     </button>
-                    <button onClick={onDelete} className="w-full h-10 text-sm font-medium text-red-400 border border-red-500/20 hover:bg-red-500/10 rounded-lg transition-colors flex items-center justify-center gap-2">
+                    <button
+                        onClick={onDelete}
+                        className="w-full h-10 text-sm font-medium text-white rounded-lg transition-all flex items-center justify-center gap-2 hover:brightness-110 active:scale-[0.98]"
+                        style={{ backgroundColor: '#A63D40' }}
+                    >
                         <Icon name="trash" className="w-4 h-4" /> Delete User
                     </button>
                 </div>
@@ -632,25 +697,48 @@ const KV: React.FC<{ label: string; value: string; capitalize?: boolean }> = ({ 
 // ROLE DROPDOWN
 // =============================================================================
 
-const RoleDropdown: React.FC<{ currentRole: Role; isLoading: boolean; onChange: (r: Role) => void }> = ({ currentRole, isLoading, onChange }) => {
+const RoleDropdownChevron: React.FC<{
+    visible: boolean;
+    currentRole: Role;
+    isLoading: boolean;
+    onChange: (r: Role) => void;
+}> = ({ visible, currentRole, isLoading, onChange }) => {
     const [open, setOpen] = useState(false);
+
+    if (!visible) {
+        // Reserve the same width so rows without a dropdown stay aligned.
+        return <span className="w-4 h-4 inline-block" aria-hidden />;
+    }
+
     return (
         <div className="relative inline-flex">
-            <button onClick={e => { e.stopPropagation(); !isLoading && setOpen(!open); }} disabled={isLoading}
-                className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-surface-container-highest transition-colors disabled:opacity-50">
-                {isLoading ? <Icon name="spinner" className="w-3.5 h-3.5 animate-spin" /> : <><RoleBadge role={currentRole} size="sm" /><Icon name="chevron-down" className="w-3.5 h-3.5 text-on-surface-variant/40" /></>}
+            <button
+                onClick={e => { e.stopPropagation(); if (!isLoading) setOpen(!open); }}
+                disabled={isLoading}
+                className="flex items-center justify-center w-4 h-4 rounded hover:bg-surface-container-highest transition-colors disabled:opacity-50"
+                title="Change role"
+            >
+                {isLoading
+                    ? <Icon name="spinner" className="w-3.5 h-3.5 animate-spin" />
+                    : <Icon name="chevron-down" className="w-3.5 h-3.5 text-on-surface-variant/60" />}
             </button>
-            {open && <>
-                <div className="fixed inset-0 z-40" onClick={e => { e.stopPropagation(); setOpen(false); }} />
-                <div className="absolute right-0 top-full mt-1 z-50 w-40 py-1 bg-surface-container-highest rounded-xl border border-outline-variant/40 shadow-xl">
-                    {(['admin', 'lead', 'analyst', 'viewer'] as Role[]).map(r => (
-                        <button key={r} onClick={e => { e.stopPropagation(); onChange(r); setOpen(false); }}
-                            className={`w-full px-3 py-2 text-left text-sm flex items-center justify-between transition-colors ${r === currentRole ? 'bg-primary/10' : 'hover:bg-surface-container-high'}`}>
-                            <RoleBadge role={r} size="sm" />{r === currentRole && <Icon name="check" className="w-3.5 h-3.5 text-primary" />}
-                        </button>
-                    ))}
-                </div>
-            </>}
+            {open && (
+                <>
+                    <div className="fixed inset-0 z-40" onClick={e => { e.stopPropagation(); setOpen(false); }} />
+                    <div className="absolute right-0 top-full mt-1 z-50 w-40 py-1 bg-surface-container-highest rounded-xl border border-outline-variant/40 shadow-xl">
+                        {(['admin', 'lead', 'analyst', 'viewer'] as Role[]).map(r => (
+                            <button
+                                key={r}
+                                onClick={e => { e.stopPropagation(); onChange(r); setOpen(false); }}
+                                className={`w-full px-3 py-2 text-left text-sm flex items-center justify-between transition-colors ${r === currentRole ? 'bg-primary/10' : 'hover:bg-surface-container-high'}`}
+                            >
+                                <RoleBadge role={r} size="sm" />
+                                {r === currentRole && <Icon name="check" className="w-3.5 h-3.5 text-primary" />}
+                            </button>
+                        ))}
+                    </div>
+                </>
+            )}
         </div>
     );
 };
@@ -659,25 +747,33 @@ const RoleDropdown: React.FC<{ currentRole: Role; isLoading: boolean; onChange: 
 // INVITATIONS TABLE
 // =============================================================================
 
-const InvitationsTable: React.FC<{
-    invitations: UserInvitation[]; isLoading: boolean;
-    onCancel: (id: string, email: string) => void; onResend: (inv: UserInvitation) => void;
-    fmtDate: (d: string | null | undefined) => string; fmtDateTime: (d: string | null | undefined) => string;
+const PendingMembersTable: React.FC<{
+    profiles: Profile[];
+    invitationByEmail: Map<string, UserInvitation>;
+    isLoading: boolean;
+    onResend: (profile: Profile) => void | Promise<void>;
+    onCancel: (profile: Profile) => void;
+    fmtDate: (d: string | null | undefined) => string;
+    fmtDateTime: (d: string | null | undefined) => string;
     isExpired: (d: string) => boolean;
-}> = ({ invitations, isLoading, onCancel, onResend, fmtDate, fmtDateTime, isExpired }) => {
+    getDisplayName: (u: Profile) => string;
+}> = ({ profiles, invitationByEmail, isLoading, onResend, onCancel, fmtDate, fmtDateTime, isExpired, getDisplayName }) => {
     const { showToast } = useToast();
 
     if (isLoading) return <div className="flex items-center justify-center py-24"><Icon name="spinner" className="w-8 h-8 animate-spin text-primary/40" /></div>;
-    if (invitations.length === 0) return (
+    if (profiles.length === 0) return (
         <div className="flex flex-col items-center justify-center py-24 text-center border border-outline-variant/40 rounded-xl">
             <Icon name="mail" className="w-12 h-12 text-on-surface-variant/20 mb-3" />
             <p className="text-on-surface-variant/60">No pending invitations</p>
-            <p className="text-xs text-on-surface-variant/40 mt-1">All invitations have been accepted</p>
+            <p className="text-xs text-on-surface-variant/40 mt-1">Invited members appear here until they finish setup</p>
         </div>
     );
 
-    const copyLink = (inv: UserInvitation) => {
-        if (inv.token) { navigator.clipboard.writeText(`${window.location.origin}/invite/${inv.token}`); showToast('success', 'Link Copied', 'Invitation link copied to clipboard'); }
+    const copyLink = (inv: UserInvitation | undefined) => {
+        if (inv?.token) {
+            navigator.clipboard.writeText(`${window.location.origin}/invite/${inv.token}`);
+            showToast('success', 'Link Copied', 'Invitation link copied to clipboard');
+        }
     };
 
     return (
@@ -686,28 +782,67 @@ const InvitationsTable: React.FC<{
                 <thead>
                     <tr className="border-b border-zinc-700/60 bg-surface-container-high">
                         <th className="px-4 py-3.5 text-left text-xs font-medium text-on-surface-variant">Email</th>
-                        <th className="px-4 py-3.5 text-left text-xs font-medium text-on-surface-variant w-[100px]">Role</th>
-                        <th className="px-4 py-3.5 text-left text-xs font-medium text-on-surface-variant w-[100px]">Status</th>
-                        <th className="px-4 py-3.5 text-left text-xs font-medium text-on-surface-variant w-[130px]">Sent</th>
-                        <th className="px-4 py-3.5 text-left text-xs font-medium text-on-surface-variant w-[150px]">Expires</th>
+                        <th className="px-4 py-3.5 text-center text-xs font-medium text-on-surface-variant w-[100px]">Role</th>
+                        <th className="px-4 py-3.5 text-center text-xs font-medium text-on-surface-variant w-[100px]">Status</th>
+                        <th className="px-4 py-3.5 text-left text-xs font-medium text-on-surface-variant w-[130px]">Invited</th>
+                        <th className="px-4 py-3.5 text-left text-xs font-medium text-on-surface-variant w-[180px]">Expires</th>
                         <th className="px-4 py-3.5 text-center text-xs font-medium text-on-surface-variant w-[140px]">Action</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {invitations.map(inv => {
-                        const exp = inv.expires_at ? isExpired(inv.expires_at) : false;
+                    {profiles.map(profile => {
+                        const inv = invitationByEmail.get((profile.email || '').toLowerCase());
+                        const exp = inv?.expires_at ? isExpired(inv.expires_at) : false;
+                        const name = getDisplayName(profile);
                         return (
-                            <tr key={inv.id} className={`border-b border-outline-variant/20 ${exp ? 'opacity-50' : ''}`}>
-                                <td className="px-4 py-3"><span className="text-sm font-medium text-on-surface">{inv.email}</span></td>
-                                <td className="px-4 py-3"><RoleBadge role={inv.role} size="md" /></td>
-                                <td className="px-4 py-3"><span className={`text-sm font-medium ${exp ? 'text-red-400' : 'text-amber-400'}`}>{exp ? 'Expired' : 'Pending'}</span></td>
-                                <td className="px-4 py-3"><span className="text-sm text-on-surface-variant/60">{fmtDate(inv.created_at)}</span></td>
-                                <td className="px-4 py-3"><span className={`text-sm ${exp ? 'text-red-400' : 'text-on-surface-variant/60'}`}>{fmtDateTime(inv.expires_at)}</span></td>
+                            <tr key={profile.id} className="border-b border-outline-variant/20">
+                                <td className="px-4 py-3">
+                                    <div className="flex items-center gap-2.5">
+                                        <UserAvatar name={name} email={profile.email} avatarUrl={profile.avatar_url} size="sm" />
+                                        <span className="text-sm font-medium text-on-surface truncate">{profile.email}</span>
+                                    </div>
+                                </td>
+                                <td className="px-4 py-3 text-center"><RoleBadge role={profile.role} size="sm" /></td>
+                                <td className="px-4 py-3 text-center">
+                                    <span
+                                        className={`inline-flex items-center justify-center px-2 py-0.5 text-[10px] font-medium rounded-md min-w-[64px] ${
+                                            exp ? 'bg-red-500/15 text-red-700 dark:text-red-400' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                                        }`}
+                                    >
+                                        {exp ? 'Expired' : 'Pending'}
+                                    </span>
+                                </td>
+                                <td className="px-4 py-3"><span className="text-sm text-on-surface-variant/60">{fmtDate(profile.created_at)}</span></td>
+                                <td className="px-4 py-3">
+                                    <span className={`text-sm ${exp ? 'text-red-700 dark:text-red-400' : 'text-on-surface-variant/60'}`}>
+                                        {inv?.expires_at ? fmtDateTime(inv.expires_at) : '—'}
+                                    </span>
+                                </td>
                                 <td className="px-4 py-3">
                                     <div className="flex items-center justify-center gap-1">
-                                        {!exp && inv.token && <button onClick={() => copyLink(inv)} className="p-1.5 rounded-lg text-on-surface-variant/40 hover:text-on-surface-variant hover:bg-surface-container-highest transition-colors" title="Copy Link"><Icon name="copy" className="w-4 h-4" /></button>}
-                                        <button onClick={() => onResend(inv)} className="p-1.5 rounded-lg text-on-surface-variant/40 hover:text-primary hover:bg-primary/10 transition-colors" title="Resend"><Icon name="refresh-cw" className="w-4 h-4" /></button>
-                                        <button onClick={() => onCancel(inv.id, inv.email)} className="p-1.5 rounded-lg text-on-surface-variant/40 hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Cancel"><Icon name="trash" className="w-4 h-4" /></button>
+                                        {!exp && inv?.token && (
+                                            <button
+                                                onClick={() => copyLink(inv)}
+                                                className="p-1.5 rounded-lg text-on-surface-variant/40 hover:text-on-surface-variant hover:bg-surface-container-highest transition-colors"
+                                                title="Copy invite link"
+                                            >
+                                                <Icon name="copy" className="w-4 h-4" />
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={() => onResend(profile)}
+                                            className="p-1.5 rounded-lg text-on-surface-variant/40 hover:text-primary hover:bg-primary/10 transition-colors"
+                                            title="Resend invitation"
+                                        >
+                                            <Icon name="refresh-cw" className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                            onClick={() => onCancel(profile)}
+                                            className="p-1.5 rounded-lg text-on-surface-variant/40 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                            title="Cancel invite (deletes user)"
+                                        >
+                                            <Icon name="trash" className="w-4 h-4" />
+                                        </button>
                                     </div>
                                 </td>
                             </tr>

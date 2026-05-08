@@ -24,6 +24,9 @@ interface EmbeddingRequest {
   text?: string
   forceRegenerate?: boolean
   feature?: string
+  /** Required when calling with the service-role key (orchestrator, cron).
+   *  Used for telemetry attribution; ignored on user-JWT calls. */
+  userId?: string
 }
 
 interface Detection {
@@ -532,6 +535,15 @@ async function handleBatchMitre(
 // MAIN HANDLER
 // =============================================================================
 
+/** Constant-time string compare — used for the service-role bypass below.
+ *  Length-mismatch short-circuit is not secret. */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return diff === 0
+}
+
 serve(async (req: Request) => {
   // Handle CORS preflight
   const preflightResponse = handleCorsPreflight(req)
@@ -550,39 +562,63 @@ serve(async (req: Request) => {
     }
 
     const token = authHeader.replace('Bearer ', '')
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
     // Create Supabase client with service role for database operations
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    )
+    const supabase = createClient(Deno.env.get('SUPABASE_URL')!, serviceRoleKey)
 
-    // Verify user token
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-    if (authError || !user) {
+    // Parse request body up-front so the service-role branch can read userId.
+    let body: EmbeddingRequest
+    try {
+      body = await req.json()
+    } catch {
       return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ error: 'Invalid JSON body' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
-
-    // Rate limiting
-    const { allowed } = await checkRateLimit(
-      supabase,
-      `user:${user.id}:fn:generate-embedding`,
-      30,
-      60
-    )
-    if (!allowed) {
-      return corsErrorResponse('Rate limit exceeded. Try again shortly.', req, 429)
-    }
-
-    // Parse request
-    const body: EmbeddingRequest = await req.json()
     const { type, id, ids, text, forceRegenerate = false } = body
 
-    // Telemetry context — passed through to every embedding call
-    const ctx = { userId: user.id, feature: body.feature || 'embedding-detection' }
+    // ──────────────────────────────────────────────────────────────────────
+    // Service-role bypass: trusted internal callers (orchestrator, cron jobs)
+    // present the service-role key directly and pass body.userId so telemetry
+    // stays attributable to the originating user. Rate limit is skipped —
+    // these callers already have their own session-level budgets.
+    // ──────────────────────────────────────────────────────────────────────
+    let ctx: { userId: string; feature: string }
+
+    if (timingSafeEqual(token, serviceRoleKey)) {
+      const bodyUserId = typeof body?.userId === 'string' ? body.userId : null
+      if (!bodyUserId) {
+        return new Response(
+          JSON.stringify({ error: 'userId required for service-role calls' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+      ctx = { userId: bodyUserId, feature: body.feature || 'embedding-internal' }
+    } else {
+      // User-JWT path (browser callers).
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+      if (authError || !user) {
+        return new Response(
+          JSON.stringify({ error: 'Unauthorized' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+
+      // Rate limiting (per-user). Service-role bypass skips this.
+      const { allowed } = await checkRateLimit(
+        supabase,
+        `user:${user.id}:fn:generate-embedding`,
+        30,
+        60
+      )
+      if (!allowed) {
+        return corsErrorResponse('Rate limit exceeded. Try again shortly.', req, 429)
+      }
+
+      ctx = { userId: user.id, feature: body.feature || 'embedding-detection' }
+    }
 
     // Validate batch size and UUID format
     const MAX_BATCH_SIZE = 100
