@@ -36,11 +36,10 @@ export const SecurityToolsStep: React.FC<SecurityToolsStepProps> = ({ selected, 
       <p className="text-sm text-on-surface-variant mb-6">
         EDR and endpoint tools provide additional telemetry for detection coverage.
       </p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {EDR_TOOLS.map((tool, i) => (
           <SelectionCard
             key={tool}
-            icon="shield"
             title={tool}
             selected={selected.includes(tool)}
             onClick={() => toggle(tool)}

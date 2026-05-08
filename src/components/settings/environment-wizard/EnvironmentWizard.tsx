@@ -144,37 +144,40 @@ export const EnvironmentWizard: React.FC<EnvironmentWizardProps> = ({ onBack }) 
     onJumpToStep: goToStep,
   };
 
+  const completedCount = stepCompletion.filter(Boolean).length;
+
   return (
-    <div className="max-w-7xl mx-auto px-6 py-8 animate-page-enter">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
+    <div className="max-w-7xl mx-auto px-6 py-6 animate-page-enter">
+      {/* Compact action bar — no duplicate page title (AppLayout already renders it) */}
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-3">
           {onBack && (
-            <button onClick={onBack} className="p-2 -ml-2 rounded-xl hover:bg-surface-container transition-colors">
-              <Icon name="arrow-left" className="w-5 h-5 text-on-surface-variant" />
+            <button
+              onClick={onBack}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 -ml-2.5 rounded-lg text-xs font-medium text-on-surface-variant hover:bg-surface-container transition-colors"
+            >
+              <Icon name="arrow-left" className="w-3.5 h-3.5" />
+              Back
             </button>
           )}
-          <div>
-            <h1 className="text-xl font-semibold text-on-surface">Environment Profile</h1>
-            <p className="text-sm text-on-surface-variant mt-0.5">
-              Configure your environment for personalized detection intelligence
-            </p>
-          </div>
+          <span className="text-xs text-on-surface-variant/70">
+            {completedCount} of 6 steps complete
+          </span>
         </div>
         <button
           onClick={handleSave}
           disabled={isSaving}
-          className="px-5 py-2.5 rounded-xl bg-primary text-on-primary text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+          className="px-4 py-2 rounded-lg bg-primary text-on-primary text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
         >
-          {isSaving ? 'Saving...' : 'Save'}
+          {isSaving ? 'Saving…' : 'Save Profile'}
         </button>
       </div>
 
       {/* Profile error banner */}
       {profileError && (
-        <div className="mb-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start gap-2">
-          <Icon name="alert-triangle" className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-          <div className="text-xs text-amber-400">
+        <div className="mb-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 flex items-start gap-2">
+          <Icon name="alert-triangle" className="w-4 h-4 text-amber-700 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-amber-700 dark:text-amber-400">
             {profileError.includes('404') || profileError.includes('does not exist')
               ? 'Environment profile table not found. Run the database migration to enable saving.'
               : profileError
@@ -183,40 +186,55 @@ export const EnvironmentWizard: React.FC<EnvironmentWizardProps> = ({ onBack }) 
         </div>
       )}
 
-      {/* Step Indicator */}
-      <WizardStepIndicator
-        currentStep={currentStep}
-        stepCompletion={stepCompletion}
-        onStepClick={goToStep}
-      />
-
-      {/* Intelligence Panel — compact bar on mobile */}
+      {/* Mobile-only compact intelligence summary */}
       <IntelligencePanel variant="compact" {...intelligencePanelProps} />
 
-      {/* Main Content — split on desktop */}
-      <div className="flex flex-col lg:flex-row gap-8">
-        {/* Left: Step Content */}
-        <div className="flex-1 lg:w-[60%] min-w-0">
-          <div key={currentStep} className="animate-page-enter">
-            {renderStep()}
+      {/* Two-panel layout: clear visual asymmetry between INPUT (left) and OUTPUT (right) */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-5 items-start">
+        {/* LEFT — Configure panel (where you fill information) */}
+        <section className="rounded-2xl border border-outline-variant/40 bg-surface-container-low overflow-hidden">
+          <header className="px-5 py-3 border-b border-outline-variant/30 bg-surface-container flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="inline-block w-1 h-3.5 rounded-sm bg-primary" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-on-surface">
+                Configure
+              </span>
+            </div>
+            <span className="text-[11px] text-on-surface-variant tabular-nums">
+              Step {currentStep + 1} / 6
+            </span>
+          </header>
+
+          <div className="px-5 pt-5">
+            <WizardStepIndicator
+              currentStep={currentStep}
+              stepCompletion={stepCompletion}
+              onStepClick={goToStep}
+            />
           </div>
 
-          <WizardNavigation
-            currentStep={currentStep}
-            isFirstStep={isFirstStep}
-            isLastStep={isLastStep}
-            isSaving={isSaving}
-            onNext={goNext}
-            onBack={goBack}
-            onSkip={goNext}
-            onSave={handleSave}
-          />
-        </div>
+          <div className="px-5 pb-5">
+            <div key={currentStep} className="animate-page-enter">
+              {renderStep()}
+            </div>
 
-        {/* Right: Intelligence Panel (desktop only) */}
-        <div className="hidden lg:block lg:w-[40%]">
+            <WizardNavigation
+              currentStep={currentStep}
+              isFirstStep={isFirstStep}
+              isLastStep={isLastStep}
+              isSaving={isSaving}
+              onNext={goNext}
+              onBack={goBack}
+              onSkip={goNext}
+              onSave={handleSave}
+            />
+          </div>
+        </section>
+
+        {/* RIGHT — Live Insights panel (where information reflects as you fill) */}
+        <aside className="hidden lg:block lg:sticky lg:top-6 lg:self-start">
           <IntelligencePanel variant="full" {...intelligencePanelProps} />
-        </div>
+        </aside>
       </div>
     </div>
   );

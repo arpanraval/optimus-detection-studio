@@ -9,67 +9,63 @@ interface WizardStepIndicatorProps {
   onStepClick: (step: number) => void;
 }
 
+/**
+ * Single-line chip stepper:
+ * - Each step is a horizontal pill (badge + label inline).
+ * - Active = solid primary; completed = subtle filled with check; upcoming = ghost.
+ * - Steps connected by short hairlines so progression reads left-to-right.
+ */
 export const WizardStepIndicator: React.FC<WizardStepIndicatorProps> = ({
   currentStep,
   stepCompletion,
   onStepClick,
 }) => {
   return (
-    <div className="flex items-center justify-between w-full max-w-xl mx-auto mb-8">
+    <nav aria-label="Wizard steps" className="flex items-center gap-1 mb-6 overflow-x-auto scrollbar-thin -mx-1 px-1">
       {STEP_LABELS.map((label, i) => {
         const isCompleted = stepCompletion[i];
         const isActive = i === currentStep;
-        const isFuture = i > currentStep && !isCompleted;
-
-        // Allow clicking completed steps or the next uncompleted step
         const isClickable = isCompleted || i <= currentStep + 1;
+
+        const chipClass = isActive
+          ? 'bg-primary text-on-primary'
+          : isCompleted
+            ? 'text-on-surface hover:bg-surface-container-high/70'
+            : 'text-on-surface-variant/70 hover:text-on-surface-variant';
+
+        const badgeClass = isActive
+          ? 'bg-on-primary/20 text-on-primary'
+          : isCompleted
+            ? 'bg-primary/12 text-primary'
+            : 'border border-outline-variant/50 text-on-surface-variant/60 bg-surface-container-low';
 
         return (
           <React.Fragment key={label}>
-            {/* Step circle + label */}
             <button
               onClick={() => isClickable && onStepClick(i)}
-              className={`flex flex-col items-center gap-1.5 ${isClickable ? 'cursor-pointer' : 'cursor-default'}`}
+              disabled={!isClickable}
+              aria-current={isActive ? 'step' : undefined}
+              className={`flex items-center gap-1.5 pl-1.5 pr-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${chipClass} ${
+                !isClickable ? 'cursor-default opacity-50' : 'cursor-pointer'
+              }`}
             >
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium transition-all duration-300 ${
-                  isCompleted && !isActive
-                    ? 'bg-emerald-500 text-white'
-                    : isActive
-                    ? 'bg-primary text-on-primary shadow-[0_0_12px_rgba(var(--color-primary-rgb,99,102,241),0.4)]'
-                    : 'bg-surface-container text-on-surface-variant/50'
-                }`}
+              <span
+                className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-semibold leading-none ${badgeClass}`}
               >
                 {isCompleted && !isActive ? (
-                  <Icon name="check" className="w-3.5 h-3.5" />
+                  <Icon name="check" className="w-3 h-3" />
                 ) : (
                   i + 1
                 )}
-              </div>
-              <span
-                className={`font-brand text-[10px] uppercase tracking-wider ${
-                  isActive ? 'text-primary' : isCompleted ? 'text-emerald-400' : 'text-on-surface-variant/40'
-                }`}
-              >
-                {label}
               </span>
+              <span>{label}</span>
             </button>
-
-            {/* Connecting line */}
             {i < STEP_LABELS.length - 1 && (
-              <div
-                className={`flex-1 h-[2px] mx-2 rounded-full transition-colors duration-300 ${
-                  stepCompletion[i] && (stepCompletion[i + 1] || i + 1 === currentStep)
-                    ? 'bg-emerald-500'
-                    : i < currentStep
-                    ? 'bg-primary'
-                    : 'bg-outline-variant/20'
-                }`}
-              />
+              <div className="h-px w-2 sm:w-3 flex-shrink-0 bg-outline-variant/40" aria-hidden="true" />
             )}
           </React.Fragment>
         );
       })}
-    </div>
+    </nav>
   );
 };

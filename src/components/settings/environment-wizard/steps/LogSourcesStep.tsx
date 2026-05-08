@@ -151,10 +151,11 @@ export const LogSourcesStep: React.FC<LogSourcesStepProps> = ({
       </p>
 
       {/* Match counter */}
-      <div className="flex items-center gap-2 mb-6 px-3 py-2 rounded-lg bg-primary/5 border border-primary/10">
+      <div className="flex items-center gap-2 mb-6 px-3 py-2 rounded-lg bg-surface-container-high border border-outline-variant/40">
         <Icon name="zap" className="w-4 h-4 text-primary" />
-        <span className="text-sm text-primary font-medium">
-          {matchedCount.toLocaleString()} of {totalDetections.toLocaleString()} detections match your log sources
+        <span className="text-sm font-medium text-on-surface">
+          <span className="text-primary font-semibold">{matchedCount.toLocaleString()}</span>
+          <span className="text-on-surface-variant"> of {totalDetections.toLocaleString()} detections match your log sources</span>
         </span>
       </div>
 
@@ -182,34 +183,32 @@ export const LogSourcesStep: React.FC<LogSourcesStepProps> = ({
               </div>
               <div className="flex flex-wrap gap-2">
                 {catGroups.map(group => {
-                  const isImplied = impliedSet.has(group.key) && !selectedSet.has(group.key);
+                  const isSelected = selectedSet.has(group.key);
+                  const isImplied = impliedSet.has(group.key) && !isSelected;
                   return (
                     <button
                       key={group.key}
                       onClick={() => toggleGroup(group.key)}
-                      className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm border transition-all duration-150
-                        ${selectedSet.has(group.key)
-                          ? 'bg-primary/10 border-primary/50 text-primary'
+                      className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium border transition-all duration-150
+                        ${isSelected
+                          ? 'bg-primary border-primary text-on-primary'
                           : isImplied
-                          ? 'bg-tertiary/10 border-tertiary/30 text-tertiary'
-                          : 'bg-surface-container border-outline-variant/20 text-on-surface-variant hover:bg-surface-container-high/50'
+                          ? 'bg-surface-container-high border-tertiary/60 text-tertiary'
+                          : 'bg-surface-container-high border-outline-variant/40 text-on-surface hover:border-outline-variant hover:bg-surface-container-highest'
                         }`}
                     >
-                      {(selectedSet.has(group.key) || isImplied) && (
-                        <Icon name="check" className="w-3.5 h-3.5" />
-                      )}
                       {group.label}
                       {group.detectionCount > 0 && (
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ml-0.5 ${
-                          selectedSet.has(group.key) ? 'bg-primary/20 text-primary' :
-                          isImplied ? 'bg-tertiary/20 text-tertiary' :
-                          'bg-on-surface/5 text-on-surface-variant/50'
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                          isSelected ? 'bg-on-primary/15 text-on-primary' :
+                          isImplied ? 'bg-tertiary/15 text-tertiary' :
+                          'bg-surface-container-highest text-on-surface-variant border border-outline-variant/30'
                         }`}>
                           {group.detectionCount.toLocaleString()}
                         </span>
                       )}
                       {isImplied && (
-                        <span className="text-[9px] text-tertiary/70 ml-0.5">Auto</span>
+                        <span className="text-[9px] text-tertiary font-semibold">AUTO</span>
                       )}
                     </button>
                   );
@@ -220,9 +219,9 @@ export const LogSourcesStep: React.FC<LogSourcesStepProps> = ({
         })}
 
         {/* Custom log sources */}
-        <div className="rounded-xl border border-outline-variant/20 p-4">
+        <div className="rounded-xl border border-outline-variant/40 bg-surface-container-low p-4">
           <h4 className="text-sm font-medium text-on-surface mb-1">Custom Log Sources</h4>
-          <p className="text-xs text-on-surface-variant/60 mb-3">
+          <p className="text-xs text-on-surface-variant mb-3">
             We'll search detection names and queries for matches.
           </p>
           <div className="flex gap-2">
@@ -232,11 +231,11 @@ export const LogSourcesStep: React.FC<LogSourcesStepProps> = ({
               onChange={e => setCustomInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && addCustom()}
               placeholder="e.g., okta, crowdstrike, zeek..."
-              className="flex-1 h-10 px-4 rounded-xl text-sm border border-outline-variant/30 bg-transparent text-on-surface placeholder:text-on-surface-variant/50 focus:border-primary/50 focus:outline-none"
+              className="flex-1 h-10 px-4 rounded-xl text-sm border border-outline-variant/40 bg-surface-container-high text-on-surface placeholder:text-on-surface-variant/60 focus:border-primary focus:outline-none"
             />
             <button
               onClick={addCustom}
-              className="px-4 h-10 rounded-xl border border-outline-variant/30 text-sm text-on-surface-variant hover:bg-surface-container/50 transition-colors"
+              className="px-4 h-10 rounded-xl border border-outline-variant/40 bg-surface-container-high text-sm font-medium text-on-surface hover:bg-surface-container-highest transition-colors"
             >
               Add
             </button>
@@ -246,10 +245,10 @@ export const LogSourcesStep: React.FC<LogSourcesStepProps> = ({
               {customSources.map(src => (
                 <span
                   key={src}
-                  className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-surface-container text-sm text-on-surface-variant"
+                  className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-surface-container-high border border-outline-variant/40 text-sm text-on-surface"
                 >
                   {src}
-                  <button onClick={() => removeCustom(src)} className="ml-1 opacity-60 hover:opacity-100">
+                  <button onClick={() => removeCustom(src)} className="ml-1 text-on-surface-variant hover:text-on-surface">
                     <Icon name="x" className="w-3 h-3" />
                   </button>
                 </span>
