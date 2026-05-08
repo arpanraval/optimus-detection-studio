@@ -45,9 +45,17 @@ export function scoreRelevance(
     .filter(Boolean)
     .map((s) => (s as string).toLowerCase());
 
+  // Targeted-platform candidates the user actually runs. SIEMs and EDRs are
+  // EXCLUDED here because the classifier emits `targeted_platforms` as the
+  // OS / service / framework a threat targets (Linux, GitHub, npm, Email, ...)
+  // — not the SIEM stack the defender uses to detect it. Comparing
+  // "user runs Microsoft Sentinel" against "threat targets Linux" produced a
+  // platform_mismatch on every healthcare/CrowdStrike-Falcon-only profile,
+  // dropping ~all generic threat research below the relevance floor.
+  // Cloud platforms (AWS, GCP, Azure, ...) DO line up with article-targeted
+  // platforms, so they stay. SIEM mentions are handled separately as a
+  // bonus signal a few lines down.
   const userPlatforms = [
-    ...envProfile.siem_platforms,
-    ...envProfile.edr_tools,
     ...Object.keys(envProfile.cloud_platforms || {}),
   ].map((s) => s.toLowerCase());
 
@@ -80,10 +88,19 @@ export function scoreRelevance(
   }
 
   // --- Platform scoring ---
+  // If the user has no comparable platforms in their profile (no cloud
+  // providers listed), we cannot draw a meaningful match/mismatch signal
+  // from `targeted_platforms`. Fall back to a small "platform unknown"
+  // bonus so the article isn't punished for it. Without this, every
+  // article with any targeted_platforms got -2, and every healthcare
+  // SIEM-only profile saw all generic threat research drop below floor.
   if (articlePlatforms.length === 0) {
     // Generic article — no specific platform
     score += 1;
     tags.push('generic_platform');
+  } else if (userPlatforms.length === 0) {
+    score += 1;
+    tags.push('platform_unscoreable');
   } else {
     const platformMatch = articlePlatforms.some((ap) =>
       userPlatforms.some((up) => ap.includes(up) || up.includes(ap)),
@@ -177,12 +194,26 @@ export async function rankAndSelect(
     return bTime - aTime;
   });
 
-  // 4. Take top N
-  const selected = scored.slice(0, maxArticles);
-  const overflow = scored.slice(maxArticles);
+  // 4. Apply minimum-score floor. Articles with negative scores (industry
+  //    AND platform mismatch — actively irrelevant to the user's stack)
+  //    should never get digested even when the daily cap leaves slots
+  //    open. Without this floor, a low-volume run would burn AI calls on
+  //    junk just to fill the quota.
+  const RELEVANCE_FLOOR = 0;
+  const aboveFloor = scored.filter((s: any) => s.score >= RELEVANCE_FLOOR);
+  const belowFloor = scored.filter((s: any) => s.score <  RELEVANCE_FLOOR);
+
+  // 5. Take top N from above-floor only
+  const selected = aboveFloor.slice(0, maxArticles);
+  const overflow = aboveFloor.slice(maxArticles);
   const selectedIds = selected.map((s: any) => s.id);
 
-  // 5. Update selected entries
+  // 5. Update selected entries + emit a transparency event for each one.
+  // The 'article_ranked' event is what Stage 3 of the UI counts. Without
+  // this, articles rolled over from a previous run's 'classified' pool
+  // would never appear in the transcript even though they're about to be
+  // digested — Stage 3 would say "no articles passed classification"
+  // while Stage 4 happily processes them.
   for (const item of selected) {
     await supabase
       .from('threat_intel_feed_entries')
@@ -191,11 +222,26 @@ export async function rankAndSelect(
         digest_status: 'queued',
       })
       .eq('id', item.id);
+
+    await emit(ctx, 'article_ranked', {
+      feed_id: item.feed_id,
+      feed_name: item.feed_name,
+      article_id: item.id,
+      article_title: item.title,
+      article_url: item.url,
+      reason: `Selected for digest (score ${item.score})`,
+      payload: {
+        score: item.score,
+        tags: item.tags,
+        rank: selected.indexOf(item) + 1,
+      },
+    });
   }
 
-  // 6. Emit transparency events: which articles got dropped because they
-  //    didn't make the top-N cut for the user's daily limit. They stay in
-  //    digest_status='classified' so a future run can pick them up.
+  // 6. Emit transparency events for two distinct drop reasons:
+  //    a) Beyond top-N daily cap — stays 'classified' for a future run.
+  //    b) Below the relevance floor (negative score) — also stays
+  //       'classified' so the user can see WHY it didn't make the cut.
   for (const item of overflow) {
     await emit(ctx, 'article_skipped_daily_limit', {
       feed_id: item.feed_id,
@@ -205,6 +251,17 @@ export async function rankAndSelect(
       article_url: item.url,
       reason: `Beyond daily cap of ${maxArticles}; ranked ${overflow.indexOf(item) + maxArticles + 1} (score ${item.score})`,
       payload: { score: item.score, tags: item.tags, daily_max: maxArticles },
+    });
+  }
+  for (const item of belowFloor) {
+    await emit(ctx, 'article_skipped_daily_limit', {
+      feed_id: item.feed_id,
+      feed_name: item.feed_name,
+      article_id: item.id,
+      article_title: item.title,
+      article_url: item.url,
+      reason: `Below relevance floor (score ${item.score} < ${RELEVANCE_FLOOR}); industry/platform mismatch with your environment profile`,
+      payload: { score: item.score, tags: item.tags, dropped_reason: 'below_floor' },
     });
   }
 

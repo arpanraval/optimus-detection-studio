@@ -17,6 +17,7 @@ export type EventType =
   | 'article_classified'
   | 'article_classify_failed'
   | 'article_skipped_daily_limit'
+  | 'article_ranked'
   | 'article_digested'
   | 'article_digest_failed';
 

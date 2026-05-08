@@ -249,7 +249,12 @@ export function useAutoDigestSettings(userId: string) {
     await fetchSettings();
   }, [userId, fetchSettings, showToast]);
 
-  const toggleSource = useCallback(async (source: CuratedFeedSource, enabled: boolean) => {
+  const toggleSource = useCallback(async (source: CuratedFeedSource, enabled: boolean): Promise<boolean> => {
+    // Returns true on success, false on failure. The Save flow needs the
+    // boolean to track per-source failures across a batch (so a mid-loop
+    // failure doesn't strand earlier successes in the dirty-pending set);
+    // single-toggle UI paths can ignore the return value. Keeps the toast
+    // for failures so the user always sees something happen.
     if (enabled) {
       const feedType = source.feed_type === 'atom' ? 'rss' : source.feed_type;
       const { error } = await supabase
@@ -266,8 +271,8 @@ export function useAutoDigestSettings(userId: string) {
           schedule_cron: '0 0 * * *', // default daily
         });
       if (error) {
-        showToast('error', 'Failed to enable feed source');
-        return;
+        showToast('error', `Failed to enable ${source.name}: ${error.message}`);
+        return false;
       }
     } else {
       const { error } = await supabase
@@ -276,11 +281,12 @@ export function useAutoDigestSettings(userId: string) {
         .eq('user_id', userId)
         .eq('curated_source_id', source.id);
       if (error) {
-        showToast('error', 'Failed to disable feed source');
-        return;
+        showToast('error', `Failed to disable ${source.name}: ${error.message}`);
+        return false;
       }
     }
     await fetchEnabledSources();
+    return true;
   }, [userId, fetchEnabledSources, showToast]);
 
   const triggerManualRun = useCallback(async (): Promise<{ jobId: string } | null> => {

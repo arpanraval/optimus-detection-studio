@@ -91,12 +91,19 @@ export async function enrichFeasibility(
 
   const stixIds = Object.values(stixByMitreId);
   if (stixIds.length === 0) {
-    // No STIX mappings found — assume all feasible (unknown requirements)
+    // No STIX mappings found — we genuinely don't know whether the user's
+    // env supports these techniques. The previous version assumed-feasible-
+    // by-default, which read as "100% feasible" in the UI even when the
+    // mitre_technique_data_sources table was empty (which it is in
+    // production). Move all uncovered TTPs into the unknown bucket
+    // instead — surfaces the data-quality issue to the user rather than
+    // hiding it behind cheerful defaults.
     await supabase
       .from('threat_intel_reports')
       .update({
-        feasible_gap_count: uncoveredTTPs.length,
+        feasible_gap_count: 0,
         infeasible_gap_count: 0,
+        unknown_gap_count: uncoveredTTPs.length,
       })
       .eq('id', reportId);
     return;
@@ -133,29 +140,34 @@ export async function enrichFeasibility(
 
   const availableArray = Array.from(availableSources);
 
-  // 8. Assess feasibility per uncovered TTP
+  // 8. Assess feasibility per uncovered TTP. Three outcomes:
+  //   - feasible:    user has at least one matching data source
+  //   - infeasible:  user is missing every required data source
+  //   - unknown:     no MITRE id, no STIX mapping, OR no recorded
+  //                  requirements (mitre_technique_data_sources is
+  //                  effectively empty in prod)
+  // Moving the unknown cases out of the "feasible" bucket prevents the
+  // UI from claiming "100% feasible" on data we never actually checked.
   let feasibleCount = 0;
   let infeasibleCount = 0;
+  let unknownCount = 0;
 
   for (const ttp of uncoveredTTPs) {
     const mitreId = ttp.mitreId || ttp.technique_id;
     if (!mitreId) {
-      // Unknown technique — assume feasible
-      feasibleCount += 1;
+      unknownCount += 1;
       continue;
     }
 
     const stixId = stixByMitreId[mitreId];
     if (!stixId) {
-      // No STIX mapping — assume feasible
-      feasibleCount += 1;
+      unknownCount += 1;
       continue;
     }
 
     const required = requiredSources[stixId];
     if (!required || required.length === 0) {
-      // No known requirements — assume feasible
-      feasibleCount += 1;
+      unknownCount += 1;
       continue;
     }
 
@@ -177,6 +189,7 @@ export async function enrichFeasibility(
     .update({
       feasible_gap_count: feasibleCount,
       infeasible_gap_count: infeasibleCount,
+      unknown_gap_count: unknownCount,
     })
     .eq('id', reportId);
 }

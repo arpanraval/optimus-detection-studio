@@ -15,27 +15,24 @@ interface FeedActivityLogProps {
 
 type JobStatusTone = 'success' | 'partial' | 'failure' | 'running' | 'pending';
 
-// Filter chips for the run list. Most users land on Activity to answer
-// "did the last run actually digest anything?" or "what's broken?" — the
-// chips give them a one-click way to slice without scrolling through 20+
-// runs. "All" is always the default so we never hide data unintentionally.
+// Filter chips: framed around the user-visible outcome, not internal jargon.
 type ActivityFilter = 'all' | 'productive' | 'errors' | 'skipped-only';
 
 const ACTIVITY_FILTERS: { id: ActivityFilter; label: string }[] = [
   { id: 'all',          label: 'All' },
-  { id: 'productive',   label: 'Productive' },
-  { id: 'errors',       label: 'With errors' },
-  { id: 'skipped-only', label: 'Nothing relevant' },
+  { id: 'productive',   label: 'With reports' },
+  { id: 'skipped-only', label: 'No reports' },
+  { id: 'errors',       label: 'Failed' },
 ];
 
 function jobMatchesFilter(job: AutoDigestJob, filter: ActivityFilter): boolean {
   if (filter === 'all') return true;
   const summary = job.result_summary as Record<string, any> | null;
-  const errors: string[] = Array.isArray(summary?.errors) ? summary!.errors : [];
+  const sysErrors = countSystemErrors(summary);
   const digested = summary?.digested ?? summary?.articles_digested ?? 0;
   if (filter === 'productive')   return digested > 0;
-  if (filter === 'errors')       return errors.length > 0 || job.status === 'failed';
-  if (filter === 'skipped-only') return digested === 0 && errors.length === 0 && job.status === 'completed';
+  if (filter === 'errors')       return sysErrors > 0 || job.status === 'failed';
+  if (filter === 'skipped-only') return digested === 0 && sysErrors === 0 && job.status === 'completed';
   return true;
 }
 
@@ -43,17 +40,49 @@ function jobMatchesFilter(job: AutoDigestJob, filter: ActivityFilter): boolean {
 // HELPERS
 // =============================================================================
 
+// System errors vs feed-transport blips.
+//
+// `result_summary.errors[]` mixes real pipeline failures with everyday
+// upstream feed flakiness. Real errors share well-known orchestrator
+// prefixes (Phase X, Entry "...", Digest <id>, etc); feed harvest
+// errors fall through as `<feed name>: <transport message>`. Treating
+// both the same caused the page to render amber/red on healthy runs.
+const SYSTEM_ERROR_PREFIXES = [
+  'Classification fetch failed',
+  'Entry fetch ',
+  'Entry "',
+  'Digest ',
+  'Report save ',
+  'Feasibility ',
+  'Campaign-detect ',
+  'Phase ',
+  'No auto_digest_settings',
+  'Feed query failed',
+];
+
+export function isSystemError(s: string): boolean {
+  return SYSTEM_ERROR_PREFIXES.some((p) => s.startsWith(p));
+}
+
+export function countSystemErrors(summary: Record<string, any> | null | undefined): number {
+  const errs: string[] = Array.isArray(summary?.errors) ? summary!.errors : [];
+  return errs.filter(isSystemError).length;
+}
+
+export function countFeedErrors(summary: Record<string, any> | null | undefined): number {
+  const errs: string[] = Array.isArray(summary?.errors) ? summary!.errors : [];
+  return errs.filter((e) => !isSystemError(e)).length;
+}
+
 function getRelativeDate(dateStr: string): string {
   const date = new Date(dateStr);
   const today = new Date();
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
-
   const sameDay = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() &&
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate();
-
   if (sameDay(date, today)) return 'Today';
   if (sameDay(date, yesterday)) return 'Yesterday';
   return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
@@ -65,7 +94,7 @@ function getDateKey(dateStr: string): string {
 }
 
 function formatTime(dateStr: string): string {
-  return new Date(dateStr).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return new Date(dateStr).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 }
 
 function formatDuration(ms: number): string {
@@ -84,49 +113,43 @@ function jobDuration(job: AutoDigestJob): number | null {
   return new Date(end).getTime() - new Date(start).getTime();
 }
 
-function jobToneAndLabel(job: AutoDigestJob): { tone: JobStatusTone; label: string; iconName: string } {
-  // System errors are bugs / infra failures inside the orchestrator pipeline
-  // (article_classify_failed, article_digest_failed, feed_failed). They live
-  // in result_summary.errors[] populated by the orchestrator. AI verdicts —
-  // articles correctly judged non-threat-research and Skipped — are NOT
-  // errors and do not flip the tone. This separation is load-bearing UX:
-  // a run that successfully judged 5 marketing articles and skipped them is
-  // a working pipeline, not a failure.
+function jobToneAndLabel(job: AutoDigestJob): { tone: JobStatusTone; label: string } {
+  // Severity is computed from system errors only. Feed-transport blips
+  // don't flip the tone; they're surfaced as a parenthetical note.
   const summary = job.result_summary as Record<string, any> | null;
-  const systemErrors: string[] = Array.isArray(summary?.errors) ? summary!.errors : [];
+  const systemErrors = countSystemErrors(summary);
+  const feedErrors = countFeedErrors(summary);
   const digested = summary?.digested ?? summary?.articles_digested ?? 0;
 
-  if (job.status === 'pending') return { tone: 'pending', label: 'Queued', iconName: 'clock' };
-  if (job.status === 'processing') return { tone: 'running', label: 'Running', iconName: 'loader' };
-  if (job.status === 'failed') return { tone: 'failure', label: 'Failed', iconName: 'x-circle' };
-  if (job.status === 'timeout_partial') return { tone: 'partial', label: 'Timed out (partial)', iconName: 'alert-triangle' };
+  if (job.status === 'pending') return { tone: 'pending', label: 'Queued' };
+  if (job.status === 'processing') return { tone: 'running', label: 'Running' };
+  if (job.status === 'failed') return { tone: 'failure', label: 'Failed' };
+  if (job.status === 'timeout_partial') return { tone: 'partial', label: 'Timed out' };
 
-  // Completed status from here on.
-  const n = systemErrors.length;
-  if (digested > 0 && n === 0) {
-    return { tone: 'success', label: 'Completed', iconName: 'check-circle' };
+  if (systemErrors > 0) {
+    return { tone: 'partial', label: `Completed with ${systemErrors} error${systemErrors === 1 ? '' : 's'}` };
   }
-  if (digested > 0 && n > 0) {
-    return { tone: 'partial', label: `Completed with ${n} error${n === 1 ? '' : 's'}`, iconName: 'alert-triangle' };
+  if (digested > 0) {
+    const note = feedErrors > 0 ? ` (${feedErrors} feed${feedErrors === 1 ? '' : 's'} unreachable)` : '';
+    return { tone: 'success', label: `Completed${note}` };
   }
-  if (digested === 0 && n === 0) {
-    return { tone: 'success', label: 'Completed — no threat-relevant articles', iconName: 'check-circle' };
-  }
-  // digested === 0 && n > 0
-  return { tone: 'partial', label: `Completed with ${n} error${n === 1 ? '' : 's'}`, iconName: 'alert-triangle' };
+  return { tone: 'success', label: 'Completed — no threat-relevant articles' };
 }
 
-const TONE_CLASSES: Record<JobStatusTone, { dot: string; iconColor: string; bg: string; label: string }> = {
-  success: { dot: 'bg-emerald-500',                iconColor: 'text-emerald-500', bg: 'bg-emerald-500/5',        label: 'text-emerald-500' },
-  partial: { dot: 'bg-amber-400',                  iconColor: 'text-amber-400',   bg: 'bg-amber-400/5',          label: 'text-amber-400' },
-  failure: { dot: 'bg-red-400',                    iconColor: 'text-red-400',     bg: 'bg-red-400/5',            label: 'text-red-400' },
-  running: { dot: 'bg-amber-400 animate-pulse',    iconColor: 'text-amber-400',   bg: 'bg-amber-400/5',          label: 'text-amber-400' },
-  pending: { dot: 'bg-on-surface-variant/40',      iconColor: 'text-on-surface-variant', bg: 'bg-surface-container-lowest', label: 'text-on-surface-variant' },
+// Single-colour dot per row tone. We rely on the row's data for
+// information; the dot is just a leading status glyph.
+const TONE_DOT: Record<JobStatusTone, string> = {
+  success: 'bg-secondary',
+  partial: 'bg-ext-amber',
+  failure: 'bg-error',
+  running: 'bg-ext-amber animate-pulse',
+  pending: 'bg-outline-variant',
 };
 
 function jobOneLineSummary(job: AutoDigestJob): string {
   const summary = job.result_summary as Record<string, any> | null;
-  const systemErrors: string[] = Array.isArray(summary?.errors) ? summary!.errors : [];
+  const systemErrors = countSystemErrors(summary);
+  const feedErrors = countFeedErrors(summary);
   const feedsFetched = summary?.feeds_fetched ?? 0;
   const harvested = summary?.articles_harvested ?? 0;
   const recovered = summary?.articles_recovered ?? 0;
@@ -139,70 +162,81 @@ function jobOneLineSummary(job: AutoDigestJob): string {
   }
   if (job.status === 'failed') return job.error || 'Run failed before reporting any stats';
 
-  // Show feeds, harvest, and the productive outcomes. AI-skip is a verdict,
-  // not a failure — surface it as "not relevant" to match the per-row label
-  // in the Classify stage. Only systemErrors get the "error" label.
   const parts: string[] = [];
   parts.push(`${feedsFetched} feed${feedsFetched === 1 ? '' : 's'}`);
   if (harvested > 0) parts.push(`${harvested} harvested`);
   if (recovered > 0) parts.push(`${recovered} recovered`);
   if (digested > 0) parts.push(`${digested} digested`);
   if (skipped > 0) parts.push(`${skipped} not relevant`);
-  if (systemErrors.length > 0) parts.push(`${systemErrors.length} error${systemErrors.length === 1 ? '' : 's'}`);
+  if (feedErrors > 0) parts.push(`${feedErrors} feed${feedErrors === 1 ? '' : 's'} unreachable`);
+  if (systemErrors > 0) parts.push(`${systemErrors} error${systemErrors === 1 ? '' : 's'}`);
   return parts.join(' · ');
 }
 
 // =============================================================================
-// JOB CARD
+// RUN ROW — single-line dense entry, expands inline
 // =============================================================================
 
-const JobCard: React.FC<{ job: AutoDigestJob; expanded: boolean; onToggle: () => void }> = ({ job, expanded, onToggle }) => {
-  const { tone, label, iconName } = jobToneAndLabel(job);
-  const classes = TONE_CLASSES[tone];
+const JobRow: React.FC<{ job: AutoDigestJob; expanded: boolean; onToggle: () => void }> = ({ job, expanded, onToggle }) => {
+  const { tone, label } = jobToneAndLabel(job);
   const dur = jobDuration(job);
   const summary = jobOneLineSummary(job);
+  const time = formatTime(job.started_at || job.created_at);
+
+  const handleCopyId = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    try { await navigator.clipboard.writeText(job.id); } catch { /* drop quietly */ }
+  };
+
+  const handleRowKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onToggle();
+    }
+  };
 
   return (
-    <div className={`rounded-xl border border-outline-variant/30 ${classes.bg} overflow-hidden`}>
-      <button
-        type="button"
+    <div className="border-b border-outline-variant/30 last:border-b-0">
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onToggle}
-        // Hex job IDs (#768e794e) used to render in the visible row but were
-        // pure noise — eight characters of horizontal real estate that taught
-        // the user nothing. Moved to a `title` so they're available on hover
-        // for support/copy without polluting the scan-read.
+        onKeyDown={handleRowKeyDown}
+        aria-expanded={expanded}
         title={`Run ID: ${job.id}`}
-        className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-on-surface/[0.02] transition-colors"
+        className="w-full grid grid-cols-[auto_auto_1fr_auto_auto] gap-x-4 items-center px-3 py-2.5 text-left hover:bg-surface-container-low transition-colors group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
       >
-        <Icon
-          name={iconName}
-          className={`w-4 h-4 mt-0.5 shrink-0 ${classes.iconColor} ${tone === 'running' ? 'animate-spin' : ''}`}
-        />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <span className={`text-sm font-semibold ${classes.label}`}>{label}</span>
-            <span className="text-[11px] text-on-surface-variant/50 tabular-nums">
-              {formatTime(job.created_at)}
-            </span>
-            {dur != null && (
-              <span className="text-[11px] text-on-surface-variant/50 tabular-nums">
-                · {formatDuration(dur)}
-              </span>
-            )}
-          </div>
-          <div className="text-xs text-on-surface-variant mt-1">{summary}</div>
-        </div>
-        <Icon
-          name={expanded ? 'chevron-down' : 'chevron-right'}
-          className="w-4 h-4 text-on-surface-variant/40 shrink-0 mt-1"
-        />
-      </button>
-
-      {expanded && (
-        <div className="border-t border-outline-variant/15">
-          <JobTranscript job={job} />
-        </div>
-      )}
+        {/* Time */}
+        <span className="text-sm font-mono tabular-nums text-on-surface-variant">{time}</span>
+        {/* Status dot + label */}
+        <span className="flex items-center gap-2 min-w-[180px]">
+          <span className={`w-2 h-2 rounded-full shrink-0 ${TONE_DOT[tone]}`} />
+          <span className="text-sm font-medium text-on-surface truncate">{label}</span>
+        </span>
+        {/* Summary */}
+        <span className="text-sm text-on-surface-variant truncate">{summary}</span>
+        {/* Duration */}
+        <span className="text-xs tabular-nums text-on-surface-variant min-w-[64px] text-right">
+          {dur != null ? formatDuration(dur) : ''}
+        </span>
+        {/* Copy ID + chevron */}
+        <span className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={handleCopyId}
+            aria-label={`Copy run ID ${job.id}`}
+            title="Copy run ID"
+            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus:outline-none rounded p-1 transition-opacity"
+          >
+            <Icon name="copy" className="w-3.5 h-3.5 text-on-surface-variant/60" />
+          </button>
+          <Icon
+            name={expanded ? 'chevron-down' : 'chevron-right'}
+            className="w-4 h-4 text-on-surface-variant/60"
+          />
+        </span>
+      </div>
+      {expanded && <JobTranscript job={job} />}
     </div>
   );
 };
@@ -218,9 +252,6 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<ActivityFilter>('all');
 
-  // ?run=<jobId> deep-link from a digested report (or campaign) — auto-expand
-  // that run's transcript on mount so the user lands directly on the context
-  // they came for instead of having to scroll and click.
   const [searchParams] = useSearchParams();
   const requestedRunId = searchParams.get('run');
 
@@ -234,7 +265,6 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
     if (data) setJobs(data as AutoDigestJob[]);
   }, [userId]);
 
-  // Initial load
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
@@ -244,8 +274,6 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
     return () => { cancelled = true; };
   }, [fetchJobs]);
 
-  // Live poll while a job is running so the activity log reflects status
-  // changes (pending → processing → completed) without manual refresh.
   const hasActiveJob = jobs.some((j) => j.status === 'pending' || j.status === 'processing');
   useEffect(() => {
     if (!userId || !hasActiveJob) return;
@@ -253,22 +281,19 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
     return () => clearInterval(interval);
   }, [userId, hasActiveJob, fetchJobs]);
 
-  // Auto-expand any active job + the most-recent job so the user always
-  // sees something useful when landing on the page. If the user arrived
-  // via a `?run=<jobId>` deep-link, prefer that run.
+  // Auto-expand only when the user came in via a deep link (?run=ID)
+  // or while a job is actively running. Closed-by-default for normal
+  // page loads — landing on a transcript wall of every run was an
+  // information overload; users now click to drill in.
   useEffect(() => {
     setExpandedJobs((prev) => {
       const next = new Set(prev);
       if (requestedRunId && jobs.some((j) => j.id === requestedRunId)) {
         next.add(requestedRunId);
-        return next;
       }
-      let mostRecentDone: string | null = null;
       for (const j of jobs) {
         if (j.status === 'pending' || j.status === 'processing') next.add(j.id);
-        else if (mostRecentDone === null) mostRecentDone = j.id;
       }
-      if (mostRecentDone && next.size === 0) next.add(mostRecentDone);
       return next;
     });
   }, [jobs, requestedRunId]);
@@ -287,14 +312,11 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
       return next;
     });
 
-  // Apply the filter chip BEFORE grouping by day so chip filtering doesn't
-  // leave empty-day headers behind.
   const filteredJobs = useMemo(
     () => jobs.filter((j) => jobMatchesFilter(j, filter)),
     [jobs, filter],
   );
 
-  // Group jobs by day
   const grouped = useMemo(() => {
     const groups: { dateKey: string; label: string; jobs: AutoDigestJob[] }[] = [];
     const map = new Map<string, AutoDigestJob[]>();
@@ -310,56 +332,32 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
     return groups;
   }, [filteredJobs]);
 
-  // ─── Loading ───────────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6">
-        <h3 className="text-base font-semibold text-on-surface mb-4">Activity Log</h3>
-        <div className="flex items-center justify-center py-12">
-          <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        </div>
+      <div className="flex items-center justify-center py-12">
+        <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
-  // ─── Empty ─────────────────────────────────────────────────────────────
   if (jobs.length === 0) {
     return (
-      <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6">
-        <h3 className="text-base font-semibold text-on-surface mb-4">Activity Log</h3>
-        <div className="flex flex-col items-center justify-center py-12 text-center">
-          <Icon name="activity" className="w-10 h-10 text-on-surface-variant/30 mb-3" />
-          <p className="text-sm text-on-surface-variant">
-            No auto-digest runs yet. Click <span className="font-medium text-on-surface">Run Now</span> above to kick off the first one.
-          </p>
-        </div>
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <Icon name="activity" className="w-7 h-7 text-on-surface-variant/30 mb-3" />
+        <p className="text-sm text-on-surface-variant">No runs yet.</p>
+        <p className="text-xs text-on-surface-variant/60 mt-1">Click Run Now above to start the first one.</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-surface-container rounded-2xl border border-outline-variant/10 flex flex-col"
-         style={{ maxHeight: 'calc(100vh - 260px)' }}>
-      {/* Activity Log header. Title + run-count on row 1, filter pills
-          on row 2. The previous layout collapsed three different-priority
-          elements (title, chips, "X RUNS" label) onto one line; the chips
-          ended up cramped in the middle and the "RUNS" tiny-caps label
-          added noise without value. The count is folded into the run
-          range as "Showing X of Y" only when filtering. */}
-      {/* Header bar matches the sibling tab containers (Sources tab,
-          Configuration panels) — same px-6 pt-5 pb-3 + text-base
-          font-semibold + border-b under the header. Visual consistency
-          across the three tab bodies. */}
-      <div className="px-6 pt-5 pb-3 shrink-0 space-y-3 border-b border-outline-variant/15">
-        <div className="flex items-baseline justify-between gap-3 flex-wrap">
-          <h3 className="text-base font-semibold text-on-surface">Activity Log</h3>
-          <span className="text-xs text-on-surface-variant/70 tabular-nums">
-            {filter === 'all'
-              ? `${jobs.length} run${jobs.length === 1 ? '' : 's'}`
-              : `Showing ${filteredJobs.length} of ${jobs.length}`}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5 flex-wrap">
+    <div className="flex flex-col">
+      {/* Filter row — neutral active state. The brand primary in light
+          mode reads as pink/magenta which doesn't fit a quiet filter
+          chip; using surface-container-highest gives a subtle grey
+          fill that works in both light and dark themes. */}
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+        <div className="flex items-center gap-1.5">
           {ACTIVITY_FILTERS.map((f) => {
             const isActive = filter === f.id;
             return (
@@ -367,10 +365,10 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
                 key={f.id}
                 type="button"
                 onClick={() => setFilter(f.id)}
-                className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
+                className={`text-sm px-3 py-1.5 rounded-lg transition-colors ${
                   isActive
-                    ? 'bg-primary text-on-primary border-primary'
-                    : 'bg-transparent text-on-surface-variant border-outline-variant/40 hover:text-on-surface hover:border-outline-variant'
+                    ? 'bg-surface-container-highest text-on-surface font-semibold'
+                    : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
                 }`}
               >
                 {f.label}
@@ -378,15 +376,33 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
             );
           })}
         </div>
+        <span className="text-xs tabular-nums text-on-surface-variant/80">
+          {filter === 'all'
+            ? `${jobs.length} run${jobs.length === 1 ? '' : 's'}`
+            : `${filteredJobs.length} of ${jobs.length}`}
+        </span>
       </div>
 
       {filteredJobs.length === 0 && (
-        <div className="px-6 pb-8 text-center text-xs text-on-surface-variant/60">
-          No runs match the {ACTIVITY_FILTERS.find((f) => f.id === filter)?.label.toLowerCase()} filter.
+        <div className="px-4 py-8 flex flex-col items-center text-center gap-2">
+          <p className="text-xs text-on-surface-variant">
+            No runs match the <span className="font-medium text-on-surface">{ACTIVITY_FILTERS.find((f) => f.id === filter)?.label.toLowerCase()}</span> filter.
+          </p>
+          <button
+            type="button"
+            onClick={() => setFilter('all')}
+            className="text-[11px] font-medium text-primary hover:underline"
+          >
+            Clear filter
+          </button>
         </div>
       )}
 
-      <div className="overflow-y-auto px-6 pt-4 pb-6 space-y-5 scrollbar-thin">
+      {/* Day-grouped run rows. Continuous list — each row separated by
+          a thin divider, not a rounded card. Reads as a clean activity
+          log, not a stack of widgets. Day-group headers anchor each
+          batch with typographic weight. */}
+      <div className="flex flex-col gap-5">
         {grouped.map((group) => {
           const collapsed = collapsedDays.has(group.dateKey);
           return (
@@ -398,19 +414,19 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
               >
                 <Icon
                   name={collapsed ? 'chevron-right' : 'chevron-down'}
-                  className="w-3.5 h-3.5 text-on-surface-variant/50 group-hover:text-on-surface-variant transition-colors"
+                  className="w-4 h-4 text-on-surface-variant group-hover:text-on-surface"
                 />
-                <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">
+                <span className="text-sm font-semibold text-on-surface uppercase tracking-wide">
                   {group.label}
                 </span>
-                <span className="text-[10px] text-on-surface-variant/40 tabular-nums">
+                <span className="text-xs tabular-nums text-on-surface-variant">
                   ({group.jobs.length})
                 </span>
               </button>
               {!collapsed && (
-                <div className="space-y-3">
+                <div className="border-y border-outline-variant/30">
                   {group.jobs.map((j) => (
-                    <JobCard
+                    <JobRow
                       key={j.id}
                       job={j}
                       expanded={expandedJobs.has(j.id)}
