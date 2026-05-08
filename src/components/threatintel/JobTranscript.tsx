@@ -9,23 +9,11 @@ interface JobTranscriptProps {
   job: AutoDigestJob;
 }
 
-// =============================================================================
-// Stage taxonomy
-//
-// Group every event type into one of the four orchestrator stages so the user
-// can read the run as a pipeline (Harvest → Classify → Rank → Digest) instead
-// of a flat timestamp stream. New event types must be added here AND to the
-// CHECK constraint in 20260429d_auto_digest_run_events.sql.
-// =============================================================================
+// Stage taxonomy — every event type maps to one of the four orchestrator
+// stages. Adding a new event type requires both updating EVENT_STAGE here
+// and the CHECK constraint in 20260429d_auto_digest_run_events.sql.
 
 type StageKey = 'harvest' | 'classify' | 'rank' | 'digest';
-
-const STAGES: { key: StageKey; label: string; subtitle: string }[] = [
-  { key: 'harvest',  label: 'Harvest',           subtitle: 'Fetch RSS/Atom feeds, dedupe and store new articles' },
-  { key: 'classify', label: 'Classify',          subtitle: 'AI gate: is this actionable threat research?' },
-  { key: 'rank',     label: 'Rank & Select',     subtitle: 'Score relevance and apply your daily article cap' },
-  { key: 'digest',   label: 'Digest',            subtitle: 'Full extraction: TTPs, IoCs, MITRE, library matches' },
-];
 
 const EVENT_STAGE: Record<DigestEventType, StageKey> = {
   feed_fetched:                'harvest',
@@ -34,6 +22,7 @@ const EVENT_STAGE: Record<DigestEventType, StageKey> = {
   article_classified:          'classify',
   article_classify_failed:     'classify',
   article_skipped_daily_limit: 'rank',
+  article_ranked:              'rank',
   article_digested:            'digest',
   article_digest_failed:       'digest',
 };
@@ -55,41 +44,18 @@ function formatDuration(ms: number): string {
   return rem > 0 ? `${min}m ${rem}s` : `${min}m`;
 }
 
-// Convert raw network/transport errors from upstream feed fetches into
-// user-friendly summaries. We deliberately keep the original text accessible
-// via the "Show details" expander — power users debugging a flaky feed
-// still need it — but we don't make a casual reader parse "http2 error:
-// stream error received: unexpected internal error encountered" to
-// understand "the feed is temporarily down".
+// One-line user summary for raw network/transport errors. Full original
+// is preserved behind a "Show details" expander for ops debugging.
 function humanizeFeedError(raw: string | null | undefined): { headline: string; raw: string | null } {
   const r = (raw || '').trim();
   if (!r) return { headline: 'Unknown error', raw: null };
-
-  // Known transport-layer patterns.
-  if (/http2|h2c|stream error|GOAWAY/i.test(r)) {
-    return { headline: 'Network error — feed temporarily unreachable (HTTP/2 transport)', raw: r };
-  }
-  if (/ECONNRESET|connection reset/i.test(r)) {
-    return { headline: 'Network error — connection reset by upstream feed', raw: r };
-  }
-  if (/ETIMEDOUT|timed?\s*out|timeout/i.test(r)) {
-    return { headline: 'Timed out — feed did not respond in time', raw: r };
-  }
-  if (/ENOTFOUND|getaddrinfo|DNS/i.test(r)) {
-    return { headline: 'DNS lookup failed — feed host could not be resolved', raw: r };
-  }
-  if (/HTTP\s*5\d\d/i.test(r)) {
-    return { headline: 'Feed responded with a server error (5xx)', raw: r };
-  }
-  if (/HTTP\s*4\d\d/i.test(r)) {
-    return { headline: 'Feed rejected the request (4xx)', raw: r };
-  }
-  if (/Content too large|exceeds maximum/i.test(r)) {
-    return { headline: 'Feed response too large to process', raw: r };
-  }
-
-  // Short messages we can show as-is. Long messages we truncate but still
-  // expose the full text via the expander.
+  if (/http2|h2c|stream error|GOAWAY/i.test(r)) return { headline: 'Network error — feed temporarily unreachable (HTTP/2 transport)', raw: r };
+  if (/ECONNRESET|connection reset/i.test(r))   return { headline: 'Network error — connection reset by upstream feed', raw: r };
+  if (/ETIMEDOUT|timed?\s*out|timeout/i.test(r)) return { headline: 'Timed out — feed did not respond in time', raw: r };
+  if (/ENOTFOUND|getaddrinfo|DNS/i.test(r))     return { headline: 'DNS lookup failed — feed host could not be resolved', raw: r };
+  if (/HTTP\s*5\d\d/i.test(r))                   return { headline: 'Feed responded with a server error (5xx)', raw: r };
+  if (/HTTP\s*4\d\d/i.test(r))                   return { headline: 'Feed rejected the request (4xx)', raw: r };
+  if (/Content too large|exceeds maximum/i.test(r)) return { headline: 'Feed response too large to process', raw: r };
   if (r.length <= 80) return { headline: r, raw: null };
   return { headline: r.slice(0, 80) + '…', raw: r };
 }
@@ -97,20 +63,20 @@ function humanizeFeedError(raw: string | null | undefined): { headline: string; 
 const RawErrorDetails: React.FC<{ raw: string }> = ({ raw }) => {
   const [open, setOpen] = useState(false);
   return (
-    <div className="ml-5 mt-0.5">
+    <>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="text-[10px] uppercase tracking-wider text-on-surface-variant/50 hover:text-on-surface-variant transition-colors"
+        className="text-xs text-on-surface-variant hover:text-on-surface transition-colors"
       >
         {open ? 'Hide details' : 'Show details'}
       </button>
       {open && (
-        <pre className="mt-1 text-[10px] text-on-surface-variant/70 whitespace-pre-wrap break-all font-mono leading-relaxed bg-surface-container-lowest/60 rounded p-2">
+        <pre className="mt-2 text-xs text-on-surface-variant whitespace-pre-wrap break-all font-mono leading-relaxed bg-surface-container-low rounded-md p-3 border border-outline-variant/30">
           {raw}
         </pre>
       )}
-    </div>
+    </>
   );
 };
 
@@ -128,408 +94,324 @@ const ArticleLink: React.FC<{ event: DigestEvent }> = ({ event }) => {
   const url = eventDestinationUrl(event);
   const text = event.article_title ?? '(untitled)';
   if (!url) return <span className="text-on-surface">{text}</span>;
-  if (isInternal(url)) {
-    return <Link to={url} className="text-on-surface hover:text-primary underline-offset-2 hover:underline">{text}</Link>;
-  }
-  return (
-    <a href={url} target="_blank" rel="noopener noreferrer" className="text-on-surface hover:text-primary underline-offset-2 hover:underline">
-      {text}
-    </a>
-  );
+  if (isInternal(url)) return <Link to={url} className="text-on-surface hover:text-primary">{text}</Link>;
+  return <a href={url} target="_blank" rel="noopener noreferrer" className="text-on-surface hover:text-primary">{text}</a>;
 };
 
 // =============================================================================
-// Stage components
+// Visual primitives
 // =============================================================================
 
-const StageShell: React.FC<{
+type StatusTone = 'ok' | 'warn' | 'err' | 'idle';
+
+const TONE_DOT: Record<StatusTone, string> = {
+  ok:   'bg-secondary',
+  warn: 'bg-ext-amber',
+  err:  'bg-error',
+  idle: 'bg-outline-variant',
+};
+
+const TONE_TEXT: Record<StatusTone, string> = {
+  ok:   'text-secondary',
+  warn: 'text-ext-amber',
+  err:  'text-error',
+  idle: 'text-on-surface-variant',
+};
+
+const StatusDot: React.FC<{ tone: StatusTone; pulse?: boolean }> = ({ tone, pulse }) => (
+  <span className={`inline-block w-1.5 h-1.5 rounded-full ${TONE_DOT[tone]} ${pulse ? 'animate-pulse' : ''}`} />
+);
+
+// Verdict label — inline text instead of a chip. Different decision
+// types share the same visual treatment so the eye doesn't perceive
+// "five different colours" — the dot carries the tone, the label
+// carries the verb, the row carries the data.
+const Verdict: React.FC<{ tone: StatusTone; label: string }> = ({ tone, label }) => (
+  <span className={`text-xs font-semibold uppercase tracking-wider ${TONE_TEXT[tone]} shrink-0 w-[100px]`}>
+    {label}
+  </span>
+);
+
+// Stage section — collapsible block for one orchestrator stage. No
+// rounded box around it; just a header line + thin divider rule
+// underneath when expanded. Reads as a section header in a document,
+// not as another nested card. The user gets the full transcript
+// without a stack of bordered containers.
+const StageSection: React.FC<{
   index: number;
-  stageKey: StageKey;
   title: string;
   subtitle: string;
+  tone: StatusTone;
   summary: React.ReactNode;
-  detail: React.ReactNode;
-  state: 'success' | 'error' | 'mixed' | 'empty' | 'running';
   defaultOpen?: boolean;
-}> = ({ index, title, subtitle, summary, detail, state, defaultOpen = false }) => {
+  children: React.ReactNode;
+}> = ({ index, title, subtitle, tone, summary, defaultOpen = false, children }) => {
   const [open, setOpen] = useState(defaultOpen);
-
-  // Stronger dot + ring opacities than v1 — at /30 the cards melted into
-  // the parent's tint. The ring now reads at a glance and the dot has
-  // enough contrast to identify state without staring.
-  const tone = {
-    success: { dot: 'bg-emerald-500',             ring: 'border-emerald-500/60' },
-    error:   { dot: 'bg-red-400',                 ring: 'border-red-400/60' },
-    mixed:   { dot: 'bg-amber-400',               ring: 'border-amber-400/60' },
-    empty:   { dot: 'bg-on-surface-variant/40',   ring: 'border-outline-variant/40' },
-    running: { dot: 'bg-amber-400 animate-pulse', ring: 'border-amber-400/60' },
-  }[state];
-
   return (
-    <div className={`relative rounded-lg border ${tone.ring} bg-surface-container-low/80 shadow-sm`}>
+    <div>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-surface-container-low transition-colors rounded-lg"
+        className="w-full flex items-baseline gap-3 py-2.5 text-left hover:bg-surface-container-low/40 transition-colors -mx-3 px-3 rounded"
       >
-        {/* Larger dot (3×3 instead of 2×2) so the tone signal reads from
-            across the page, with a subtle ring outline so the dot stays
-            visible against the parent rail. */}
-        <span className={`relative mt-1.5 w-3 h-3 rounded-full shrink-0 ring-2 ring-surface-container ${tone.dot}`} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/70">
-              Stage {index}
-            </span>
-            <span className="text-sm font-semibold text-on-surface">{title}</span>
-          </div>
-          <div className="text-xs text-on-surface-variant/70 mt-0.5">{subtitle}</div>
-          <div className="text-sm text-on-surface mt-1.5">{summary}</div>
-        </div>
+        <span className="text-xs font-bold text-on-surface-variant/60 tabular-nums w-4 shrink-0">{index}</span>
+        <StatusDot tone={tone} />
+        <span className="flex items-baseline gap-2 flex-wrap min-w-0 flex-1">
+          <span className="text-sm font-semibold text-on-surface">{title}</span>
+          <span className="text-xs text-on-surface-variant/70 truncate">{subtitle}</span>
+        </span>
+        <span className="text-sm text-on-surface shrink-0">{summary}</span>
         <Icon
           name={open ? 'chevron-down' : 'chevron-right'}
-          className="w-4 h-4 text-on-surface-variant/60 shrink-0 mt-1"
+          className="w-4 h-4 text-on-surface-variant/60 shrink-0"
         />
       </button>
-      {open && (
-        <div className="border-t border-outline-variant/20 px-4 py-3 text-xs">
-          {detail}
-        </div>
-      )}
+      {open && <div className="pb-3">{children}</div>}
     </div>
   );
 };
 
-// ─── Stage 1: Harvest ──────────────────────────────────────────────────────
+// =============================================================================
+// Stage 1 — Harvest detail
+// =============================================================================
 
-function HarvestStage({ events, jobIsActive }: { events: DigestEvent[]; jobIsActive: boolean }) {
-  // NOTE: this is a plain helper function, not a React component. Hooks added
-  // here would attach to JobTranscript's hook scope and break the rules of
-  // hooks when JobTranscript's early-return branches fire (the "Rendered more
-  // hooks than during the previous render" crash). Keep computation inline.
-  const feedFetched = events.filter((e) => e.event_type === 'feed_fetched');
-  const feedFailed = events.filter((e) => e.event_type === 'feed_failed');
-  const articlesSeen = events.filter((e) => e.event_type === 'article_seen');
-  const recoveredArticles = articlesSeen.filter((a) => (a.payload as any)?.recovered === true);
-  const newArticles = articlesSeen.filter((a) => (a.payload as any)?.recovered !== true);
+const HarvestDetail: React.FC<{
+  feedFetched: DigestEvent[];
+  feedFailed: DigestEvent[];
+  articlesSeen: DigestEvent[];
+}> = ({ feedFetched, feedFailed, articlesSeen }) => {
+  // Group articles by feed for nesting under the feed row.
+  const articlesByFeed = useMemo(() => {
+    const map = new Map<string, DigestEvent[]>();
+    for (const a of articlesSeen) {
+      const key = a.feed_id || `name:${a.feed_name}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(a);
+    }
+    return map;
+  }, [articlesSeen]);
 
-  const feedMap = new Map<string, { feedName: string; status: 'ok' | 'failed'; error?: string; articles: DigestEvent[] }>();
-  for (const fe of feedFetched) {
-    const key = fe.feed_id || `name:${fe.feed_name}`;
-    feedMap.set(key, { feedName: fe.feed_name || 'Unknown feed', status: 'ok', articles: [] });
+  // Build a unified per-feed list — successful + failed feeds together,
+  // sorted by status (failed first, since that's where the user's
+  // attention is needed) then by name.
+  const feeds = useMemo(() => {
+    const rows: { id: string; name: string; status: 'ok' | 'failed'; error?: string; articles: DigestEvent[] }[] = [];
+    for (const fe of feedFetched) {
+      const key = fe.feed_id || `name:${fe.feed_name}`;
+      rows.push({
+        id: key,
+        name: fe.feed_name || 'Unknown feed',
+        status: 'ok',
+        articles: articlesByFeed.get(key) || [],
+      });
+    }
+    for (const fe of feedFailed) {
+      const key = fe.feed_id || `name:${fe.feed_name}`;
+      rows.push({
+        id: key,
+        name: fe.feed_name || 'Unknown feed',
+        status: 'failed',
+        error: fe.reason ?? 'Unknown error',
+        articles: [],
+      });
+    }
+    rows.sort((a, b) => {
+      if (a.status !== b.status) return a.status === 'failed' ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    return rows;
+  }, [feedFetched, feedFailed, articlesByFeed]);
+
+  if (feeds.length === 0) {
+    return <div className="py-2 text-sm text-on-surface-variant">No feed activity recorded.</div>;
   }
-  for (const fe of feedFailed) {
-    const key = fe.feed_id || `name:${fe.feed_name}`;
-    feedMap.set(key, { feedName: fe.feed_name || 'Unknown feed', status: 'failed', error: fe.reason ?? 'Unknown error', articles: [] });
-  }
-  for (const a of newArticles) {
-    const key = a.feed_id || `name:${a.feed_name}`;
-    const entry = feedMap.get(key);
-    if (entry) entry.articles.push(a);
-  }
-  const feedsByFeedId = [...feedMap.entries()].map(([id, v]) => ({ id, ...v }));
 
-  const totalNew = newArticles.length;
-  const totalRecovered = recoveredArticles.length;
-  const totalFeeds = feedsByFeedId.length;
-  const okFeeds = feedsByFeedId.filter((f) => f.status === 'ok').length;
-
-  if (events.length === 0) {
-    return {
-      summary: jobIsActive ? 'Waiting…' : 'No feeds fetched',
-      state: 'empty' as const,
-      detail: <div className="text-on-surface-variant/60">No feed activity recorded.</div>,
-    };
-  }
-
-  const state = feedFailed.length > 0
-    ? (okFeeds > 0 ? 'mixed' as const : 'error' as const)
-    : 'success' as const;
-
-  const summary = (
-    <span>
-      <span className="font-medium">{okFeeds}</span> of {totalFeeds} feed{totalFeeds === 1 ? '' : 's'} fetched
-      {feedFailed.length > 0 && <span className="text-red-400"> · {feedFailed.length} failed</span>}
-      <span className="text-on-surface-variant"> · </span>
-      <span className="font-medium">{totalNew}</span> new article{totalNew === 1 ? '' : 's'}
-      {totalRecovered > 0 && (
-        <span className="text-on-surface-variant"> · <span className="font-medium">{totalRecovered}</span> recovered from prior run</span>
-      )}
-    </span>
-  );
-
-  const detail = (
-    <ul className="space-y-2">
-      {feedsByFeedId.map((f) => (
-        <li key={f.id}>
-          <div className="flex items-center gap-2">
-            <Icon
-              name={f.status === 'failed' ? 'alert-triangle' : 'rss'}
-              className={`w-3 h-3 shrink-0 ${f.status === 'failed' ? 'text-red-400' : 'text-on-surface-variant/60'}`}
-            />
-            <span className={`text-xs font-medium ${f.status === 'failed' ? 'text-red-400' : 'text-on-surface'}`}>
-              {f.feedName}
-            </span>
-            <span className="text-[11px] text-on-surface-variant/60">
-              {f.status === 'failed' ? 'fetch failed' : `${f.articles.length} new`}
+  return (
+    <ul className="space-y-1">
+      {feeds.map((f) => (
+        <li key={f.id} className="py-1.5">
+          <div className="flex items-baseline gap-3">
+            <StatusDot tone={f.status === 'failed' ? 'warn' : 'ok'} />
+            <span className="text-sm font-medium text-on-surface">{f.name}</span>
+            <span className="text-xs text-on-surface-variant tabular-nums">
+              {f.status === 'failed' ? 'fetch failed' : `${f.articles.length} article${f.articles.length === 1 ? '' : 's'}`}
             </span>
           </div>
           {f.error && (() => {
-            const humanized = humanizeFeedError(f.error);
+            const h = humanizeFeedError(f.error);
             return (
-              <>
-                <div className="text-[11px] text-red-400/80 ml-5 mt-0.5">{humanized.headline}</div>
-                {humanized.raw && <RawErrorDetails raw={humanized.raw} />}
-              </>
+              <div className="mt-1 ml-[18px] text-xs">
+                <div className="text-on-surface-variant">{h.headline}</div>
+                {h.raw && <div className="mt-1"><RawErrorDetails raw={h.raw} /></div>}
+              </div>
             );
           })()}
           {f.articles.length > 0 && (
-            <ul className="ml-5 mt-1 space-y-0.5">
-              {f.articles.map((a) => (
-                <li key={a.id} className="text-[11px] truncate">
-                  <span className="text-on-surface-variant/40 mr-1.5">·</span>
-                  <ArticleLink event={a} />
-                </li>
-              ))}
+            <ul className="mt-1.5 ml-[18px] space-y-1">
+              {f.articles.map((a) => {
+                const isRecovered = (a.payload as any)?.recovered === true;
+                return (
+                  <li key={a.id} className="grid grid-cols-[auto_1fr] gap-x-3 items-baseline text-sm">
+                    <span className="text-xs font-mono tabular-nums text-on-surface-variant/70">{formatTime(a.created_at)}</span>
+                    <span className="min-w-0 truncate">
+                      <ArticleLink event={a} />
+                      {isRecovered && (
+                        <span className="ml-2 text-xs text-on-surface-variant">(recovered from earlier run)</span>
+                      )}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </li>
       ))}
-      {recoveredArticles.length > 0 && (
-        <li className="pt-2 border-t border-outline-variant/15">
-          <div className="flex items-center gap-2">
-            <Icon name="refresh-cw" className="w-3 h-3 shrink-0 text-amber-400" />
-            <span className="text-xs font-medium text-on-surface">Recovered from prior runs</span>
-            <span className="text-[11px] text-on-surface-variant/60">{recoveredArticles.length}</span>
-          </div>
-          <ul className="ml-5 mt-1 space-y-0.5">
-            {recoveredArticles.map((a) => (
-              <li key={a.id} className="text-[11px] truncate">
-                <span className="text-on-surface-variant/40 mr-1.5">·</span>
-                <ArticleLink event={a} />
-              </li>
-            ))}
-          </ul>
-        </li>
-      )}
     </ul>
   );
-
-  return { summary, state, detail };
-}
-
-// ─── Stage 2: Classify ─────────────────────────────────────────────────────
-
-function ClassifyStage({ events }: { events: DigestEvent[] }) {
-  const passed = events.filter((e) => e.event_type === 'article_classified' && e.passed === true);
-  const skipped = events.filter((e) => e.event_type === 'article_classified' && e.passed === false);
-  const errored = events.filter((e) => e.event_type === 'article_classify_failed');
-  const total = passed.length + skipped.length + errored.length;
-
-  if (total === 0) {
-    return {
-      summary: 'Nothing to classify',
-      state: 'empty' as const,
-      detail: <div className="text-on-surface-variant/60">No articles reached the classifier.</div>,
-    };
-  }
-
-  const state = errored.length > 0
-    ? (passed.length > 0 ? 'mixed' as const : 'error' as const)
-    : (passed.length > 0 ? 'success' as const : 'mixed' as const);
-
-  // Color semantics: green only when passed > 0. A run that classified
-  // every article as "not threat research" is neither failure nor success
-  // visually — it's a neutral verdict. "0 passed" rendered emerald sent
-  // the wrong signal.
-  const passedClass = passed.length > 0 ? 'font-medium text-emerald-500' : 'text-on-surface-variant';
-
-  const summary = (
-    <span>
-      <span className={passedClass}>{passed.length} passed</span>
-      <span className="text-on-surface-variant"> · </span>
-      <span className="text-on-surface-variant">{skipped.length} not relevant</span>
-      {errored.length > 0 && (
-        <>
-          <span className="text-on-surface-variant"> · </span>
-          <span className="text-red-400 font-medium">{errored.length} error{errored.length === 1 ? '' : 's'}</span>
-        </>
-      )}
-    </span>
-  );
-
-  // Per-row tone label. "Skipped" was ambiguous — "Not relevant" reads
-  // as the verdict it is. "Error" remains for actual classifier failures.
-  // Tags now render as small filled chips so the verdict reads at a
-  // glance instead of getting lost as faint uppercase text.
-  const detail = (
-    <ul className="space-y-2">
-      {[...passed, ...skipped, ...errored].map((e) => {
-        const isErr = e.event_type === 'article_classify_failed';
-        const isPassed = e.passed === true;
-        const chipClass = isErr
-          ? 'bg-red-500/15 text-red-300 border-red-500/30'
-          : isPassed
-          ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-          : 'bg-amber-500/15 text-amber-300 border-amber-500/30';
-        const label = isErr ? 'Error' : (isPassed ? 'Passed' : 'Not relevant');
-        return (
-          <li key={e.id}>
-            <div className="flex items-baseline gap-2">
-              <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border shrink-0 ${chipClass}`}>{label}</span>
-              <span className="text-[11px] text-on-surface-variant/50 font-mono tabular-nums shrink-0">{formatTime(e.created_at)}</span>
-              <span className="min-w-0 flex-1 truncate"><ArticleLink event={e} /></span>
-            </div>
-            {e.reason && (
-              <div className="text-[11px] text-on-surface-variant ml-[5.25rem] mt-1 leading-snug">{e.reason}</div>
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  );
-
-  return { summary, state, detail };
-}
-
-// ─── Stage 3: Rank & Select ────────────────────────────────────────────────
-
-function RankStage({ events, classifyPassed, jobIsActive }: { events: DigestEvent[]; classifyPassed: number; jobIsActive: boolean }) {
-  const droppedDailyCap = events.filter((e) => e.event_type === 'article_skipped_daily_limit');
-  const totalDropped = droppedDailyCap.length;
-
-  if (classifyPassed === 0) {
-    return {
-      summary: 'Nothing to rank — no articles passed classification',
-      state: 'empty' as const,
-      detail: <div className="text-on-surface-variant/60">Nothing to do at this stage.</div>,
-    };
-  }
-
-  // Selected = classifyPassed - dropped. Orchestrator doesn't emit an explicit
-  // "selected" event, the count is implied from what wasn't dropped.
-  const selected = Math.max(0, classifyPassed - totalDropped);
-
-  if (events.length === 0 && selected === classifyPassed) {
-    return {
-      summary: jobIsActive
-        ? 'Ranking…'
-        : `${selected} of ${classifyPassed} selected for digest`,
-      state: jobIsActive ? 'running' as const : 'success' as const,
-      detail: <div className="text-on-surface-variant/60">All passing articles fit within the daily cap — nothing dropped.</div>,
-    };
-  }
-
-  const summary = (
-    <span>
-      <span className="font-medium">{selected}</span> selected
-      {droppedDailyCap.length > 0 && (
-        <span className="text-on-surface-variant"> · {droppedDailyCap.length} held back by daily cap</span>
-      )}
-    </span>
-  );
-
-  const detail = (
-    <ul className="space-y-2">
-      {droppedDailyCap.map((e) => (
-        <li key={e.id}>
-          <div className="flex items-baseline gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-amber-500/15 text-amber-300 border-amber-500/30 shrink-0">
-              Daily cap
-            </span>
-            <span className="text-[11px] text-on-surface-variant/50 font-mono tabular-nums shrink-0">{formatTime(e.created_at)}</span>
-            <span className="min-w-0 flex-1 truncate"><ArticleLink event={e} /></span>
-          </div>
-          {e.reason && <div className="text-[11px] text-on-surface-variant ml-[5.5rem] mt-1 leading-snug">{e.reason}</div>}
-        </li>
-      ))}
-    </ul>
-  );
-
-  return { summary, state: 'mixed' as const, detail };
-}
-
-// ─── Stage 4: Digest ───────────────────────────────────────────────────────
-
-function DigestStage({ events, jobIsActive }: { events: DigestEvent[]; jobIsActive: boolean }) {
-  const digested = events.filter((e) => e.event_type === 'article_digested');
-  const failed = events.filter((e) => e.event_type === 'article_digest_failed');
-  const total = digested.length + failed.length;
-
-  if (total === 0) {
-    return {
-      summary: jobIsActive ? 'Waiting for selected articles…' : 'No articles selected — nothing to digest',
-      state: 'empty' as const,
-      detail: <div className="text-on-surface-variant/60">Nothing to do at this stage.</div>,
-    };
-  }
-
-  const state = failed.length > 0
-    ? (digested.length > 0 ? 'mixed' as const : 'error' as const)
-    : 'success' as const;
-
-  const totalDigestMs = digested.reduce((sum, e) => sum + (e.duration_ms ?? 0), 0);
-
-  const summary = (
-    <span>
-      <span className="font-medium text-emerald-500">{digested.length} digested</span>
-      {failed.length > 0 && (
-        <>
-          <span className="text-on-surface-variant"> · </span>
-          <span className="text-red-400 font-medium">{failed.length} failed</span>
-        </>
-      )}
-      {digested.length > 0 && totalDigestMs > 0 && (
-        <span className="text-on-surface-variant"> · {formatDuration(totalDigestMs)} total</span>
-      )}
-    </span>
-  );
-
-  const detail = (
-    <ul className="space-y-2">
-      {[...digested, ...failed].map((e) => {
-        const isErr = e.event_type === 'article_digest_failed';
-        const chipClass = isErr
-          ? 'bg-red-500/15 text-red-300 border-red-500/30'
-          : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
-        const label = isErr ? 'Failed' : 'Digested';
-        const payload = e.payload as Record<string, unknown> | null;
-        const ttp = (payload?.ttp_count as number | undefined) ?? null;
-        const ioc = (payload?.ioc_count as number | undefined) ?? null;
-        const rule = (payload?.rule_count as number | undefined) ?? null;
-        return (
-          <li key={e.id}>
-            <div className="flex items-baseline gap-2">
-              <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border shrink-0 ${chipClass}`}>{label}</span>
-              <span className="text-[11px] text-on-surface-variant/50 font-mono tabular-nums shrink-0">{formatTime(e.created_at)}</span>
-              <span className="min-w-0 flex-1 truncate"><ArticleLink event={e} /></span>
-              {e.duration_ms != null && (
-                <span className="text-[11px] text-on-surface-variant/60 tabular-nums shrink-0">{formatDuration(e.duration_ms)}</span>
-              )}
-            </div>
-            {!isErr && (ttp != null || ioc != null || rule != null) && (
-              <div className="text-[11px] text-on-surface-variant ml-[4.5rem] mt-1">
-                {ttp != null && <span>{ttp} TTPs</span>}
-                {ttp != null && ioc != null && <span> · </span>}
-                {ioc != null && <span>{ioc} IoCs</span>}
-                {(ttp != null || ioc != null) && rule != null && <span> · </span>}
-                {rule != null && <span>{rule} rules</span>}
-              </div>
-            )}
-            {isErr && e.reason && (
-              <div className="text-[11px] text-red-400/80 ml-[4.5rem] mt-1">{e.reason}</div>
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  );
-
-  return { summary, state, detail };
-}
+};
 
 // =============================================================================
-// Main component
+// Stage 2 — Classify detail
+// =============================================================================
+
+const ClassifyDetail: React.FC<{
+  passed: DigestEvent[];
+  skipped: DigestEvent[];
+  errored: DigestEvent[];
+}> = ({ passed, skipped, errored }) => {
+  const all = [...passed, ...skipped, ...errored].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  );
+  if (all.length === 0) {
+    return <div className="py-2 text-sm text-on-surface-variant">No articles reached the classifier.</div>;
+  }
+  return (
+    <ul className="space-y-1">
+      {all.map((e) => {
+        const isErr = e.event_type === 'article_classify_failed';
+        const isPassed = e.passed === true;
+        const tone: StatusTone = isErr ? 'err' : isPassed ? 'ok' : 'idle';
+        const label = isErr ? 'Error' : isPassed ? 'Passed' : 'Not relevant';
+        const confidence = (e.payload as Record<string, unknown> | null)?.confidence as number | undefined;
+        return (
+          <li key={e.id} className="py-1.5">
+            <div className="grid grid-cols-[auto_auto_1fr_auto] gap-x-3 items-baseline">
+              <span className="text-xs font-mono tabular-nums text-on-surface-variant/70">{formatTime(e.created_at)}</span>
+              <Verdict tone={tone} label={label} />
+              <span className="min-w-0 truncate text-sm"><ArticleLink event={e} /></span>
+              {confidence != null && (
+                <span className="text-xs tabular-nums text-on-surface-variant">conf {confidence.toFixed(2)}</span>
+              )}
+            </div>
+            {e.reason && (
+              <div className="mt-1 ml-[calc(2.75rem+100px+0.75rem)] text-xs text-on-surface-variant leading-snug">{e.reason}</div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+};
+
+// =============================================================================
+// Stage 3 — Rank & Select detail
+// =============================================================================
+
+const RankDetail: React.FC<{
+  ranked: DigestEvent[];
+  droppedDailyCap: DigestEvent[];
+  droppedFloor: DigestEvent[];
+}> = ({ ranked, droppedDailyCap, droppedFloor }) => {
+  const all = [
+    ...ranked.map((e) => ({ e, kind: 'selected' as const })),
+    ...droppedDailyCap.map((e) => ({ e, kind: 'cap' as const })),
+    ...droppedFloor.map((e) => ({ e, kind: 'floor' as const })),
+  ].sort((a, b) => new Date(a.e.created_at).getTime() - new Date(b.e.created_at).getTime());
+
+  if (all.length === 0) {
+    return <div className="py-2 text-sm text-on-surface-variant">Nothing to rank in this run.</div>;
+  }
+
+  return (
+    <ul className="space-y-1">
+      {all.map(({ e, kind }) => {
+        const tone: StatusTone = kind === 'selected' ? 'ok' : 'warn';
+        const label = kind === 'selected' ? 'Selected' : kind === 'cap' ? 'Daily cap' : 'Below floor';
+        const score = (e.payload as Record<string, unknown> | null)?.score as number | undefined
+          ?? (e.payload as Record<string, unknown> | null)?.relevance_score as number | undefined;
+        return (
+          <li key={e.id} className="py-1.5">
+            <div className="grid grid-cols-[auto_auto_1fr_auto] gap-x-3 items-baseline">
+              <span className="text-xs font-mono tabular-nums text-on-surface-variant/70">{formatTime(e.created_at)}</span>
+              <Verdict tone={tone} label={label} />
+              <span className="min-w-0 truncate text-sm"><ArticleLink event={e} /></span>
+              {score != null && (
+                <span className="text-xs tabular-nums text-on-surface-variant">score {score.toFixed(2)}</span>
+              )}
+            </div>
+            {e.reason && (
+              <div className="mt-1 ml-[calc(2.75rem+100px+0.75rem)] text-xs text-on-surface-variant leading-snug">{e.reason}</div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+};
+
+// =============================================================================
+// Stage 4 — Digest detail
+// =============================================================================
+
+const DigestDetail: React.FC<{
+  digested: DigestEvent[];
+  failed: DigestEvent[];
+}> = ({ digested, failed }) => {
+  const all = [...digested, ...failed].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  );
+  if (all.length === 0) {
+    return <div className="py-2 text-sm text-on-surface-variant">No articles reached the digest stage.</div>;
+  }
+  return (
+    <ul className="space-y-1">
+      {all.map((e) => {
+        const isErr = e.event_type === 'article_digest_failed';
+        const tone: StatusTone = isErr ? 'err' : 'ok';
+        const label = isErr ? 'Failed' : 'Digested';
+        const payload = e.payload as Record<string, unknown> | null;
+        const ttp = payload?.ttp_count as number | undefined;
+        const ioc = payload?.ioc_count as number | undefined;
+        const rule = payload?.rule_count as number | undefined;
+        const counts: string[] = [];
+        if (ttp != null && ttp > 0)   counts.push(`${ttp} TTP${ttp === 1 ? '' : 's'}`);
+        if (ioc != null && ioc > 0)   counts.push(`${ioc} IoC${ioc === 1 ? '' : 's'}`);
+        if (rule != null && rule > 0) counts.push(`${rule} rule${rule === 1 ? '' : 's'}`);
+        return (
+          <li key={e.id} className="py-1.5">
+            <div className="grid grid-cols-[auto_auto_1fr_auto] gap-x-3 items-baseline">
+              <span className="text-xs font-mono tabular-nums text-on-surface-variant/70">{formatTime(e.created_at)}</span>
+              <Verdict tone={tone} label={label} />
+              <span className="min-w-0 truncate text-sm"><ArticleLink event={e} /></span>
+              {e.duration_ms != null && (
+                <span className="text-xs tabular-nums text-on-surface-variant">{formatDuration(e.duration_ms)}</span>
+              )}
+            </div>
+            {!isErr && counts.length > 0 && (
+              <div className="mt-1 ml-[calc(2.75rem+100px+0.75rem)] text-xs text-on-surface-variant">{counts.join(' · ')}</div>
+            )}
+            {isErr && e.reason && (
+              <div className="mt-1 ml-[calc(2.75rem+100px+0.75rem)] text-xs text-on-surface-variant leading-snug">{e.reason}</div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+};
+
+// =============================================================================
+// Main component — assembles 4 stage panels (collapsible)
 // =============================================================================
 
 export const JobTranscript: React.FC<JobTranscriptProps> = ({ job }) => {
@@ -544,7 +426,7 @@ export const JobTranscript: React.FC<JobTranscriptProps> = ({ job }) => {
 
   if (isLoading && events.length === 0) {
     return (
-      <div className="flex items-center gap-2 px-4 py-3 text-xs text-on-surface-variant">
+      <div className="flex items-center gap-2 px-4 py-3 text-sm text-on-surface-variant">
         <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
         Loading transcript…
       </div>
@@ -553,67 +435,120 @@ export const JobTranscript: React.FC<JobTranscriptProps> = ({ job }) => {
 
   if (events.length === 0) {
     return (
-      <div className="px-4 py-3 text-xs text-on-surface-variant/60">
+      <div className="px-4 py-3 text-sm text-on-surface-variant">
         No events recorded for this run yet.
       </div>
     );
   }
 
-  const harvest = HarvestStage({ events: byStage.harvest, jobIsActive: isLive });
-  const classifyPassed = byStage.classify.filter((e) => e.event_type === 'article_classified' && e.passed === true).length;
-  const classify = ClassifyStage({ events: byStage.classify });
-  const rank = RankStage({ events: byStage.rank, classifyPassed, jobIsActive: isLive });
-  const digest = DigestStage({ events: byStage.digest, jobIsActive: isLive });
+  // ── HARVEST ──
+  const feedFetched = byStage.harvest.filter((e) => e.event_type === 'feed_fetched');
+  const feedFailed = byStage.harvest.filter((e) => e.event_type === 'feed_failed');
+  const articlesSeen = byStage.harvest.filter((e) => e.event_type === 'article_seen');
+  const newArticleCount = articlesSeen.filter((a) => (a.payload as any)?.recovered !== true).length;
+  const recoveredCount = articlesSeen.length - newArticleCount;
 
-  // Auto-open whichever stage is currently the most-actionable: prefer error > running > most-recent.
-  const stages = [
-    { ...STAGES[0], ...harvest },
-    { ...STAGES[1], ...classify },
-    { ...STAGES[2], ...rank },
-    { ...STAGES[3], ...digest },
-  ];
-  // Default-open priority: running first (so the user sees live progress),
-  // then the last stage that has data (so the user lands on the most-recent
-  // productive step). We deliberately do NOT auto-open the failing stage —
-  // each stage's summary line already shows its error count + amber/red
-  // tone, so the user can still see at a glance that something went wrong.
-  // Auto-opening the bad stage on a mostly-successful run made the page
-  // read as a failure when most of the work succeeded.
-  const runningIdx = stages.findIndex((s) => s.state === 'running');
-  const lastNonEmptyReversed = [...stages].reverse().findIndex((s) => s.state !== 'empty');
-  const defaultOpenIdx = runningIdx >= 0
-    ? runningIdx
-    : lastNonEmptyReversed >= 0
-      ? stages.length - 1 - lastNonEmptyReversed
-      : -1;
+  // ── CLASSIFY ──
+  const passed = byStage.classify.filter((e) => e.event_type === 'article_classified' && e.passed === true);
+  const skipped = byStage.classify.filter((e) => e.event_type === 'article_classified' && e.passed === false);
+  const classifyErr = byStage.classify.filter((e) => e.event_type === 'article_classify_failed');
+
+  // ── RANK ──
+  const ranked = byStage.rank.filter((e) => e.event_type === 'article_ranked');
+  const droppedDailyCap = byStage.rank.filter(
+    (e) => e.event_type === 'article_skipped_daily_limit' &&
+      (e.payload as Record<string, unknown> | null)?.dropped_reason !== 'below_floor',
+  );
+  const droppedFloor = byStage.rank.filter(
+    (e) => e.event_type === 'article_skipped_daily_limit' &&
+      (e.payload as Record<string, unknown> | null)?.dropped_reason === 'below_floor',
+  );
+
+  // ── DIGEST ──
+  const digested = byStage.digest.filter((e) => e.event_type === 'article_digested');
+  const digestFailed = byStage.digest.filter((e) => e.event_type === 'article_digest_failed');
+  const totalDigestMs = digested.reduce((sum, e) => sum + (e.duration_ms ?? 0), 0);
+
+  // Per-stage tone — feed-transport blips never flip a stage.
+  const harvestTone: StatusTone = feedFailed.length > 0 && feedFetched.length === 0
+    ? 'err'
+    : feedFetched.length === 0 ? 'idle' : 'ok';
+  const classifyTone: StatusTone = classifyErr.length > 0
+    ? (passed.length > 0 || skipped.length > 0 ? 'warn' : 'err')
+    : (passed.length + skipped.length === 0 ? 'idle' : 'ok');
+  const rankTone: StatusTone = ranked.length === 0 ? 'idle' : 'ok';
+  const digestTone: StatusTone = digestFailed.length > 0
+    ? (digested.length > 0 ? 'warn' : 'err')
+    : (digested.length === 0 ? 'idle' : 'ok');
 
   return (
-    <div className="px-4 py-3 bg-surface-container-lowest/30 rounded-b-xl">
-      {/* Stages render as a clear sequence using small chevron connectors
-          between cards. We tried an absolute-positioned rail through the
-          dot column but the card backgrounds occluded it; per-gap chevrons
-          are simpler, visible, and don't fight z-stacking. */}
-      <div className="space-y-2">
-        {stages.map((s, i) => (
-          <React.Fragment key={s.key}>
-            <StageShell
-              index={i + 1}
-              stageKey={s.key}
-              title={s.label}
-              subtitle={s.subtitle}
-              summary={s.summary}
-              detail={s.detail}
-              state={s.state}
-              defaultOpen={i === defaultOpenIdx}
-            />
-            {i < stages.length - 1 && (
-              <div className="flex justify-start pl-[22px] py-0.5">
-                <Icon name="chevron-down" className="w-3 h-3 text-on-surface-variant/50" />
-              </div>
-            )}
-          </React.Fragment>
-        ))}
-      </div>
+    <div className="px-3 py-2 bg-surface-container-low/30 border-t border-outline-variant/30 divide-y divide-outline-variant/30">
+      <StageSection
+        index={1}
+        title="Harvest"
+        subtitle="Fetch RSS/Atom feeds, dedupe and store new articles"
+        tone={harvestTone}
+        summary={
+          <span className="text-on-surface-variant">
+            <span className="text-on-surface font-medium tabular-nums">{feedFetched.length}</span> feed{feedFetched.length === 1 ? '' : 's'} fetched
+            {feedFailed.length > 0 && <> · <span className="text-on-surface tabular-nums">{feedFailed.length}</span> unreachable</>}
+            {' · '}
+            <span className="text-on-surface tabular-nums">{newArticleCount}</span> new article{newArticleCount === 1 ? '' : 's'}
+            {recoveredCount > 0 && <> · <span className="text-on-surface tabular-nums">{recoveredCount}</span> recovered</>}
+          </span>
+        }
+      >
+        <HarvestDetail feedFetched={feedFetched} feedFailed={feedFailed} articlesSeen={articlesSeen} />
+      </StageSection>
+
+      <StageSection
+        index={2}
+        title="Classify"
+        subtitle="AI gate — is this actionable threat research?"
+        tone={classifyTone}
+        summary={
+          <span className="text-on-surface-variant">
+            <span className="text-on-surface font-medium tabular-nums">{passed.length}</span> passed
+            {' · '}
+            <span className="text-on-surface tabular-nums">{skipped.length}</span> not relevant
+            {classifyErr.length > 0 && <> · <span className="text-error tabular-nums">{classifyErr.length}</span> error{classifyErr.length === 1 ? '' : 's'}</>}
+          </span>
+        }
+      >
+        <ClassifyDetail passed={passed} skipped={skipped} errored={classifyErr} />
+      </StageSection>
+
+      <StageSection
+        index={3}
+        title="Rank & Select"
+        subtitle="Score relevance and apply your daily article cap"
+        tone={rankTone}
+        summary={
+          <span className="text-on-surface-variant">
+            <span className="text-on-surface font-medium tabular-nums">{ranked.length}</span> selected
+            {droppedDailyCap.length > 0 && <> · <span className="text-on-surface tabular-nums">{droppedDailyCap.length}</span> held by cap</>}
+            {droppedFloor.length > 0 && <> · <span className="text-on-surface tabular-nums">{droppedFloor.length}</span> below floor</>}
+          </span>
+        }
+      >
+        <RankDetail ranked={ranked} droppedDailyCap={droppedDailyCap} droppedFloor={droppedFloor} />
+      </StageSection>
+
+      <StageSection
+        index={4}
+        title="Digest"
+        subtitle="Full extraction — TTPs, IoCs, MITRE, library matches"
+        tone={digestTone}
+        summary={
+          <span className="text-on-surface-variant">
+            <span className="text-on-surface font-medium tabular-nums">{digested.length}</span> report{digested.length === 1 ? '' : 's'}
+            {digestFailed.length > 0 && <> · <span className="text-error tabular-nums">{digestFailed.length}</span> failed</>}
+            {digested.length > 0 && totalDigestMs > 0 && <> · <span className="text-on-surface-variant tabular-nums">{formatDuration(totalDigestMs)} total</span></>}
+          </span>
+        }
+      >
+        <DigestDetail digested={digested} failed={digestFailed} />
+      </StageSection>
     </div>
   );
 };
