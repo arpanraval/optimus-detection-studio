@@ -39,6 +39,8 @@ supabase/.temp/
 *.backup
 old_backup_*
 tempcon/
+.tmp-deploy-bundle.json
+.tmp/
 
 # Accidental home/profile directories (Windows path resolution artifacts)
 ~/
