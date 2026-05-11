@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Navigate, useParams, useNavigate } from 'react-router-dom';
 import { Icon } from '../../components/Icon';
 import { Button } from '../../components/ui/Button';
 import { useToast } from '../../hooks/useToast';
@@ -13,6 +13,7 @@ import { ResearchActivityConsole } from '../../components/threat-research/Resear
 import { DetectionLeafCard } from '../../components/threat-research/DetectionLeafCard';
 import { ROUTES } from '../routes';
 import type { AttackBehaviour, DetectionOpportunity, ThreatResearchEvent } from '../../types/threatResearch';
+import { usePermissions } from '../../context/PermissionsContext';
 
 /** Count `agent_started` minus terminal events per behaviour_id; behaviours
  *  with positive count have an agent running on them right now. The agent
@@ -54,6 +55,7 @@ export function ThreatResearchDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { hasRole, isLoading: permissionsLoading } = usePermissions();
   // refetch is owned by the hook now — calling it triggers an immediate
   // refetch and keeps the hook's session as the single source of truth.
   // The previous overrideSession lift-to-parent pattern permanently masked
@@ -64,6 +66,9 @@ export function ThreatResearchDetailPage() {
   const [view, setView] = useState<'canvas' | 'list'>('canvas');
   const [activityOpen, setActivityOpen] = useState(false);
   const [selected, setSelected] = useState<{ behaviour: AttackBehaviour; opportunity: DetectionOpportunity } | null>(null);
+
+  if (permissionsLoading) return null;
+  if (!hasRole('owner')) return <Navigate to="/" replace />;
 
   if (loading) {
     return (
