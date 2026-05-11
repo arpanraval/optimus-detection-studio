@@ -247,6 +247,10 @@ serve(async (req: Request) => {
                 mapToMitre: true,
                 findLibraryMatches: true,
               },
+              // Pass the job's owner so digest's user-scoped RLS reads/writes
+              // (analysis_reports, environment_profiles) attribute correctly
+              // — service-role calls bypass user-JWT auth.
+              userId: job.user_id,
             };
 
             const digestRes = await fetch(digestUrl, {

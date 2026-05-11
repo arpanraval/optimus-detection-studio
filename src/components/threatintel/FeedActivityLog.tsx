@@ -104,6 +104,7 @@ function jobOneLineSummary(job: AutoDigestJob): string {
   const systemErrors: string[] = Array.isArray(summary?.errors) ? summary!.errors : [];
   const feedsFetched = summary?.feeds_fetched ?? 0;
   const harvested = summary?.articles_harvested ?? 0;
+  const recovered = summary?.articles_recovered ?? 0;
   const digested = summary?.digested ?? summary?.articles_digested ?? 0;
   const skipped = summary?.skipped ?? summary?.articles_skipped ?? 0;
 
@@ -119,6 +120,7 @@ function jobOneLineSummary(job: AutoDigestJob): string {
   const parts: string[] = [];
   parts.push(`${feedsFetched} feed${feedsFetched === 1 ? '' : 's'}`);
   if (harvested > 0) parts.push(`${harvested} harvested`);
+  if (recovered > 0) parts.push(`${recovered} recovered`);
   if (digested > 0) parts.push(`${digested} digested`);
   if (skipped > 0) parts.push(`${skipped} skipped`);
   if (systemErrors.length > 0) parts.push(`${systemErrors.length} error${systemErrors.length === 1 ? '' : 's'}`);

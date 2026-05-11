@@ -31,10 +31,8 @@ const EVENT_STAGE: Record<DigestEventType, StageKey> = {
   feed_fetched:                'harvest',
   feed_failed:                 'harvest',
   article_seen:                'harvest',
-  article_duplicate:           'harvest',
   article_classified:          'classify',
   article_classify_failed:     'classify',
-  article_relevance_dropped:   'rank',
   article_skipped_daily_limit: 'rank',
   article_digested:            'digest',
   article_digest_failed:       'digest',
@@ -147,6 +145,8 @@ function HarvestStage({ events, jobIsActive }: { events: DigestEvent[]; jobIsAct
   const feedFetched = events.filter((e) => e.event_type === 'feed_fetched');
   const feedFailed = events.filter((e) => e.event_type === 'feed_failed');
   const articlesSeen = events.filter((e) => e.event_type === 'article_seen');
+  const recoveredArticles = articlesSeen.filter((a) => (a.payload as any)?.recovered === true);
+  const newArticles = articlesSeen.filter((a) => (a.payload as any)?.recovered !== true);
 
   const feedMap = new Map<string, { feedName: string; status: 'ok' | 'failed'; error?: string; articles: DigestEvent[] }>();
   for (const fe of feedFetched) {
@@ -157,14 +157,15 @@ function HarvestStage({ events, jobIsActive }: { events: DigestEvent[]; jobIsAct
     const key = fe.feed_id || `name:${fe.feed_name}`;
     feedMap.set(key, { feedName: fe.feed_name || 'Unknown feed', status: 'failed', error: fe.reason ?? 'Unknown error', articles: [] });
   }
-  for (const a of articlesSeen) {
+  for (const a of newArticles) {
     const key = a.feed_id || `name:${a.feed_name}`;
     const entry = feedMap.get(key);
     if (entry) entry.articles.push(a);
   }
   const feedsByFeedId = [...feedMap.entries()].map(([id, v]) => ({ id, ...v }));
 
-  const totalNew = articlesSeen.length;
+  const totalNew = newArticles.length;
+  const totalRecovered = recoveredArticles.length;
   const totalFeeds = feedsByFeedId.length;
   const okFeeds = feedsByFeedId.filter((f) => f.status === 'ok').length;
 
@@ -186,6 +187,9 @@ function HarvestStage({ events, jobIsActive }: { events: DigestEvent[]; jobIsAct
       {feedFailed.length > 0 && <span className="text-red-400"> · {feedFailed.length} failed</span>}
       <span className="text-on-surface-variant"> · </span>
       <span className="font-medium">{totalNew}</span> new article{totalNew === 1 ? '' : 's'}
+      {totalRecovered > 0 && (
+        <span className="text-on-surface-variant"> · <span className="font-medium">{totalRecovered}</span> recovered from prior run</span>
+      )}
     </span>
   );
 
@@ -218,6 +222,23 @@ function HarvestStage({ events, jobIsActive }: { events: DigestEvent[]; jobIsAct
           )}
         </li>
       ))}
+      {recoveredArticles.length > 0 && (
+        <li className="pt-2 border-t border-outline-variant/15">
+          <div className="flex items-center gap-2">
+            <Icon name="refresh-cw" className="w-3 h-3 shrink-0 text-amber-400" />
+            <span className="text-xs font-medium text-on-surface">Recovered from prior runs</span>
+            <span className="text-[11px] text-on-surface-variant/60">{recoveredArticles.length}</span>
+          </div>
+          <ul className="ml-5 mt-1 space-y-0.5">
+            {recoveredArticles.map((a) => (
+              <li key={a.id} className="text-[11px] truncate">
+                <span className="text-on-surface-variant/40 mr-1.5">·</span>
+                <ArticleLink event={a} />
+              </li>
+            ))}
+          </ul>
+        </li>
+      )}
     </ul>
   );
 
@@ -286,9 +307,8 @@ function ClassifyStage({ events }: { events: DigestEvent[] }) {
 // ─── Stage 3: Rank & Select ────────────────────────────────────────────────
 
 function RankStage({ events, classifyPassed, jobIsActive }: { events: DigestEvent[]; classifyPassed: number; jobIsActive: boolean }) {
-  const droppedRelevance = events.filter((e) => e.event_type === 'article_relevance_dropped');
   const droppedDailyCap = events.filter((e) => e.event_type === 'article_skipped_daily_limit');
-  const totalDropped = droppedRelevance.length + droppedDailyCap.length;
+  const totalDropped = droppedDailyCap.length;
 
   if (classifyPassed === 0) {
     return {
@@ -298,8 +318,8 @@ function RankStage({ events, classifyPassed, jobIsActive }: { events: DigestEven
     };
   }
 
-  // Selected = classifyPassed - dropped (best-effort; orchestrator doesn't emit
-  // an explicit "selected" event, the count is implied).
+  // Selected = classifyPassed - dropped. Orchestrator doesn't emit an explicit
+  // "selected" event, the count is implied from what wasn't dropped.
   const selected = Math.max(0, classifyPassed - totalDropped);
 
   if (events.length === 0 && selected === classifyPassed) {
@@ -318,19 +338,16 @@ function RankStage({ events, classifyPassed, jobIsActive }: { events: DigestEven
       {droppedDailyCap.length > 0 && (
         <span className="text-on-surface-variant"> · {droppedDailyCap.length} held back by daily cap</span>
       )}
-      {droppedRelevance.length > 0 && (
-        <span className="text-on-surface-variant"> · {droppedRelevance.length} below relevance threshold</span>
-      )}
     </span>
   );
 
   const detail = (
     <ul className="space-y-1.5">
-      {[...droppedDailyCap, ...droppedRelevance].map((e) => (
+      {droppedDailyCap.map((e) => (
         <li key={e.id}>
           <div className="flex items-baseline gap-2">
             <span className="text-[10px] font-bold uppercase tracking-wider w-16 shrink-0 text-amber-400">
-              {e.event_type === 'article_skipped_daily_limit' ? 'Daily cap' : 'Low score'}
+              Daily cap
             </span>
             <span className="text-[11px] text-on-surface-variant/40 font-mono tabular-nums shrink-0">{formatTime(e.created_at)}</span>
             <span className="min-w-0 flex-1 truncate"><ArticleLink event={e} /></span>

@@ -481,37 +481,65 @@ function parseClassificationJSON(raw: string): ClassificationResult {
 /**
  * Best-effort repair of a truncated JSON object/array. Tracks string and
  * escape state to avoid miscounting braces inside strings, finds the last
- * value boundary that's safe to close at, then appends `]` for each open
- * array and `}` for each open object.
+ * **value** boundary that's safe to close at, then appends `]` for each
+ * open array and `}` for each open object.
+ *
+ * Per-frame key/value state matters: when a string closes inside an object
+ * while the frame is "expecting key", that string is a key and is **not** a
+ * safe truncation point. Closing on a key produced invalid JSON like
+ * `{... "targeted_industries"}` from responses that ended mid-pair.
  *
  * Returns null when the input ends in the middle of a string literal — at
  * that point we can't tell where the value boundary is.
  */
 function repairTruncatedJson(input: string): string | null {
-  let braceDepth = 0;
-  let bracketDepth = 0;
+  type Frame = { kind: 'object' | 'array'; expectingKey: boolean };
+  const stack: Frame[] = [];
   let inString = false;
   let escape = false;
-  let lastSafeIdx = -1; // last index at which a value just ended (after `,` `}` `]` or primitive)
+  let lastSafeIdx = -1;
 
   for (let i = 0; i < input.length; i++) {
     const ch = input[i];
     if (escape) { escape = false; continue; }
     if (ch === '\\') { escape = true; continue; }
-    if (ch === '"') { inString = !inString; if (!inString) lastSafeIdx = i; continue; }
+    if (ch === '"') {
+      if (!inString) {
+        inString = true;
+      } else {
+        inString = false;
+        const top = stack[stack.length - 1];
+        if (top && top.kind === 'object' && top.expectingKey) {
+          // Just closed a key. Don't mark safe — value still pending.
+          top.expectingKey = false;
+        } else {
+          // Closed a string in value position (object value or array element).
+          lastSafeIdx = i;
+        }
+      }
+      continue;
+    }
     if (inString) continue;
-    if (ch === '{') braceDepth++;
-    else if (ch === '}') { braceDepth--; lastSafeIdx = i; }
-    else if (ch === '[') bracketDepth++;
-    else if (ch === ']') { bracketDepth--; lastSafeIdx = i; }
-    else if (ch === ',') lastSafeIdx = i - 1;          // chop trailing comma
-    else if (/[0-9.eE+\-]/.test(ch)) lastSafeIdx = i;  // last char of a primitive
+    if (ch === '{') stack.push({ kind: 'object', expectingKey: true });
+    else if (ch === '}') { stack.pop(); lastSafeIdx = i; }
+    else if (ch === '[') stack.push({ kind: 'array', expectingKey: false });
+    else if (ch === ']') { stack.pop(); lastSafeIdx = i; }
+    else if (ch === ',') {
+      const top = stack[stack.length - 1];
+      if (top && top.kind === 'object') top.expectingKey = true;
+      lastSafeIdx = i - 1;
+    }
+    else if (/[0-9.eE+\-]/.test(ch)) lastSafeIdx = i;
   }
 
   if (inString) return null;
-  if (braceDepth <= 0 && bracketDepth <= 0) return input; // already balanced
+  if (stack.length === 0) return input;
   if (lastSafeIdx === -1) return null;
 
   const truncated = input.slice(0, lastSafeIdx + 1).replace(/,\s*$/, '');
-  return truncated + ']'.repeat(Math.max(0, bracketDepth)) + '}'.repeat(Math.max(0, braceDepth));
+  let suffix = '';
+  for (let i = stack.length - 1; i >= 0; i--) {
+    suffix += stack[i].kind === 'object' ? '}' : ']';
+  }
+  return truncated + suffix;
 }
