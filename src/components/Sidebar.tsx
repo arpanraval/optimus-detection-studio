@@ -493,7 +493,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
         { id: 'mitigations' as View, label: 'Mitigations' },
         { id: 'threat-intel' as View, label: 'Intelligence Reports' },
         { id: 'threat-research' as View, label: 'Threat Research' },
-        { id: 'intelligence_sources' as View, label: 'Auto-Digest Sources', url: ROUTES.INTELLIGENCE_SOURCES },
+        { id: 'intelligence_sources' as View, label: 'Auto-Digest', url: ROUTES.AUTO_DIGEST },
         { id: 'analysis-reports' as View, label: 'Analysis Reports' },
         { id: 'action_plan' as View, label: 'Action Plan' },
       ],

@@ -244,7 +244,9 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       { path: 'settings/data-sync', element: <DataSyncPage /> },
       { path: 'settings/audit-log', element: <AuditLogPage /> },
       { path: 'settings/environment', element: <EnvironmentProfilePage /> },
-      { path: 'settings/intelligence', element: <AutoDigestSettingsPage /> },
+      { path: 'settings/auto-digest', element: <AutoDigestSettingsPage /> },
+      // Legacy redirect — old slug from when the page was titled "Intelligence Sources"
+      { path: 'settings/intelligence', element: <Navigate to="/settings/auto-digest" replace /> },
       { path: 'settings/cost-center', element: <CostCenterPage /> },
 
       // SIEM Home

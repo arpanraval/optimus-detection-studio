@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
 import { Icon } from '../Icon';
 import type { AutoDigestJob } from '../../hooks/useAutoDigestSettings';
@@ -13,6 +14,30 @@ interface FeedActivityLogProps {
 }
 
 type JobStatusTone = 'success' | 'partial' | 'failure' | 'running' | 'pending';
+
+// Filter chips for the run list. Most users land on Activity to answer
+// "did the last run actually digest anything?" or "what's broken?" — the
+// chips give them a one-click way to slice without scrolling through 20+
+// runs. "All" is always the default so we never hide data unintentionally.
+type ActivityFilter = 'all' | 'productive' | 'errors' | 'skipped-only';
+
+const ACTIVITY_FILTERS: { id: ActivityFilter; label: string }[] = [
+  { id: 'all',          label: 'All' },
+  { id: 'productive',   label: 'Productive' },
+  { id: 'errors',       label: 'With errors' },
+  { id: 'skipped-only', label: 'Nothing relevant' },
+];
+
+function jobMatchesFilter(job: AutoDigestJob, filter: ActivityFilter): boolean {
+  if (filter === 'all') return true;
+  const summary = job.result_summary as Record<string, any> | null;
+  const errors: string[] = Array.isArray(summary?.errors) ? summary!.errors : [];
+  const digested = summary?.digested ?? summary?.articles_digested ?? 0;
+  if (filter === 'productive')   return digested > 0;
+  if (filter === 'errors')       return errors.length > 0 || job.status === 'failed';
+  if (filter === 'skipped-only') return digested === 0 && errors.length === 0 && job.status === 'completed';
+  return true;
+}
 
 // =============================================================================
 // HELPERS
@@ -136,13 +161,17 @@ const JobCard: React.FC<{ job: AutoDigestJob; expanded: boolean; onToggle: () =>
   const classes = TONE_CLASSES[tone];
   const dur = jobDuration(job);
   const summary = jobOneLineSummary(job);
-  const shortId = job.id.slice(0, 8);
 
   return (
     <div className={`rounded-xl border border-outline-variant/30 ${classes.bg} overflow-hidden`}>
       <button
         type="button"
         onClick={onToggle}
+        // Hex job IDs (#768e794e) used to render in the visible row but were
+        // pure noise — eight characters of horizontal real estate that taught
+        // the user nothing. Moved to a `title` so they're available on hover
+        // for support/copy without polluting the scan-read.
+        title={`Run ID: ${job.id}`}
         className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-on-surface/[0.02] transition-colors"
       >
         <Icon
@@ -152,7 +181,6 @@ const JobCard: React.FC<{ job: AutoDigestJob; expanded: boolean; onToggle: () =>
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2 flex-wrap">
             <span className={`text-sm font-semibold ${classes.label}`}>{label}</span>
-            <span className="text-[11px] text-on-surface-variant/60 font-mono">#{shortId}</span>
             <span className="text-[11px] text-on-surface-variant/50 tabular-nums">
               {formatTime(job.created_at)}
             </span>
@@ -188,6 +216,13 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<ActivityFilter>('all');
+
+  // ?run=<jobId> deep-link from a digested report (or campaign) — auto-expand
+  // that run's transcript on mount so the user lands directly on the context
+  // they came for instead of having to scroll and click.
+  const [searchParams] = useSearchParams();
+  const requestedRunId = searchParams.get('run');
 
   const fetchJobs = useCallback(async () => {
     const { data } = await supabase
@@ -219,10 +254,15 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
   }, [userId, hasActiveJob, fetchJobs]);
 
   // Auto-expand any active job + the most-recent job so the user always
-  // sees something useful when landing on the page.
+  // sees something useful when landing on the page. If the user arrived
+  // via a `?run=<jobId>` deep-link, prefer that run.
   useEffect(() => {
     setExpandedJobs((prev) => {
       const next = new Set(prev);
+      if (requestedRunId && jobs.some((j) => j.id === requestedRunId)) {
+        next.add(requestedRunId);
+        return next;
+      }
       let mostRecentDone: string | null = null;
       for (const j of jobs) {
         if (j.status === 'pending' || j.status === 'processing') next.add(j.id);
@@ -231,7 +271,7 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
       if (mostRecentDone && next.size === 0) next.add(mostRecentDone);
       return next;
     });
-  }, [jobs]);
+  }, [jobs, requestedRunId]);
 
   const toggleJob = (jobId: string) =>
     setExpandedJobs((prev) => {
@@ -247,11 +287,18 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
       return next;
     });
 
+  // Apply the filter chip BEFORE grouping by day so chip filtering doesn't
+  // leave empty-day headers behind.
+  const filteredJobs = useMemo(
+    () => jobs.filter((j) => jobMatchesFilter(j, filter)),
+    [jobs, filter],
+  );
+
   // Group jobs by day
   const grouped = useMemo(() => {
     const groups: { dateKey: string; label: string; jobs: AutoDigestJob[] }[] = [];
     const map = new Map<string, AutoDigestJob[]>();
-    for (const j of jobs) {
+    for (const j of filteredJobs) {
       const key = getDateKey(j.created_at);
       if (!map.has(key)) {
         const arr: AutoDigestJob[] = [];
@@ -261,7 +308,7 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
       map.get(key)!.push(j);
     }
     return groups;
-  }, [jobs]);
+  }, [filteredJobs]);
 
   // ─── Loading ───────────────────────────────────────────────────────────
   if (isLoading) {
@@ -283,7 +330,7 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <Icon name="activity" className="w-10 h-10 text-on-surface-variant/30 mb-3" />
           <p className="text-sm text-on-surface-variant">
-            No auto-digest runs yet. Click <span className="font-medium text-on-surface">Run Now</span> in the Configuration tab to kick off the first one.
+            No auto-digest runs yet. Click <span className="font-medium text-on-surface">Run Now</span> above to kick off the first one.
           </p>
         </div>
       </div>
@@ -293,12 +340,39 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
   return (
     <div className="bg-surface-container rounded-2xl border border-outline-variant/10 flex flex-col"
          style={{ maxHeight: 'calc(100vh - 260px)' }}>
-      <div className="flex items-center justify-between px-6 pt-5 pb-3 shrink-0">
+      <div className="flex items-center justify-between px-6 pt-5 pb-3 shrink-0 gap-4 flex-wrap">
         <h3 className="text-base font-semibold text-on-surface">Activity Log</h3>
-        <span className="text-[10px] font-bold text-on-surface-variant/50 uppercase tracking-widest">
-          {jobs.length} run{jobs.length === 1 ? '' : 's'}
+        <div className="flex items-center gap-1">
+          {ACTIVITY_FILTERS.map((f) => {
+            const isActive = filter === f.id;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setFilter(f.id)}
+                className={`text-[11px] font-medium px-2.5 py-1 rounded-md transition-colors ${
+                  isActive
+                    ? 'bg-primary/15 text-primary'
+                    : 'text-on-surface-variant/70 hover:text-on-surface hover:bg-surface-container-high/50'
+                }`}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
+        <span className="text-[10px] font-bold text-on-surface-variant/50 uppercase tracking-widest tabular-nums">
+          {filter === 'all'
+            ? `${jobs.length} run${jobs.length === 1 ? '' : 's'}`
+            : `${filteredJobs.length} of ${jobs.length}`}
         </span>
       </div>
+
+      {filteredJobs.length === 0 && (
+        <div className="px-6 pb-8 text-center text-xs text-on-surface-variant/60">
+          No runs match the {ACTIVITY_FILTERS.find((f) => f.id === filter)?.label.toLowerCase()} filter.
+        </div>
+      )}
 
       <div className="overflow-y-auto px-6 pb-6 space-y-4 scrollbar-thin">
         {grouped.map((group) => {
