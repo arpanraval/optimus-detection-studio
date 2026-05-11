@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { Icon } from '../../components/Icon';
 import { Button } from '../../components/ui/Button';
 import { listSessions } from '../../lib/threatResearchService';
 import { routeHelpers } from '../routes';
 import type { ThreatResearchSession } from '../../types/threatResearch';
 import { NewResearchModal } from '../../components/threat-research/NewResearchModal';
+import { usePermissions } from '../../context/PermissionsContext';
 
 const STATUS_STYLE: Record<string, string> = {
   pending:   'bg-surface-variant text-on-surface-variant',
@@ -62,6 +63,7 @@ const PAGE_SIZE = 50;
 
 export function ThreatResearchPage() {
   const navigate = useNavigate();
+  const { hasRole, isLoading: permissionsLoading } = usePermissions();
   const [sessions, setSessions] = useState<ThreatResearchSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -108,6 +110,9 @@ export function ThreatResearchPage() {
       setLoadingMore(false);
     }
   }
+
+  if (permissionsLoading) return null;
+  if (!hasRole('owner')) return <Navigate to="/" replace />;
 
   return (
     <div className="flex h-full flex-col">

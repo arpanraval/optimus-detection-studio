@@ -440,6 +440,7 @@ function isItemActive(itemId: View, currentView: View, itemUrl?: string, pathnam
 
 function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
   const isAdmin = userRole === 'owner' || userRole === 'admin';
+  const isOwner = userRole === 'owner';
   
   const sections: NavSection[] = [
     {
@@ -492,7 +493,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
         { id: 'software' as View, label: 'Software' },
         { id: 'mitigations' as View, label: 'Mitigations' },
         { id: 'threat-intel' as View, label: 'Intelligence Reports' },
-        { id: 'threat-research' as View, label: 'Threat Research' },
+        ...(isOwner ? [{ id: 'threat-research' as View, label: 'Threat Research' }] : []),
         { id: 'intelligence_sources' as View, label: 'Auto-Digest', url: ROUTES.AUTO_DIGEST },
         { id: 'analysis-reports' as View, label: 'Analysis Reports' },
         { id: 'action_plan' as View, label: 'Action Plan' },
