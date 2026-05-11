@@ -14,10 +14,8 @@ export type EventType =
   | 'feed_fetched'
   | 'feed_failed'
   | 'article_seen'
-  | 'article_duplicate'
   | 'article_classified'
   | 'article_classify_failed'
-  | 'article_relevance_dropped'
   | 'article_skipped_daily_limit'
   | 'article_digested'
   | 'article_digest_failed';

@@ -24,6 +24,11 @@ export interface AutoDigestJob {
 export interface JobResultSummary {
   feeds_fetched: number;
   articles_harvested: number;
+  /** Entries left in digest_status='harvested' from a previous failed run that
+   *  this run picked up alongside the freshly-fetched ones. Surfaced in the
+   *  transcript so users see why classify processes more articles than the
+   *  feed-by-feed "X new" lines add up to. */
+  articles_recovered: number;
   articles_classified: number;
   articles_passed_gate: number;
   articles_skipped: number;
@@ -40,6 +45,7 @@ export function emptyJobResult(): JobResultSummary {
   return {
     feeds_fetched: 0,
     articles_harvested: 0,
+    articles_recovered: 0,
     articles_classified: 0,
     articles_passed_gate: 0,
     articles_skipped: 0,

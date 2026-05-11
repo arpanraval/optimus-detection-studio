@@ -2,15 +2,14 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
 // Mirror of the auto_digest_run_events table. New event types must be added
-// here AND to the CHECK constraint in 20260429d_auto_digest_run_events.sql.
+// here AND to the CHECK constraint (see 20260429d_auto_digest_run_events.sql
+// + 20260430a_drop_dead_event_types.sql).
 export type DigestEventType =
   | 'feed_fetched'
   | 'feed_failed'
   | 'article_seen'
-  | 'article_duplicate'
   | 'article_classified'
   | 'article_classify_failed'
-  | 'article_relevance_dropped'
   | 'article_skipped_daily_limit'
   | 'article_digested'
   | 'article_digest_failed';

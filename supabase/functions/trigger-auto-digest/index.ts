@@ -47,21 +47,49 @@ serve(async (req: Request) => {
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
-    // If a job is already pending or processing, return it instead of creating a duplicate
+    // If a job is already pending or processing, return it instead of creating
+    // a duplicate. But also: if the orchestrator was killed mid-run (deno
+    // sandbox eviction, function timeout, unhandled exception that escaped
+    // the per-job try/catch), the row stays in 'processing' forever and
+    // every subsequent Run Now click hits this branch — locking the user out
+    // of new runs until someone manually patches the row. Stale-job watchdog:
+    // anything older than the orchestrator's worst-case run time (4.5 min
+    // budget + harvest/classify slack) is presumed dead.
+    const STUCK_JOB_THRESHOLD_MS = 15 * 60 * 1000;
     const { data: existingJob } = await adminClient
       .from('auto_digest_jobs')
-      .select('id, status')
+      .select('id, status, started_at, created_at')
       .eq('user_id', user.id)
       .in('status', ['pending', 'processing'])
+      .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
     if (existingJob) {
-      return corsJsonResponse(
-        { job_id: existingJob.id, status: existingJob.status, message: 'A digest job is already in progress' },
-        req,
-        200,
-      );
+      const startedAt = existingJob.started_at || existingJob.created_at;
+      const ageMs = startedAt ? Date.now() - new Date(startedAt).getTime() : 0;
+      const isStuck = ageMs > STUCK_JOB_THRESHOLD_MS;
+
+      if (!isStuck) {
+        return corsJsonResponse(
+          { job_id: existingJob.id, status: existingJob.status, message: 'A digest job is already in progress' },
+          req,
+          200,
+        );
+      }
+
+      // Mark the stuck job as failed so it stops blocking new runs and so
+      // the user sees the failure on the activity log instead of an eternal
+      // "running" spinner. Then fall through and create a new pending job.
+      console.warn(`[trigger-auto-digest] Job ${existingJob.id} stuck for ${Math.round(ageMs / 1000)}s — marking failed`);
+      await adminClient
+        .from('auto_digest_jobs')
+        .update({
+          status: 'failed',
+          completed_at: new Date().toISOString(),
+          error: `Stuck in ${existingJob.status} for ${Math.round(ageMs / 60000)} min — orchestrator likely crashed; auto-recovered`,
+        })
+        .eq('id', existingJob.id);
     }
 
     // Insert a new pending job

@@ -92,45 +92,18 @@ serve(async (req: Request) => {
     }
 
     const token = authHeader.replace('Bearer ', '')
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 
-    // Create Supabase client with the user's JWT token
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      {
-        global: {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        }
-      }
-    )
+    // Service-role internal calls (auto-digest-orchestrator runs as service-role
+    // on behalf of the job's owner) take a different path: getUser() rejects
+    // the service-role key as "not a user JWT" and returns 401 — which is the
+    // root cause of the "Digest HTTP 401" the orchestrator transcript shows.
+    // Caller must pass the owning user's id in the body so RLS-scoped reads/
+    // writes (analysis_reports, environment_profiles) attribute correctly.
+    const isServiceRoleCall = serviceRoleKey.length > 0 && token === serviceRoleKey
 
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token)
-    if (authError || !user) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Unauthorized' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Rate limiting
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    )
-    const { allowed } = await checkRateLimit(
-      supabaseAdmin,
-      `user:${user.id}:fn:threat-intel-digest-v2`,
-      10,
-      60
-    )
-    if (!allowed) {
-      return corsErrorResponse('Rate limit exceeded. Try again shortly.', req, 429)
-    }
-
-    // Parse request
-    const body: DigestRequest = await req.json()
+    // Parse request early so the service-role caller can supply userId.
+    const body: DigestRequest & { userId?: string } = await req.json()
     const {
       sourceType,
       url,
@@ -141,6 +114,62 @@ serve(async (req: Request) => {
       existingReport,
       promptTemplates
     } = body
+
+    let supabaseClient
+    let user: { id: string }
+
+    if (isServiceRoleCall) {
+      if (!body.userId) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Service-role call missing userId in body' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+      supabaseClient = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        serviceRoleKey,
+        { auth: { autoRefreshToken: false, persistSession: false } }
+      )
+      user = { id: body.userId }
+    } else {
+      supabaseClient = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+        {
+          global: {
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        }
+      )
+      const { data: { user: authedUser }, error: authError } = await supabaseClient.auth.getUser(token)
+      if (authError || !authedUser) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Unauthorized' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+      user = authedUser
+    }
+
+    // Rate limiting — skip for service-role calls (the orchestrator already
+    // throttles at the job level).
+    if (!isServiceRoleCall) {
+      const supabaseAdmin = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        serviceRoleKey
+      )
+      const { allowed } = await checkRateLimit(
+        supabaseAdmin,
+        `user:${user.id}:fn:threat-intel-digest-v2`,
+        10,
+        60
+      )
+      if (!allowed) {
+        return corsErrorResponse('Rate limit exceeded. Try again shortly.', req, 429)
+      }
+    }
 
     // For retry, we need either existing content or ability to re-fetch
     const isRetry = !!retrySection && !!existingReport

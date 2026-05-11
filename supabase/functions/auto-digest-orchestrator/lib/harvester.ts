@@ -107,20 +107,45 @@ export async function harvestFeeds(
     }
   }
 
-  // Also pick up entries stuck in 'harvested' from previous failed classification runs
+  // Recovery loop — pick up entries stuck in 'harvested' from previous failed
+  // classification runs (e.g. the orchestrator crashed after harvest but
+  // before classify finished, so these entries never got their digest_status
+  // advanced). Without this, an article harvested on a crashed run would be
+  // permanently abandoned because its (feed_id, external_id) would dedupe in
+  // future harvests. Cap at 72h so we don't keep retrying ancient garbage.
+  //
+  // We also fetch enough metadata to emit one `article_seen` event per
+  // recovered entry, with payload.recovered = true. That's how the transcript
+  // tells the user "3 new this run + 1 recovered from a previous run = 4
+  // articles entering classify" — without this, the math looked broken.
+  const newIdSet = new Set(allNewIds);
   const { data: stuckEntries } = await supabase
     .from('threat_intel_feed_entries')
-    .select('id')
+    .select('id, title, url, feed_id, threat_intel_feeds(name)')
     .eq('user_id', userId)
     .eq('digest_status', 'harvested')
     .gte('fetched_at', new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString())
     .limit(50);
 
-  const stuckIds = (stuckEntries || []).map((e: any) => e.id);
-  const allEntryIds = [...new Set([...allNewIds, ...stuckIds])];
+  const recoveredEntries = (stuckEntries || []).filter((e: any) => !newIdSet.has(e.id));
+  const recoveredIds = recoveredEntries.map((e: any) => e.id);
 
-  result.articles_harvested = allEntryIds.length;
-  return allEntryIds;
+  for (const re of recoveredEntries) {
+    const feedRel = (re as any).threat_intel_feeds || {};
+    await emit(ctx, 'article_seen', {
+      feed_id: re.feed_id ?? null,
+      feed_name: feedRel.name ?? null,
+      article_id: re.id,
+      article_title: re.title ?? '(untitled)',
+      article_url: re.url ?? null,
+      reason: 'Recovered from a previous run that did not finish classification',
+      payload: { recovered: true },
+    });
+  }
+
+  result.articles_recovered = recoveredIds.length;
+
+  return [...allNewIds, ...recoveredIds];
 }
 
 // ---------------------------------------------------------------------------
