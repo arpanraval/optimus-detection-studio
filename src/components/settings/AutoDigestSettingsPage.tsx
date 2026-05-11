@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
 import { Select } from '../ui/Select';
 import { Toggle } from '../ui/Toggle';
 import { ModelSelector } from '../ModelSelector';
-import { useAutoDigestSettings, CuratedFeedSource } from '../../hooks/useAutoDigestSettings';
+import { useAutoDigestSettings, CuratedFeedSource, FeedHealth } from '../../hooks/useAutoDigestSettings';
 import { FeedActivityLog } from '../threatintel/FeedActivityLog';
 import { useAppData } from '../../router/AppDataContext';
-import { supabase } from '../../lib/supabaseClient';
 
 // =============================================================================
 // TYPES & CONSTANTS
@@ -17,13 +17,17 @@ interface AutoDigestSettingsPageProps {
   onBack?: () => void;
 }
 
-type TabId = 'sources' | 'configuration' | 'activity';
+type TabId = 'activity' | 'sources' | 'configuration';
 
+// Activity is intentionally first — established users land here to check
+// "did the last run work?" far more often than they tweak Sources or Config.
 const TABS: { id: TabId; label: string; icon: string }[] = [
+  { id: 'activity', label: 'Activity', icon: 'trending-up' },
   { id: 'sources', label: 'Sources', icon: 'globe' },
   { id: 'configuration', label: 'Configuration', icon: 'settings' },
-  { id: 'activity', label: 'Activity', icon: 'trending-up' },
 ];
+
+const VALID_TAB_IDS: TabId[] = ['activity', 'sources', 'configuration'];
 
 const SCHEDULE_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
   value: String(i),
@@ -69,14 +73,49 @@ function getDomain(feedUrl: string): string {
 // SOURCE ROW
 // =============================================================================
 
+// Compact relative-time formatter for the Sources health column. We don't
+// need full precision here — "5m ago" / "3h ago" / "2d ago" / "Apr 28" is
+// enough to answer "is this feed alive?".
+function formatRelativeShort(ts: string | null): string {
+  if (!ts) return '—';
+  const ms = Date.now() - new Date(ts).getTime();
+  if (Number.isNaN(ms) || ms < 0) return '—';
+  const min = Math.round(ms / 60000);
+  if (min < 1)  return 'just now';
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24)  return `${hr}h ago`;
+  const day = Math.round(hr / 24);
+  if (day < 7)  return `${day}d ago`;
+  return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 const SourceRow: React.FC<{
   source: CuratedFeedSource;
   isEnabled: boolean;
+  health: FeedHealth | undefined;
   onToggle: () => void;
   index: number;
-}> = ({ source, isEnabled, onToggle, index }) => {
+}> = ({ source, isEnabled, health, onToggle, index }) => {
   const faviconUrl = getFaviconUrl(source.url);
   const domain = getDomain(source.url);
+
+  // Status pill state for the Health column. "—" for sources that aren't
+  // enabled yet (no threat_intel_feeds row, no fetch attempts), "Failed"
+  // (red) when last_error is set, "Fetched <relative>" (muted) otherwise.
+  // The full last_error text lives in a tooltip so the row stays compact.
+  let healthLabel: React.ReactNode = <span className="text-on-surface-variant/30">—</span>;
+  let healthTitle: string | undefined;
+  if (isEnabled) {
+    if (health?.last_error) {
+      healthLabel = <span className="text-red-400/90">Failed · {formatRelativeShort(health.last_fetched_at)}</span>;
+      healthTitle = health.last_error;
+    } else if (health?.last_fetched_at) {
+      healthLabel = <span className="text-on-surface-variant">Fetched {formatRelativeShort(health.last_fetched_at)}</span>;
+    } else {
+      healthLabel = <span className="text-on-surface-variant/40">Awaiting first fetch</span>;
+    }
+  }
 
   return (
     <tr
@@ -103,6 +142,9 @@ const SourceRow: React.FC<{
       <td className="py-3 pr-4">
         <span className="text-xs text-on-surface-variant/50 font-mono">{domain}</span>
       </td>
+      <td className="py-3 pr-4">
+        <span className="text-[11px] tabular-nums" title={healthTitle}>{healthLabel}</span>
+      </td>
       <td className="py-3 pr-4 text-right">
         <span className="text-[11px] text-on-surface-variant/40 tabular-nums">~{source.avg_articles_week}/wk</span>
       </td>
@@ -120,22 +162,6 @@ const SourceRow: React.FC<{
 };
 
 // =============================================================================
-// STAT CARD (compact)
-// =============================================================================
-
-const StatCard: React.FC<{ label: string; value: string | number; icon: string }> = ({ label, value, icon }) => (
-  <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-container border border-outline-variant/10">
-    <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-      <Icon name={icon} className="w-4 h-4 text-primary" />
-    </div>
-    <div>
-      <div className="text-lg font-bold text-on-surface tabular-nums">{value}</div>
-      <div className="text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">{label}</div>
-    </div>
-  </div>
-);
-
-// =============================================================================
 // MAIN COMPONENT
 // =============================================================================
 
@@ -147,6 +173,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     settings,
     curatedSources,
     enabledSourceIds,
+    feedHealth,
     recentJobs,
     isLoading,
     saveSettings,
@@ -154,8 +181,19 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     triggerManualRun,
   } = useAutoDigestSettings(userId);
 
-  // Tab state
-  const [activeTab, setActiveTab] = useState<TabId>('sources');
+  // Tab state lives in the URL (?tab=...) so refresh, browser back/forward,
+  // and external deep-links all behave naturally. Default tab is Activity —
+  // most repeat visits are "did the last run work?", not "let me reconfigure".
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get('tab') as TabId | null;
+  const activeTab: TabId = tabFromUrl && VALID_TAB_IDS.includes(tabFromUrl) ? tabFromUrl : 'activity';
+  const setActiveTab = useCallback((tab: TabId) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('tab', tab);
+      return next;
+    }, { replace: false });
+  }, [setSearchParams]);
 
   // Local config state (for dirty tracking)
   const [localConfig, setLocalConfig] = useState({
@@ -282,32 +320,29 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     return groups;
   }, [curatedSources]);
 
-  // Pipeline stats
-  const [stats, setStats] = useState({ digested: 0, reviewed: 0, avgCoverage: 0 });
-  useEffect(() => {
-    if (!userId) return;
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    supabase
-      .from('threat_intel_reports')
-      .select('id, coverage_percent, review_status')
-      .eq('source', 'auto')
-      .eq('user_id', userId)
-      .gte('created_at', thirtyDaysAgo)
-      .then(({ data }) => {
-        if (!data) return;
-        const withCov = data.filter(r => r.coverage_percent != null);
-        setStats({
-          digested: data.length,
-          reviewed: data.filter(r => r.review_status !== 'pending').length,
-          avgCoverage: withCov.length > 0
-            ? Math.round(withCov.reduce((s, r) => s + (r.coverage_percent ?? 0), 0) / withCov.length)
-            : 0,
-        });
-      });
-  }, [userId]);
+  // Header status-line computations. Must live above the `if (isLoading)`
+  // early-return so the hook count is stable across renders (Rules of Hooks).
+  const lastRun = recentJobs[0];
+  const nextScheduledLabel = useMemo(() => {
+    if (!localConfig.is_enabled) return 'Auto-run paused';
+    const hour = localConfig.schedule_hour_utc;
+    return `Next auto-run ${String(hour).padStart(2, '0')}:00 UTC`;
+  }, [localConfig.is_enabled, localConfig.schedule_hour_utc]);
+
+  const lastRunLabel = useMemo(() => {
+    if (!lastRun) return 'No runs yet — click Run Now to start one';
+    const summary = lastRun.result_summary as Record<string, any> | null;
+    const errors: string[] = Array.isArray(summary?.errors) ? summary!.errors : [];
+    const digested = summary?.digested ?? summary?.articles_digested ?? 0;
+    const time = new Date(lastRun.started_at || lastRun.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+    if (lastRun.status === 'pending' || lastRun.status === 'processing') return `Running since ${time}`;
+    if (lastRun.status === 'failed') return `Last run ${time} — failed`;
+    const errorPart = errors.length > 0 ? ` · ${errors.length} error${errors.length === 1 ? '' : 's'}` : '';
+    return `Last run ${time} · ${digested} digested${errorPart}`;
+  }, [lastRun]);
 
   // ─────────────────────────────────────────────────────────────
-  // LOADING
+  // LOADING (after all hooks — Rules of Hooks)
   // ─────────────────────────────────────────────────────────────
 
   if (isLoading) {
@@ -318,19 +353,23 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // RENDER
-  // ─────────────────────────────────────────────────────────────
-
   return (
     <div className="max-w-5xl mx-auto px-4 py-4 animate-page-enter">
-      {/* Page header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-lg font-bold text-on-surface">Auto-Digest Pipeline</h2>
-          <p className="text-sm text-on-surface-variant mt-0.5">Automatic threat intelligence ingestion and analysis</p>
+      {/* Page header — name, status line, run controls.
+          "Auto-run: ON/OFF" replaces the ambiguous "Active/Paused" word
+          which read as a verb-state contradicting the always-clickable Run
+          Now button. Status line tells the user what just happened and
+          when next, the two questions every landing user has. */}
+      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
+        <div className="min-w-0">
+          <h2 className="text-lg font-bold text-on-surface">Auto-Digest</h2>
+          <p className="text-sm text-on-surface-variant mt-0.5">
+            <span>{lastRunLabel}</span>
+            <span className="mx-2 text-on-surface-variant/40">·</span>
+            <span>{nextScheduledLabel}</span>
+          </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           <Button
             size="sm"
             color="secondary"
@@ -341,13 +380,17 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
           >
             {isJobActive ? 'Running…' : 'Run Now'}
           </Button>
-          <span className="text-sm text-on-surface-variant">{localConfig.is_enabled ? 'Active' : 'Paused'}</span>
-          <Toggle
-            size="md"
-            checked={localConfig.is_enabled}
-            onChange={() => updateConfig('is_enabled', !localConfig.is_enabled)}
-            aria-label={localConfig.is_enabled ? 'Pause auto-digest pipeline' : 'Activate auto-digest pipeline'}
-          />
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-on-surface-variant whitespace-nowrap">
+              Auto-run: <span className={localConfig.is_enabled ? 'text-emerald-500 font-medium' : 'text-on-surface-variant/70 font-medium'}>{localConfig.is_enabled ? 'ON' : 'OFF'}</span>
+            </span>
+            <Toggle
+              size="md"
+              checked={localConfig.is_enabled}
+              onChange={() => updateConfig('is_enabled', !localConfig.is_enabled)}
+              aria-label={localConfig.is_enabled ? 'Disable auto-digest schedule' : 'Enable auto-digest schedule'}
+            />
+          </div>
         </div>
       </div>
 
@@ -365,9 +408,12 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
           >
             <Icon name={tab.icon} className="w-3.5 h-3.5" />
             {tab.label}
-            {tab.id === 'sources' && effectiveEnabled.size > 0 && (
+            {/* Sources badge: show enabled/total to match the body counter
+                ("12/13") instead of just "12", which matched neither "12 of
+                13 sources enabled" nor "12 enabled, 1 disabled". */}
+            {tab.id === 'sources' && curatedSources.length > 0 && (
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-bold tabular-nums">
-                {effectiveEnabled.size}
+                {effectiveEnabled.size}/{curatedSources.length}
               </span>
             )}
             {/* Active indicator */}
@@ -383,11 +429,18 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
       {/* ═══════════════════════════════════════════════════════ */}
       {activeTab === 'sources' && (
         <div className="space-y-4">
-          {/* Counter bar */}
-          <div className="flex items-center justify-between px-1">
+          {/* Counter bar + curated note. The "Add Custom Source" path
+              isn't built yet; rather than show a non-functional button
+              we explicitly tell the user the source list is curated and
+              point them at the right place to request additions. Quiet
+              acknowledgment beats hidden capability. */}
+          <div className="flex items-center justify-between px-1 gap-4 flex-wrap">
             <span className="text-xs text-on-surface-variant">
               <span className="font-bold text-on-surface tabular-nums">{effectiveEnabled.size}</span>
               {' '}of {curatedSources.length} sources enabled
+            </span>
+            <span className="text-[11px] text-on-surface-variant/50">
+              Curated by Optimus — to request a new source, contact support.
             </span>
           </div>
 
@@ -399,27 +452,37 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
                   <th className="py-2.5 pl-5 pr-3 w-12" />
                   <th className="py-2.5 pr-4 text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">Source</th>
                   <th className="py-2.5 pr-4 text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">Domain</th>
+                  <th className="py-2.5 pr-4 text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">Health</th>
                   <th className="py-2.5 pr-4 text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider text-right">Frequency</th>
                   <th className="py-2.5 pr-5 w-16 text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider text-center">Active</th>
                 </tr>
               </thead>
-              {CATEGORY_ORDER.map(cat => {
+              {/* Category rendering: when a category has only 1 source we
+                  fold it into the previous block (no orphan section
+                  heading), so "Government & Advisory" with one row no
+                  longer looks like a half-finished section. Headings only
+                  render for categories with 2+ rows. */}
+              {CATEGORY_ORDER.map((cat) => {
                 const sources = grouped[cat];
                 if (!sources?.length) return null;
+                const showHeading = sources.length >= 2;
                 return (
                   <tbody key={cat}>
-                    <tr className="bg-surface-container">
-                      <td colSpan={5} className="px-5 py-1.5 border-y border-outline-variant/50">
-                        <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">
-                          {CATEGORY_LABELS[cat] ?? cat}
-                        </span>
-                      </td>
-                    </tr>
+                    {showHeading && (
+                      <tr className="bg-surface-container">
+                        <td colSpan={6} className="px-5 py-1.5 border-y border-outline-variant/50">
+                          <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">
+                            {CATEGORY_LABELS[cat] ?? cat}
+                          </span>
+                        </td>
+                      </tr>
+                    )}
                     {sources.map((source, i) => (
                       <SourceRow
                         key={source.id}
                         source={source}
                         isEnabled={effectiveEnabled.has(source.id)}
+                        health={feedHealth.get(source.id)}
                         onToggle={() => handleToggleSource(source)}
                         index={i}
                       />
@@ -456,13 +519,32 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
             <div className="p-5 space-y-5">
               {/* Schedule & Limits */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Select
-                  label="Schedule (UTC)"
-                  options={SCHEDULE_OPTIONS}
-                  value={String(localConfig.schedule_hour_utc)}
-                  onChange={(v) => updateConfig('schedule_hour_utc', Number(v))}
-                  size="sm"
-                />
+                <div>
+                  <Select
+                    label="Schedule (UTC)"
+                    options={SCHEDULE_OPTIONS}
+                    value={String(localConfig.schedule_hour_utc)}
+                    onChange={(v) => updateConfig('schedule_hour_utc', Number(v))}
+                    size="sm"
+                  />
+                  {/* Local-time hint. The dropdown stores UTC because the
+                      cron schedule lives in UTC, but a user in PT shouldn't
+                      have to mentally convert "06:00 UTC" to "11:00 PM" the
+                      previous day. Compute via Intl on render. */}
+                  <p className="text-[11px] text-on-surface-variant/60 mt-1.5">
+                    {(() => {
+                      const local = new Date();
+                      local.setUTCHours(localConfig.schedule_hour_utc, 0, 0, 0);
+                      const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local';
+                      const localStr = local.toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true,
+                      });
+                      return `${localStr} in your timezone (${tzName})`;
+                    })()}
+                  </p>
+                </div>
                 <Select
                   label="Max articles / day"
                   options={MAX_ARTICLES_OPTIONS}
@@ -518,29 +600,91 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
                       Scores articles by relevance to your industry, platforms, and log sources
                     </p>
                   </div>
-                  <span className="text-[10px] px-2 py-1 rounded-full bg-primary/10 text-primary font-bold uppercase tracking-wider">
+                  {/* AUTO badge: explain what's happening so the user
+                      doesn't see a control they can't operate. The
+                      relevance scoring runs against the user's
+                      Environment Profile — link there as the way to
+                      change behavior, since this control itself isn't
+                      configurable. */}
+                  <span
+                    className="text-[10px] px-2 py-1 rounded-full bg-primary/10 text-primary font-bold uppercase tracking-wider cursor-help"
+                    title="Automatically scored against your Environment Profile (industry, platforms, log sources). To change scoring behavior, edit your Environment Profile in Settings."
+                  >
                     Auto
                   </span>
                 </div>
               </div>
             </div>
           </div>
+
+          {/* Pipeline stats panel — replaces the dead empty space below
+              the small settings group. Mirrors of the most important
+              cumulative numbers so this tab feels populated and gives
+              the user a quick health snapshot without bouncing to
+              Activity. Counts come straight from recentJobs (last 7
+              runs from the hook) so we don't pay for an extra query. */}
+          {recentJobs.length > 0 && (() => {
+            const totals = recentJobs.reduce(
+              (acc, j) => {
+                const s = j.result_summary as Record<string, any> | null;
+                acc.digested += s?.digested ?? s?.articles_digested ?? 0;
+                acc.skipped  += s?.skipped  ?? s?.articles_skipped  ?? 0;
+                acc.errors   += Array.isArray(s?.errors) ? s!.errors.length : 0;
+                if (j.status === 'failed') acc.failedRuns += 1;
+                if (j.status === 'completed') acc.completedRuns += 1;
+                return acc;
+              },
+              { digested: 0, skipped: 0, errors: 0, failedRuns: 0, completedRuns: 0 },
+            );
+            const successRate = recentJobs.length > 0
+              ? Math.round((totals.completedRuns / recentJobs.length) * 100)
+              : 0;
+            return (
+              <div className="rounded-xl border border-outline-variant/10">
+                <div className="px-5 py-3 border-b border-outline-variant/10 bg-surface-container-high/20">
+                  <h3 className="text-sm font-semibold text-on-surface">Pipeline Health</h3>
+                  <p className="text-xs text-on-surface-variant/60 mt-0.5">
+                    Last {recentJobs.length} run{recentJobs.length === 1 ? '' : 's'}
+                  </p>
+                </div>
+                <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div>
+                    <div className="text-lg font-bold text-on-surface tabular-nums">{totals.digested}</div>
+                    <div className="text-[10px] uppercase tracking-wider text-on-surface-variant/60 font-bold mt-0.5">Digested</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-bold text-on-surface-variant tabular-nums">{totals.skipped}</div>
+                    <div className="text-[10px] uppercase tracking-wider text-on-surface-variant/60 font-bold mt-0.5">Not relevant</div>
+                  </div>
+                  <div>
+                    <div className={`text-lg font-bold tabular-nums ${totals.errors > 0 ? 'text-amber-400' : 'text-on-surface-variant'}`}>{totals.errors}</div>
+                    <div className="text-[10px] uppercase tracking-wider text-on-surface-variant/60 font-bold mt-0.5">Errors</div>
+                  </div>
+                  <div>
+                    <div className={`text-lg font-bold tabular-nums ${successRate >= 80 ? 'text-emerald-500' : successRate >= 50 ? 'text-amber-400' : 'text-red-400'}`}>{successRate}%</div>
+                    <div className="text-[10px] uppercase tracking-wider text-on-surface-variant/60 font-bold mt-0.5">Success rate</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
       {/* ═══════════════════════════════════════════════════════ */}
       {/* TAB: ACTIVITY                                          */}
       {/* ═══════════════════════════════════════════════════════ */}
+      {/* Three big zero stat-cards (Digested 30d / Reviewed / Avg
+          Coverage) used to live here. They were the worst-case empty
+          state for a brand-new pipeline — three giant zeros with no
+          guidance. The status line in the header above already
+          surfaces "last run / next run" in one place; we don't need
+          to repeat trailing-30d stats on the Activity tab. The Sources
+          tab (and a future Configuration tab pipeline-stats panel)
+          are the right home for cumulative numbers if/when we want
+          them again. */}
       {activeTab === 'activity' && (
         <div className="space-y-5">
-          {/* Stats */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <StatCard label="Digested (30d)" value={stats.digested} icon="file-text" />
-            <StatCard label="Reviewed" value={stats.reviewed} icon="check-circle" />
-            <StatCard label="Avg Coverage" value={`${stats.avgCoverage}%`} icon="chart-bar" />
-          </div>
-
-          {/* Activity log */}
           {userId ? (
             <FeedActivityLog userId={userId} />
           ) : (

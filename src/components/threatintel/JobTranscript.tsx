@@ -55,6 +55,65 @@ function formatDuration(ms: number): string {
   return rem > 0 ? `${min}m ${rem}s` : `${min}m`;
 }
 
+// Convert raw network/transport errors from upstream feed fetches into
+// user-friendly summaries. We deliberately keep the original text accessible
+// via the "Show details" expander — power users debugging a flaky feed
+// still need it — but we don't make a casual reader parse "http2 error:
+// stream error received: unexpected internal error encountered" to
+// understand "the feed is temporarily down".
+function humanizeFeedError(raw: string | null | undefined): { headline: string; raw: string | null } {
+  const r = (raw || '').trim();
+  if (!r) return { headline: 'Unknown error', raw: null };
+
+  // Known transport-layer patterns.
+  if (/http2|h2c|stream error|GOAWAY/i.test(r)) {
+    return { headline: 'Network error — feed temporarily unreachable (HTTP/2 transport)', raw: r };
+  }
+  if (/ECONNRESET|connection reset/i.test(r)) {
+    return { headline: 'Network error — connection reset by upstream feed', raw: r };
+  }
+  if (/ETIMEDOUT|timed?\s*out|timeout/i.test(r)) {
+    return { headline: 'Timed out — feed did not respond in time', raw: r };
+  }
+  if (/ENOTFOUND|getaddrinfo|DNS/i.test(r)) {
+    return { headline: 'DNS lookup failed — feed host could not be resolved', raw: r };
+  }
+  if (/HTTP\s*5\d\d/i.test(r)) {
+    return { headline: 'Feed responded with a server error (5xx)', raw: r };
+  }
+  if (/HTTP\s*4\d\d/i.test(r)) {
+    return { headline: 'Feed rejected the request (4xx)', raw: r };
+  }
+  if (/Content too large|exceeds maximum/i.test(r)) {
+    return { headline: 'Feed response too large to process', raw: r };
+  }
+
+  // Short messages we can show as-is. Long messages we truncate but still
+  // expose the full text via the expander.
+  if (r.length <= 80) return { headline: r, raw: null };
+  return { headline: r.slice(0, 80) + '…', raw: r };
+}
+
+const RawErrorDetails: React.FC<{ raw: string }> = ({ raw }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="ml-5 mt-0.5">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="text-[10px] uppercase tracking-wider text-on-surface-variant/50 hover:text-on-surface-variant transition-colors"
+      >
+        {open ? 'Hide details' : 'Show details'}
+      </button>
+      {open && (
+        <pre className="mt-1 text-[10px] text-on-surface-variant/70 whitespace-pre-wrap break-all font-mono leading-relaxed bg-surface-container-lowest/60 rounded p-2">
+          {raw}
+        </pre>
+      )}
+    </div>
+  );
+};
+
 function eventDestinationUrl(e: DigestEvent): string | null {
   if (e.event_type === 'article_digested') {
     const reportId = (e.payload as any)?.report_id;
@@ -209,7 +268,15 @@ function HarvestStage({ events, jobIsActive }: { events: DigestEvent[]; jobIsAct
               {f.status === 'failed' ? 'fetch failed' : `${f.articles.length} new`}
             </span>
           </div>
-          {f.error && <div className="text-[11px] text-red-400/80 ml-5 mt-0.5">{f.error}</div>}
+          {f.error && (() => {
+            const humanized = humanizeFeedError(f.error);
+            return (
+              <>
+                <div className="text-[11px] text-red-400/80 ml-5 mt-0.5">{humanized.headline}</div>
+                {humanized.raw && <RawErrorDetails raw={humanized.raw} />}
+              </>
+            );
+          })()}
           {f.articles.length > 0 && (
             <ul className="ml-5 mt-1 space-y-0.5">
               {f.articles.map((a) => (
@@ -265,11 +332,17 @@ function ClassifyStage({ events }: { events: DigestEvent[] }) {
     ? (passed.length > 0 ? 'mixed' as const : 'error' as const)
     : (passed.length > 0 ? 'success' as const : 'mixed' as const);
 
+  // Color semantics: green only when passed > 0. A run that classified
+  // every article as "not threat research" is neither failure nor success
+  // visually — it's a neutral verdict. "0 passed" rendered emerald sent
+  // the wrong signal.
+  const passedClass = passed.length > 0 ? 'font-medium text-emerald-500' : 'text-on-surface-variant';
+
   const summary = (
     <span>
-      <span className="font-medium text-emerald-500">{passed.length} passed</span>
+      <span className={passedClass}>{passed.length} passed</span>
       <span className="text-on-surface-variant"> · </span>
-      <span className="text-on-surface-variant">{skipped.length} skipped</span>
+      <span className="text-on-surface-variant">{skipped.length} not relevant</span>
       {errored.length > 0 && (
         <>
           <span className="text-on-surface-variant"> · </span>
@@ -279,21 +352,25 @@ function ClassifyStage({ events }: { events: DigestEvent[] }) {
     </span>
   );
 
+  // Per-row tone label. "Skipped" is ambiguous — it could mean either
+  // "AI judged not relevant" (a verdict) or "system couldn't process"
+  // (a failure). Use "Not relevant" for the verdict and reserve "Error"
+  // for actual classifier failures.
   const detail = (
     <ul className="space-y-1.5">
       {[...passed, ...skipped, ...errored].map((e) => {
         const isErr = e.event_type === 'article_classify_failed';
         const tone = isErr ? 'text-red-400' : (e.passed ? 'text-emerald-500' : 'text-on-surface-variant/70');
-        const label = isErr ? 'Error' : (e.passed ? 'Passed' : 'Skipped');
+        const label = isErr ? 'Error' : (e.passed ? 'Passed' : 'Not relevant');
         return (
           <li key={e.id}>
             <div className="flex items-baseline gap-2">
-              <span className={`text-[10px] font-bold uppercase tracking-wider w-12 shrink-0 ${tone}`}>{label}</span>
+              <span className={`text-[10px] font-bold uppercase tracking-wider w-20 shrink-0 ${tone}`}>{label}</span>
               <span className="text-[11px] text-on-surface-variant/40 font-mono tabular-nums shrink-0">{formatTime(e.created_at)}</span>
               <span className="min-w-0 flex-1 truncate"><ArticleLink event={e} /></span>
             </div>
             {e.reason && (
-              <div className="text-[11px] text-on-surface-variant ml-14 mt-0.5">{e.reason}</div>
+              <div className="text-[11px] text-on-surface-variant ml-[5.5rem] mt-0.5">{e.reason}</div>
             )}
           </li>
         );
@@ -498,20 +575,31 @@ export const JobTranscript: React.FC<JobTranscriptProps> = ({ job }) => {
       : -1;
 
   return (
-    <div className="space-y-2 px-4 py-3 bg-surface-container-lowest/30 rounded-b-xl">
-      {stages.map((s, i) => (
-        <StageShell
-          key={s.key}
-          index={i + 1}
-          stageKey={s.key}
-          title={s.label}
-          subtitle={s.subtitle}
-          summary={s.summary}
-          detail={s.detail}
-          state={s.state}
-          defaultOpen={i === defaultOpenIdx}
-        />
-      ))}
+    <div className="px-4 py-3 bg-surface-container-lowest/30 rounded-b-xl">
+      {/* Stage list with a thin connector rail at the dot column so the four
+          stages read as a sequence (Harvest → Classify → Rank → Digest)
+          rather than four parallel cards. The rail sits at the same x as
+          the tone dot inside each StageShell (top: ~22px from the row top
+          for "mt-1.5 w-2 h-2"; left: 4 px of card padding + 16 px of gap
+          ≈ 25 px). Tweak the offsets if the StageShell padding changes. */}
+      <div className="relative">
+        <div className="absolute left-[25px] top-6 bottom-6 w-px bg-outline-variant/40 pointer-events-none" />
+        <div className="relative space-y-2">
+          {stages.map((s, i) => (
+            <StageShell
+              key={s.key}
+              index={i + 1}
+              stageKey={s.key}
+              title={s.label}
+              subtitle={s.subtitle}
+              summary={s.summary}
+              detail={s.detail}
+              state={s.state}
+              defaultOpen={i === defaultOpenIdx}
+            />
+          ))}
+        </div>
+      </div>
     </div>
   );
 };

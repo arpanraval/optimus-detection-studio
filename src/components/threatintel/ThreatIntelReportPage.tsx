@@ -1797,6 +1797,10 @@ export const ThreatIntelReportPage: React.FC = () => {
                     </a>
                   </>
                 )}
+                {' • '}
+                <Link to="/settings/auto-digest?tab=activity" className="text-primary hover:underline">
+                  Auto-Digest run
+                </Link>
               </span>
             </div>
           )}

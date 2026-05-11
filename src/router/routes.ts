@@ -68,7 +68,12 @@ export const ROUTES = {
   DATA_SYNC: '/settings/data-sync',
   AUDIT_LOG: '/settings/audit-log',
   ENVIRONMENT_PROFILE: '/settings/environment',
-  INTELLIGENCE_SOURCES: '/settings/intelligence',
+  // Auto-Digest (intelligence-feed pipeline). Canonical route below; the
+  // INTELLIGENCE_SOURCES alias is preserved so any external links / the
+  // sidebar's older view-id mapping still resolve. New code should use
+  // AUTO_DIGEST.
+  AUTO_DIGEST: '/settings/auto-digest',
+  INTELLIGENCE_SOURCES: '/settings/auto-digest',
   COST_CENTER: '/settings/cost-center',
 
   // Account
@@ -174,7 +179,8 @@ export const viewToRoute: Record<string, string> = {
   'integrations': ROUTES.INTEGRATIONS,
   'scoring_settings': ROUTES.SCORING,
   'environment_profile': ROUTES.ENVIRONMENT_PROFILE,
-  'intelligence_sources': ROUTES.INTELLIGENCE_SOURCES,
+  'intelligence_sources': ROUTES.AUTO_DIGEST,
+  'auto_digest': ROUTES.AUTO_DIGEST,
   'siem-health': ROUTES.SIEM_HEALTH,
   'action_plan': ROUTES.ACTION_PLAN,
   'exercises-state-sponsored': '/exercises/state-sponsored',
@@ -254,7 +260,7 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.DATA_SYNC]: { title: 'Data Sync', description: 'Sync MITRE ATT&CK data and vector embeddings' },
   [ROUTES.AUDIT_LOG]: { title: 'Audit Log', description: 'Enterprise audit trail for compliance and accountability' },
   [ROUTES.ENVIRONMENT_PROFILE]: { title: 'Environment Profile', description: 'Configure your security environment for personalized intelligence' },
-  [ROUTES.INTELLIGENCE_SOURCES]: { title: 'Intelligence Sources', description: 'Configure automatic threat intelligence ingestion' },
+  [ROUTES.AUTO_DIGEST]: { title: 'Auto-Digest', description: 'Automatic threat intelligence ingestion and analysis' },
   [ROUTES.SIEM_HEALTH]: { title: 'SIEM Home', description: 'Manage your SIEM and EDR integrations' },
   [ROUTES.SIEM_HOME]: { title: 'SIEM Home', description: undefined },
   [ROUTES.ACTION_PLAN]: { title: 'Detection Action Plan', description: 'Prioritized detection deployment roadmap' },

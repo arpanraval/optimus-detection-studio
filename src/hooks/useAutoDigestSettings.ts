@@ -46,10 +46,20 @@ export interface AutoDigestJob {
 // HOOK
 // ============================================
 
+// Per-source health surfaced in the Sources tab. Keyed by curated_source_id.
+// `last_fetched_at` and `last_error` come from the user's threat_intel_feeds
+// row that was created when they toggled the source on.
+export interface FeedHealth {
+  last_fetched_at: string | null;
+  last_error: string | null;
+  feed_id: string;
+}
+
 export function useAutoDigestSettings(userId: string) {
   const [settings, setSettings] = useState<AutoDigestSettings | null>(null);
   const [curatedSources, setCuratedSources] = useState<CuratedFeedSource[]>([]);
   const [enabledSourceIds, setEnabledSourceIds] = useState<Set<string>>(new Set());
+  const [feedHealth, setFeedHealth] = useState<Map<string, FeedHealth>>(new Map());
   const [recentJobs, setRecentJobs] = useState<AutoDigestJob[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { showToast } = useToast();
@@ -78,16 +88,31 @@ export function useAutoDigestSettings(userId: string) {
   }, []);
 
   const fetchEnabledSources = useCallback(async () => {
+    // Fetch enabled sources together with the health columns (last_fetched_at,
+    // last_error) so the Sources tab can render a per-row status pill without
+    // a second round-trip. Disabled sources don't need health since the user
+    // has nothing actionable to do about them until they re-enable.
     const { data, error } = await supabase
       .from('threat_intel_feeds')
-      .select('curated_source_id')
+      .select('id, curated_source_id, last_fetched_at, last_error')
       .eq('user_id', userId)
       .eq('is_auto_digest', true)
       .eq('is_enabled', true)
       .not('curated_source_id', 'is', null);
     if (!error) {
-      const ids = new Set<string>((data || []).map((r: any) => r.curated_source_id));
+      const ids = new Set<string>();
+      const health = new Map<string, FeedHealth>();
+      for (const r of (data || []) as any[]) {
+        if (!r.curated_source_id) continue;
+        ids.add(r.curated_source_id);
+        health.set(r.curated_source_id, {
+          feed_id: r.id,
+          last_fetched_at: r.last_fetched_at ?? null,
+          last_error: r.last_error ?? null,
+        });
+      }
       setEnabledSourceIds(ids);
+      setFeedHealth(health);
     }
   }, [userId]);
 
@@ -206,6 +231,7 @@ export function useAutoDigestSettings(userId: string) {
     settings,
     curatedSources,
     enabledSourceIds,
+    feedHealth,
     recentJobs,
     isLoading,
     fetchSettings,
