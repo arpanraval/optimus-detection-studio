@@ -8,7 +8,7 @@ export const PlaybooksPage: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <PageErrorBoundary pageName="Playbooks" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Playbooks" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <PlaybooksPageComponent />
     </PageErrorBoundary>
   );

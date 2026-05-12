@@ -9,7 +9,7 @@ import { DASHBOARD_PRESETS } from './presets';
 
 const LS_KEY = 'enterprise-dashboards';
 const PREBUILT_VERSION_KEY = 'enterprise-prebuilt-version';
-const PREBUILT_VERSION = 11; // Bump to force re-seed — adds 4 new MITRE Explorer widgets
+const PREBUILT_VERSION = 12; // Bump to force re-seed — renamed "SOC Overview" → "Detection Studio Overview"
 const LAST_ACTIVE_KEY = 'enterprise-last-dashboard';
 
 // ---------------------------------------------------------------------------
@@ -60,16 +60,25 @@ function markSeeded() {
   try { localStorage.setItem(PREBUILT_VERSION_KEY, String(PREBUILT_VERSION)); } catch {}
 }
 
-/** Names of all prebuilt dashboards */
+/** Names of all current prebuilt dashboards */
 const PREBUILT_NAMES = new Set(DASHBOARD_PRESETS.filter(p => p.id !== 'blank-canvas').map(p => p.name));
+
+/** Names of prebuilt dashboards from prior versions that were renamed/retired.
+ *  These are removed on reseed so users don't end up with stale duplicates. */
+const RETIRED_PREBUILT_NAMES = new Set(['SOC Overview']);
+
+/** True if a stored dashboard name matches a current OR retired prebuilt — i.e. the reseed owns it. */
+function isManagedPrebuiltName(name: string): boolean {
+  return PREBUILT_NAMES.has(name) || RETIRED_PREBUILT_NAMES.has(name);
+}
 
 /** Reseed: remove stale prebuilts and add fresh ones.
  *  NOTE: markSeeded() is NOT called here — the caller must call it after successful persistence. */
 function reseedPrebuilts(existing: DashboardDefinition[]): { kept: DashboardDefinition[]; added: DashboardDefinition[]; removed: string[] } {
-  // Remove old prebuilt dashboards (matched by name) that the user hasn't customized (no manual widgets added)
+  // Remove old prebuilt dashboards (matched by current or retired name) that the user hasn't customized
   const removed: string[] = [];
   const kept = existing.filter(d => {
-    if (PREBUILT_NAMES.has(d.name)) { removed.push(d.id); return false; }
+    if (isManagedPrebuiltName(d.name)) { removed.push(d.id); return false; }
     return true;
   });
 
@@ -117,8 +126,8 @@ export async function loadDashboards(userId: string | null): Promise<DashboardDe
           const { kept, added, removed } = reseedPrebuilts(dashboards);
           dashboards = [...kept, ...added];
           try {
-            // Delete all prebuilt dashboards by name, then upsert fresh copies
-            const prebuiltNames = Array.from(PREBUILT_NAMES);
+            // Delete all prebuilt dashboards by name (current + retired), then upsert fresh copies
+            const prebuiltNames = [...PREBUILT_NAMES, ...RETIRED_PREBUILT_NAMES];
             if (prebuiltNames.length > 0) {
               await supabase.from('user_dashboards').delete().eq('user_id', userId).in('name', prebuiltNames);
             }
@@ -283,4 +292,21 @@ export function getLastActiveDashboardId(): string | null {
 
 export function setLastActiveDashboardId(id: string): void {
   try { localStorage.setItem(LAST_ACTIVE_KEY, id); } catch {}
+}
+
+/**
+ * Resolve which dashboard the bare landing route ("/") should open, so it can
+ * redirect straight to `/dashboard/enterprise/<id>` in one hop instead of
+ * bouncing through `/dashboard/enterprise`. Mirrors DashboardContext's
+ * LOAD_DASHBOARDS priority: last-active → default → first prebuilt.
+ * Returns null only if no dashboards can be resolved (caller should fall back
+ * to the un-parametrised route).
+ */
+export function resolveLandingDashboardId(): string | null {
+  ensureLocalDashboardsExist();
+  const summaries = readDashboardSummaries();
+  if (summaries.length === 0) return null;
+  const last = getLastActiveDashboardId();
+  if (last && summaries.some(d => d.id === last)) return last;
+  return summaries.find(d => d.isDefault)?.id ?? summaries[0].id;
 }

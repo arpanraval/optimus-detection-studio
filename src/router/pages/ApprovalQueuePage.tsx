@@ -15,7 +15,7 @@ export const ApprovalQueuePage: React.FC = () => {
       <div className="p-8">
         <p className="text-error">Access Denied. Lead or Admin privileges required.</p>
         <button
-          onClick={() => navigate(ROUTES.COMMAND_CENTER)}
+          onClick={() => navigate(ROUTES.HOME)}
           className="mt-4 px-4 py-2 bg-primary text-on-primary rounded-lg"
         >
           Go to Dashboard
@@ -29,7 +29,7 @@ export const ApprovalQueuePage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Approval Queue" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Approval Queue" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <AdminApprovalQueue onNavigateToDetection={handleNavigateToDetection} />
     </PageErrorBoundary>
   );

@@ -1,8 +1,8 @@
 // Route path constants and helpers
 
 export const ROUTES = {
-  // Command Center (new default)
-  COMMAND_CENTER: '/',
+  // Landing route — redirects to the default enterprise dashboard
+  HOME: '/',
 
   // Enterprise Dashboard
   ENTERPRISE_DASHBOARD: '/dashboard/enterprise',
@@ -148,8 +148,7 @@ export const routeHelpers = {
 
 // Map old View types to new routes (for migration)
 export const viewToRoute: Record<string, string> = {
-  'dashboard': ROUTES.COMMAND_CENTER,
-  'command-center': ROUTES.COMMAND_CENTER,
+  'dashboard': ROUTES.HOME,
   'enterprise-dashboard': ROUTES.ENTERPRISE_DASHBOARD,
   'library': ROUTES.LIBRARY,
   'detail': ROUTES.DETECTION_DETAIL,
@@ -223,7 +222,6 @@ export const viewToRoute: Record<string, string> = {
 
 // Page headers for each route
 export const routeHeaders: Record<string, { title: string; description?: string }> = {
-  [ROUTES.COMMAND_CENTER]: { title: 'Command Center', description: 'Detection engineering command center' },
   [ROUTES.ENTERPRISE_DASHBOARD]: { title: 'Enterprise Dashboard', description: 'Customizable drag-and-drop dashboard with widgets' },
   [ROUTES.LIBRARY]: { title: 'Detection Library', description: 'Browse and manage your security detections' },
   [ROUTES.DETECTION_NEW]: { title: 'New Detection', description: 'Create a new detection rule' },

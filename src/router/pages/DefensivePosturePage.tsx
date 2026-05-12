@@ -30,7 +30,7 @@ export const DefensivePosturePage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Defensive Posture" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Defensive Posture" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <DefensivePostureDashboard
         userId={user?.id || ''}
         scope={scope}

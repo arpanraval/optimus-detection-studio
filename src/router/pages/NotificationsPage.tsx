@@ -8,7 +8,7 @@ export const NotificationsPage: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <PageErrorBoundary pageName="Notifications" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Notifications" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <NotificationsHub
         onNavigateToDetection={(id) => navigate(routeHelpers.detectionDetail(id))}
       />

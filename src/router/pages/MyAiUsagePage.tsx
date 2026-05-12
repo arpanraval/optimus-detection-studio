@@ -7,7 +7,7 @@ import { ROUTES } from '../routes';
 export const MyAiUsagePage: React.FC = () => {
   const navigate = useNavigate();
   return (
-    <PageErrorBoundary pageName="My AI Usage" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="My AI Usage" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <Inner />
     </PageErrorBoundary>
   );

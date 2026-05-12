@@ -14,7 +14,7 @@ export const SigmaConverterPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Sigma Converter" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Sigma Converter" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <SigmaConverter onCreateDraft={handleCreateDraft} />
     </PageErrorBoundary>
   );

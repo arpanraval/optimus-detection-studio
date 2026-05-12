@@ -42,7 +42,7 @@ export const ThreatIntelFeedsPage: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <PageErrorBoundary pageName="Threat Intel Feeds" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Threat Intel Feeds" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <ThreatIntelFeedsPageInner />
     </PageErrorBoundary>
   );

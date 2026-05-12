@@ -8,7 +8,7 @@ export const EnvironmentProfilePage: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <PageErrorBoundary pageName="Environment Profile" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Environment Profile" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <EnvironmentProfileForm onBack={() => navigate(-1)} />
     </PageErrorBoundary>
   );

@@ -2,7 +2,7 @@
  * Icon Registry - All SVG icon definitions organized by category.
  *
  * Icons are grouped for easier maintenance:
- * - Brand: App-specific icons (optimus-logo, command-center, etc.)
+ * - Brand: App-specific icons (optimus-logo, agent-network, etc.)
  * - Navigation: Arrows, chevrons, menu
  * - Action: Edit, delete, copy, etc.
  * - Status: Alerts, checks, info
@@ -40,11 +40,6 @@ export const brandIcons: Record<string, IconFactory> = {
       <g>{createTurbineBlades()}</g>
       <circle cx="12" cy="12" r="3" fill="currentColor" className="text-tertiary z-10"/>
       <path d="M12 12 L12 9.5 A 2.5 2.5 0 0 1 14.5 12" stroke="rgba(255,255,255,0.5)" strokeWidth="0.5" fill="none" className="z-20" />
-    </svg>
-  ),
-  'command-center': () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" strokeWidth={0.5}>
-      <path d="M12,3 L2,12 L12,21 L22,12 L12,3 Z M11,8 L11,11 L8,11 L8,13 L11,13 L11,16 L13,16 L13,13 L16,13 L16,11 L13,11 L13,8 L11,8 Z"/>
     </svg>
   ),
   'agent-network': () => (

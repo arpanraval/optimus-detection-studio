@@ -109,7 +109,7 @@ const sanitizeSingleDetection = (d: any): Detection => ({
 });
 
 // Lightweight columns for the in-memory detections array.
-// Covers all fields needed by: dashboard widgets (21-field registry), command center,
+// Covers all fields needed by: dashboard widgets (21-field registry),
 // coverage page, search, MITRE matrix, group/software/campaign linking, and assignments.
 // Heavy fields (detectionQuery, queries, investigationSteps, etc.) excluded —
 // only needed by DetectionDetailPage and DetectionFormPage, which fetch on-demand.

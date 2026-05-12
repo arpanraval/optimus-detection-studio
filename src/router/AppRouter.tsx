@@ -25,6 +25,7 @@ import { logAuditEvent } from '../lib/audit';
 import { AppErrorBoundary } from '../components/ErrorBoundary';
 import { AppLoader } from '../components/AppLoader';
 import { NotFoundRedirect } from './pages/NotFoundRedirect';
+import { resolveLandingDashboardId } from '../components/dashboard/enterprise/dashboardPersistence';
 
 // ============================================================================
 // Capture auth action from URL hash BEFORE Supabase SDK consumes it.
@@ -60,10 +61,7 @@ function detectPendingAuthAction(): PendingAuthAction {
 
 const initialPendingAction = detectPendingAuthAction();
 
-// Eager-load only the landing page (CommandCenterPage)
-import { CommandCenterPage } from './pages';
-
-// Lazy-load all other pages
+// Lazy-load all pages
 const DetectionLibraryPage = lazy(() => import('./pages/DetectionLibraryPage').then(m => ({ default: m.DetectionLibraryPage })));
 const DetectionDetailPage = lazy(() => import('./pages/DetectionDetailPage').then(m => ({ default: m.DetectionDetailPage })));
 const DetectionFormPage = lazy(() => import('./pages/DetectionFormPage').then(m => ({ default: m.DetectionFormPage })));
@@ -181,6 +179,13 @@ const ProtectedLayout: React.FC<{ user: User; profile: Profile }> = ({ user, pro
   );
 };
 
+// Landing route "/" — redirect straight to the resolved default dashboard so
+// users land in one hop (instead of "/" → "/dashboard/enterprise" → "/dashboard/enterprise/<id>").
+const DashboardLanding: React.FC = () => {
+  const id = resolveLandingDashboardId();
+  return <Navigate to={id ? `/dashboard/enterprise/${id}` : '/dashboard/enterprise'} replace />;
+};
+
 // Create router with all routes
 const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
   {
@@ -191,8 +196,8 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       </AppDataProvider>
     ),
     children: [
-      // Command Center (default)
-      { index: true, element: <CommandCenterPage /> },
+      // Landing page → the resolved default enterprise dashboard (one hop)
+      { index: true, element: <DashboardLanding /> },
 
       // Enterprise Dashboard (with optional dashboardId for deep-linking)
       { path: 'dashboard/enterprise', element: <EnterpriseDashboardPage /> },

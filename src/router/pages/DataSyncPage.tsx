@@ -15,7 +15,7 @@ export const DataSyncPage: React.FC = () => {
       <div className="p-8">
         <p className="text-error">Access Denied. Admin privileges required.</p>
         <button
-          onClick={() => navigate(ROUTES.COMMAND_CENTER)}
+          onClick={() => navigate(ROUTES.HOME)}
           className="mt-4 px-4 py-2 bg-primary text-on-primary rounded-lg"
         >
           Go to Dashboard
@@ -25,7 +25,7 @@ export const DataSyncPage: React.FC = () => {
   }
 
   return (
-    <PageErrorBoundary pageName="Data Sync" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Data Sync" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <SyncPage />
     </PageErrorBoundary>
   );

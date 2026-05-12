@@ -392,7 +392,7 @@ export const KanbanBoard: React.FC = () => {
       <div className="flex items-center justify-between px-6 py-3 bg-surface-container-low border-b border-outline-variant/20">
         {/* Left: Stats */}
         <div className="flex items-center gap-4">
-          {/* Stat tiles - mini version of command center style */}
+          {/* Stat tiles - mini version of the dashboard stat-tile style */}
           <div className="flex items-center gap-1.5 bg-surface-container/50 rounded-xl px-3 py-1.5 border border-outline-variant/10">
             <span className="text-[11px] text-on-surface-variant">Total</span>
             <span className="text-[13px] font-bold text-on-surface tabular-nums">{totalFiltered}</span>

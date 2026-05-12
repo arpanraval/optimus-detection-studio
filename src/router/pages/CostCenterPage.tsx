@@ -17,7 +17,7 @@ export const CostCenterPage: React.FC = () => {
   if (!profile || !isAdmin) return null;
 
   return (
-    <PageErrorBoundary pageName="AI Cost Center" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="AI Cost Center" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <Inner />
     </PageErrorBoundary>
   );

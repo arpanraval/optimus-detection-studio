@@ -50,7 +50,7 @@ export const MitreMatrixPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="MITRE Dashboard" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="MITRE Dashboard" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <MitreDashboard
         detections={detections}
         scope={scope}

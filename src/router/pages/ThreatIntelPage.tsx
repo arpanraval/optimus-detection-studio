@@ -8,7 +8,7 @@ export const ThreatIntelPage: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <PageErrorBoundary pageName="Intelligence Reports" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Intelligence Reports" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <ThreatIntelLibraryPage />
     </PageErrorBoundary>
   );

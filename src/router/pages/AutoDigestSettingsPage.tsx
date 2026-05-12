@@ -8,7 +8,7 @@ export const AutoDigestSettingsPage: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <PageErrorBoundary pageName="Intelligence Sources" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Intelligence Sources" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <AutoDigestSettings onBack={() => navigate(-1)} />
     </PageErrorBoundary>
   );

@@ -2,7 +2,7 @@ import React from 'react';
 import { Button } from '../../ui/Button';
 
 export interface CompletionCTAsProps {
-  onGoToCommandCenter: () => void;
+  onGoToDashboard: () => void;
   onViewLibrary: () => void;
   onAddMoreSources: () => void;
   visible: boolean;
@@ -15,7 +15,7 @@ export interface CompletionCTAsProps {
  * navigation actions with a fade-in entrance controlled by the `visible` prop.
  */
 export const CompletionCTAs: React.FC<CompletionCTAsProps> = ({
-  onGoToCommandCenter,
+  onGoToDashboard,
   onViewLibrary,
   onAddMoreSources,
   visible,
@@ -31,9 +31,9 @@ export const CompletionCTAs: React.FC<CompletionCTAsProps> = ({
         variant="filled"
         color="primary"
         size="md"
-        onClick={onGoToCommandCenter}
+        onClick={onGoToDashboard}
       >
-        <span className="font-brand">Go to Command Center</span>
+        <span className="font-brand">Go to Dashboard</span>
       </Button>
 
       <Button

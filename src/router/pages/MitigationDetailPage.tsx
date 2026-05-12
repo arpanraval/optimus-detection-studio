@@ -21,7 +21,7 @@ export const MitigationDetailPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Mitigation Detail" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Mitigation Detail" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <DetailPage
         mitreId={id}
         onBack={handleBack}

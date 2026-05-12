@@ -7,10 +7,10 @@ const RED = '#ef4444';
 const AMBER = '#f59e0b';
 
 /* ──────────────────────────────────────────────
-   SLIDE 1 — Command Center
+   SLIDE 1 — Dashboard
    ────────────────────────────────────────────── */
-const CommandCenterMockup = () => (
-  <MockupFrame title="COMMAND CENTER" accent={MAGENTA}>
+const DashboardMockup = () => (
+  <MockupFrame title="DASHBOARD" accent={MAGENTA}>
     {/* ── Top: Readiness Ring + Stats Row ── */}
     <div className="flex flex-col items-center mb-6">
       {/* Readiness ring */}
@@ -504,7 +504,7 @@ export const DashboardFeature: React.FC = () => {
   const [active, setActive] = useState(0);
 
   const slides = [
-    { label: 'Command Center', content: <CommandCenterMockup /> },
+    { label: 'Dashboard', content: <DashboardMockup /> },
     { label: 'MITRE Focus', content: <MITREFocusMockup /> },
     { label: 'Quality & Gaps', content: <QualityGapsMockup /> },
   ];

@@ -270,11 +270,11 @@ const SectionHeader: React.FC<{ headline: string; sub: string }> = ({ headline, 
 );
 
 // ============================================================================
-// FEATURE MOCKUPS (Command Center, MITRE, Threat Intel, AI Query, Library, Kanban, Quality)
+// FEATURE MOCKUPS (Dashboard, MITRE, Threat Intel, AI Query, Library, Kanban, Quality)
 // ============================================================================
 
-const CommandCenterMockup: React.FC = () => (
-  <MockupChrome title="COMMAND CENTER" accent={ACCENT}>
+const DashboardMockup: React.FC = () => (
+  <MockupChrome title="DASHBOARD" accent={ACCENT}>
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
       {[
         { label: 'Coverage', value: '73%', sub: '\u21915%', color: TEAL },

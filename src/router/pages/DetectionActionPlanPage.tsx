@@ -24,7 +24,7 @@ export const DetectionActionPlanPage: React.FC = () => {
   }
 
   return (
-    <PageErrorBoundary pageName="Detection Action Plan" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Detection Action Plan" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <DetectionActionPlan
         profile={profile}
         scope={scope}

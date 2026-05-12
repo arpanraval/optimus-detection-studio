@@ -46,7 +46,7 @@ export const StrategiesPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Detection Strategies" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Detection Strategies" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <DetectionStrategiesLibrary
         onSelectStrategy={handleSelectStrategy}
         onNavigateToTechnique={handleNavigateToTechnique}

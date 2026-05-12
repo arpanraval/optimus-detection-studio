@@ -19,7 +19,7 @@ export const PackDetailPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Pack Detail" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Pack Detail" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <DetectionPackDetailPage
         packId={id}
         onBack={handleBack}

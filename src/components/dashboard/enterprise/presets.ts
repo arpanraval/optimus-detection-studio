@@ -32,10 +32,11 @@ function engineWidget(config: Omit<EngineWidgetConfig, 'kind' | 'source'>): Widg
 }
 
 // ---------------------------------------------------------------------------
-// SOC Overview — mirrors current CommandCenter layout
+// Detection Studio Overview — the default landing dashboard
+// (replaces the retired standalone Command Center page)
 // ---------------------------------------------------------------------------
 
-export function createSOCOverviewPreset(
+export function createDetectionStudioOverviewPreset(
   _dashboardId: string,
 ): Omit<DashboardDefinition, 'id' | 'createdAt' | 'updatedAt'> {
   const widgets: WidgetInstance[] = [
@@ -102,7 +103,7 @@ export function createSOCOverviewPreset(
   const xs = lg.map(l => ({ ...l, w: 2, x: 0 }));
 
   return {
-    name: 'SOC Overview',
+    name: 'Detection Studio Overview',
     isDefault: true,
     widgets,
     layouts: { lg, md, sm, xs },
@@ -484,10 +485,10 @@ export function createMitreExplorerPreset(
 
 export const DASHBOARD_PRESETS: DashboardPreset[] = [
   {
-    id: 'soc-overview',
-    name: 'SOC Overview',
-    description: 'Full command center with all widgets',
-    create: createSOCOverviewPreset,
+    id: 'detection-studio-overview',
+    name: 'Detection Studio Overview',
+    description: 'Complete operational overview — every widget on one board',
+    create: createDetectionStudioOverviewPreset,
   },
   {
     id: 'mitre-focus',

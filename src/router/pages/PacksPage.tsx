@@ -12,7 +12,7 @@ export const PacksPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Detection Packs" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Detection Packs" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <DetectionPacksPage onSelectPack={handleSelectPack} />
     </PageErrorBoundary>
   );

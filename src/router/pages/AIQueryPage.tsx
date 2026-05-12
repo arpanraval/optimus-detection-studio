@@ -14,7 +14,7 @@ export const AIQueryPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="AI Query Generator" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="AI Query Generator" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <AIQueryGenerator onCreateDraft={handleCreateDraft} />
     </PageErrorBoundary>
   );

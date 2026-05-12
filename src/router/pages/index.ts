@@ -1,5 +1,4 @@
 // Page components barrel export
-export { CommandCenterPage } from './CommandCenterPage';
 export { DetectionLibraryPage } from './DetectionLibraryPage';
 export { DetectionDetailPage } from './DetectionDetailPage';
 export { DetectionFormPage } from './DetectionFormPage';

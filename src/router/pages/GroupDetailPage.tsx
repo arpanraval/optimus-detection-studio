@@ -62,7 +62,7 @@ export const GroupDetailPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Group Detail" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Group Detail" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <DetailPage
         groupId={id}
         onBack={handleBack}

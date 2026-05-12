@@ -8,7 +8,7 @@ export const PipelinePage: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <PageErrorBoundary pageName="Detection Board" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Detection Board" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <KanbanBoard />
     </PageErrorBoundary>
   );

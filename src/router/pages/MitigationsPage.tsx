@@ -16,7 +16,7 @@ export const MitigationsPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Mitigations" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Mitigations" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <MitigationsLibrary
         onSelectMitigation={handleSelectMitigation}
         onNavigateToTechnique={handleNavigateToTechnique}

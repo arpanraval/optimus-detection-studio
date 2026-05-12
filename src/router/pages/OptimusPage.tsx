@@ -16,7 +16,7 @@ export const OptimusPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="AI Agent" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="AI Agent" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <AIAgentChat detections={detections} onOpenDraft={handleOpenDraft} />
     </PageErrorBoundary>
   );

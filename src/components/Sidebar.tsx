@@ -8,7 +8,7 @@ import { viewToRoute, ROUTES } from '../router/routes';
 import { readDashboardSummaries } from './dashboard/enterprise/dashboardPersistence';
 import { getAvatarColor } from '../lib/avatar';
 
-type View = 'dashboard' | 'command-center' | 'library' | 'detail' | 'form' | 'mitre' | 'coverage' | 'groups' | 'group-detail' | 'software' | 'software-detail' | 'campaigns' | 'campaign-detail' | 'mitigations' | 'mitigation-detail' | 'detection-strategies' | 'strategy-detail' | 'users' | 'add_selection' | 'sigma_converter' | 'ai_query_gen' | 'ai_agent' | 'bulk_import' | 'integrations' | 'approval_queue' | 'my_submissions' | 'account_settings' | 'data_sync' | 'packs' | 'pack-detail' | 'defensive-posture' | 'scoring_settings' | 'threat-intel' | 'threat-intel-feeds' | 'threat-research' | 'analysis-reports' | 'siem-health' | 'design-system' | 'design-system-buttons' | 'design-system-inputs' | 'design-system-badges' | 'design-system-cards' | 'design-system-navigation' | 'design-system-modals' | 'design-system-dropdowns' | 'design-system-loading' | 'design-system-misc' | 'design-system-colors' | 'design-system-bulk-import' | 'design-system-logo' | 'design-system-ai-chat-cards' | 'audit_log' | 'environment_profile' | 'intelligence_sources' | 'pipeline' | 'detection-board' | 'onboarding' | 'action_plan' | 'exercises-state-sponsored' | 'cost_center' | 'my_ai_usage';
+type View = 'dashboard' | 'enterprise-dashboard' | 'library' | 'detail' | 'form' | 'mitre' | 'coverage' | 'groups' | 'group-detail' | 'software' | 'software-detail' | 'campaigns' | 'campaign-detail' | 'mitigations' | 'mitigation-detail' | 'detection-strategies' | 'strategy-detail' | 'users' | 'add_selection' | 'sigma_converter' | 'ai_query_gen' | 'ai_agent' | 'bulk_import' | 'integrations' | 'approval_queue' | 'my_submissions' | 'account_settings' | 'data_sync' | 'packs' | 'pack-detail' | 'defensive-posture' | 'scoring_settings' | 'threat-intel' | 'threat-intel-feeds' | 'threat-research' | 'analysis-reports' | 'siem-health' | 'design-system' | 'design-system-buttons' | 'design-system-inputs' | 'design-system-badges' | 'design-system-cards' | 'design-system-navigation' | 'design-system-modals' | 'design-system-dropdowns' | 'design-system-loading' | 'design-system-misc' | 'design-system-colors' | 'design-system-bulk-import' | 'design-system-logo' | 'design-system-ai-chat-cards' | 'audit_log' | 'environment_profile' | 'intelligence_sources' | 'pipeline' | 'detection-board' | 'onboarding' | 'action_plan' | 'exercises-state-sponsored' | 'cost_center' | 'my_ai_usage';
 
 interface SidebarProps {
   onNavigate: (view: View) => void;
@@ -40,6 +40,10 @@ interface NavSection {
   activeClass: string;
   inactiveClass?: string;
 }
+
+// Unified selected-tab style across all rail sections and drawer items.
+// Light: dark slate-violet chip + violet text. Dark: brighter slate-violet so it reads as selected against the near-black surface.
+const ACTIVE_NAV_CLASS = 'bg-[#2a2a3a] text-violet-200 dark:bg-[#34344a] dark:text-violet-100';
 
 export const Sidebar: React.FC<SidebarProps> = ({
   onNavigate,
@@ -226,7 +230,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Logo */}
         <div className="flex items-center justify-center pt-3 pb-5">
           <Link
-            to={ROUTES.COMMAND_CENTER}
+            to={ROUTES.HOME}
             className="cursor-pointer group no-underline text-inherit flex items-center justify-center"
             onClick={(e) => { if (!(e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1)) { onNavigate('dashboard'); setExpandedSection(null); } }}
           >
@@ -448,15 +452,14 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
       label: 'Dashboard',
       icon: 'dashboard',
       items: [
-        { id: 'command-center' as View, label: 'Command Center' },
-        // Dynamic enterprise dashboards from localStorage
+        // Enterprise dashboards (the first / default is "Detection Studio Overview")
         ...readDashboardSummaries().map(d => ({
           id: 'enterprise-dashboard' as View,
           label: d.name,
           url: `/dashboard/enterprise/${d.id}`,
         })),
       ],
-      activeClass: 'bg-secondary-container text-on-secondary-container',
+      activeClass: ACTIVE_NAV_CLASS,
     },
     {
       id: 'new-detection',
@@ -464,7 +467,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
       icon: 'plus-circle',
       singleAction: 'add_selection' as View,
       items: [],
-      activeClass: 'bg-primary-container text-on-primary-container',
+      activeClass: ACTIVE_NAV_CLASS,
       inactiveClass: 'text-primary hover:bg-primary-container/20',
     },
     {
@@ -478,7 +481,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
         { id: 'onboarding' as View, label: 'Detection Onboarding' },
         ...(isAdmin ? [{ id: 'approval_queue' as View, label: 'Approval Queue', badge: pendingCount }] : []),
       ],
-      activeClass: 'bg-[#1a3a4a] text-cyan-200',
+      activeClass: ACTIVE_NAV_CLASS,
     },
     {
       id: 'mitre',
@@ -498,7 +501,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
         { id: 'analysis-reports' as View, label: 'Analysis Reports' },
         { id: 'action_plan' as View, label: 'Action Plan' },
       ],
-      activeClass: 'bg-[#1a3a3a] text-teal-200',
+      activeClass: ACTIVE_NAV_CLASS,
     },
     {
       id: 'arsenal',
@@ -512,7 +515,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
         { id: 'bulk_import' as View, label: 'Bulk Import' },
         { id: 'exercises-state-sponsored' as View, label: 'State Sponsored Attack', url: ROUTES.EXERCISES_STATE_SPONSORED },
       ],
-      activeClass: 'bg-[#2a2a3a] text-violet-200',
+      activeClass: ACTIVE_NAV_CLASS,
     },
     {
       id: 'settings',
@@ -528,7 +531,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
         ...(isAdmin ? [{ id: 'audit_log' as View, label: 'Audit Log' }] : []),
         ...(isAdmin ? [{ id: 'cost_center' as View, label: 'AI Cost Center', url: ROUTES.COST_CENTER }] : []),
       ],
-      activeClass: 'bg-[#2a2a2a] text-slate-200',
+      activeClass: ACTIVE_NAV_CLASS,
     },
     {
       id: 'design-system',
@@ -553,7 +556,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
         { id: 'design-system-ai-chat-cards' as View, label: 'AI Chat Cards' },
         { id: 'design-system-packs' as View, label: 'Pack Cards' },
       ],
-      activeClass: 'bg-[#2a2a3a] text-pink-200',
+      activeClass: ACTIVE_NAV_CLASS,
     },
   ];
 

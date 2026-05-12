@@ -3,8 +3,8 @@ import { ROUTES, routeHelpers } from './routes';
 
 // Match route patterns to determine active sidebar section
 export function matchRouteToSection(pathname: string): string | null {
-  // Dashboard / Command Center
-  if (pathname === ROUTES.COMMAND_CENTER || pathname.startsWith('/dashboard/enterprise')) return 'dashboard';
+  // Dashboard (landing route redirects to the enterprise dashboard)
+  if (pathname === ROUTES.HOME || pathname.startsWith('/dashboard/enterprise')) return 'dashboard';
 
   // New detection
   if (pathname === ROUTES.DETECTION_NEW) return 'new-detection';
@@ -42,8 +42,7 @@ export function matchRouteToSection(pathname: string): string | null {
 // Match route patterns to determine active nav item
 export function matchRouteToNavItem(pathname: string): string | null {
   // Dashboard sub-items
-  if (pathname === ROUTES.COMMAND_CENTER) return 'command-center';
-  if (pathname.startsWith('/dashboard/enterprise')) return 'enterprise-dashboard';
+  if (pathname === ROUTES.HOME || pathname.startsWith('/dashboard/enterprise')) return 'enterprise-dashboard';
   if (pathname === ROUTES.LIBRARY || pathname.startsWith('/library/detections')) return 'library';
   if (pathname === ROUTES.PACKS || pathname.startsWith('/packs/')) return 'packs';
   if (pathname === ROUTES.APPROVAL_QUEUE) return 'approval_queue';

@@ -438,7 +438,7 @@ function OnboardingContent() {
 
             <CompletionCTAs
               visible={showCTAs}
-              onGoToCommandCenter={() => navigate('/')}
+              onGoToDashboard={() => navigate('/')}
               onViewLibrary={() => navigate('/library')}
               onAddMoreSources={handleAddMoreSources}
             />

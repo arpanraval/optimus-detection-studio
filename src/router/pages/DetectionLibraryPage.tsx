@@ -105,7 +105,7 @@ export const DetectionLibraryPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Detection Library" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Detection Library" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <UseCaseLibrary
         onSelectDetection={handleSelectDetection}
         onNewDetection={handleNewDetection}

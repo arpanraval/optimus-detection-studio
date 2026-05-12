@@ -8,7 +8,7 @@ export const IntegrationsPage: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <PageErrorBoundary pageName="Integrations" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Integrations" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <Integrations />
     </PageErrorBoundary>
   );

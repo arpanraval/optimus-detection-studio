@@ -84,7 +84,7 @@ export const EnterpriseDashboardPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Enterprise Dashboard" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Enterprise Dashboard" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <DashboardProvider userId={userId} initialDashboardId={dashboardId}>
         <DashboardURLSync dashboardId={dashboardId} />
         <div

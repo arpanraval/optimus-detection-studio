@@ -8,7 +8,7 @@ export const ReportDetailPage: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <PageErrorBoundary pageName="Report Detail" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Report Detail" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <ReportDetailPageComponent />
     </PageErrorBoundary>
   );

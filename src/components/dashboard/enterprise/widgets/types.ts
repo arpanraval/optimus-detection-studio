@@ -12,7 +12,7 @@ export interface WidgetComponentProps {
   config: WidgetConfig;
   /** Whether the dashboard is in edit mode */
   isEditMode: boolean;
-  /** Navigation callback (same signature as CommandCenter's onNavigate) */
+  /** Navigation callback (view id + optional filter payload) */
   onNavigate: (view: string, filter?: any) => void;
   /** Resolved time range from the dashboard time filter */
   timeRange: { startDate: string | null; endDate: string | null };

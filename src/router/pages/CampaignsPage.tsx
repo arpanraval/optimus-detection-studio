@@ -13,7 +13,7 @@ export const CampaignsPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Campaigns" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Campaigns" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <CampaignsLibrary onSelectCampaign={handleSelectCampaign} onNavigateToGroup={(id) => navigate(routeHelpers.groupDetail(id))} />
     </PageErrorBoundary>
   );

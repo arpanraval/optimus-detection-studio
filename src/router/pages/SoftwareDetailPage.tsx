@@ -27,7 +27,7 @@ export const SoftwareDetailPage: React.FC = () => {
   };
 
   return (
-    <PageErrorBoundary pageName="Software Detail" onNavigateHome={() => navigate(ROUTES.COMMAND_CENTER)}>
+    <PageErrorBoundary pageName="Software Detail" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <DetailPage
         softwareId={id}
         onBack={handleBack}
