@@ -279,6 +279,7 @@ async function handleGetCoverageSummary(supabase: any, params: any) {
     total: tiers.total,
     production: tiers.production,
     development: tiers.development,
+    inLibrary: tiers.development, // Legacy alias — same data, old field name for non-migrated consumers
     gaps: tiers.gap,
     // Legacy backward-compat fields (some consumers still read these)
     overall: {
@@ -375,6 +376,7 @@ async function handleGetThreatActorCoverage(supabase: any, params: any) {
     total: tiers.total,
     production: tiers.production,
     development: tiers.development,
+    inLibrary: tiers.development, // Legacy alias — same data, old field name for non-migrated consumers
     gaps: tiers.gap,
     // Legacy backward-compat
     coverage: {
