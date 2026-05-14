@@ -262,68 +262,36 @@ async function handleSearchLibrary(
  * Token budget: ~2KB response
  */
 async function handleGetCoverageSummary(supabase: any, params: any) {
-  const { scope = 'overall', platform } = params
+  const { scope = 'overall' } = params
 
-  // Use the get_coverage_summary SQL function
-  const { data, error } = await supabase.rpc('get_coverage_summary')
-
-  if (error) {
-    console.error('Coverage summary error:', error)
-    throw new Error('Failed to get coverage summary')
+  // Three-tier coverage based on library_type (Production Library vs Development Library)
+  const { data: tiers, error: tiersError } = await supabase.rpc('get_coverage_tiers', { p_actor_stix_id: null })
+  if (tiersError) {
+    console.error('get_coverage_tiers error:', tiersError)
+    throw new Error('Failed to compute coverage tiers')
   }
 
-  // Transform to three-tier format
-  // Current format has: summary { total_techniques, covered_techniques, coverage_percent }, by_tactic, top_covered, gaps
-  const total = data?.summary?.total_techniques || 0
-  const productionCount = data?.summary?.covered_techniques || 0
-  const productionPercent = data?.summary?.coverage_percent || 0
-
-  // For now, assume "In Library" is drafts/non-production detections
-  // This would need proper implementation in the SQL function
-  const inLibraryCount = Math.floor((total - productionCount) * 0.3) // Estimate 30% have drafts
-  const inLibraryPercent = total > 0 ? Math.round((inLibraryCount / total) * 100) : 0
-
-  const gapsCount = total - productionCount - inLibraryCount
-  const gapsPercent = total > 0 ? Math.round((gapsCount / total) * 100) : 0
+  // Legacy summary fields kept for dashboard backwards compatibility
+  const { data: legacy } = await supabase.rpc('get_coverage_summary')
 
   const result: any = {
     title: 'Overall Detection Coverage',
-    total,
-    production: {
-      count: productionCount,
-      percent: productionPercent,
-      techniques: (data?.top_covered || []).slice(0, 15).map((t: any) => ({
-        id: t.technique_id || t.id,
-        name: t.name,
-        detectionCount: t.detection_count || t.detectionCount
-      }))
-    },
-    inLibrary: {
-      count: inLibraryCount,
-      percent: inLibraryPercent,
-      techniques: [] // Would need separate query for draft detections
-    },
-    gaps: {
-      count: gapsCount,
-      percent: gapsPercent,
-      techniques: (data?.gaps || data?.critical_gaps || []).slice(0, 15).map((g: any) => ({
-        id: g.technique_id || g.id,
-        name: g.name,
-        priority: g.priority || 'high'
-      }))
-    },
-    // Include legacy format for backward compatibility
+    total: tiers.total,
+    production: tiers.production,
+    development: tiers.development,
+    gaps: tiers.gap,
+    // Legacy backward-compat fields (some consumers still read these)
     overall: {
-      total,
-      covered: productionCount,
-      percent: productionPercent
+      total: tiers.total,
+      covered: tiers.production.count,
+      percent: tiers.production.percent,
     },
-    byTactic: data?.by_tactic || [],
-    topCovered: data?.top_covered || [],
-    criticalGaps: data?.gaps || data?.critical_gaps || []
+    byTactic: legacy?.by_tactic || [],
+    topCovered: legacy?.top_covered || [],
+    criticalGaps: legacy?.critical_gaps || tiers.gap.techniques,
+    // No sources for aggregations — internal computation
   }
 
-  // Add intelligence counts
   try {
     const { count: acceptedGaps } = await supabase
       .from('detection_decisions')
@@ -362,55 +330,38 @@ async function handleFindThreatActor(supabase: any, params: any) {
 async function handleGetThreatActorCoverage(supabase: any, params: any) {
   const { actor_query } = params
 
-  // First find the actor
+  // First find the actor (unchanged)
   const findResult = await handleFindThreatActor(supabase, { query: actor_query })
-
   if (!findResult || !findResult.found || findResult.matches?.length === 0) {
     return {
       error: 'Threat actor not found',
       query: actor_query,
       suggestions: findResult?.matches?.slice(0, 5).map((m: any) => m.name) || [],
-      hint: 'Try searching by MITRE Group ID (e.g., G0016) or common alias'
+      hint: 'Try searching by MITRE Group ID (e.g., G0016) or common alias',
     }
   }
-
   const actor = findResult.matches[0]
 
-  // Get coverage using the SQL function
-  const { data: coverage, error } = await supabase.rpc('get_threat_actor_coverage', {
-    p_actor_stix_id: actor.stix_id
+  // Three-tier coverage scoped to this actor's techniques
+  const { data: tiers, error: tiersError } = await supabase.rpc('get_coverage_tiers', {
+    p_actor_stix_id: actor.stix_id,
   })
-
-  if (error) {
-    console.error('Threat actor coverage error:', error)
-    throw new Error('Failed to get threat actor coverage')
+  if (tiersError) {
+    console.error('get_coverage_tiers (actor) error:', tiersError)
+    throw new Error('Failed to compute actor coverage tiers')
   }
 
-  // Generate recommendation based on coverage
-  // The SQL function returns: { actor, coverage: {total, covered, percent}, coveredTechniques, gaps }
-  const percent = coverage?.coverage?.percent || 0
-  let recommendation = ''
+  const percent = tiers.production.percent
+  let recommendation: string
   if (percent < 30) {
-    recommendation = `Critical: Only ${percent}% coverage against ${actor.name}. Immediate detection development required.`
+    recommendation = `Critical: Only ${percent}% production coverage against ${actor.name}. Promote development drafts and build for the remaining gaps.`
   } else if (percent < 50) {
-    recommendation = `Low: ${percent}% coverage against ${actor.name}. Prioritize the ${coverage?.gaps?.length || 0} identified technique gaps.`
+    recommendation = `Low: ${percent}% production coverage against ${actor.name}. ${tiers.development.count} promotable detections in development.`
   } else if (percent < 75) {
-    recommendation = `Moderate: ${percent}% coverage against ${actor.name}. Focus on critical gaps for key techniques.`
+    recommendation = `Moderate: ${percent}% production coverage against ${actor.name}. Promote development drafts to close ${tiers.development.count} gaps.`
   } else {
-    recommendation = `Good: ${percent}% coverage against ${actor.name}. Consider maintaining and improving existing detections.`
+    recommendation = `Strong: ${percent}% production coverage against ${actor.name}. Maintain and deepen existing detections.`
   }
-
-  // Calculate three-tier breakdown
-  const total = coverage?.coverage?.total || 0
-  const productionCount = coverage?.coverage?.covered || 0
-  const productionPercent = coverage?.coverage?.percent || 0
-
-  // Estimate library detections (this should come from actual data)
-  const inLibraryCount = Math.floor((total - productionCount) * 0.25)
-  const inLibraryPercent = total > 0 ? Math.round((inLibraryCount / total) * 100) : 0
-
-  const gapsCount = total - productionCount - inLibraryCount
-  const gapsPercent = total > 0 ? Math.round((gapsCount / total) * 100) : 0
 
   return {
     actor: {
@@ -419,46 +370,26 @@ async function handleGetThreatActorCoverage(supabase: any, params: any) {
       aliases: actor.aliases || [],
       stixId: actor.stix_id,
       originCountry: actor.origin_country || null,
-      targetSectors: actor.target_sectors || []
+      targetSectors: actor.target_sectors || [],
     },
-    total,
-    // Three-tier model
-    production: {
-      count: productionCount,
-      percent: productionPercent,
-      techniques: (coverage?.coveredTechniques || []).slice(0, 15).map((t: any) => ({
-        id: t.id,
-        name: t.name,
-        detectionCount: t.detectionCount || t.detection_count
-      }))
-    },
-    inLibrary: {
-      count: inLibraryCount,
-      percent: inLibraryPercent,
-      techniques: []
-    },
-    gaps: {
-      count: gapsCount,
-      percent: gapsPercent,
-      techniques: (coverage?.gaps || []).slice(0, 15).map((g: any) => ({
-        id: g.id,
-        name: g.name,
-        priority: g.priority || 'high'
-      }))
-    },
-    // Legacy format for backward compatibility
+    total: tiers.total,
+    production: tiers.production,
+    development: tiers.development,
+    gaps: tiers.gap,
+    // Legacy backward-compat
     coverage: {
-      total,
-      covered: productionCount,
-      percent: productionPercent
+      total: tiers.total,
+      covered: tiers.production.count,
+      percent: tiers.production.percent,
     },
-    covered: (coverage?.coveredTechniques || []).slice(0, 10),
-    criticalGaps: (coverage?.gaps || []).slice(0, 10).map((g: any) => ({
+    covered: tiers.production.techniques.slice(0, 10),
+    criticalGaps: tiers.gap.techniques.slice(0, 10).map((g: any) => ({
       id: g.id,
       name: g.name,
-      reason: g.reason || `Uncovered technique used by ${actor.name}`
+      reason: `Uncovered technique used by ${actor.name}`,
     })),
-    recommendation
+    recommendation,
+    // No sources for aggregation
   }
 }
 
