@@ -358,17 +358,25 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
     }, []);
 
     // Execute Optimus tool via edge function
-    const executeOptimusTool = useCallback(async (toolName: string, args: any): Promise<any> => {
+    const executeOptimusTool = useCallback(async (
+        toolName: string,
+        args: any,
+        signal?: AbortSignal
+    ): Promise<any> => {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) {
             throw new Error('Not authenticated');
         }
 
         const { data, error } = await supabase.functions.invoke('optimus-tools', {
-            body: { tool: toolName, params: args, feature: 'optimus-chat' }
+            body: { tool: toolName, params: args, feature: 'optimus-chat' },
+            signal,
         });
 
         if (error) {
+            if ((error as any).name === 'AbortError' || signal?.aborted) {
+                const e = new Error('Aborted'); e.name = 'AbortError'; throw e;
+            }
             console.error(`Tool ${toolName} error:`, error);
             throw new Error(error.message || `Tool ${toolName} failed`);
         }
@@ -447,7 +455,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
         }
         setIsGen(false);
         setSession(prev => ({ ...prev, isGenerating: false, updatedAt: Date.now() }));
-        showToast('info', 'Stopped', 'Generation cancelled');
+        showToast('info', 'Stopped', 'Pending requests cancelled');
     }, [showToast]);
 
     // Message action handlers
@@ -542,6 +550,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
         setIsGen(true);
 
         abortControllerRef.current = new AbortController();
+        const signal = abortControllerRef.current.signal;
         const aiMsgId = generateId();
 
         // Add user message to chat history
@@ -561,6 +570,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                 tools: OPTIMUS_TOOLS,
                 history: truncateHistory(newHistory.slice(0, -1)),
                 feature: 'optimus-chat',
+                signal,
             });
 
             if (abortControllerRef.current?.signal.aborted) return;
@@ -613,7 +623,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                 const results = await Promise.all(
                     calls.map(async (call, index) => {
                         try {
-                            const result = await executeOptimusTool(call.name, call.args);
+                            const result = await executeOptimusTool(call.name, call.args, signal);
                             // Mark this tool as completed
                             const historyIndex = toolCallsHistory.length - calls.length + index;
                             toolCallsHistory[historyIndex].status = 'completed';
@@ -654,10 +664,14 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                         response: r.error ? { error: r.error } : r.result
                     })),
                     feature: 'optimus-chat',
+                    signal,
                 });
             }
 
             if (abortControllerRef.current?.signal.aborted) return;
+
+            const hitIterationCap = toolIterations >= MAX_TOOL_ITERATIONS
+                && response.functionCalls && response.functionCalls.length > 0;
 
             // Check if any critical tools failed
             const failedTools = toolCallsHistory.filter(t => t.status === 'error');
@@ -702,9 +716,16 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                 displayContent = "I wasn't able to generate a complete response. Please try rephrasing your question.";
             }
 
-            // Prepend tool failure warning if any
+            // Prepend iteration cap and/or tool failure warnings if any
+            const warnings: string[] = [];
+            if (hitIterationCap) {
+                warnings.push('> **Note:** I stopped after 5 tool steps to keep the conversation moving. The analysis below is based on the data I gathered so far. Want me to dig deeper into a specific area?');
+            }
             if (toolWarning) {
-                displayContent = toolWarning + displayContent;
+                warnings.push(toolWarning.trim());
+            }
+            if (warnings.length > 0) {
+                displayContent = warnings.join('\n\n') + '\n\n' + displayContent;
             }
 
             // Update chat history with assistant response
@@ -724,7 +745,15 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                 updatedAt: Date.now()
             }));
         } catch (err: any) {
-            if (err.name === 'AbortError' || abortControllerRef.current?.signal.aborted) return;
+            if (err.name === 'AbortError' || abortControllerRef.current?.signal.aborted) {
+                setSession(p => ({
+                    ...p,
+                    messages: p.messages.filter(m => !(m.id === aiMsgId && m.content === 'Thinking...')),
+                    isGenerating: false,
+                    updatedAt: Date.now(),
+                }));
+                return;
+            }
             setSession(p => ({
                 ...p,
                 messages: p.messages.map(m => m.id === aiMsgId ? { ...m, content: `Error: ${err.message || 'Failed'}` } : m),
