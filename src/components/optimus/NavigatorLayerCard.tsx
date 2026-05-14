@@ -38,11 +38,22 @@ export const NavigatorLayerCard: React.FC<Props> = ({ summary, data, actions, on
     }
   };
 
-  const handleOpenInNavigator = () => {
-    // Navigator accepts a layer via URL hash fragment (base64-encoded).
-    const encoded = btoa(unescape(encodeURIComponent(layerJson)));
-    const url = `https://mitre-attack.github.io/attack-navigator/#layerJSON=${encoded}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+  const handleOpenInNavigator = async () => {
+    // The Navigator does not accept a layer payload via URL — only a hosted-file
+    // `?layerURL=` parameter. To still give the user a one-click flow, copy the
+    // layer JSON to clipboard and open the Navigator in a new tab. The user
+    // pastes via Navigator's "Open Existing Layer" dialog.
+    try {
+      await navigator.clipboard.writeText(layerJson);
+      showToast(
+        'info',
+        'Layer copied — paste in Navigator',
+        'In the new tab, choose "Open Existing Layer" and paste from clipboard.',
+      );
+    } catch {
+      showToast('error', 'Copy failed', 'Clipboard access denied. Use Download JSON instead.');
+    }
+    window.open('https://mitre-attack.github.io/attack-navigator/', '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -95,7 +106,7 @@ export const NavigatorLayerCard: React.FC<Props> = ({ summary, data, actions, on
           className="px-4 py-2 text-sm font-medium bg-surface-container text-on-surface hover:bg-surface-container-high border border-outline-variant/20 rounded-lg transition-colors flex items-center gap-2"
         >
           <Icon name="external-link" className="w-4 h-4" />
-          Open in Navigator
+          Open Navigator
         </button>
         <button
           onClick={handleCopy}
