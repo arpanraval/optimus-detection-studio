@@ -16,6 +16,7 @@ import { OPTIMUS_TOOLS, OPTIMUS_TOOL_NAMES } from '../lib/ai/optimus-tools';
 import { OPTIMUS_SYSTEM_PROMPT } from '../lib/ai/prompts/optimus-system';
 import { parseAIResponse, ParsedAIResponse } from '../lib/ai/response-parser';
 import { supabase } from '../lib/supabaseClient';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 
 // =============================================================================
 // HELPERS
@@ -263,6 +264,12 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
     const [editingContent, setEditingContent] = useState('');
     const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
     const [renameValue, setRenameValue] = useState('');
+    const [confirmState, setConfirmState] = useState<{
+        type: 'retry' | 'edit' | 'clear-history';
+        msgId?: string;
+        content?: string;
+        subsequentCount?: number;
+    } | null>(null);
 
     const endRef = useRef<HTMLDivElement>(null);
     const histRef = useRef<HTMLDivElement>(null);
@@ -464,6 +471,13 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
         showToast('success', 'Copied', 'Message copied to clipboard');
     }, [showToast]);
 
+    const performRetry = useCallback((msgIdx: number, content: string) => {
+        const newMessages = session.messages.slice(0, msgIdx);
+        setSession(prev => ({ ...prev, messages: newMessages, updatedAt: Date.now() }));
+        setChatHistory(prev => prev.slice(0, msgIdx));
+        setTimeout(() => handleSend(content), 100);
+    }, [session.messages]);
+
     const handleRetryMessage = useCallback((msgId: string) => {
         const msgIdx = session.messages.findIndex(m => m.id === msgId);
         if (msgIdx === -1 || isGen) return;
@@ -473,31 +487,25 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
 
         const subsequentCount = session.messages.length - msgIdx - 1;
         if (subsequentCount > 0) {
-            const confirmed = window.confirm(
-                `Retrying will remove ${subsequentCount} subsequent message${subsequentCount > 1 ? 's' : ''}. This cannot be undone.\n\nContinue?`
-            );
-            if (!confirmed) return;
+            setConfirmState({ type: 'retry', msgId, content: msg.content, subsequentCount });
+            return;
         }
-
-        // Remove this message and all subsequent messages
-        const newMessages = session.messages.slice(0, msgIdx);
-        setSession(prev => ({
-            ...prev,
-            messages: newMessages,
-            updatedAt: Date.now()
-        }));
-
-        // Update chat history too
-        setChatHistory(prev => prev.slice(0, msgIdx));
-
-        // Resend after state update
-        setTimeout(() => handleSend(msg.content), 100);
-    }, [session.messages, isGen]);
+        performRetry(msgIdx, msg.content);
+    }, [session.messages, isGen, performRetry]);
 
     const handleEditMessage = useCallback((msgId: string, content: string) => {
         setEditingMessageId(msgId);
         setEditingContent(content);
     }, []);
+
+    const performSaveEdit = useCallback((msgIdx: number, content: string) => {
+        const newMessages = session.messages.slice(0, msgIdx);
+        setSession(prev => ({ ...prev, messages: newMessages, updatedAt: Date.now() }));
+        setChatHistory(prev => prev.slice(0, msgIdx));
+        setEditingMessageId(null);
+        setEditingContent('');
+        setTimeout(() => handleSend(content), 100);
+    }, [session.messages]);
 
     const handleSaveEdit = useCallback((msgId: string) => {
         if (!editingContent.trim() || isGen) return;
@@ -508,30 +516,11 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
         const subsequentCount = session.messages.length - msgIdx - 1;
 
         if (subsequentCount > 0) {
-            const confirmed = window.confirm(
-                `Editing this message will remove ${subsequentCount} subsequent message${subsequentCount > 1 ? 's' : ''}. This cannot be undone.\n\nContinue?`
-            );
-            if (!confirmed) return;
+            setConfirmState({ type: 'edit', msgId, content: editingContent, subsequentCount });
+            return;
         }
-
-        // Remove this message and all subsequent messages
-        const newMessages = session.messages.slice(0, msgIdx);
-        setSession(prev => ({
-            ...prev,
-            messages: newMessages,
-            updatedAt: Date.now()
-        }));
-
-        // Update chat history too
-        setChatHistory(prev => prev.slice(0, msgIdx));
-
-        const contentToSend = editingContent;
-        setEditingMessageId(null);
-        setEditingContent('');
-
-        // Send edited message
-        setTimeout(() => handleSend(contentToSend), 100);
-    }, [editingContent, session.messages, isGen]);
+        performSaveEdit(msgIdx, editingContent);
+    }, [editingContent, session.messages, isGen, performSaveEdit]);
 
     const handleCancelEdit = useCallback(() => {
         setEditingMessageId(null);
@@ -1078,6 +1067,42 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                     </div>
                 </div>
             </div>
+
+            {confirmState && (
+                <ConfirmDialog
+                    isOpen={true}
+                    title={
+                        confirmState.type === 'retry' ? 'Retry this message?' :
+                        confirmState.type === 'edit' ? 'Send edited message?' :
+                        'Clear all chat history?'
+                    }
+                    message={
+                        confirmState.type === 'clear-history'
+                            ? 'This will permanently delete all saved Optimus chat sessions on this device. This cannot be undone.'
+                            : `This will remove ${confirmState.subsequentCount} subsequent message${confirmState.subsequentCount === 1 ? '' : 's'} from this conversation. This cannot be undone.`
+                    }
+                    confirmLabel={confirmState.type === 'clear-history' ? 'Clear All' : 'Continue'}
+                    variant="danger"
+                    onConfirm={() => {
+                        const state = confirmState;
+                        setConfirmState(null);
+                        if (state.type === 'retry' && state.msgId && state.content) {
+                            const idx = session.messages.findIndex(m => m.id === state.msgId);
+                            if (idx >= 0) performRetry(idx, state.content);
+                        } else if (state.type === 'edit' && state.msgId && state.content) {
+                            const idx = session.messages.findIndex(m => m.id === state.msgId);
+                            if (idx >= 0) performSaveEdit(idx, state.content);
+                        } else if (state.type === 'clear-history') {
+                            loadIndex().forEach(s => localStorage.removeItem(SESSION_PREFIX + s.id));
+                            localStorage.removeItem(SESSIONS_INDEX_KEY);
+                            setSessionsIdx([]);
+                            setSession(newSession());
+                            showToast('success', 'Cleared', 'All chat history removed');
+                        }
+                    }}
+                    onClose={() => setConfirmState(null)}
+                />
+            )}
         </div>
     );
 };
