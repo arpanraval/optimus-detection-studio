@@ -15,6 +15,7 @@ import { FormattedText } from './optimus/FormattedText';
 import { OPTIMUS_TOOLS, OPTIMUS_TOOL_NAMES } from '../lib/ai/optimus-tools';
 import { OPTIMUS_SYSTEM_PROMPT } from '../lib/ai/prompts/optimus-system';
 import { parseAIResponse, ParsedAIResponse } from '../lib/ai/response-parser';
+import { wrapToolResult } from '../lib/ai/trust-wrapper';
 import { supabase } from '../lib/supabaseClient';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 
@@ -650,7 +651,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                     functionResponses: results.map(r => ({
                         id: r.name,
                         name: r.name,
-                        response: r.error ? { error: r.error } : r.result
+                        response: wrapToolResult(r.name, r.result, r.error),
                     })),
                     feature: 'optimus-chat',
                     signal,
