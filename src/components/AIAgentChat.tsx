@@ -719,7 +719,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
             // Prepend iteration cap and/or tool failure warnings if any
             const warnings: string[] = [];
             if (hitIterationCap) {
-                warnings.push('> **Note:** I stopped after 5 tool steps to keep the conversation moving. The analysis below is based on the data I gathered so far. Want me to dig deeper into a specific area?');
+                warnings.push(`> **Note:** I stopped after ${MAX_TOOL_ITERATIONS} tool steps to keep the conversation moving. The analysis below is based on the data I gathered so far. Want me to dig deeper into a specific area?`);
             }
             if (toolWarning) {
                 warnings.push(toolWarning.trim());
@@ -748,7 +748,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
             if (err.name === 'AbortError' || abortControllerRef.current?.signal.aborted) {
                 setSession(p => ({
                     ...p,
-                    messages: p.messages.filter(m => !(m.id === aiMsgId && m.content === 'Thinking...')),
+                    messages: p.messages.filter(m => m.id !== aiMsgId),
                     isGenerating: false,
                     updatedAt: Date.now(),
                 }));
