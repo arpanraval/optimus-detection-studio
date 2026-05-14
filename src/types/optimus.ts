@@ -43,7 +43,8 @@ export type OptimusVisualizationType =
   | 'threat_actor'
   | 'search_results'
   | 'gap_analysis'
-  | 'technique';
+  | 'technique'
+  | 'navigator_layer';
 
 export interface OptimusAction {
   label: string;
@@ -82,10 +83,14 @@ export interface CoverageReportData {
   title?: string;
   total: number;
 
-  // Three-tier coverage model
+  // Three-tier coverage model (library_type-based, current)
   production: TierData;
-  inLibrary: TierData;
+  development?: TierData;      // NEW — replaces inLibrary semantically
   gaps: TierData;
+
+  // Legacy field — edge function may still return `inLibrary` during transition.
+  // Cards read `development ?? inLibrary`.
+  inLibrary?: TierData;
 
   // Legacy fields for backward compatibility
   overall?: {
@@ -136,8 +141,11 @@ export interface ThreatActorData {
 
   // Three-tier model
   production: TierData;
-  inLibrary: TierData;
+  development?: TierData;      // NEW
   gaps: TierData;
+
+  // Legacy
+  inLibrary?: TierData;
 
   // Legacy fields for backward compatibility
   coverage?: {
@@ -232,8 +240,15 @@ export interface DraftData {
 // =============================================================================
 
 export interface NavigatorLayerData {
-  layer: any; // ATT&CK Navigator JSON format
-  downloadUrl?: string;
+  layer: {
+    name: string;
+    description?: string;
+    domain?: string;
+    versions?: { attack: string; navigator: string; layer: string };
+    techniques: Array<{ techniqueID: string; score?: number; color?: string; comment?: string }>;
+    gradient?: { colors: string[]; minValue: number; maxValue: number };
+    legendItems?: Array<{ label: string; color: string }>;
+  };
   stats: {
     totalTechniques: number;
     coveredTechniques: number;
