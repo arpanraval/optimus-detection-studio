@@ -148,7 +148,8 @@ export function parseAIResponse(rawText: string): ParsedAIResponse {
               type: parsed.visualization?.type || parsed.type,
               summary: displayText,
               data: parsed.visualization?.data || parsed.data,
-              actions: parsed.actions
+              actions: parsed.actions,
+              sources: parsed.sources,
             },
             draftData: undefined,
             isStructured: true,
@@ -174,7 +175,8 @@ export function parseAIResponse(rawText: string): ParsedAIResponse {
             type: parsed.visualization.type,
             summary: parsed.text,
             data: parsed.visualization.data,
-            actions: parsed.actions
+            actions: parsed.actions,
+            sources: parsed.sources,
           } : undefined,
           draftData: undefined,
           isStructured: !!parsed.visualization,
@@ -206,7 +208,8 @@ export function parseAIResponse(rawText: string): ParsedAIResponse {
             type: visualization.type || parsed.type,
             summary: textPart,
             data: visualization.data || parsed.data,
-            actions: parsed.actions
+            actions: parsed.actions,
+            sources: parsed.sources,
           },
           draftData: undefined,
           isStructured: true,

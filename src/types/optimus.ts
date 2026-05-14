@@ -13,6 +13,7 @@ export type OptimusResponseType =
   | 'threat_actor'
   | 'search_results'
   | 'gap_analysis'
+  | 'navigator_layer'
   | 'technique_info'
   | 'draft'
   | 'text'

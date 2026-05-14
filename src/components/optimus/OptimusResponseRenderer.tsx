@@ -9,6 +9,7 @@ import { CoverageReportCard } from './CoverageReportCard';
 import { ThreatActorCard } from './ThreatActorCard';
 import { SearchResultsCard } from './SearchResultsCard';
 import { GapAnalysisCard } from './GapAnalysisCard';
+import { NavigatorLayerCard } from './NavigatorLayerCard';
 import { SourceCitationBar } from './SourceCitationBar';
 import { Icon } from '../Icon';
 
@@ -152,6 +153,19 @@ export const OptimusResponseRenderer: React.FC<Props> = ({ response, onAction })
       return (
         <>
           <GapAnalysisCard
+            summary={response.summary}
+            data={response.data}
+            actions={response.actions}
+            onAction={onAction}
+          />
+          {citations}
+        </>
+      );
+
+    case 'navigator_layer':
+      return (
+        <>
+          <NavigatorLayerCard
             summary={response.summary}
             data={response.data}
             actions={response.actions}

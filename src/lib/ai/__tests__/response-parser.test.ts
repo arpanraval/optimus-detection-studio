@@ -56,3 +56,29 @@ describe('parseAIResponse', () => {
     expect(result.isStructured).toBe(true);
   });
 });
+
+describe('parseAIResponse — sources propagation', () => {
+  it('preserves sources from clean JSON', () => {
+    const raw = JSON.stringify({
+      text: 'Found 2 detections',
+      visualization: { type: 'search_results', data: { total: 2, results: [], query: 'x' } },
+      sources: [{ type: 'library', detectionId: 'a', title: 'A' }],
+    });
+    const parsed = parseAIResponse(raw);
+    expect(parsed.structuredResponse?.sources).toEqual([
+      { type: 'library', detectionId: 'a', title: 'A' },
+    ]);
+  });
+
+  it('preserves sources from code-block JSON', () => {
+    const raw = '```json\n' + JSON.stringify({
+      text: 'See sources',
+      visualization: { type: 'search_results', data: { total: 0, results: [], query: 'x' } },
+      sources: [{ type: 'web', url: 'https://example.com', title: 'Example' }],
+    }) + '\n```';
+    const parsed = parseAIResponse(raw);
+    expect(parsed.structuredResponse?.sources).toEqual([
+      { type: 'web', url: 'https://example.com', title: 'Example' },
+    ]);
+  });
+});

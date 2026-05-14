@@ -8,3 +8,4 @@ export { CoverageReportCard } from './CoverageReportCard';
 export { ThreatActorCard } from './ThreatActorCard';
 export { SearchResultsCard } from './SearchResultsCard';
 export { GapAnalysisCard } from './GapAnalysisCard';
+export { NavigatorLayerCard } from './NavigatorLayerCard';
