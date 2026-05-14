@@ -144,29 +144,17 @@ async function handleSearchLibrary(
     console.warn('Semantic search unavailable, falling back to keyword search:', e)
   }
 
-  // Also do keyword search using ilike
-  // Escape special characters for LIKE patterns
-  const escapedQuery = query.replace(/[%_\\]/g, '\\$&')
-  let keywordQuery = supabase
-    .from('detections')
-    .select('id, name, description, status, severity, "mitreAttackIds", "mitreTactics", "queryLanguage", tags')
-    .or(`name.ilike.%${escapedQuery}%,description.ilike.%${escapedQuery}%`)
-    .limit(limit * 2)
-
-  // Apply filters
-  if (filters.status) {
-    keywordQuery = keywordQuery.eq('status', filters.status)
-  }
-  if (filters.severity) {
-    keywordQuery = keywordQuery.eq('severity', filters.severity)
-  }
-
+  // Parameterized keyword search via RPC — replaces injection-prone .or() construction
   let keywordResults: any[] = []
   try {
-    const { data, error: keywordError } = await keywordQuery
-
+    const { data, error: keywordError } = await supabase.rpc('search_detections_keyword', {
+      p_query: query,
+      p_status: filters.status ?? null,
+      p_severity: filters.severity ?? null,
+      p_limit: limit * 2,
+    })
     if (keywordError) {
-      console.error('Keyword search error:', keywordError)
+      console.error('Keyword search RPC error:', keywordError)
     } else {
       keywordResults = data || []
     }
@@ -252,7 +240,12 @@ async function handleSearchLibrary(
     crossVendorSummary,
     byQueryLanguage: byLanguage,
     results,
-    relatedTechniques: relatedTechniques.slice(0, 20)
+    relatedTechniques: relatedTechniques.slice(0, 20),
+    sources: results.map(r => ({
+      type: 'library',
+      detectionId: r.id,
+      title: r.name,
+    })),
   }
 }
 
@@ -467,31 +460,20 @@ async function handleIdentifyGaps(supabase: any, params: any) {
 async function handleQueryMitre(supabase: any, params: any) {
   const { entity_type = 'any', query, include_relationships = false } = params
 
-  // Map entity types to MITRE object types
+  // Map UI entity type to STIX object type
   const typeMap: Record<string, string> = {
     technique: 'attack-pattern',
     group: 'intrusion-set',
     software: 'malware',
-    campaign: 'campaign'
+    campaign: 'campaign',
   }
+  const stixType = entity_type !== 'any' && typeMap[entity_type] ? typeMap[entity_type] : null
 
-  // Escape special characters for LIKE patterns
-  const escapedQuery = query.replace(/[%_\\]/g, '\\$&')
-
-  let dbQuery = supabase
-    .from('mitre_objects')
-    .select('stix_id, mitre_id, name, type, description, data')
-
-  // Filter by type if specified
-  if (entity_type !== 'any' && typeMap[entity_type]) {
-    dbQuery = dbQuery.eq('type', typeMap[entity_type])
-  }
-
-  // Search by name, mitre_id, or description
-  dbQuery = dbQuery.or(`name.ilike.%${escapedQuery}%,mitre_id.ilike.%${escapedQuery}%,description.ilike.%${escapedQuery}%`)
-    .limit(20)
-
-  const { data: results, error } = await dbQuery
+  const { data: results, error } = await supabase.rpc('search_mitre_objects', {
+    p_query: query,
+    p_entity_type: stixType,
+    p_limit: 20,
+  })
 
   if (error) {
     console.error('MITRE query error:', error)
@@ -551,7 +533,15 @@ async function handleQueryMitre(supabase: any, params: any) {
     entityType: entity_type,
     total: formattedResults.length,
     results: formattedResults,
-    relationships
+    relationships,
+    sources: formattedResults
+      .filter(r => r.type === 'attack-pattern' && r.mitreId)
+      .map(r => ({
+        type: 'mitre',
+        mitreId: r.mitreId,
+        title: r.name,
+        url: `https://attack.mitre.org/techniques/${r.mitreId.replace('.', '/')}/`,
+      })),
   }
 }
 
@@ -635,7 +625,15 @@ async function handleGenerateNavigatorLayer(supabase: any, params: any) {
  */
 async function handleWebSearch(params: any) {
   const { query, focus = 'general' } = params
-  return await webSearch({ query, focus })
+  const result = await webSearch({ query, focus })
+  return {
+    ...result,
+    sources: (result?.results || []).map((r: any) => ({
+      type: 'web',
+      title: r.title || r.url,
+      url: r.url,
+    })),
+  }
 }
 
 // =============================================================================
