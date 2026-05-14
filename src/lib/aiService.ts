@@ -36,8 +36,10 @@ async function withRetry<T>(
       const message = err instanceof Error ? err.message : '';
       // Don't retry: auth/validation errors are permanent; timeouts mean the
       // request was slow, not transient — retrying just makes the user wait
-      // another timeout window before the same failure.
+      // another timeout window before the same failure. AbortError means the
+      // caller cancelled — never retry that.
       if (
+        (err instanceof Error && err.name === 'AbortError') ||
         message.includes('unauthorized') ||
         message.includes('invalid') ||
         message.includes('not found') ||
@@ -182,6 +184,8 @@ export interface AIChatOptions {
   functionResponses?: Array<{ id: string; name: string; response: any }>;
   /** GenAI Cost Center feature code for usage attribution. Server defaults to 'unknown'. */
   feature?: AiFeatureCode;
+  /** Optional AbortSignal to cancel the in-flight request. */
+  signal?: AbortSignal;
 }
 
 export interface AIFunctionCall {
@@ -236,7 +240,8 @@ export async function generateAIChat(options: AIChatOptions): Promise<AIGenerate
     tools,
     history,
     functionResponses,
-    feature
+    feature,
+    signal
   } = options;
 
   if (import.meta.env.DEV && !feature) {
@@ -254,10 +259,16 @@ export async function generateAIChat(options: AIChatOptions): Promise<AIGenerate
         history,
         functionResponses,
         feature
-      }
+      },
+      signal,
     });
 
     if (error) {
+      if ((error as any).name === 'AbortError' || signal?.aborted) {
+        const e = new Error('Aborted');
+        e.name = 'AbortError';
+        throw e;
+      }
       logger.error('AI chat error:', error);
       throw new Error(error.message || 'AI chat failed');
     }
