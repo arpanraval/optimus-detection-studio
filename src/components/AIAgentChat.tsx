@@ -115,7 +115,38 @@ const loadSession = (id: string): ChatSession | null => {
         return s;
     } catch { return null; }
 };
+const MAX_STORAGE_BYTES = 4 * 1024 * 1024;       // 4MB high-water mark
+const TRIM_TARGET_BYTES = 3 * 1024 * 1024;       // 3MB after trim
+
+function getSessionsTotalBytes(): number {
+    let total = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(SESSION_PREFIX)) {
+            const val = localStorage.getItem(key);
+            if (val) total += key.length + val.length;
+        }
+    }
+    return total;
+}
+
+function trimToTarget() {
+    let total = getSessionsTotalBytes();
+    if (total <= MAX_STORAGE_BYTES) return;
+    // Sort by oldest updatedAt first; drop until under target
+    const idx = loadIndex().slice().sort((a, b) => a.updatedAt - b.updatedAt);
+    for (const s of idx) {
+        if (total <= TRIM_TARGET_BYTES) break;
+        const key = SESSION_PREFIX + s.id;
+        const val = localStorage.getItem(key);
+        if (val) total -= key.length + val.length;
+        localStorage.removeItem(key);
+    }
+    saveIndex(loadIndex().filter(s => localStorage.getItem(SESSION_PREFIX + s.id) !== null));
+}
+
 const saveSession = (s: ChatSession) => {
+    trimToTarget();
     try {
         localStorage.setItem(SESSION_PREFIX + s.id, JSON.stringify(s));
     } catch (e: any) {
@@ -315,6 +346,19 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                 setSession(l);
             }
         }
+    }, []);
+
+    // Clear localStorage sessions on logout
+    useEffect(() => {
+        const { data: sub } = supabase.auth.onAuthStateChange((evt) => {
+            if (evt === 'SIGNED_OUT') {
+                loadIndex().forEach(s => localStorage.removeItem(SESSION_PREFIX + s.id));
+                localStorage.removeItem(SESSIONS_INDEX_KEY);
+                setSessionsIdx([]);
+                setSession(newSession());
+            }
+        });
+        return () => sub.subscription.unsubscribe();
     }, []);
 
     // Save session on changes
@@ -813,6 +857,14 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                                         <button onClick={handleNew} className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-medium text-primary hover:bg-surface-container-high/50 border-b border-outline-variant/10 transition-colors">
                                             <Icon name="plus" className="w-3.5 h-3.5" /> New Session
                                         </button>
+                                        {sessionsIdx.length > 0 && (
+                                            <button
+                                                onClick={() => { setConfirmState({ type: 'clear-history' }); setShowHist(false); }}
+                                                className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-medium text-error/80 hover:bg-error/10 border-b border-outline-variant/10 transition-colors"
+                                            >
+                                                <Icon name="trash" className="w-3.5 h-3.5" /> Clear all history
+                                            </button>
+                                        )}
                                         <div className="max-h-60 overflow-y-auto agent-scroll">
                                             {sessionsIdx.length === 0 ? (
                                                 <p className="p-4 text-[11px] text-on-surface-variant/40 text-center">No sessions yet</p>
