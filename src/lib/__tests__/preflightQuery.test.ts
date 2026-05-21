@@ -47,7 +47,7 @@ describe('column detection', () => {
     expect(detectEntityColumn(['Foo', 'Bar'])).toBeNull();
   });
   it('extracts column names from a runHuntingQuery schema', () => {
-    expect(extractColumns([{ name: 'Timestamp', type: 'DateTime' }, { name: 'DeviceId', type: 'String' }]))
+    expect(extractColumns([{ name: 'Timestamp' }, { name: 'DeviceId' }]))
       .toEqual(['Timestamp', 'DeviceId']);
     expect(extractColumns(undefined)).toEqual([]);
   });
@@ -119,5 +119,17 @@ describe('mapHuntingError', () => {
     const r = mapHuntingError(400, '{"error":{"message":"Bad request: unknown column Foo"}}');
     expect(r.status).toBe('query_error');
     expect(r.message).toContain('unknown column Foo');
+  });
+  it('maps 401 to a permission error', () => {
+    expect(mapHuntingError(401, '').status).toBe('permission_denied');
+  });
+  it('maps a 5xx to a connection error', () => {
+    expect(mapHuntingError(503, '').status).toBe('connection_error');
+  });
+  it('does not misclassify a 5xx whose body mentions "expired"', () => {
+    expect(mapHuntingError(503, '{"error":{"message":"certificate expired"}}').status).toBe('connection_error');
+  });
+  it('falls back to text analysis for an ambiguous 200 response', () => {
+    expect(mapHuntingError(200, '{"error":{"message":"unauthorized"}}').status).toBe('permission_denied');
   });
 });

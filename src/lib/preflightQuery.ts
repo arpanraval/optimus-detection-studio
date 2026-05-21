@@ -8,9 +8,14 @@ import type {
   PreflightSchemaWarning,
   PreflightTimeBucket,
   PreflightEntityBucket,
+  PreflightWindowDays,
 } from '../types/preflight';
 
-/** Entity-identifier columns recognized for the "top entities" breakdown, in priority order. */
+/**
+ * Entity-identifier columns recognized for the "top entities" breakdown, in priority order.
+ * Human-readable columns (DeviceName, AccountName) are preferred over opaque IDs so the
+ * breakdown shows friendly labels; the first column present in the query result wins.
+ */
 export const PREFLIGHT_ENTITY_COLUMNS = [
   'DeviceName',
   'DeviceId',
@@ -34,7 +39,7 @@ export function appendOperator(baseQuery: string, operator: string): string {
 }
 
 /** A `| where Timestamp > ago(Nd)` clause, or '' when the query has no Timestamp column. */
-export function buildWindowClause(windowDays: number, hasTimestamp: boolean): string {
+export function buildWindowClause(windowDays: PreflightWindowDays, hasTimestamp: boolean): string {
   if (!hasTimestamp) return '';
   return `| where Timestamp > ago(${windowDays}d)`;
 }
@@ -64,7 +69,7 @@ export interface DerivedQueries {
 
 export function buildDerivedQueries(opts: {
   baseQuery: string;
-  windowDays: number;
+  windowDays: PreflightWindowDays;
   hasTimestamp: boolean;
   entityColumn: string | null;
 }): DerivedQueries {
@@ -149,21 +154,21 @@ export function mapHuntingError(
     text = body ? body.slice(0, 300) : '';
   }
 
-  if (httpStatus === 403 || /forbidden|insufficient|privilege/i.test(text)) {
-    return {
-      status: 'permission_denied',
-      message: 'Insufficient Graph API permissions for Advanced Hunting',
-      guidance:
-        'Grant the ThreatHunting.Read.All application permission to your Azure AD app registration and grant admin consent.',
-    };
-  }
-  if (httpStatus === 401 || /unauthorized|invalid.*token|expired/i.test(text)) {
-    return {
-      status: 'permission_denied',
-      message: 'Authentication failed',
-      guidance: 'Check the Client ID, Client Secret, and Tenant ID configured for this integration.',
-    };
-  }
+  const insufficientPerms = {
+    status: 'permission_denied' as const,
+    message: 'Insufficient Graph API permissions for Advanced Hunting',
+    guidance:
+      'Grant the ThreatHunting.Read.All application permission to your Azure AD app registration and grant admin consent.',
+  };
+  const authFailed = {
+    status: 'permission_denied' as const,
+    message: 'Authentication failed',
+    guidance: 'Check the Client ID, Client Secret, and Tenant ID configured for this integration.',
+  };
+
+  // Route by explicit HTTP status first — a definite status always wins over text matching.
+  if (httpStatus === 403) return insufficientPerms;
+  if (httpStatus === 401) return authFailed;
   if (httpStatus === 429) {
     return {
       status: 'connection_error',
@@ -178,6 +183,12 @@ export function mapHuntingError(
       guidance: 'Graph returned a server error. Try again shortly.',
     };
   }
+
+  // Text-based fallback — only for ambiguous statuses (e.g. a 2xx wrapper that embeds an error).
+  if (/forbidden|insufficient|privilege/i.test(text)) return insufficientPerms;
+  if (/unauthorized|invalid.*token|expired/i.test(text)) return authFailed;
+
+  // Otherwise treat as a KQL/query compile error (covers HTTP 400 and unknown statuses).
   return {
     status: 'query_error',
     message: text ? `Query error: ${text.slice(0, 240)}` : `Query failed (HTTP ${httpStatus})`,
