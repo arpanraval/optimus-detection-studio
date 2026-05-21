@@ -16,6 +16,8 @@ import { useLibrary } from '../../context/LibraryContext';
 import { sourceConfig } from '../card-utils';
 import { CollaborationTab } from './tabs/CollaborationTab';
 import { DeployDetectionModal } from '../integrations/DeployDetectionModal';
+import { SiemPreflightModal } from '../integrations/SiemPreflightModal';
+import { useLatestPreflight } from '../../hooks/usePreflight';
 import { DeploymentHistoryTab } from '../integrations/DeploymentHistoryTab';
 import { batchResolveTechniques } from '../../mitre';
 import { supabase } from '../../lib/supabaseClient';
@@ -77,6 +79,8 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [showDeployPreview, setShowDeployPreview] = useState(false);
+  const [showPreflight, setShowPreflight] = useState(false);
+  const { latest: latestPreflight } = useLatestPreflight(detection?.id);
   const [sourceRule, setSourceRule] = useState<Detection | null>(null);
   const [rejectionReason, setRejectionReason] = useState<string | null>(null);
   const { showToast } = useToast();
@@ -483,6 +487,24 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                  </button>
                )}
 
+               {/* Test in SIEM — permission gated */}
+               {hasPermission(userRole, 'integrations:sync') && (
+                 <button
+                   onClick={() => setShowPreflight(true)}
+                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-outline-variant/30 text-on-surface hover:bg-surface-container-high transition-colors"
+                 >
+                   <Icon name="zap" className="w-3.5 h-3.5" />
+                   Test in SIEM
+                   {latestPreflight && (
+                     <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-md bg-surface-container-highest text-on-surface-variant">
+                       {latestPreflight.hit_count !== null
+                         ? `${latestPreflight.hit_count.toLocaleString()} hits`
+                         : latestPreflight.status}
+                     </span>
+                   )}
+                 </button>
+               )}
+
                {/* Deploy to SIEM — permission gated */}
                {detection.detectionQuery && hasPermission(userRole, 'integrations:sync') && (
                  isProductionRule ? (
@@ -719,6 +741,11 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
           previewOnly={true}
           userRole={userRole}
         />
+      )}
+
+      {/* Pre-flight Modal */}
+      {showPreflight && detection && (
+        <SiemPreflightModal detection={detection} onClose={() => setShowPreflight(false)} />
       )}
 
       {/* Delete Confirmation Modal */}
