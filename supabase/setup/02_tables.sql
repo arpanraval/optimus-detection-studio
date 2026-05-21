@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   phone text,
   timezone text DEFAULT 'UTC'::text,
   preferences jsonb DEFAULT '{}'::jsonb,
+  permission_overrides jsonb,
   last_active_at timestamptz,
   status text DEFAULT 'active'::text,
   onboarding_completed boolean DEFAULT true,

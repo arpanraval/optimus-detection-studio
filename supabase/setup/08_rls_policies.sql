@@ -658,6 +658,8 @@ CREATE POLICY "Users can update own profile" ON public.profiles
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND (status = ( SELECT p.status
    FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (permission_overrides IS NOT DISTINCT FROM ( SELECT p.permission_overrides
+   FROM profiles p
   WHERE (p.id = auth.uid())))));
 
 CREATE POLICY "Users can view own profile" ON public.profiles
