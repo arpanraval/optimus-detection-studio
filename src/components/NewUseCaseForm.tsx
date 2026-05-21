@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useRegisterNavigationBlocker, useNavigationBlocker } from '../context/NavigationBlockerContext';
-import { Detection, Status, Severity, DetectionType, Maturity, Confidence, DetectionQuery, LinkedMitreEntity, LIBRARY_LABELS, LibraryType } from '../types';
+import { Detection, Status, Severity, DetectionType, DetectionQuery, LinkedMitreEntity, LIBRARY_LABELS, LibraryType } from '../types';
 import { LIBRARY_PRODUCTION, LIBRARY_DEVELOPMENT, PROMOTION_NONE } from '../constants/library';
 import { Icon } from './Icon';
 import { 
@@ -28,6 +28,9 @@ import { attackRuleMapService } from '@/services/attack-rule-map/AttackRuleMapSe
 import { supabase } from '../lib/supabaseClient';
 import { ConventionHintsPanel } from './patterns/ConventionHintsPanel';
 import { Breadcrumb } from './ui';
+import { Select } from './ui/Select';
+import { MitreTechniqueSearch } from './detection/MitreTechniqueSearch';
+import { DetectionInsightsPanel } from './detection/DetectionInsightsPanel';
 import { ROUTES } from '../router/routes';
 
 interface NewDetectionFormProps {
@@ -43,10 +46,8 @@ interface NewDetectionFormProps {
 }
 
 const statuses = Object.values(Status);
-const maturities = Object.values(Maturity);
 const detectionTypes = Object.values(DetectionType);
 const severities = Object.values(Severity);
-const confidences = Object.values(Confidence);
 
 interface MitreInfo { 
   id: string; 
@@ -62,17 +63,17 @@ const generateUUID = () => crypto.randomUUID();
 // --- Styled Components ---
 
 const FormCard: React.FC<{ title: string; description?: string; children: React.ReactNode; action?: React.ReactNode }> = ({ title, description, children, action }) => (
-  <section className="rounded-2xl overflow-hidden mb-6 border border-outline-variant/30 bg-surface-container-low">
-    <div className="px-6 py-5 flex items-start justify-between border-b border-outline-variant/30 bg-surface-container-low">
+  <section className="rounded-2xl overflow-hidden border border-outline-variant/30 bg-surface-container-low">
+    <div className="px-5 py-3 flex items-center justify-between border-b border-outline-variant/30 bg-surface-container-low">
       <div>
-        <h3 className="text-base font-medium text-on-surface">{title}</h3>
+        <h3 className="text-sm font-semibold text-on-surface">{title}</h3>
         {description && (
           <p className="text-sm mt-0.5 text-on-surface-variant">{description}</p>
         )}
       </div>
       {action}
     </div>
-    <div className="p-6 space-y-5">
+    <div className="p-5 space-y-4">
       {children}
     </div>
   </section>
@@ -111,8 +112,8 @@ const FormInput: React.FC<{
           placeholder={placeholder}
           aria-describedby={helperId}
           aria-required={required}
-          className="w-full h-12 rounded-xl text-sm transition-colors focus:outline-none bg-surface-container-high border border-outline-variant/30 text-on-surface focus:border-primary/50 placeholder-on-surface-variant/60"
-          style={{ paddingLeft: icon ? '2.75rem' : '1rem', paddingRight: '1rem' }}
+          className="w-full h-11 rounded-xl text-sm transition-colors focus:outline-none bg-surface-container-high border border-outline-variant/30 text-on-surface focus:border-primary/50 placeholder-on-surface-variant/60"
+          style={{ paddingLeft: icon ? '2.5rem' : '0.875rem', paddingRight: '0.875rem' }}
         />
       </div>
       {helper && (
@@ -145,34 +146,37 @@ const FormTextArea: React.FC<{
   </div>
 );
 
-const FormSelect: React.FC<{ 
-  label: string; 
-  value: string; 
-  onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void; 
+const FormSelect: React.FC<{
+  label: string;
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
   options: string[];
   name?: string;
-}> = ({ label, value, onChange, options, name }) => (
-  <div className="space-y-1.5">
-    <label className="block text-sm font-medium text-on-surface-variant">
-      {label}
-    </label>
-    <div className="relative">
-      <select
-        name={name}
-        value={value}
-        onChange={onChange}
-        className="w-full h-12 px-4 pr-10 rounded-xl text-sm appearance-none cursor-pointer focus:outline-none bg-surface-container-high border border-outline-variant/30 text-on-surface focus:border-primary/50"
-      >
-        {options.map(opt => (
-          <option key={opt} value={opt}>{opt}</option>
-        ))}
-      </select>
-      <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-50 pointer-events-none">
-        <Icon name="chevron-down" className="w-3 h-3 text-on-surface" />
-      </div>
-    </div>
-  </div>
-);
+}> = ({ label, value, onChange, options, name }) => {
+  // Adapt to the custom Select primitive while preserving the legacy onChange
+  // signature used by the form's handleChange (expects an event target).
+  const selectOptions = options.map((opt) => ({
+    value: opt,
+    label: opt === '' ? '— None —' : opt,
+  }));
+  return (
+    <Select
+      label={label}
+      options={selectOptions}
+      value={value}
+      placeholder="Select..."
+      fullWidth
+      size="lg"
+      onChange={(next) => {
+        const syntheticEvent = {
+          target: { name: name || '', value: next, type: 'select-one' },
+          currentTarget: { name: name || '', value: next, type: 'select-one' },
+        } as unknown as React.ChangeEvent<HTMLSelectElement>;
+        onChange(syntheticEvent);
+      }}
+    />
+  );
+};
 
 // --- Unsaved Changes Dialog ---
 const UnsavedChangesDialog: React.FC<{
@@ -371,6 +375,9 @@ export const NewUseCaseForm: React.FC<NewDetectionFormProps> = ({
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
   
+  // === Insights panel (collapsible drawer with quality + completeness) ===
+  const [isInsightsOpen, setIsInsightsOpen] = useState(false);
+
   // === SESSION 4: Duplicate detection ===
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [duplicates, setDuplicates] = useState<{ id: string; name: string; similarity: number }[]>([]);
@@ -637,7 +644,7 @@ export const NewUseCaseForm: React.FC<NewDetectionFormProps> = ({
   // === IMPROVED AI AUTOFILL ===
   const OVERVIEW_FIELD_GROUPS: FieldGroup[] = [
     { id: 'description', label: 'Description', section: 'Detection Metadata' },
-    { id: 'classification', label: 'Severity & Confidence', section: 'Detection Metadata' },
+    { id: 'classification', label: 'Severity', section: 'Detection Metadata' },
     { id: 'mitre', label: 'MITRE ATT&CK IDs', section: 'Detection Metadata' },
     { id: 'dataSources', label: 'Data Sources & Platforms', section: 'Detection Metadata' },
     { id: 'tags', label: 'Tags & Metadata', section: 'Detection Metadata' },
@@ -666,7 +673,6 @@ export const NewUseCaseForm: React.FC<NewDetectionFormProps> = ({
       schemaFields.push('"description": "A detailed 2-3 sentence technical description explaining what this detection identifies, why it\'s important, and what attack behavior it catches."');
     if (!groups || groups.has('classification')) {
       schemaFields.push('"severity": "Critical" | "High" | "Medium" | "Low" | "Informational"');
-      schemaFields.push('"confidence": "High" | "Medium" | "Low"');
     }
     if (!groups || groups.has('mitre'))
       schemaFields.push('"mitreAttackIds": ["T1xxx", "T1xxx.xxx"]');
@@ -727,7 +733,6 @@ Output JSON only, no markdown.`;
             ...( (!groups || groups.has('description')) && { description: suggestion.description || prev.description }),
             ...( (!groups || groups.has('classification')) && {
               severity: (Object.values(Severity).includes(suggestion.severity) ? suggestion.severity : prev.severity) as Severity,
-              confidence: (Object.values(Confidence).includes(suggestion.confidence) ? suggestion.confidence : prev.confidence) as Confidence,
             }),
             ...( (!groups || groups.has('dataSources')) && {
               technology: suggestion.technology || prev.technology,
@@ -1042,7 +1047,7 @@ Output JSON only, no markdown.`;
       };
       if (isEditMode && detectionToEdit) {
         // Compute field-level diff for tracked fields
-        const trackedFields = ['name', 'description', 'status', 'severity', 'detectionQuery', 'queryLanguage', 'mitreAttackIds', 'tags', 'testedAndValidated', 'author', 'confidence', 'maturity'] as const;
+        const trackedFields = ['name', 'description', 'status', 'severity', 'detectionQuery', 'queryLanguage', 'mitreAttackIds', 'tags', 'testedAndValidated', 'author'] as const;
         const oldVals: Record<string, unknown> = {};
         const newVals: Record<string, unknown> = {};
         for (const field of trackedFields) {
@@ -1094,10 +1099,8 @@ Output JSON only, no markdown.`;
       description: formData.description || '',
       author: formData.author || '',
       status: formData.status || Status.Draft,
-      maturity: formData.maturity || Maturity.Experimental,
       detectionType: formData.detectionType || DetectionType.Detection,
       severity: formData.severity || Severity.Medium,
-      confidence: formData.confidence || Confidence.Medium,
       logSource: formData.logSource || '',
       logSources: formData.logSources || [],
       dataSources: formData.dataSources || [],
@@ -1255,7 +1258,27 @@ Output JSON only, no markdown.`;
 
   return (
     <div className="min-h-screen bg-background text-on-surface">
-      
+
+      {/* Insights drawer — quality + completeness, opened from the header pill */}
+      <DetectionInsightsPanel
+        isOpen={isInsightsOpen}
+        onClose={() => setIsInsightsOpen(false)}
+        formData={formData}
+        qualityScore={qualityResult.score}
+        qualityGrade={qualityResult.grade}
+        isEditMode={isEditMode}
+        isSaving={isSaving}
+        onSave={() => {
+          setIsInsightsOpen(false);
+          // Synthetic event — handleSubmit just needs preventDefault to be callable.
+          handleSubmit({ preventDefault: () => undefined } as React.MouseEvent);
+        }}
+        onJumpToTab={(tabId) => {
+          setActiveTab(tabId);
+          setIsInsightsOpen(false);
+        }}
+      />
+
       {/* SESSION 4: Dialogs */}
       <UnsavedChangesDialog
         isOpen={showUnsavedDialog}
@@ -1319,18 +1342,23 @@ Output JSON only, no markdown.`;
               )}
             </div>
             
-            <div className="flex items-center gap-4">
-              {/* Circular Score Badge */}
-              <div className="flex items-center gap-3 bg-surface-container-high/50 px-2 py-1.5 rounded-full border border-outline-variant/30">
-                  <CircularProgress score={qualityResult.score} size={36} strokeWidth={3} />
-                  <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider pr-2">Quality</span>
-              </div>
-              
+            <div className="flex items-center gap-3">
+              {/* Quality pill — click to open the insights drawer */}
+              <button
+                type="button"
+                onClick={() => setIsInsightsOpen(true)}
+                className="flex items-center gap-3 bg-surface-container-high/50 hover:bg-surface-container-high px-2 py-1.5 rounded-full border border-outline-variant/30 transition-colors group"
+                title="Open detection health panel"
+              >
+                <CircularProgress score={qualityResult.score} size={36} strokeWidth={3} />
+                <span className="text-xs font-bold text-on-surface-variant group-hover:text-on-surface uppercase tracking-wider pr-2">Quality</span>
+              </button>
+
               <button
                 type="button"
                 onClick={handleSubmit}
                 disabled={isSaving || !formData.name?.trim()}
-                className="h-10 px-6 rounded-full text-sm font-bold bg-tertiary-container text-on-tertiary-container hover:shadow-lg hover:brightness-110 transition-all active:scale-95 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="h-10 px-6 rounded-full text-sm font-bold bg-primary text-on-primary hover:shadow-lg hover:brightness-110 transition-all active:scale-95 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {isSaving && <Icon name="spinner" className="w-4 h-4 animate-spin" />}
                 {isEditMode ? 'Save Changes' : 'Create Rule'}
@@ -1363,12 +1391,13 @@ Output JSON only, no markdown.`;
       <div className="max-w-[1600px] mx-auto px-6 lg:px-8 py-8">
         
         {activeTab === 'overview' && (
-          <div className="animate-fade-in space-y-6">
-            
-            {/* Basic Information */}
-            <FormCard 
-                title="Basic Information" 
-                description="Core detection metadata and classification"
+          <div className="animate-fade-in space-y-4">
+
+            {/* Basic Information — collapsed into a single denser block.
+                Status/Severity/Author/Type ride together in a 4-col row to
+                stay above the fold on standard screens. */}
+            <FormCard
+                title="Basic Information"
                 action={
                     <AISuggestDropdown
                         label="AI Suggest"
@@ -1381,39 +1410,34 @@ Output JSON only, no markdown.`;
                 }
             >
               <FormInput label="Detection Name" name="name" value={formData.name || ''} onChange={handleChange} placeholder="e.g., Suspicious PowerShell Execution" required />
-              <FormTextArea label="Description" name="description" value={formData.description || ''} onChange={handleChange} placeholder="Describe what this detection identifies..." rows={3} />
-              
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <FormTextArea label="Description" name="description" value={formData.description || ''} onChange={handleChange} placeholder="Describe what this detection identifies..." rows={2} />
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <FormSelect label="Status" name="status" value={formData.status || Status.Draft} onChange={handleChange} options={statuses} />
                 <FormSelect label="Severity" name="severity" value={formData.severity || Severity.Medium} onChange={handleChange} options={severities} />
-                <FormSelect label="Confidence" name="confidence" value={formData.confidence || Confidence.Medium} onChange={handleChange} options={confidences} />
-                <FormSelect label="Maturity" name="maturity" value={formData.maturity || Maturity.Experimental} onChange={handleChange} options={maturities} />
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <FormInput label="Author" name="author" value={formData.author || ''} onChange={handleChange} placeholder="Your name" />
                 <FormSelect label="Detection Type" name="detectionType" value={formData.detectionType || DetectionType.Detection} onChange={handleChange} options={detectionTypes} />
+                <FormInput label="Author" name="author" value={formData.author || ''} onChange={handleChange} placeholder="Your name" />
               </div>
             </FormCard>
 
-            {/* Data Sources */}
-            <FormCard title="Data Sources & Platforms" description="Required log sources, technologies, and platforms">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Data Sources — Primary Log + Target Tech on top, arrays below. */}
+            <FormCard title="Data Sources & Platforms">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormSelect label="Target Technology" name="technology" value={formData.technology || ''} onChange={handleChange} options={['', ...TECHNOLOGIES]} />
                 <FormSelect label="Primary Log Source" name="logSource" value={formData.logSource || ''} onChange={handleChange} options={['', ...LOG_SOURCES]} />
               </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <StringArrayEditor label="Platforms" icon="box" addLabel="Add Platform" emptyMessage="No platforms specified" values={formData.platforms || []} onChange={(v) => setFormData(prev => ({ ...prev, platforms: v }))} placeholder="e.g., Windows, Linux" />
                 <StringArrayEditor label="Data Components" icon="list" addLabel="Add Component" emptyMessage="No components specified" values={formData.dataComponents || []} onChange={(v) => setFormData(prev => ({ ...prev, dataComponents: v }))} placeholder="e.g., Process Creation" />
               </div>
             </FormCard>
 
             {/* MITRE & Threat Intelligence */}
-            <FormCard title="Threat Context & Classification" description="MITRE ATT&CK mapping and Threat Intelligence">
-              
+            <FormCard title="Threat Context & Classification">
+
               {/* MITRE Section */}
-              <div className="space-y-4 mb-8">
+              <div className="space-y-3 mb-5">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">MITRE ATT&CK</h4>
                   {isResolvingMitre && (
@@ -1424,12 +1448,17 @@ Output JSON only, no markdown.`;
                   )}
                 </div>
                 
+                <MitreTechniqueSearch
+                  existingIds={mitreIdString}
+                  onAppend={(next) => setMitreIdString(next)}
+                />
+
                 <FormInput
                   label="Technique / Tactic / Software IDs"
                   value={mitreIdString}
                   onChange={(e) => setMitreIdString(e.target.value)}
                   placeholder="T1059.001, TA0005, S0190, T1036.003"
-                  helper="Enter IDs separated by commas. Supports: T1xxx (technique), TAxxxx (tactic), Sxxxx (software), Gxxxx (group)"
+                  helper="Or paste IDs directly. Supports: T1xxx (technique), TAxxxx (tactic), Sxxxx (software), Gxxxx (group)"
                   icon="target"
                 />
                 
@@ -1460,18 +1489,16 @@ Output JSON only, no markdown.`;
                             <p className="text-sm text-on-surface truncate">{d.technique}</p>
                           )}
                         </div>
-                        <div className="text-xs">
+                        <div className="text-xs min-w-[160px]">
                           {d.tactic === 'Unknown' ? (
-                            <select
-                              className="bg-transparent text-on-surface-variant focus:outline-none cursor-pointer text-xs"
-                              value={d.tactic}
-                              onChange={(e) => handleUpdateMitreDetail(index, 'tactic', e.target.value)}
-                            >
-                              <option value="Unknown">Select Tactic...</option>
-                              {MITRE_TACTICS.map(tactic => (
-                                <option key={tactic} value={tactic}>{tactic}</option>
-                              ))}
-                            </select>
+                            <Select
+                              size="sm"
+                              fullWidth
+                              placeholder="Select Tactic..."
+                              value={d.tactic === 'Unknown' ? '' : d.tactic}
+                              options={MITRE_TACTICS.map((tactic) => ({ value: tactic, label: tactic }))}
+                              onChange={(next) => handleUpdateMitreDetail(index, 'tactic', next || 'Unknown')}
+                            />
                           ) : (
                             <span className="text-on-surface-variant">{d.tactic}</span>
                           )}
@@ -1497,9 +1524,9 @@ Output JSON only, no markdown.`;
               />
 
               {/* Threat Intel Section */}
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <h4 className="text-xs font-bold uppercase tracking-widest text-on-surface-variant border-b border-outline-variant/30 pb-2">Threat Intelligence</h4>
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   <MitreEntityPicker entityType="group" label="Threat Groups" selected={formData.linkedGroups || []} onChange={(v) => setFormData(prev => ({ ...prev, linkedGroups: v }))} onAISuggest={() => handleThreatIntelAutofill(['groups'])} isAISuggesting={isAutofillingThreatIntel} />
                   <MitreEntityPicker entityType="software" label="Software / Tools" selected={formData.linkedSoftware || []} onChange={(v) => setFormData(prev => ({ ...prev, linkedSoftware: v }))} onAISuggest={() => handleThreatIntelAutofill(['software'])} isAISuggesting={isAutofillingThreatIntel} />
                   <MitreEntityPicker entityType="campaign" label="Campaigns" selected={formData.linkedCampaigns || []} onChange={(v) => setFormData(prev => ({ ...prev, linkedCampaigns: v }))} onAISuggest={() => handleThreatIntelAutofill(['campaigns'])} isAISuggesting={isAutofillingThreatIntel} />
@@ -1507,26 +1534,25 @@ Output JSON only, no markdown.`;
               </div>
             </FormCard>
 
-            {/* Metadata */}
-            <FormCard title="Metadata" description="Tags, references, and CVEs">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <StringArrayEditor label="References" icon="link" addLabel="Add Reference" emptyMessage="No references added" values={formData.references || []} onChange={(v) => setFormData(prev => ({ ...prev, references: v }))} placeholder="https://example.com/article" />
-                <StringArrayEditor label="Associated CVEs" icon="shield" addLabel="Add CVE" emptyMessage="No CVEs linked" values={formData.associatedCVEs || []} onChange={(v) => setFormData(prev => ({ ...prev, associatedCVEs: v }))} placeholder="e.g., CVE-2023-12345" />
-              </div>
-
-              <div className="space-y-1.5 mt-4">
-                <label className="block text-sm font-medium text-on-surface-variant">Tags</label>
-                <div className="relative">
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sm opacity-50 text-on-surface-variant">
-                    <Icon name="tag" className="w-4 h-4" />
+            {/* Metadata — compact single row: refs, CVEs, tags inline. */}
+            <FormCard title="Metadata">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <StringArrayEditor label="References" icon="link" addLabel="Add" emptyMessage="No references" values={formData.references || []} onChange={(v) => setFormData(prev => ({ ...prev, references: v }))} placeholder="https://..." />
+                <StringArrayEditor label="Associated CVEs" icon="shield" addLabel="Add" emptyMessage="No CVEs" values={formData.associatedCVEs || []} onChange={(v) => setFormData(prev => ({ ...prev, associatedCVEs: v }))} placeholder="CVE-2023-..." />
+                <div className="space-y-1.5">
+                  <label className="block text-sm font-medium text-on-surface-variant">Tags</label>
+                  <div className="relative">
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-sm opacity-50 text-on-surface-variant">
+                      <Icon name="tag" className="w-4 h-4" />
+                    </div>
+                    <input
+                      type="text"
+                      value={(formData.tags || []).join(', ')}
+                      onChange={(e) => setFormData(prev => ({ ...prev, tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) }))}
+                      placeholder="tag1, tag2"
+                      className="w-full h-11 rounded-xl text-sm transition-colors focus:outline-none bg-surface-container-high border border-outline-variant/30 text-on-surface focus:border-primary/50 pl-10 pr-3"
+                    />
                   </div>
-                  <input
-                    type="text"
-                    value={(formData.tags || []).join(', ')}
-                    onChange={(e) => setFormData(prev => ({ ...prev, tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) }))}
-                    placeholder="tag1, tag2, tag3"
-                    className="w-full h-12 rounded-xl text-sm transition-colors focus:outline-none bg-surface-container-high border border-outline-variant/30 text-on-surface focus:border-primary/50 pl-11 pr-4"
-                  />
                 </div>
               </div>
             </FormCard>
@@ -1552,17 +1578,17 @@ Output JSON only, no markdown.`;
             />
 
             {/* Response Actions */}
-            <FormCard title="Response Actions" description="Containment, eradication, and recovery procedures">
+            <FormCard title="Response Actions">
               <StringArrayEditor label="Actions" icon="zap" addLabel="Add Action" emptyMessage="No response actions defined" values={formData.responseActions || []} onChange={(v) => setFormData(prev => ({ ...prev, responseActions: v }))} placeholder="e.g., Isolate affected host via EDR" />
             </FormCard>
 
             {/* False Positive Guidance */}
-            <FormCard title="False Positive Guidance" description="Known benign scenarios that may trigger this detection">
+            <FormCard title="False Positive Guidance">
               <FormTextArea label="Scenarios & Tuning Guidance" name="falsePositiveGuidance" value={formData.falsePositiveGuidance || ''} onChange={(e) => setFormData(prev => ({ ...prev, falsePositiveGuidance: e.target.value }))} placeholder="Describe specific false positive scenarios, how to identify them, and how to tune the detection to exclude them..." rows={5} />
             </FormCard>
 
             {/* Blind Spots & Caveats */}
-            <FormCard title="Blind Spots & Caveats" description="Known detection gaps and limitations">
+            <FormCard title="Blind Spots & Caveats">
               <FormTextArea label="Gaps & Mitigations" name="caveats" value={formData.caveats || ''} onChange={(e) => setFormData(prev => ({ ...prev, caveats: e.target.value }))} placeholder="Describe what this detection misses, evasion techniques that would bypass it, and how to mitigate those gaps..." rows={5} />
             </FormCard>
           </div>
@@ -1570,7 +1596,7 @@ Output JSON only, no markdown.`;
 
         {activeTab === 'tuning' && (
           <div className="animate-fade-in space-y-6">
-            <FormCard title="Validation Status" description="Testing and validation details">
+            <FormCard title="Validation Status">
               <div className="flex items-center justify-between p-4 rounded-xl bg-surface-container-high mb-4">
                 <div className="flex items-center gap-4">
                   <div className={`w-12 h-12 rounded-full flex items-center justify-center ${formData.testedAndValidated ? 'bg-emerald-500/20' : 'bg-surface-variant'}`}>
@@ -1595,9 +1621,8 @@ Output JSON only, no markdown.`;
               )}
             </FormCard>
 
-            <FormCard 
-              title="Test Cases" 
-              description="Validation test scenarios"
+            <FormCard
+              title="Test Cases"
               action={
                 <button
                   type="button"
@@ -1613,7 +1638,7 @@ Output JSON only, no markdown.`;
               <StringArrayEditor label="Test Cases" icon="check-circle" addLabel="Add Test Case" emptyMessage="No test cases defined" values={formData.testCases || []} onChange={(v) => setFormData(prev => ({ ...prev, testCases: v }))} placeholder="Describe a test case..." />
             </FormCard>
 
-            <FormCard title="Tuning Guidelines" description="Instructions for environmental tuning">
+            <FormCard title="Tuning Guidelines">
               <StringArrayEditor label="Prerequisites" icon="list" addLabel="Add Prerequisite" emptyMessage="No prerequisites specified" values={formData.prerequisites || []} onChange={(v) => setFormData(prev => ({ ...prev, prerequisites: v }))} placeholder="e.g., Sysmon installed" />
               <div className="mt-6">
                 <FormTextArea label="Fine Tuning History / Notes" name="fineTuning" value={formData.fineTuning || ''} onChange={handleChange} placeholder="Log fine-tuning changes, exclusions added..." rows={6} />
@@ -1630,8 +1655,8 @@ Output JSON only, no markdown.`;
 function getDefaultFormData(): Partial<Detection> {
   return {
     name: '', description: '', author: '',
-    status: Status.Draft, maturity: Maturity.Experimental, detectionType: DetectionType.Detection,
-    severity: Severity.Medium, confidence: Confidence.Medium,
+    status: Status.Draft, detectionType: DetectionType.Detection,
+    severity: Severity.Medium,
     logSource: '', logSources: [], dataSources: [], dataComponents: [], platforms: [],
     technology: '', queries: [], queryLanguage: 'SPL', detectionQuery: '', queryExplanation: '',
     mitreAttackIds: [], linkedGroups: [], linkedSoftware: [], linkedCampaigns: [],

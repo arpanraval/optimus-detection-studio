@@ -5,6 +5,7 @@ import { QUERY_LANGUAGES } from '../../../constants';
 import { generateAIJSON } from '../../../lib/aiService';
 import { useToast } from '../../../hooks/useToast';
 import { AISuggestDropdown, FieldGroup } from '../AISuggestDropdown';
+import { Select } from '../../ui/Select';
 
 interface InvestigationStepsEditorProps {
   steps: InvestigationStep[];
@@ -283,19 +284,14 @@ Output JSON object only:
                                         <label className="block text-xs font-medium text-on-surface-variant">
                                             Investigation Query (Optional)
                                         </label>
-                                        <div className="relative">
-                                            <select
+                                        <div className="min-w-[120px]">
+                                            <Select
+                                                size="sm"
+                                                fullWidth
                                                 value={step.queryLanguage || 'SPL'}
-                                                onChange={(e) => handleUpdateStep(step.id, 'queryLanguage', e.target.value)}
-                                                className="bg-surface-container-high border border-outline-variant/20 rounded text-xs text-on-surface py-1 pl-2 pr-6 focus:outline-none focus:border-primary/50 appearance-none cursor-pointer"
-                                            >
-                                                {QUERY_LANGUAGES.map(lang => (
-                                                    <option key={lang} value={lang}>{lang}</option>
-                                                ))}
-                                            </select>
-                                            <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-on-surface-variant">
-                                                ▼
-                                            </div>
+                                                options={QUERY_LANGUAGES.map((lang) => ({ value: lang, label: lang }))}
+                                                onChange={(next) => handleUpdateStep(step.id, 'queryLanguage', next)}
+                                            />
                                         </div>
                                     </div>
                                     <textarea

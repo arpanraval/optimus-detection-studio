@@ -4,6 +4,7 @@ import { Icon } from '../../Icon';
 import { MonacoCodeEditor } from '../../MonacoCodeEditor';
 import { QUERY_LANGUAGES } from '../../../constants';
 import { DetailCard } from '../DetailCard';
+import { FormattedText } from '../../optimus/FormattedText';
 
 interface DetectionLogicTabProps {
   detection: Detection;
@@ -41,7 +42,7 @@ export const DetectionLogicTab: React.FC<DetectionLogicTabProps> = ({ detection 
     <div className="animate-fade-in space-y-6">
       
       {/* Logic Card */}
-      <DetailCard title="Detection Logic" description="Query code and logic definition">
+      <DetailCard title="Detection Logic">
         
         {/* Language Tabs */}
         {queries.length > 0 ? (
@@ -101,14 +102,14 @@ export const DetectionLogicTab: React.FC<DetectionLogicTabProps> = ({ detection 
 
       {/* Analysis Card */}
       {activeQuery && (activeQuery.explanation || (detection.prerequisites && detection.prerequisites.length > 0)) && (
-          <DetailCard title="Logic Analysis & Context" description="Explanation and requirements">
+          <DetailCard title="Logic Analysis & Context">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                   {/* Explanation */}
                   <div className="lg:col-span-2">
                       <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-3">Logic Breakdown</h4>
                       {activeQuery.explanation ? (
-                          <div className="prose prose-sm max-w-none prose-invert text-on-surface bg-surface-container rounded-xl p-4 border border-outline-variant/20">
-                              <p className="leading-relaxed whitespace-pre-wrap">{activeQuery.explanation}</p>
+                          <div className="bg-surface-container rounded-xl p-4 border border-outline-variant/20">
+                              <FormattedText text={activeQuery.explanation} className="text-on-surface" />
                           </div>
                       ) : (
                           <p className="text-sm text-on-surface-variant italic">No explanation provided.</p>

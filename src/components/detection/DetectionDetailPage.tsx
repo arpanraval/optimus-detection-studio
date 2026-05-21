@@ -24,6 +24,8 @@ import { LIBRARY_LABELS } from '../../types/detection';
 import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION, PROMOTION_NONE, PROMOTION_PENDING, PROMOTION_PROMOTED, PROMOTION_REJECTED } from '../../constants/library';
 import { DecisionTimeline } from '../decisions/DecisionTimeline';
 import { TabErrorBoundary } from './TabErrorBoundary';
+import { DetectionInsightsPanel } from './DetectionInsightsPanel';
+import { useDetectionQuality } from '../../hooks/useDetectionQuality';
 
 interface DetectionDetailPageProps {
   detection: Detection;
@@ -64,6 +66,9 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
   onNavigateToDetection
 }) => {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [isInsightsOpen, setIsInsightsOpen] = useState(false);
+  const { calculateQuality } = useDetectionQuality();
+  const qualityResult = calculateQuality(detection);
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [isPDFExportModalOpen, setIsPDFExportModalOpen] = useState(false);
   const [isCopying, setIsCopying] = useState(false);
@@ -279,7 +284,33 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
 
   return (
     <div className="min-h-screen bg-background text-on-surface">
-      
+
+      {/* Insights drawer — quality + completeness, opened from the quality pill */}
+      <DetectionInsightsPanel
+        isOpen={isInsightsOpen}
+        onClose={() => setIsInsightsOpen(false)}
+        formData={detection}
+        qualityScore={qualityResult.score}
+        qualityGrade={qualityResult.grade}
+        actionLabel="Edit Detection"
+        actionIcon="edit"
+        onSave={() => {
+          setIsInsightsOpen(false);
+          if (canEdit) onEdit(detection);
+        }}
+        onJumpToTab={(tabId) => {
+          // Panel ids → detail page tab ids
+          const map: Record<string, TabId> = {
+            overview: 'overview',
+            query: 'logic',
+            investigation: 'investigation',
+            tuning: 'validation',
+          };
+          setActiveTab(map[tabId] ?? 'overview');
+          setIsInsightsOpen(false);
+        }}
+      />
+
       {/* E3: Rejection Banner — shows on Lab rules that were rejected for promotion */}
       {isDevelopmentRule && detection.promotion_status === PROMOTION_REJECTED && (
         <div className="bg-error/10 border-b border-error/20">
@@ -412,14 +443,19 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
 
             {/* Right: Actions */}
             <div className="flex items-center gap-2 flex-shrink-0 self-end lg:self-auto">
-               {/* Quality Score */}
-               <div className="flex items-center gap-2 mr-2" title={`Quality Score: ${detection.qualityScore}%`}>
-                 <CircularProgress 
-                   score={detection.qualityScore} 
-                   size={36} 
+               {/* Quality Score — click to open the Insights drawer */}
+               <button
+                 type="button"
+                 onClick={() => setIsInsightsOpen(true)}
+                 className="flex items-center gap-2 mr-2 rounded-full p-1 hover:bg-surface-container-high transition-colors"
+                 title={`Quality ${detection.qualityScore}% — open detection health`}
+               >
+                 <CircularProgress
+                   score={detection.qualityScore}
+                   size={36}
                    strokeWidth={3}
                   />
-               </div>
+               </button>
 
                {/* Resolve MITRE - show when needed */}
                {needsMitreResolution && (

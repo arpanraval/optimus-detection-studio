@@ -8,6 +8,7 @@ import { StatusBadge } from '../../StatusBadge';
 import { sourceConfig } from '../../card-utils';
 import { DetailCard } from '../DetailCard';
 import { PackMembershipCard } from '../PackMembershipCard';
+import { DetectionDriftBanner } from '../../sync/DetectionDriftBanner';
 
 interface OverviewTabProps {
   detection: Detection;
@@ -107,13 +108,16 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const hasSourceInfo = detection.source || detection.external_id || detection.source_url;
 
   return (
-    <div className="animate-fade-in space-y-6">
-      
+    <div className="animate-fade-in space-y-4">
+
+      {/* Upstream drift banner — shows when an upstream update is available, or
+          when this detection was synced from upstream and can be reverted. */}
+      <DetectionDriftBanner detectionId={detection.id} />
+
       {/* L1: Source Information Card - Only for Universal rules with source info */}
       {isDevelopmentRule && hasSourceInfo && (
-        <DetailCard 
-          title="Source Information" 
-          description="Origin and external references for this detection rule"
+        <DetailCard
+          title="Source Information"
           className="border-secondary/30 bg-secondary/5"
         >
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -201,47 +205,26 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </DetailCard>
       )}
 
-      {/* Basic Information */}
-      <DetailCard title="Basic Information" description="Core detection metadata and classification">
+      {/* Basic Information — denser 4-col row mirrors the edit form. */}
+      <DetailCard title="Basic Information">
         <DetailField label="Description" value={detection.description} fullWidth />
-        
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <DetailField label="Status" value={<StatusBadge status={detection.status} />} />
           <DetailField label="Severity" value={<span className={`px-2 py-0.5 rounded text-xs font-bold border uppercase ${detection.severity === 'Critical' ? 'bg-red-500/10 text-red-500 border-red-500/20' : detection.severity === 'High' ? 'bg-orange-500/10 text-orange-500 border-orange-500/20' : detection.severity === 'Medium' ? 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20' : 'bg-blue-500/10 text-blue-500 border-blue-500/20'}`}>{detection.severity}</span>} />
-          <DetailField label="Confidence" value={detection.confidence} />
-          <DetailField label="Maturity" value={detection.maturity} />
-        </div>
-
-        <div className="grid grid-cols-2 gap-6">
-          <DetailField label="Author" value={detection.author} />
           <DetailField label="Detection Type" value={detection.detectionType} />
+          <DetailField label="Author" value={detection.author} />
         </div>
       </DetailCard>
 
-      {/* Data Sources - L2: Enhanced with array fields */}
-      <DetailCard title="Data Sources & Platforms" description="Required log sources, technologies, and platforms">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Data Sources — primary fields top, arrays inline. */}
+      <DetailCard title="Data Sources & Platforms">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <DetailField label="Target Technology" value={detection.technology} />
           <DetailField label="Primary Log Source" value={detection.logSource} />
         </div>
 
-        {/* L2: Log Sources Array */}
-        {detection.logSources && detection.logSources.length > 0 && (
-          <div className="pt-4 border-t border-outline-variant/20">
-            <label className="block text-sm font-medium text-on-surface-variant mb-2">All Log Sources</label>
-            <ArrayFieldChips items={detection.logSources} />
-          </div>
-        )}
-
-        {/* L2: Data Sources Array (MITRE) */}
-        {detection.dataSources && detection.dataSources.length > 0 && (
-          <div className="pt-4 border-t border-outline-variant/20">
-            <label className="block text-sm font-medium text-on-surface-variant mb-2">MITRE Data Sources</label>
-            <ArrayFieldChips items={detection.dataSources} />
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-outline-variant/20">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-outline-variant/20">
           <div>
             <label className="block text-sm font-medium text-on-surface-variant mb-2">Platforms</label>
             <ArrayFieldChips items={detection.platforms || []} />
@@ -251,13 +234,31 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             <ArrayFieldChips items={detection.dataComponents || []} />
           </div>
         </div>
+
+        {/* Log Sources / MITRE Data Sources arrays — only render when present */}
+        {((detection.logSources?.length ?? 0) > 0 || (detection.dataSources?.length ?? 0) > 0) && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-outline-variant/20">
+            {detection.logSources && detection.logSources.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-on-surface-variant mb-2">All Log Sources</label>
+                <ArrayFieldChips items={detection.logSources} />
+              </div>
+            )}
+            {detection.dataSources && detection.dataSources.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-on-surface-variant mb-2">MITRE Data Sources</label>
+                <ArrayFieldChips items={detection.dataSources} />
+              </div>
+            )}
+          </div>
+        )}
       </DetailCard>
 
       {/* Threat Context */}
-      <DetailCard title="Threat Context & Classification" description="MITRE ATT&CK mapping and Threat Intelligence">
-        
+      <DetailCard title="Threat Context & Classification">
+
         {/* MITRE Coverage */}
-        <div className="space-y-4 mb-6">
+        <div className="space-y-3 mb-5">
           <h4 className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">MITRE ATT&CK</h4>
           {Object.keys(groupedTechniques).length > 0 ? (
             <div className="space-y-4">
@@ -285,12 +286,12 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           )}
         </div>
 
-        <div className="h-px bg-outline-variant/20 mb-6"></div>
+        <div className="h-px bg-outline-variant/20 mb-4"></div>
 
         {/* Linked Entities */}
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h4 className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">Threat Intelligence</h4>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-medium text-on-surface-variant mb-2">Threat Groups</label>
               <div className="flex flex-wrap gap-2">
@@ -320,8 +321,8 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       </DetailCard>
 
       {/* Metadata */}
-      <DetailCard title="Metadata" description="Tags, references, and CVEs">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <DetailCard title="Metadata">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-on-surface-variant mb-2">References</label>
             {Array.isArray(detection.references) && detection.references.length > 0 ? (

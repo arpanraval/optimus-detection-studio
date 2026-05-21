@@ -244,7 +244,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ detection }) => {
     <div className="animate-fade-in space-y-6">
       
       {/* Version Information - M1: Enhanced with created_by/updated_by */}
-      <DetailCard title="Version Information" description="Current version details and contributors">
+      <DetailCard title="Version Information">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {/* Version */}
           <div>
@@ -371,7 +371,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ detection }) => {
       </DetailCard>
 
       {/* Audit Log — reads from audit_events table, falls back to legacy JSONB */}
-      <DetailCard title="Change History" description="Audit log of all modifications">
+      <DetailCard title="Change History">
         {isLoadingEvents ? (
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />

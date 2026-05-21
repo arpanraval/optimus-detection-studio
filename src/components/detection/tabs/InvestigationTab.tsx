@@ -42,7 +42,7 @@ export const InvestigationTab: React.FC<InvestigationTabProps> = ({ detection })
     <div className="animate-fade-in space-y-6">
 
       {/* ===== INVESTIGATION RUNBOOK ===== */}
-      <DetailCard title="Investigation Runbook" description="Step-by-step procedures for alert triage and investigation">
+      <DetailCard title="Investigation Runbook">
         <SectionLabel count={investigationSteps.length}>Steps</SectionLabel>
         {investigationSteps.length > 0 ? (
           <div className="space-y-3">
@@ -118,7 +118,7 @@ export const InvestigationTab: React.FC<InvestigationTabProps> = ({ detection })
       </DetailCard>
 
       {/* ===== RESPONSE ACTIONS ===== */}
-      <DetailCard title="Response Actions" description="Containment, eradication, and recovery procedures">
+      <DetailCard title="Response Actions">
         <SectionLabel count={responseActions.length}>Actions</SectionLabel>
         {responseActions.length > 0 ? (
           <div className="space-y-3">
@@ -142,7 +142,7 @@ export const InvestigationTab: React.FC<InvestigationTabProps> = ({ detection })
       </DetailCard>
 
       {/* ===== FALSE POSITIVES ===== */}
-      <DetailCard title="False Positive Guidance" description="Known benign scenarios that may trigger this detection">
+      <DetailCard title="False Positive Guidance">
         {falsePositiveGuidance ? (
           <ItemizedContent text={falsePositiveGuidance} label="Scenarios" />
         ) : (
@@ -151,7 +151,7 @@ export const InvestigationTab: React.FC<InvestigationTabProps> = ({ detection })
       </DetailCard>
 
       {/* ===== BLIND SPOTS & CAVEATS ===== */}
-      <DetailCard title="Blind Spots & Caveats" description="Known detection gaps and limitations">
+      <DetailCard title="Blind Spots & Caveats">
         {caveats ? (
           <ItemizedContent text={caveats} label="Gaps" />
         ) : (

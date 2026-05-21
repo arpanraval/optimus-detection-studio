@@ -14,12 +14,12 @@ export const TuningTab: React.FC<TuningTabProps> = ({ detection }) => {
     <div className="animate-fade-in space-y-6">
       
       {/* Atomic Red Team Integration */}
-      <DetailCard title="Atomic Red Team Tests" description="Validate this detection with automated adversary simulation tests">
+      <DetailCard title="Atomic Red Team Tests">
         <AtomicTestsSection detection={detection} />
       </DetailCard>
 
       {/* Validation Status */}
-      <DetailCard title="Validation Status" description="Testing and validation details">
+      <DetailCard title="Validation Status">
         <div className="flex items-center gap-4 p-4 rounded-xl bg-surface-container border border-outline-variant/20">
             <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
               detection.testedAndValidated 
@@ -53,7 +53,7 @@ export const TuningTab: React.FC<TuningTabProps> = ({ detection }) => {
       </DetailCard>
 
       {/* Test Cases */}
-      <DetailCard title="Test Cases" description="Validation test scenarios">
+      <DetailCard title="Test Cases">
         {detection.testCases && detection.testCases.length > 0 ? (
           <div className="space-y-2">
             {detection.testCases.map((testCase, i) => (
@@ -73,7 +73,7 @@ export const TuningTab: React.FC<TuningTabProps> = ({ detection }) => {
       </DetailCard>
 
       {/* Tuning Guidelines */}
-      <DetailCard title="Tuning Guidelines" description="Instructions for environmental tuning">
+      <DetailCard title="Tuning Guidelines">
         
         {/* Prerequisites */}
         <div>

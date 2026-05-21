@@ -2,6 +2,13 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from '../Icon';
 import { LLM_MODELS, DEFAULT_MODEL } from '../../lib/aiService';
+import { Select } from '../ui/Select';
+
+const PROVIDER_LABEL: Record<string, string> = {
+  google: 'Google',
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+};
 
 export interface FieldGroup {
   id: string;
@@ -124,13 +131,16 @@ export const AISuggestDropdown: React.FC<AISuggestDropdownProps> = ({
     return acc;
   }, []);
 
+  // Gradient styling: brand magenta → teal so the trigger stays legible in
+  // both light and dark themes (avoids the flat blue link that disappeared
+  // against dark surfaces).
   const mainButtonClass = variant === 'link'
-    ? 'text-xs font-bold text-tertiary hover:text-tertiary/80 flex items-center gap-1 disabled:opacity-50'
-    : 'inline-flex items-center gap-1.5 h-8 px-3 rounded-l-lg text-xs font-medium transition-colors bg-tertiary/10 text-tertiary hover:bg-tertiary/20 disabled:opacity-50';
+    ? 'text-xs font-bold bg-clip-text text-transparent bg-gradient-to-r from-[#783264] to-[#4D7C6F] hover:brightness-110 flex items-center gap-1 disabled:opacity-50'
+    : 'inline-flex items-center gap-1.5 h-8 px-3 rounded-l-lg text-xs font-semibold transition-all bg-gradient-to-r from-[#783264] to-[#4D7C6F] text-white hover:brightness-110 shadow-sm disabled:opacity-50';
 
   const chevronClass = variant === 'link'
-    ? 'text-xs text-tertiary hover:text-tertiary/80 disabled:opacity-50 px-0.5'
-    : 'inline-flex items-center h-8 px-1.5 rounded-r-lg text-xs font-medium transition-colors bg-tertiary/10 text-tertiary hover:bg-tertiary/20 disabled:opacity-50 border-l border-tertiary/20';
+    ? 'text-xs text-[#783264] hover:opacity-80 disabled:opacity-50 px-0.5'
+    : 'inline-flex items-center h-8 px-1.5 rounded-r-lg text-xs font-semibold transition-all bg-gradient-to-r from-[#4D7C6F] to-[#4D7C6F] text-white hover:brightness-110 border-l border-white/20 disabled:opacity-50';
 
   const dropdown = isOpen && dropdownPos ? createPortal(
     <div
@@ -209,28 +219,20 @@ export const AISuggestDropdown: React.FC<AISuggestDropdownProps> = ({
           <Icon name="zap" className="w-3 h-3 text-on-surface-variant/60" />
           <span className="text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant/70">Model</span>
         </div>
-        <select
+        <Select
+          size="sm"
+          fullWidth
           value={selectedModel}
-          onChange={(e) => setSelectedModel(e.target.value)}
-          className="w-full h-9 px-3 rounded-xl text-xs bg-surface-container-high border border-outline-variant/30 text-on-surface focus:outline-none focus:border-tertiary/40 cursor-pointer appearance-none"
-          style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%239ca3af' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }}
-        >
-          <optgroup label="Google">
-            {LLM_MODELS.filter(m => m.provider === 'google').map(m => (
-              <option key={m.id} value={m.id}>{m.name}</option>
-            ))}
-          </optgroup>
-          <optgroup label="OpenAI">
-            {LLM_MODELS.filter(m => m.provider === 'openai').map(m => (
-              <option key={m.id} value={m.id}>{m.name}</option>
-            ))}
-          </optgroup>
-          <optgroup label="Anthropic">
-            {LLM_MODELS.filter(m => m.provider === 'anthropic').map(m => (
-              <option key={m.id} value={m.id}>{m.name}</option>
-            ))}
-          </optgroup>
-        </select>
+          options={[
+            ...LLM_MODELS.filter((m) => m.provider === 'google'),
+            ...LLM_MODELS.filter((m) => m.provider === 'openai'),
+            ...LLM_MODELS.filter((m) => m.provider === 'anthropic'),
+          ].map((m) => ({
+            value: m.id,
+            label: `${PROVIDER_LABEL[m.provider] || m.provider} · ${m.name}`,
+          }))}
+          onChange={(next) => setSelectedModel(next)}
+        />
       </div>
 
       {/* Action button */}

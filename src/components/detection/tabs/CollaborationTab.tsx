@@ -150,7 +150,6 @@ const AssignmentPanel: React.FC<AssignmentPanelProps> = ({
     return (
         <DetailCard
             title="Assignment"
-            description="Who is responsible for this detection"
             headerRight={hasAssignee && !isAssigning ? (
                 <button
                     onClick={handleUnassign}
@@ -344,7 +343,6 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({
     return (
         <DetailCard
             title="Review"
-            description="Peer review workflow"
             headerRight={<ReviewStatusBadge status={reviewStatus} size="sm" />}
         >
             {/* No review */}
@@ -604,8 +602,7 @@ const CommentsPanel: React.FC<CommentsPanelProps> = ({
 
     return (
         <DetailCard
-            title="Comments"
-            description={total > 0 ? `${unresolved} active${resolved > 0 ? ` · ${resolved} resolved` : ''}` : 'Discussion and feedback'}
+            title={total > 0 ? `Comments (${unresolved} active${resolved > 0 ? ` · ${resolved} resolved` : ''})` : 'Comments'}
             headerRight={resolved > 0 ? (
                 <button
                     onClick={() => setShowResolved(!showResolved)}

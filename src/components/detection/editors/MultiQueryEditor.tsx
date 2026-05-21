@@ -6,6 +6,7 @@ import { QUERY_LANGUAGES } from '../../../constants';
 import { generateAIJSON } from '../../../lib/aiService';
 import { useToast } from '../../../hooks/useToast';
 import { AISuggestDropdown, FieldGroup } from '../AISuggestDropdown';
+import { Select } from '../../ui/Select';
 
 interface MultiQueryEditorProps {
   queries: DetectionQuery[];
@@ -343,16 +344,15 @@ ${result.syntaxErrors.map((e: string) => `- ${e}`).join('\n')}
                             {/* Toolbar */}
                             <div className="flex items-center justify-between px-4 py-3 bg-surface-container-high border-b border-outline-variant/30 flex-shrink-0">
                                 <div className="flex items-center gap-3">
-                                    <select
-                                        value={activeQuery.language}
-                                        onChange={(e) => handleUpdateQuery('language', e.target.value)}
-                                        className="bg-transparent text-sm font-medium text-on-surface border-none focus:ring-0 cursor-pointer appearance-none hover:text-primary transition-colors"
-                                        style={{ backgroundImage: 'none' }}
-                                    >
-                                        {QUERY_LANGUAGES.map(lang => (
-                                            <option key={lang} value={lang} className="bg-surface-container text-on-surface">{lang}</option>
-                                        ))}
-                                    </select>
+                                    <div className="min-w-[160px]">
+                                        <Select
+                                            size="sm"
+                                            fullWidth
+                                            value={activeQuery.language}
+                                            options={QUERY_LANGUAGES.map((lang) => ({ value: lang, label: lang }))}
+                                            onChange={(next) => handleUpdateQuery('language', next)}
+                                        />
+                                    </div>
                                     
                                     {!activeQuery.isPrimary && (
                                         <button
