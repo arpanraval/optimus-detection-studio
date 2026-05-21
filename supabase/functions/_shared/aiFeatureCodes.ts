@@ -13,6 +13,7 @@ const KNOWN_FEATURES = new Set<string>([
   'threat-intel-digest',
   'auto-digest-classify',
   'auto-digest-full',
+  'auto-digest-link',
   'enrichment-sync',
   'playbook-runner',
   'embedding-detection',

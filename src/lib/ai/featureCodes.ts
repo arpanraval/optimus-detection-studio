@@ -20,6 +20,7 @@ export const AI_FEATURE_CODES = {
   THREAT_INTEL_DIGEST:    'threat-intel-digest',
   AUTO_DIGEST_CLASSIFY:   'auto-digest-classify',
   AUTO_DIGEST_FULL:       'auto-digest-full',
+  AUTO_DIGEST_LINK:       'auto-digest-link',
 
   // MITRE / enrichment
   ENRICHMENT_SYNC:        'enrichment-sync',
@@ -63,6 +64,7 @@ export const FEATURE_DISPLAY: Record<AiFeatureCode, { label: string; group: stri
   'threat-intel-digest':    { label: 'Threat Intel Digest',    group: 'Threat Intel',     icon: 'file-text' },
   'auto-digest-classify':   { label: 'Auto-Digest Classifier', group: 'Threat Intel',     icon: 'filter' },
   'auto-digest-full':       { label: 'Auto-Digest Full',       group: 'Threat Intel',     icon: 'file-text' },
+  'auto-digest-link':       { label: 'Auto-Digest Linker',     group: 'Threat Intel',     icon: 'link' },
   'enrichment-sync':        { label: 'Enrichment Sync',        group: 'Intelligence',     icon: 'refresh-cw' },
   'playbook-runner':        { label: 'Playbook Runner',        group: 'Workflows',        icon: 'play' },
   'embedding-detection':    { label: 'Detection Embedding',    group: 'Embeddings',       icon: 'database' },

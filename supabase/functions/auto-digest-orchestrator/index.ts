@@ -34,7 +34,7 @@ import { handleCorsPreflight, corsJsonResponse, corsErrorResponse } from '../_sh
 import { harvestFeeds } from './lib/harvester.ts'
 import { classifyEntries } from './lib/classifier.ts'
 import { rankAndSelect } from './lib/relevance-scorer.ts'
-import { detectAndMergeCampaign } from './lib/campaign-detector.ts'
+import { linkBySubject } from './lib/subject-linker.ts'
 import { enrichFeasibility } from './lib/feasibility-enricher.ts'
 import { emptyJobResult } from './lib/types.ts'
 import type { JobResultSummary, EnvironmentProfileRow } from './lib/types.ts'
@@ -326,9 +326,9 @@ async function processOneDigestArticle(
       processing_stage: 'complete',
       section_errors: sectionErrors,
       report_title: summary.title || entry.title || null,
-      threat_level: classification.threat_level || summary.threat_level || null,
-      attack_type: classification.attack_type || summary.attack_type || null,
-      attribution: summary.attribution || null,
+      threat_level: summary.threatLevel || null,
+      attack_type: classification.primaryType || null,
+      attribution: mitreMapping?.matchedGroups?.[0]?.name || null,
       organization: feedName,
       ttp_count: ttpCount,
       ioc_count: iocCount,
@@ -438,10 +438,17 @@ async function processOneDigestArticle(
       result.errors.push(`Feasibility ${entryId}: ${e?.message || 'unknown'}`);
     }
     try {
-      await detectAndMergeCampaign(supabase, reportId, job.user_id, result);
+      // Subject-linker decides whether this report belongs to an existing
+      // campaign (multi-vendor coverage of the same story) by asking the
+      // classifier model. Uses the same configured classifier model so
+      // billing/telemetry tracks consistently with the rest of the pipeline.
+      const linkerModel = settings.classification_model
+        || settings.ai_model
+        || 'gemini-3-flash-preview';
+      await linkBySubject(supabase, ctx, reportId, job.user_id, linkerModel, result);
     } catch (e: any) {
-      console.error(`[orchestrator] detectAndMergeCampaign ${reportId} failed:`, e?.message);
-      result.errors.push(`Campaign-detect ${entryId}: ${e?.message || 'unknown'}`);
+      console.error(`[orchestrator] linkBySubject ${reportId} failed:`, e?.message);
+      result.errors.push(`Subject-link ${entryId}: ${e?.message || 'unknown'}`);
     }
 
     await emit(ctx, 'article_digested', {
@@ -714,6 +721,96 @@ serve(async (req: Request) => {
         EdgeRuntime.waitUntil(work);
       }
       return corsJsonResponse({ ok: true, job_id: jobId }, req);
+    }
+
+    // ─── Internal: run the subject-linker for a single existing report ─────
+    // Used for chunked backfill: invoke linkBySubject against a report that
+    // was digested before the linker existed. Synchronous (returns the
+    // result_summary deltas) so the caller can verify each backfill chunk.
+    // No new digest, no DB writes other than what the linker itself does.
+    if (req.method === 'POST' && action === 'link_existing') {
+      let body: any;
+      try { body = await req.json(); } catch { return corsErrorResponse('Invalid JSON body', req, 400); }
+      const reportId = typeof body?.report_id === 'string' ? body.report_id : '';
+      if (!reportId) return corsErrorResponse('report_id is required', req, 400);
+
+      // Fetch the report so we know which user + which classifier model to
+      // route the AI call through. We reuse the same model selection logic as
+      // a real digest run.
+      const { data: report, error: reportErr } = await supabase
+        .from('threat_intel_reports')
+        .select('id, user_id, source, name')
+        .eq('id', reportId)
+        .single();
+      if (reportErr || !report) {
+        return corsErrorResponse(`Report ${reportId} not found: ${reportErr?.message}`, req, 404);
+      }
+      if (report.source !== 'auto') {
+        return corsErrorResponse('link_existing only operates on source=auto reports', req, 400);
+      }
+
+      const { data: settings, error: settingsErr } = await supabase
+        .from('auto_digest_settings')
+        .select('classification_model, ai_model')
+        .eq('user_id', report.user_id)
+        .single();
+      if (settingsErr || !settings) {
+        return corsErrorResponse('No auto_digest_settings for report owner', req, 500);
+      }
+
+      const linkerModel = settings.classification_model
+        || settings.ai_model
+        || 'gemini-3-flash-preview';
+
+      // Spin a synthetic RunContext + result summary so the linker can emit
+      // events as if it were running inside a real job. We don't have a
+      // job_id here; the linker's event sink requires one. Create a one-off
+      // backfill job row so events have a valid FK and the JobTranscript UI
+      // can render the run.
+      const { data: synthJob, error: synthErr } = await supabase
+        .from('auto_digest_jobs')
+        .insert({
+          user_id: report.user_id,
+          status: 'completed',         // backfill — no harvest/digest happened
+          phase: null,
+          started_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
+          result_summary: { feeds_fetched: 0, articles_harvested: 0, articles_recovered: 0,
+                            articles_classified: 0, articles_passed_gate: 0, articles_skipped: 0,
+                            articles_resolved: 0, articles_digested: 0, articles_failed: 0,
+                            campaigns_created: 0, campaigns_updated: 0, errors: [],
+                            backfill: { report_id: reportId } },
+          error: null,
+        })
+        .select('id')
+        .single();
+      if (synthErr || !synthJob) {
+        return corsErrorResponse(`Failed to create backfill job: ${synthErr?.message}`, req, 500);
+      }
+
+      const ctx: RunContext = { supabase, jobId: synthJob.id, userId: report.user_id };
+      const result: JobResultSummary = emptyJobResult();
+
+      try {
+        await linkBySubject(supabase, ctx, reportId, report.user_id, linkerModel, result);
+      } catch (e: any) {
+        result.errors.push(`Subject-link ${reportId}: ${e?.message || 'unknown'}`);
+      }
+
+      // Persist the final result_summary onto the synthetic job so the
+      // transcript surfaces the linker's decisions even after we return.
+      await supabase
+        .from('auto_digest_jobs')
+        .update({ result_summary: { ...result, backfill: { report_id: reportId } } })
+        .eq('id', synthJob.id);
+
+      return corsJsonResponse({
+        ok: true,
+        report_id: reportId,
+        report_name: report.name,
+        backfill_job_id: synthJob.id,
+        result_summary: result,
+      }, req);
     }
 
     // ─── Default: claim pending jobs and kick off their first phase ────────

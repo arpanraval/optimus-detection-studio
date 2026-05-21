@@ -8,7 +8,7 @@ export const DigestCampaignDetailPage: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <PageErrorBoundary pageName="Campaign Detail" onNavigateHome={() => navigate(ROUTES.HOME)}>
+    <PageErrorBoundary pageName="Story Detail" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <CampaignDetailPage />
     </PageErrorBoundary>
   );

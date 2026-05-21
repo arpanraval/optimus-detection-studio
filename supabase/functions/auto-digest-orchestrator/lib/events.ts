@@ -19,7 +19,15 @@ export type EventType =
   | 'article_skipped_daily_limit'
   | 'article_ranked'
   | 'article_digested'
-  | 'article_digest_failed';
+  | 'article_digest_failed'
+  // Subject-linker (post-digest): decides whether a new report belongs to an
+  // existing or new campaign by asking the classifier model if any recent
+  // auto-digested reports cover the same story. See subject-linker.ts.
+  | 'campaign_link_evaluated'
+  | 'campaign_link_skipped'
+  | 'campaign_link_ambiguous'
+  | 'campaign_created'
+  | 'campaign_updated';
 
 export interface EventFields {
   feed_id?: string | null;
