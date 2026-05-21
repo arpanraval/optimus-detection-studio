@@ -1449,10 +1449,11 @@ async function devRunPreflightDefenderXdr(params: {
 
   const { data: detection, error: detErr } = await supabase
     .from('detections')
-    .select('id, queries, queryLanguage, detectionQuery')
+    .select('id, user_id, queries, queryLanguage, detectionQuery')
     .eq('id', params.detectionId)
     .single();
   if (detErr || !detection) throw new Error('Detection not found');
+  if (detection.user_id !== user.id) throw new Error('You do not own this detection');
 
   // KQL-query extraction — mirrors pickKqlQuery() in supabase/functions/integration-ops/index.ts; keep in sync.
   const kqlFromArray = (detection.queries || []).find(
