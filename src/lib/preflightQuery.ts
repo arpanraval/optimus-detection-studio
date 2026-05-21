@@ -146,7 +146,7 @@ export function mapHuntingError(
   httpStatus: number,
   body: string,
 ): { status: PreflightStatus; message: string; guidance: string } {
-  let text = '';
+  let text: string;
   try {
     const data = JSON.parse(body);
     text = data?.error?.message || data?.error_description || data?.message || '';
