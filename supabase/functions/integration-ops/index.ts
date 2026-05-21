@@ -109,6 +109,8 @@ const ACTION_PERMISSIONS: Record<Action, GranularPermission> = {
   delete_rule: 'integrations:sync',
   toggle_rule: 'integrations:sync',
   delete_vendor_rule: 'integrations:sync',
+  // run_preflight requires :sync (not :view) by deliberate product decision — it executes
+  // arbitrary KQL against the production SIEM and consumes Defender API quota.
   run_preflight: 'integrations:sync',
 }
 
@@ -2613,6 +2615,9 @@ async function handleRunPreflight(
 
   const credentials = await getDecryptedCredentials(body.integrationId)
   const config = (integration.config || {}) as Record<string, unknown>
+  if (!config.tenantId) {
+    return json({ error: 'Integration is missing tenantId — re-save its credentials in integration settings.', code: 'MISSING_TENANT_ID' }, 400)
+  }
   const startedAt = Date.now()
 
   let status = 'success'
@@ -2630,6 +2635,8 @@ async function handleRunPreflight(
   } = { overTime: [], byEntity: [], entityColumn: null }
 
   try {
+    // 85s wall-clock cap across the whole probe -> count -> sample -> breakdown sequence;
+    // each runHuntingQuery additionally has its own 60s vendorFetch timeout.
     await withTimeout((async () => {
       const token = await microsoftGetToken(
         config.tenantId as string, credentials.clientId, credentials.clientSecret, GRAPH_DEFAULT_SCOPE,
