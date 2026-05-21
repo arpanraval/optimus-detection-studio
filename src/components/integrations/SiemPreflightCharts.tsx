@@ -35,7 +35,7 @@ export const PreflightEntityChart: React.FC<{
   }
   const max = Math.max(...data.map((d) => d.hits), 1);
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5" role="img" aria-label="Top entities by hit count">
       {data.map((d) => (
         <div key={d.name} className="flex items-center gap-2">
           <span className="text-[11px] text-on-surface-variant w-32 truncate" title={d.name}>

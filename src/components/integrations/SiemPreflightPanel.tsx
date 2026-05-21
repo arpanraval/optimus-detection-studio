@@ -56,7 +56,7 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
   const sampleColumns = useMemo(() => {
     const rows = result?.sample || [];
     return rows.length > 0 ? Object.keys(rows[0]).slice(0, 6) : [];
-  }, [result]);
+  }, [result?.sample]);
 
   return (
     <div className="space-y-4">
@@ -81,7 +81,7 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
         )}
         <div>
           <label className="block text-xs font-medium text-on-surface-variant mb-1">Backtest window</label>
-          <div className="flex rounded-lg border border-outline-variant/20 overflow-hidden">
+          <div role="group" aria-label="Backtest window" className="flex rounded-lg border border-outline-variant/20 overflow-hidden">
             {WINDOWS.map((w) => (
               <button
                 key={w}
