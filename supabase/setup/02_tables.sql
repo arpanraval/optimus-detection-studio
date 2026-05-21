@@ -502,7 +502,6 @@ CREATE TABLE IF NOT EXISTS detections (
   description text NOT NULL,
   author text,
   status text NOT NULL,
-  maturity text NOT NULL,
   "detectionType" text NOT NULL,
   severity text NOT NULL,
   "logSource" text NOT NULL,
@@ -525,7 +524,6 @@ CREATE TABLE IF NOT EXISTS detections (
   user_id uuid,
   created_by text,
   updated_by text,
-  confidence text DEFAULT 'Medium'::text,
   "logSources" text[] DEFAULT '{}'::text[],
   "dataSources" text[] DEFAULT '{}'::text[],
   "dataComponents" text[] DEFAULT '{}'::text[],
@@ -800,3 +798,38 @@ CREATE TABLE IF NOT EXISTS user_notifications (
   CONSTRAINT user_notifications_detection_id_fkey FOREIGN KEY (detection_id) REFERENCES detections(id) ON DELETE SET NULL,
   CONSTRAINT user_notifications_publish_request_id_fkey FOREIGN KEY (publish_request_id) REFERENCES promotion_requests(id) ON DELETE SET NULL
 );
+
+-- detection_drift: per-detection upstream-drift tracking for the GitHub-source
+-- review feature. One row per local detection with a known upstream source.
+CREATE TABLE IF NOT EXISTS detection_drift (
+  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  detection_id          text NOT NULL,                                  -- detections.id is text
+  user_id               uuid NOT NULL,                                  -- mirrors detections.user_id
+  source_url            text NOT NULL,
+  source_vendor         text NOT NULL,
+  target_library        text NOT NULL,
+  external_id           text NOT NULL,
+  upstream_path         text,
+  upstream_blob_sha     text,
+  baseline_hash         text,
+  upstream_hash         text,
+  upstream_raw_snapshot text,
+  drift_state           text NOT NULL DEFAULT 'unknown'
+    CHECK (drift_state IN ('unknown','in_sync','upstream_changed','upstream_removed','conflict','dismissed')),
+  field_diffs           jsonb NOT NULL DEFAULT '[]'::jsonb,
+  last_checked_at       timestamptz,
+  resolved_at           timestamptz,
+  resolved_by           uuid,
+  resolution            text CHECK (resolution IN ('accepted','kept_mine','dismissed','reverted')),
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  updated_at            timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT detection_drift_detection_id_key UNIQUE (detection_id),
+  CONSTRAINT detection_drift_detection_id_fkey FOREIGN KEY (detection_id) REFERENCES detections(id) ON DELETE CASCADE,
+  CONSTRAINT detection_drift_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE,
+  CONSTRAINT detection_drift_resolved_by_fkey FOREIGN KEY (resolved_by) REFERENCES auth.users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS detection_drift_user_state_idx ON detection_drift (user_id, drift_state);
+CREATE INDEX IF NOT EXISTS detection_drift_source_idx ON detection_drift (source_url, source_vendor, target_library);
+CREATE INDEX IF NOT EXISTS detection_drift_detection_id_idx ON detection_drift (detection_id);

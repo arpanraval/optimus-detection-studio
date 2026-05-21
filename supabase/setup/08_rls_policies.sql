@@ -888,4 +888,29 @@ CREATE POLICY "Users update own notifications" ON public.user_notifications
   TO public
   USING ((user_id = auth.uid()));
 
+-- ============================================================
+-- Table: detection_drift  (upstream-drift tracking for imported rules)
+-- ============================================================
+ALTER TABLE public.detection_drift ENABLE ROW LEVEL SECURITY;
+
+-- Read: anyone who can see the underlying detection (production rules are
+-- visible to all; development rules to their owner; admins/owners see all).
+CREATE POLICY detection_drift_select ON public.detection_drift
+  FOR SELECT TO authenticated
+  USING (
+    public.is_global_admin(auth.uid())
+    OR user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM public.detections d
+      WHERE d.id = detection_drift.detection_id
+        AND (d.library_type = 'production' OR d.user_id = auth.uid())
+    )
+  );
+
+-- Write: admins/owners only (matches the admin-gated Data Sync page).
+CREATE POLICY detection_drift_write ON public.detection_drift
+  FOR ALL TO authenticated
+  USING (public.is_global_admin(auth.uid()))
+  WITH CHECK (public.is_global_admin(auth.uid()));
+
 -- Workspace policies removed (feature deprecated)

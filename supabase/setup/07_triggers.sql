@@ -77,3 +77,9 @@ CREATE OR REPLACE TRIGGER trg_enforce_single_default
   FOR EACH ROW
   WHEN (NEW.is_default = true)
   EXECUTE FUNCTION enforce_single_default_dashboard();
+
+-- detection_drift: set updated_at on row update
+CREATE OR REPLACE TRIGGER detection_drift_updated_at
+  BEFORE UPDATE ON public.detection_drift
+  FOR EACH ROW
+  EXECUTE FUNCTION update_detection_drift_updated_at();

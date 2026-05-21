@@ -275,7 +275,7 @@ END;
 $function$;
 
 -- Fork a Production Library detection to the Development Library for experimentation
-CREATE OR REPLACE FUNCTION public.fork_to_development(p_detection_id text, p_user_id uuid)
+CREATE OR REPLACE FUNCTION public.fork_to_development(p_detection_id text, p_user_id uuid DEFAULT auth.uid())
 RETURNS text AS $$
 DECLARE
   v_source_rule RECORD;
@@ -315,7 +315,7 @@ BEGIN
     "investigationSteps", "responseActions", "falsePositiveGuidance",
     prerequisites, caveats, "fineTuning",
     "testedAndValidated", "testCases", "qualityScore",
-    "references", tags, maturity, confidence,
+    "references", tags,
     "createdDate", "updatedDate"
   )
   SELECT
@@ -329,7 +329,7 @@ BEGIN
     "investigationSteps", "responseActions", "falsePositiveGuidance",
     prerequisites, caveats, "fineTuning",
     "testedAndValidated", "testCases", "qualityScore",
-    "references", tags, maturity, confidence,
+    "references", tags,
     now(), now()
   FROM detections WHERE id = p_detection_id;
 
@@ -653,7 +653,7 @@ END;
 $function$;
 
 -- Approve or reject a promotion request (admin/lead action)
-CREATE OR REPLACE FUNCTION public.approve_promotion(p_request_id uuid, p_admin_id uuid, p_action text, p_notes text DEFAULT NULL::text)
+CREATE OR REPLACE FUNCTION public.approve_promotion(p_request_id uuid, p_admin_id uuid DEFAULT auth.uid(), p_action text DEFAULT 'approve'::text, p_notes text DEFAULT NULL::text)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -762,8 +762,6 @@ BEGIN
         "qualityScore" = v_detection."qualityScore",
         "references" = v_detection."references",
         tags = v_detection.tags,
-        maturity = v_detection.maturity,
-        confidence = v_detection.confidence,
         "updatedDate" = NOW(),
         version = v_current_version + 1
       WHERE id = v_target_detection_id;
@@ -782,7 +780,7 @@ BEGIN
         "investigationSteps", "responseActions", "falsePositiveGuidance",
         prerequisites, caveats, "fineTuning",
         "testedAndValidated", "testCases", "qualityScore",
-        "references", tags, maturity, confidence,
+        "references", tags,
         library_type, source, user_id
       ) VALUES (
         v_target_detection_id,
@@ -826,8 +824,6 @@ BEGIN
         v_detection."qualityScore",
         v_detection."references",
         v_detection.tags,
-        v_detection.maturity,
-        v_detection.confidence,
         'production',
         'community',
         v_request.submitted_by
@@ -874,7 +870,7 @@ BEGIN
       "investigationSteps", "responseActions", "falsePositiveGuidance",
       prerequisites, caveats, "fineTuning",
       "testedAndValidated", "testCases", "qualityScore",
-      "references", tags, maturity, confidence,
+      "references", tags,
       library_type, source, user_id
     ) VALUES (
       v_target_detection_id,
@@ -918,8 +914,6 @@ BEGIN
       v_detection."qualityScore",
       v_detection."references",
       v_detection.tags,
-      v_detection.maturity,
-      v_detection.confidence,
       'production',
       'community',
       v_request.submitted_by
@@ -2098,8 +2092,10 @@ begin
 end;
 $function$;
 
--- Hybrid search combining semantic (vector) and keyword (FTS) results
-CREATE OR REPLACE FUNCTION public.hybrid_search_detections(p_query text, p_query_embedding vector, p_semantic_weight double precision DEFAULT 0.7, p_keyword_weight double precision DEFAULT 0.3, p_limit integer DEFAULT 25, p_status text DEFAULT NULL::text, p_severity text DEFAULT NULL::text)
+-- Hybrid search combining semantic (vector) and keyword (FTS) results.
+-- Defaults retuned 2026-05-20 from 0.7/0.3 → 0.5/0.5; see migration
+-- 20260520120000_threat_research_library_match_tuning.sql for audit.
+CREATE OR REPLACE FUNCTION public.hybrid_search_detections(p_query text, p_query_embedding vector, p_semantic_weight double precision DEFAULT 0.5, p_keyword_weight double precision DEFAULT 0.5, p_limit integer DEFAULT 25, p_status text DEFAULT NULL::text, p_severity text DEFAULT NULL::text)
  RETURNS TABLE(detection_id text, name text, description text, mitre_ids text[], status text, severity text, semantic_score double precision, keyword_score double precision, combined_score double precision)
  LANGUAGE plpgsql
 AS $function$
@@ -2267,5 +2263,16 @@ BEGIN
   END IF;
   GET DIAGNOSTICS v_count = ROW_COUNT;
   RETURN v_count;
+END;
+$function$;
+
+-- updated_at trigger for detection_drift
+CREATE OR REPLACE FUNCTION public.update_detection_drift_updated_at()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
 END;
 $function$;
