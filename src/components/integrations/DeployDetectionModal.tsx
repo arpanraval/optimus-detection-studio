@@ -148,14 +148,15 @@ const STEP_LABELS: { id: StepId; label: string }[] = [
   { id: 'result', label: 'Result' },
 ];
 
-function StepIndicator({ current }: { current: StepId }) {
+function StepIndicator({ current, isDefender }: { current: StepId; isDefender: boolean }) {
+  const labels = isDefender ? STEP_LABELS : STEP_LABELS.filter(s => s.id !== 'preflight');
   // Map deploying to result position (it's the transition to result)
   const effectiveStep = current === 'deploying' ? 'result' : current;
-  const currentIdx = STEP_LABELS.findIndex(s => s.id === effectiveStep);
+  const currentIdx = labels.findIndex(s => s.id === effectiveStep);
 
   return (
     <div className="flex items-center justify-center gap-1.5 mb-4">
-      {STEP_LABELS.map((s, i) => {
+      {labels.map((s, i) => {
         const isActive = s.id === effectiveStep;
         const isPast = i < currentIdx;
         return (
@@ -170,7 +171,7 @@ function StepIndicator({ current }: { current: StepId }) {
                 {s.label}
               </span>
             </div>
-            {i < STEP_LABELS.length - 1 && (
+            {i < labels.length - 1 && (
               <div className={`w-4 h-px ${isPast ? 'bg-on-surface-variant/30' : 'bg-outline-variant/20'}`} />
             )}
           </React.Fragment>
@@ -283,6 +284,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
     // B: Client-side pre-deploy validation
     const result = validateDetectionForDeploy(detection, integration.provider);
     setValidation(result);
+    setPreflightResult(null);
 
     // E3: Check for existing deployment (duplicate check)
     try {
@@ -483,7 +485,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
           ) : (
             <>
               {/* Step indicator */}
-              {step !== 'select' && <StepIndicator current={step} />}
+              {step !== 'select' && <StepIndicator current={step} isDefender={selectedIntegration?.provider === 'defender_xdr'} />}
 
               {/* Step 1: Select Integration */}
               {step === 'select' && (
@@ -574,7 +576,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
               {step === 'validate' && selectedIntegration && validation && (
                 <div className="space-y-4">
                   <div className="flex items-center gap-2 mb-1">
-                    <button onClick={() => { setStep('select'); setValidation(null); setExistingDeployment(null); }} className="p-1 rounded hover:bg-surface-container-high">
+                    <button onClick={() => { setStep('select'); setValidation(null); setExistingDeployment(null); setPreflightResult(null); }} className="p-1 rounded hover:bg-surface-container-high">
                       <Icon name="arrow-left" className="w-4 h-4 text-on-surface-variant" />
                     </button>
                     <span className="text-sm font-medium text-on-surface">
