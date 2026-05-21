@@ -282,6 +282,12 @@ DECLARE
   v_new_id text;
   v_existing_id text;
 BEGIN
+  -- HARDENING (2026-05-22): bind to JWT identity; ignore caller-supplied p_user_id.
+  p_user_id := auth.uid();
+  IF p_user_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required';
+  END IF;
+
   -- Source must be a Production Library rule (library_type = 'production')
   SELECT * INTO v_source_rule
   FROM detections
@@ -335,7 +341,7 @@ BEGIN
 
   RETURN v_new_id;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- Get dynamic filter options for detections based on library type
 CREATE OR REPLACE FUNCTION public.get_filter_options(p_library_type text)
@@ -484,12 +490,17 @@ CREATE OR REPLACE FUNCTION public.submit_for_promotion(p_detection_id text, p_us
  RETURNS json
  LANGUAGE plpgsql
  SECURITY DEFINER
+ SET search_path = public
 AS $function$
 DECLARE
   v_detection RECORD;
   v_request_id UUID;
   v_target_rule_id TEXT;
 BEGIN
+  -- HARDENING (2026-05-22): bind to JWT identity; ignore caller-supplied p_user_id.
+  p_user_id := auth.uid();
+  IF p_user_id IS NULL THEN RETURN json_build_object('success', false, 'error', 'Authentication required'); END IF;
+
   -- Get the detection — must be in Development Library and owned by user
   SELECT * INTO v_detection
   FROM detections
@@ -567,12 +578,17 @@ CREATE OR REPLACE FUNCTION public.submit_for_promotion(p_detection_id uuid, p_us
  RETURNS json
  LANGUAGE plpgsql
  SECURITY DEFINER
+ SET search_path = public
 AS $function$
 DECLARE
   v_detection RECORD;
   v_request_id UUID;
   v_target_rule_id TEXT;
 BEGIN
+  -- HARDENING (2026-05-22): bind to JWT identity; ignore caller-supplied p_user_id.
+  p_user_id := auth.uid();
+  IF p_user_id IS NULL THEN RETURN json_build_object('success', false, 'error', 'Authentication required'); END IF;
+
   -- Get the detection — must be in Development Library and owned by user
   SELECT * INTO v_detection
   FROM detections
@@ -657,6 +673,7 @@ CREATE OR REPLACE FUNCTION public.approve_promotion(p_request_id uuid, p_admin_i
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
+ SET search_path = public
 AS $function$
 DECLARE
   v_request RECORD;
@@ -668,6 +685,12 @@ DECLARE
   v_is_update BOOLEAN := false;
   v_current_version INTEGER;
 BEGIN
+  -- HARDENING (2026-05-22): bind to JWT identity; ignore caller-supplied p_admin_id.
+  p_admin_id := auth.uid();
+  IF p_admin_id IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Authentication required');
+  END IF;
+
   -- Verify role (owner, admin, or lead can approve promotions)
   IF NOT EXISTS (SELECT 1 FROM profiles WHERE id = p_admin_id AND role IN ('owner', 'admin', 'lead')) THEN
     RETURN jsonb_build_object('success', false, 'error', 'Admin or Lead access required');
@@ -1004,12 +1027,19 @@ CREATE OR REPLACE FUNCTION public.rollback_bulk_import(p_job_id uuid, p_user_id 
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
+ SET search_path = public
 AS $function$
 DECLARE
   v_job RECORD;
   v_deleted_count INTEGER;
   v_result JSONB;
 BEGIN
+  -- HARDENING (2026-05-22): permission decision must use JWT identity, not p_user_id.
+  p_user_id := auth.uid();
+  IF p_user_id IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Authentication required');
+  END IF;
+
   -- Get the job and verify ownership/permissions
   SELECT * INTO v_job
   FROM bulk_import_jobs
@@ -2276,3 +2306,40 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
+
+
+-- ============================================================
+-- RPC EXECUTE LOCKDOWN (hardened 2026-05-22; advisor: anon/authenticated
+-- _security_definer_function_executable). Supabase auto-grants EXECUTE to
+-- PUBLIC on every function; this block revokes it from PUBLIC + anon for all
+-- SECURITY DEFINER functions, and from authenticated for all except the
+-- browser-client allowlist. service_role keeps its explicit grant. Runs last
+-- so it applies to every function defined above.
+-- IMPORTANT: any new SECURITY DEFINER function is auto-granted PUBLIC EXECUTE --
+-- it must add its own REVOKE, or be added to keep_authenticated and this re-run.
+-- ============================================================
+DO $$
+DECLARE
+  r RECORD;
+  keep_authenticated text[] := ARRAY[
+    'approve_promotion','check_detection_write_permission','check_promotion_eligibility',
+    'complete_password_setup','find_similar_detections','fork_to_development',
+    'get_current_spend','get_defensive_posture','get_filter_options',
+    'get_mitigation_techniques','get_strategy_analytics','get_technique_strategies_by_mitre_id',
+    'get_top_impact_mitigations','get_top_impact_strategies','populate_scoring_snapshot',
+    'refresh_coverage_stats','rollback_bulk_import','submit_for_promotion','tr_patch_detection'
+  ];
+  skip_entirely text[] := ARRAY['is_global_admin','is_global_admin_or_lead'];
+BEGIN
+  FOR r IN
+    SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.prosecdef = true AND p.proowner = 'postgres'::regrole
+  LOOP
+    IF r.proname = ANY(skip_entirely) THEN CONTINUE; END IF;
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(%s) FROM PUBLIC, anon;', r.proname, r.args);
+    IF NOT (r.proname = ANY(keep_authenticated)) THEN
+      EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(%s) FROM authenticated;', r.proname, r.args);
+    END IF;
+  END LOOP;
+END $$;
