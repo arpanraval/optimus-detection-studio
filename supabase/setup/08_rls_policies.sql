@@ -13,6 +13,7 @@ ALTER TABLE public.audit_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.batch_embedding_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.bulk_import_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.deployment_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.detection_preflight_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detection_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detection_comments ENABLE ROW LEVEL SECURITY;
 -- NOTE: detection_embeddings does NOT have RLS enabled in production
@@ -174,6 +175,22 @@ CREATE POLICY "Users can update own deployment records" ON public.deployment_his
   USING ((auth.uid() = user_id));
 
 CREATE POLICY "Users can view own deployment history" ON public.deployment_history
+  AS PERMISSIVE
+  FOR SELECT
+  TO public
+  USING ((auth.uid() = user_id));
+
+-- --------------------------------------------------------
+-- Table: detection_preflight_runs
+-- --------------------------------------------------------
+
+CREATE POLICY "Users can create own preflight runs" ON public.detection_preflight_runs
+  AS PERMISSIVE
+  FOR INSERT
+  TO public
+  WITH CHECK ((auth.uid() = user_id));
+
+CREATE POLICY "Users can view own preflight runs" ON public.detection_preflight_runs
   AS PERMISSIVE
   FOR SELECT
   TO public

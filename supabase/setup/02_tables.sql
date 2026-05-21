@@ -694,6 +694,37 @@ CREATE TABLE IF NOT EXISTS deployment_history (
 );
 
 -- ----------------------------------------------------------
+-- detection_preflight_runs
+-- ----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS detection_preflight_runs (
+  id                uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id           uuid NOT NULL,
+  integration_id    uuid NOT NULL,
+  detection_id      text NOT NULL,
+  provider          text NOT NULL,
+  window_days       integer NOT NULL,
+  status            text NOT NULL DEFAULT 'pending'::text,
+  validation_passed boolean NOT NULL DEFAULT false,
+  hit_count         bigint,
+  window_applied    boolean NOT NULL DEFAULT true,
+  error_message     text,
+  error_guidance    text,
+  schema_warnings   jsonb,
+  query_text        text,
+  query_language    text DEFAULT 'KQL'::text,
+  sample            jsonb,
+  breakdown         jsonb,
+  duration_ms       integer,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT detection_preflight_runs_pkey PRIMARY KEY (id),
+  CONSTRAINT detection_preflight_runs_integration_id_fkey FOREIGN KEY (integration_id) REFERENCES integrations(id) ON DELETE CASCADE,
+  CONSTRAINT detection_preflight_runs_provider_check CHECK (provider = ANY (ARRAY['defender_xdr'::text])),
+  CONSTRAINT detection_preflight_runs_window_days_check CHECK (window_days = ANY (ARRAY[7, 14, 30])),
+  CONSTRAINT detection_preflight_runs_status_check CHECK (status = ANY (ARRAY['pending'::text, 'success'::text, 'query_error'::text, 'connection_error'::text, 'timeout'::text, 'permission_denied'::text]))
+);
+
+-- ----------------------------------------------------------
 -- integration_credentials
 -- ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS integration_credentials (
