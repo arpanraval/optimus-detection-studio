@@ -9,17 +9,24 @@ export type ResearchInputClassification =
 
 export type ResearchAgent =
   | 'orchestrator' | 'preflight'
-  | 'research' | 'attack-researcher' | 'detection-engineer' | 'qa';
+  | 'research' | 'attack-researcher' | 'planner' | 'detection-engineer' | 'qa';
 
 export type ResearchEventType =
   | 'agent_started' | 'agent_iteration' | 'agent_tool_call' | 'agent_narration'
-  | 'agent_completed' | 'agent_failed'
+  | 'agent_completed' | 'agent_failed' | 'agent_validation_failed'
   | 'preflight_started' | 'preflight_completed'
   | 'behaviour_created' | 'opportunity_created' | 'detection_generated'
   | 'qa_verdict' | 'qa_refinement_started' | 'qa_refinement_completed'
-  | 'session_completed' | 'session_cancelled' | 'session_failed'
+  | 'session_completed' | 'session_cancelled' | 'session_failed' | 'job_failed'
   | 'tool_call' | 'tool_cache_hit'
-  | 'library_match_found' | 'attack_research_completed';
+  | 'library_match_found' | 'attack_research_completed'
+  // Observability events (PR3-followup):
+  | 'job_resumed' | 'finalise_gate_checked' | 'source_behaviour_drop'
+  | 'planner_degraded'
+  | 'agent_response_received' | 'agent_loop_exit' | 'worker_exit'
+  | 'schema_validation_completed'
+  | 'agent_model_call_start' | 'agent_model_call_debug'
+  | 'agent_model_call_returned' | 'agent_post_response_checkpoint';
 
 /** MITRE ATT&CK Tactic (post-exploitation phases). NOT "kill chain phases". */
 export type MitreTacticName =
@@ -70,8 +77,9 @@ export interface PreflightSummary {
 }
 
 /** Existing-detection match in the user's library — the Detection Engineer
- *  surfaces this when a strong match exists (combined_score >= 0.75). UI
- *  renders the leaf with a sage-green glow border. */
+ *  surfaces this when a strong match exists (combined_score >= 0.6 by
+ *  default; THREAT_RESEARCH_LIBRARY_MATCH_THRESHOLD overrides). UI renders
+ *  the leaf with a sage-green glow border. */
 export interface LibraryMatch {
   existing_detection_id: string;
   name: string;
@@ -103,8 +111,19 @@ export interface QaResult {
   coverage_quality: QaCoverageQuality;
   concerns: string[];
   suggested_changes: string[];
+  /**
+   * Set by finalise cross-opportunity dedup, NOT by the QA agent. QA's
+   * single-pass critique always leaves this null; finalise populates it
+   * when two opportunities produce semantically-duplicate detections.
+   */
   duplicate_of: string | null;
+  /**
+   * Always one entry under single-pass QA. Field kept for forward-compat.
+   */
   iteration_history: QaIteration[];
+  /**
+   * Always 1 under single-pass QA.
+   */
   iteration_count: number;
 }
 
@@ -126,15 +145,50 @@ export interface GeneratedDetection {
   feasibility_notes: string;
   citations: ResearchCitation[];
   covers_behaviour_ids: string[];
+  /** Filled when the QA loop completed with any verdict (pass, pass_with_concerns,
+   *  fail). Null when QA is pending. Distinct from `qa_error`: qa.verdict is a
+   *  detection-quality judgement made by the QA agent; `qa_error` indicates the
+   *  QA pipeline itself failed and never reached a verdict. UIs MUST render these
+   *  two states differently. */
   qa: QaResult | null;
+  /** Non-null when the QA pipeline failed for THIS detection (timeout, model
+   *  error, iteration cap, budget exhaustion). Short reason string. The user
+   *  should see "QA didn't run — retryable" rather than the misleading
+   *  "QA judged this insufficient" badge the old code shipped. Optional for
+   *  backward compatibility with sessions persisted before this field. */
+  qa_error?: string | null;
   saved_detection_id: string | null;
   archived: boolean;
 }
+
+/** PR2 planner status, surfaced on the session tree so the UI can show
+ *  a "degraded" banner when the Opportunity Planner failed and the
+ *  orchestrator fell back to 1:1 behaviour→opportunity (no dedup pass). */
+export type PlannerStatus = 'completed' | 'degraded';
 
 export interface DetectionOpportunity {
   id: string;
   title: string;
   description: string;
+  // ─── PR2 planner-added fields ─────────────────────────────────────────
+  // All optional so pre-PR2 sessions still type-check on the frontend.
+  /** Ordered observable signals this opportunity catches. */
+  observable_chain?: string[];
+  /** Log sources / EDR signals this opportunity needs. */
+  telemetry?: string[];
+  /** MITRE technique IDs this opportunity covers. */
+  mitre_technique_ids?: string[];
+  /** Primary MITRE tactic. */
+  tactic?: MitreTacticName;
+  /** Behaviour this opportunity is physically attached to in the tree. */
+  primary_behaviour_id?: string;
+  /** All behaviours feeding this canonical opportunity (incl. primary). */
+  source_behaviour_ids?: string[];
+  /** Notes on how manifestations vary across source behaviours. */
+  variants?: string[];
+  /** Planner's verdict on detectability. */
+  detectability?: DetectabilityVerdict;
+  detectability_rationale?: string;
   detection: GeneratedDetection;
 }
 
@@ -164,6 +218,13 @@ export interface AttackBehaviour {
   detectability_rationale?: string | null;
   artefacts_required?: string[];
   opportunities: DetectionOpportunity[];
+  /** PR2: composite "{primary_behaviour_id}/{opportunity_id}" references to
+   *  canonical opportunities under OTHER behaviours that include this
+   *  behaviour in their source_behaviour_ids. Lets the UI render
+   *  "merged into N opportunities" instead of falsely showing
+   *  not_detectable for a behaviour the planner correctly deduplicated.
+   *  Optional for back-compat. */
+  merged_into_opportunity_ids?: string[];
 }
 
 /** Where (if anywhere) a behaviour can be detected with current visibility.
@@ -206,6 +267,13 @@ export interface ThreatResearchTree {
   /** Library detections tagged with this actor's aliases — populated once
    *  after Research. Optional for backward compat with pre-Phase-4 sessions. */
   actor_coverage_seed?: ActorCoverageSeedItem[];
+  /** PR2 Opportunity Planner outcome.
+   *    'completed' — planner ran and produced canonical opportunities.
+   *    'degraded' — planner failed; orchestrator fell back to 1:1
+   *                 behaviour→opportunity. UI MUST surface a banner so
+   *                 the user knows the output isn't deduplicated.
+   *  Optional for back-compat with pre-PR2 sessions. */
+  planner_status?: PlannerStatus | null;
   behaviours: AttackBehaviour[];
   open_questions: ResearchOpenQuestion[];
 }

@@ -1,30 +1,60 @@
 import React from 'react';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
-import type { PreflightSummary } from '../../types/threatResearch';
+import type { PreflightSummary, ResearchSubject } from '../../types/threatResearch';
 
 interface Props {
   preflight: PreflightSummary | null;
+  /** Preflight now seeds tree.subject with classification + canonical_name
+   *  via the input classifier (no more library scan). The banner pulls the
+   *  display fields from there. Passed as a separate prop so the banner can
+   *  render even before research has populated the rest of the subject. */
+  subject: ResearchSubject | null;
   /** True when the run has started but the Subject Brief hasn't appeared yet — show full banner. */
   active: boolean;
   /** Cancel handler — invokes the orchestrator's cancel action. */
   onCancel: () => void;
 }
 
-export function PreflightGapBanner({ preflight, active, onCancel }: Props) {
-  if (!preflight) return null;
+const CLASSIFICATION_LABEL: Record<string, string> = {
+  cve:       'CVE',
+  group:     'Threat Actor',
+  campaign:  'Campaign',
+  technique: 'MITRE Technique',
+  concept:   'Concept / Pattern',
+};
 
-  const hits = preflight.library_hits;
-  const techCount = preflight.techniques_seen_in_hits.length;
+const CLASSIFICATION_DESCRIPTION: Record<string, string> = {
+  cve:       'Exploit-mechanics workflow — focuses on the vulnerability primitive, prerequisites, and confirmed post-exploitation only.',
+  group:     'Full 14-tactic walk across the kill chain for this threat actor.',
+  campaign:  'Full 14-tactic walk for this named campaign.',
+  technique: 'Implementation-variant workflow — enumerates sub-techniques and tooling variants.',
+  concept:   'Bounded-landscape workflow — covers how this concept manifests in real incidents.',
+};
+
+/** Banner replaces the old library-scan output. Pre-PR2 the banner showed
+ *  "X similar in library · Y techniques" from a hybrid_search against the
+ *  raw input — that signal was misleading (no minimum-similarity floor)
+ *  and is no longer collected. The banner now surfaces the classifier's
+ *  decision so users see immediately which workflow lane the run is on
+ *  and can spot a misclassification before paying for a full run. */
+export function PreflightGapBanner({ preflight, subject, active, onCancel }: Props) {
+  if (!preflight) return null;
+  if (!subject?.classification) return null;
+
+  const cls = subject.classification;
+  const label = CLASSIFICATION_LABEL[cls] ?? cls;
+  const description = CLASSIFICATION_DESCRIPTION[cls] ?? '';
+  const canonical = subject.subject;
 
   // Compact pill — shown after Subject Brief is in.
   if (!active) {
-    if (hits === 0) return null;
     return (
       <div className="inline-flex items-center gap-2 rounded-full border border-outline-variant bg-surface px-3 py-1 text-xs text-on-surface-variant">
         <Icon name="layers" size={12} className="text-on-surface-variant" />
         <span>
-          <span className="font-medium text-on-surface">{hits}</span> similar in library · {techCount} technique{techCount === 1 ? '' : 's'} mentioned
+          Workflow: <span className="font-medium text-on-surface">{label}</span>
+          {canonical ? <> · <span className="font-medium text-on-surface">{canonical}</span></> : null}
         </span>
       </div>
     );
@@ -38,17 +68,12 @@ export function PreflightGapBanner({ preflight, active, onCancel }: Props) {
           <Icon name="info" size={16} />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold">Pre-flight library scan</div>
-          {hits > 0 ? (
-            <div className="mt-1 text-sm text-on-surface-variant">
-              <span className="font-medium text-on-surface">{hits}</span> detection{hits === 1 ? '' : 's'} in your library {hits === 1 ? 'is' : 'are'} similar to this input,
-              mentioning <span className="font-medium text-on-surface">{techCount}</span> MITRE technique{techCount === 1 ? '' : 's'} between them.
-              Not a coverage claim — agents will look at each behaviour individually and flag overlaps.
-            </div>
-          ) : (
-            <div className="mt-1 text-sm text-on-surface-variant">
-              No similar detections found in your library. The agents will research from scratch.
-            </div>
+          <div className="text-sm font-semibold">
+            Classified as <span className="text-primary">{label}</span>
+            {canonical ? <>: <span className="text-on-surface">{canonical}</span></> : null}
+          </div>
+          {description && (
+            <div className="mt-1 text-sm text-on-surface-variant">{description}</div>
           )}
         </div>
         <Button variant="text" color="surface" size="sm" onClick={onCancel}>

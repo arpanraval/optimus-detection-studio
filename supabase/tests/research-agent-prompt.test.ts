@@ -17,9 +17,15 @@ globalThis.Deno = { env: { get: (k: string) => process.env[k] } };
 const { callAnthropicRaw } = await import(
   "../functions/threat-research-orchestrator/lib/llm/anthropic-raw.ts"
 );
-const { SYSTEM_PROMPT, validate } = await import(
+const { validate } = await import(
   "../functions/threat-research-orchestrator/lib/agents/research-agent.ts"
 );
+// PR2: SYSTEM_PROMPT was replaced with per-classification workflows.
+// ClickFix is a "concept" — bounded landscape, not a 14-tactic walk.
+const { selectWorkflowPrompt } = await import(
+  "../functions/threat-research-orchestrator/lib/agents/research/workflows.ts"
+);
+const SYSTEM_PROMPT = selectWorkflowPrompt('concept');
 
 const apiKey = process.env.ANTHROPIC_API_KEY;
 if (!apiKey) {

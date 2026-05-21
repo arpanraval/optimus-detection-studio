@@ -53,6 +53,13 @@ const TERMINAL_EVENTS: ReadonlySet<ResearchEventType> = new Set<ResearchEventTyp
 
 const REFETCH_DEBOUNCE_MS = 250;
 
+// Polling fallback while the session is in flight. The Realtime websocket
+// only carries event INSERTs; if the websocket drops or a session row UPDATE
+// happens without an emit() call (e.g. tr_bump_caps, tr_consume_budget,
+// resume_session flipping status), the UI sits on stale state forever
+// without this. 10s is a fair balance between responsiveness and load.
+const POLL_INTERVAL_MS = 10_000;
+
 export function useThreatResearchSession(sessionId: string | null): UseThreatResearchSessionResult {
   const [session, setSession] = useState<ThreatResearchSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,6 +71,12 @@ export function useThreatResearchSession(sessionId: string | null): UseThreatRes
   // Stable handle to the active refetch function so callers can trigger it
   // even after re-renders. Updated each effect run.
   const refetchRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  // Mirrors session.status so the polling tick can read current status
+  // without re-running the effect on every state change. The setInterval
+  // callback closure would otherwise capture the status snapshot from
+  // effect-run time and never see updates.
+  const statusRef = useRef<ThreatResearchSession['status'] | null>(null);
+  statusRef.current = session?.status ?? null;
 
   useEffect(() => {
     if (!sessionId) {
@@ -129,7 +142,7 @@ export function useThreatResearchSession(sessionId: string | null): UseThreatRes
         setLoading(false);
       });
 
-    const channel = supabase
+    const eventChannel = supabase
       .channel(`tr-session-events-${sessionId}`)
       .on(
         'postgres_changes',
@@ -158,10 +171,46 @@ export function useThreatResearchSession(sessionId: string | null): UseThreatRes
       )
       .subscribe();
 
+    // Direct UPDATE subscription on the session row. Catches changes the
+    // event stream doesn't carry: status flips by resume_session / cancel,
+    // cap bumps by tr_bump_caps, atomic budget increments by
+    // tr_consume_budget. Without this, those mutations stay invisible until
+    // some other event happens to fire on the events table.
+    const rowChannel = supabase
+      .channel(`tr-session-row-${sessionId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'threat_research_sessions',
+          filter: `id=eq.${sessionId}`,
+        },
+        () => {
+          if (cancelled || activeSessionRef.current !== sessionId) return;
+          scheduleDebouncedRefetch();
+        },
+      )
+      .subscribe();
+
+    // Polling fallback. Realtime websockets can drop, and not every DB
+    // mutation we care about emits an event row. While the session is
+    // in flight, poll on a fixed interval so the UI eventually catches
+    // up regardless. The interval clears as soon as we observe a
+    // terminal status — no point hammering the DB once the session is done.
+    const pollHandle = setInterval(() => {
+      if (cancelled || activeSessionRef.current !== sessionId) return;
+      const current = statusRef.current;
+      if (current && (current === 'completed' || current === 'failed' || current === 'cancelled')) return;
+      void refetch();
+    }, POLL_INTERVAL_MS);
+
     return () => {
       cancelled = true;
       if (debounceTimer) clearTimeout(debounceTimer);
-      supabase.removeChannel(channel);
+      clearInterval(pollHandle);
+      supabase.removeChannel(eventChannel);
+      supabase.removeChannel(rowChannel);
     };
   }, [sessionId]);
 

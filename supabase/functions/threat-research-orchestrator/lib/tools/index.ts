@@ -14,6 +14,10 @@ import {
   handleEnvironmentContext,
   type EnvironmentContextResult,
 } from "./environment-context.ts";
+import {
+  defenderSchemaLookupToolDeclaration,
+  handleDefenderSchemaLookup,
+} from "./defender-schema-lookup.ts";
 
 export const ALL_TOOL_DECLARATIONS = [
   webSearchToolDeclaration,
@@ -21,6 +25,7 @@ export const ALL_TOOL_DECLARATIONS = [
   librarySearchToolDeclaration,
   feasibilityLookupToolDeclaration,
   environmentContextToolDeclaration,
+  defenderSchemaLookupToolDeclaration,
 ];
 
 export type ToolName =
@@ -28,7 +33,8 @@ export type ToolName =
   | 'mitre_search'
   | 'library_search'
   | 'feasibility_lookup'
-  | 'environment_context';
+  | 'environment_context'
+  | 'defender_schema_lookup';
 
 export interface ToolContext {
   supabase: SupabaseClient;
@@ -72,6 +78,8 @@ export async function executeTool(
       }
       ctx.envContextCache = await handleEnvironmentContext(ctx.supabase, ctx.userId);
       return ctx.envContextCache;
+    case 'defender_schema_lookup':
+      return handleDefenderSchemaLookup(ctx.supabase, params);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -84,15 +92,20 @@ export async function executeTool(
  *    ground sub-technique reasoning in canonical data. Without mitre_search
  *    a multi-sub-technique threat (e.g. Volt Typhoon's T1059 sub-tree) gets
  *    collapsed to whichever sub-id the model recalls best from training.
- *  - Detection Engineer: MITRE for technique data, library for duplicate
- *    detection, environment_context for env-aware feasibility grounding.
- *    Web search intentionally omitted — the system prompt forbids it
- *    ("Do NOT use web search") and granting it created a mixed signal that
- *    burned iteration budget on tool calls the prompt told the model not to
- *    make. The Attack Researcher's deep-dive is the source of web context
- *    for engineer leaves; the Engineer reasons over it.
- *  - QA: environment_context + library duplicate check. No web, no
- *    feasibility_lookup (replaced by environment_context, see below).
+ *  - Detection Engineer: MITRE for technique data + library_search for
+ *    duplicate detection. environment_context was removed — the data
+ *    underlying it (environment profile) has no useful detail in current
+ *    setups, and the engineer ended up writing fallback paths for every
+ *    SIEM rather than picking one. Web search intentionally omitted — the
+ *    system prompt forbids it and granting it created a mixed signal that
+ *    burned iteration budget on tool calls the prompt told the model not
+ *    to make. The Attack Researcher's deep-dive is the source of web
+ *    context for engineer leaves; the Engineer reasons over it.
+ *  - QA: no tools. The engineer already receives environment/library
+ *    context, and finalise performs deterministic semantic duplicate
+ *    checks. Letting QA repeatedly call environment_context/library_search
+ *    doubled budget burn and produced over-budget false failures on real
+ *    sessions.
  *
  *  feasibility_lookup is retired: it compared MITRE catalog labels against
  *  env labels via exact set membership, but the labels never aligned and
@@ -103,6 +116,10 @@ export async function executeTool(
 export const TOOLS_FOR = {
   research:           [webSearchToolDeclaration, mitreSearchToolDeclaration],
   attackResearcher:   [webSearchToolDeclaration, mitreSearchToolDeclaration],
-  detectionEngineer:  [mitreSearchToolDeclaration, librarySearchToolDeclaration, environmentContextToolDeclaration],
-  qa:                 [environmentContextToolDeclaration, librarySearchToolDeclaration],
+  // Engineer also gets defender_schema_lookup so it can check Defender XDR
+  // KQL table/column names before writing. Non-KQL detections just don't
+  // call the tool — there's no harm in making it available across the
+  // board (the description tells the model when it applies).
+  detectionEngineer:  [mitreSearchToolDeclaration, librarySearchToolDeclaration, defenderSchemaLookupToolDeclaration],
+  qa:                 [],
 } as const;

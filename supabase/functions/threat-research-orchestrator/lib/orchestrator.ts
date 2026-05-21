@@ -30,9 +30,10 @@ import type { WebSearchResult } from "../../_shared/web-search.ts";
 import { runPreflight } from "./preflight.ts";
 import { runResearchAgent } from "./agents/research-agent.ts";
 import { runAttackResearcherForBehaviour } from "./agents/attack-researcher.ts";
+import { runOpportunityPlanner, toDetectionOpportunity } from "./agents/opportunity-planner.ts";
 import {
   checkLibraryCoverage,
-  generateInitialDetections,
+  generateDetectionForOpportunity,
   refineDetectionViaActorCritic,
 } from "./agents/detection-engineer.ts";
 import { resolveQueryLanguage } from "./query-language.ts";
@@ -43,7 +44,13 @@ import {
   filterTacticInconsistent,
   findUnverifiedMitreIds,
 } from "./mitre-validator.ts";
-import type { ThreatResearchTree } from "./types.ts";
+import { validateKqlAgainstDefenderSchema } from "./tools/defender-schema-lookup.ts";
+import type {
+  DetectionOpportunity,
+  GeneratedDetection,
+  ResearchQueryLanguage,
+  ThreatResearchTree,
+} from "./types.ts";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Job row shape
@@ -52,7 +59,14 @@ import type { ThreatResearchTree } from "./types.ts";
 interface JobRow {
   id: string;
   session_id: string;
-  phase: 'preflight' | 'research' | 'attack_research' | 'detection' | 'qa' | 'finalise';
+  phase: 'preflight' | 'research' | 'attack_research' | 'opportunity_planning' | 'detection' | 'qa' | 'finalise';
+  /** For attack_research: just the behaviour_id (e.g. "b1").
+   *  For detection: composite "{primary_behaviour_id}/{opportunity_id}"
+   *  (e.g. "b1/o3") — detection is now per canonical opportunity, not
+   *  per behaviour, since the Opportunity Planner runs upstream.
+   *  For qa: same composite format as detection.
+   *  Null for singleton phases (preflight, research, opportunity_planning,
+   *  finalise). */
   behaviour_id: string | null;
   status: 'pending' | 'running' | 'completed' | 'failed';
   attempt_count: number;
@@ -87,6 +101,33 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
     return;
   }
   const job = claimed as JobRow;
+
+  // Visibility: when attempt_count > 1 the reaper reset this job after a
+  // prior worker stalled / died / failed validation. Surface that in the
+  // activity console so a session that "looks like one attempt" but is
+  // actually a retry can be debugged. We don't have session context yet
+  // (loaded below) so emit through a minimal runCtx stub — the inserted
+  // row carries the agent, type, and payload regardless of session/user
+  // resolution.
+  if (job.attempt_count > 1) {
+    await supabase.from('threat_research_events').insert({
+      session_id: job.session_id,
+      user_id: null, // resolved at fetch time by RLS via session
+      agent: 'orchestrator',
+      event_type: 'job_resumed',
+      message: `worker claimed ${job.phase} job ${job.behaviour_id ?? '(singleton)'} on attempt ${job.attempt_count}`,
+      payload: {
+        job_id: job.id,
+        phase: job.phase,
+        behaviour_id: job.behaviour_id,
+        attempt_count: job.attempt_count,
+        prior_failure_reason: job.failure_reason,
+      },
+    }).then(
+      () => {/* fire-and-forget */},
+      (e) => console.warn('[worker] job_resumed event insert failed:', e?.message ?? e),
+    );
+  }
 
   // 2. Load session + tree + ensure session is marked running.
   const { data: session, error: sessionErr } = await supabase
@@ -129,6 +170,12 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
     open_questions: [],
   };
 
+  // Visibility: track exit-kind so we always emit worker_exit before
+  // returning, even when an unexpected throw bubbles. If worker_exit
+  // doesn't appear in the events table, the worker was killed externally
+  // (platform wall-time, OOM, etc) and we know which job to investigate.
+  let exitKind: 'returned' | 'threw' | 'unknown' = 'unknown';
+  let exitReason: string | null = null;
   try {
     switch (job.phase) {
       case 'preflight':
@@ -156,23 +203,57 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
         // Throttling: dispatch the next pending sibling so we keep ~2
         // concurrent in flight (Anthropic Tier-1 TPM safety net).
         await dispatchNextInPhase(supabase, session.id, 'attack_research');
-        // Fan-in: when ALL attack_research siblings are terminal, promote to
-        // detection. promote() is a no-op if siblings are still running.
+        // Fan-in to opportunity_planning (singleton). PR2: before detection
+        // fans out per-canonical-opportunity, the planner dedupes the
+        // behaviour-level outputs into canonical detection opportunities.
+        // promote() is a no-op if siblings are still running.
         await promote(
           supabase,
           session.id,
           'attack_research',
-          'detection',
-          tree.behaviours.map(b => b.id),
+          'opportunity_planning',
+          null,
         );
         break;
 
+      case 'opportunity_planning':
+        await handleOpportunityPlanning(supabase, runCtx, toolCtx, session, tree);
+        await markJobCompleted(supabase, job);
+        {
+          // Fan-out detection jobs by canonical opportunity (composite
+          // "{primary_behaviour_id}/{opportunity_id}"). When EVERY canonical
+          // opportunity was flagged not_detectable / needs_telemetry by the
+          // planner (or research produced zero behaviours), the composite
+          // list is empty — there's no detection work to do. Skip the
+          // detection phase entirely and call the finalise gate directly;
+          // it sees zero pending detection AND zero pending qa, so it fires.
+          const compositeIds = collectOpportunityCompositeIds(tree);
+          if (compositeIds.length === 0) {
+            await promoteFinaliseIfReady(supabase, runCtx, session.id);
+          } else {
+            await promote(
+              supabase,
+              session.id,
+              'opportunity_planning',
+              'detection',
+              compositeIds,
+            );
+          }
+        }
+        break;
+
       case 'detection':
-        if (!job.behaviour_id) throw new Error('detection job missing behaviour_id');
+        if (!job.behaviour_id) throw new Error('detection job missing composite behaviour_id');
         await handleDetection(supabase, runCtx, toolCtx, session, tree, job.behaviour_id);
         await markJobCompleted(supabase, job);
         await dispatchNextInPhase(supabase, session.id, 'detection');
-        await promote(supabase, session.id, 'detection', 'finalise', null);
+        // Finalise gate: only fires when BOTH detection AND qa phases are
+        // terminal. The generic promote_phase(detection → finalise) is
+        // unsafe because qa jobs are enqueued by detection workers and may
+        // still be pending/running when the last detection completes.
+        // tr_promote_finalise_if_ready checks both phases atomically; the
+        // last worker (detection or qa, whichever finishes last) fires.
+        await promoteFinaliseIfReady(supabase, runCtx, session.id);
         break;
 
       case 'qa':
@@ -184,9 +265,10 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
         await handleQa(supabase, runCtx, toolCtx, session, tree, job.behaviour_id);
         await markJobCompleted(supabase, job);
         await dispatchNextInPhase(supabase, session.id, 'qa');
-        // Promote to finalise when ALL qa siblings are terminal. promote()
-        // is idempotent, so the parallel detection→finalise path is safe.
-        await promote(supabase, session.id, 'qa', 'finalise', null);
+        // Finalise gate (see detection branch above). The RPC is idempotent
+        // and uses an advisory lock so the parallel detection-side call
+        // can't race against this one.
+        await promoteFinaliseIfReady(supabase, runCtx, session.id);
         break;
 
       case 'finalise':
@@ -197,8 +279,11 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
       default:
         throw new Error(`unknown phase ${(job as JobRow).phase}`);
     }
+    exitKind = 'returned';
   } catch (err) {
     const reason = err instanceof Error ? err.message : 'unknown';
+    exitKind = 'threw';
+    exitReason = reason;
     console.error(`[worker] job ${job.id} (${job.phase}) failed:`, reason);
     await failJob(supabase, job, reason);
     // Don't persistTree here — successful mutations were already written via
@@ -209,6 +294,24 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
       event_type: 'job_failed',
       message: `${job.phase}: ${reason}`,
       payload: { job_id: job.id, behaviour_id: job.behaviour_id, attempt: job.attempt_count + 1 },
+    });
+  } finally {
+    // ALWAYS emit worker_exit, even on uncaught throws or partial state.
+    // If we see this event, the worker reached the end of its body.
+    // If we DON'T see it, the platform killed the isolate.
+    await emit(runCtx, {
+      agent: 'orchestrator',
+      event_type: 'worker_exit',
+      message: `worker exit (${exitKind})${exitReason ? `: ${exitReason}` : ''}`,
+      duration_ms: Date.now() - start,
+      payload: {
+        job_id: job.id,
+        phase: job.phase,
+        behaviour_id: job.behaviour_id,
+        attempt_count: job.attempt_count,
+        exit_kind: exitKind,
+        exit_reason: exitReason,
+      },
     });
   }
 }
@@ -229,7 +332,23 @@ async function handlePreflight(
   if (!session.environment_snapshot) {
     await primeEnvironmentSnapshot(supabase, runCtx.userId, session.id);
   }
-  tree.preflight = await runPreflight(toolCtx, runCtx, session.input_text);
+
+  // Preflight now runs the input classifier and seeds tree.subject with the
+  // classification + canonical name. Research Agent reads tree.subject.
+  // classification to pick its workflow lane (CVE vs Actor vs Technique
+  // vs Concept) and fills in the rest of the subject fields on return.
+  const result = await runPreflight(toolCtx, runCtx, session.input_text);
+  tree.preflight = result.summary;
+  if (result.subject_stub) {
+    tree.subject = {
+      classification: result.subject_stub.classification,
+      subject: result.subject_stub.subject,
+      brief: '',
+      intel_summary: {},
+      citations: [],
+    };
+  }
+
   await persistTree(supabase, session.id, tree);
 }
 
@@ -240,7 +359,14 @@ async function handleResearch(
   session: { id: string; input_text: string },
   tree: ThreatResearchTree,
 ): Promise<void> {
-  const out = await runResearchAgent(toolCtx, runCtx, session.input_text);
+  // Classification was set by preflight. Pass it into the Research Agent
+  // so it can pick the workflow lane (CVE / actor / technique / concept).
+  // If preflight wasn't run (legacy session shape), default to concept
+  // workflow — same fallback the classifier itself uses.
+  const classification = tree.subject?.classification ?? 'concept';
+  const subjectFromPreflight = tree.subject;
+
+  const out = await runResearchAgent(toolCtx, runCtx, session.input_text, classification);
   if (!out) throw new Error('research_agent_failed');
 
   // Post-step: validate every emitted MITRE technique ID against the canonical
@@ -262,7 +388,18 @@ async function handleResearch(
     );
   }
 
-  tree.subject = out.subject;
+  // Preserve classification + canonical subject from preflight — preflight
+  // is the authoritative source for the workflow lane. The Research Agent's
+  // own subject output may differ on these fields (it operates with a copy
+  // of the classification) but the orchestrator pins them to preflight's.
+  // brief / intel_summary / citations come from the research agent.
+  tree.subject = {
+    classification: subjectFromPreflight?.classification ?? out.subject.classification,
+    subject:        subjectFromPreflight?.subject        ?? out.subject.subject,
+    brief:          out.subject.brief,
+    intel_summary:  out.subject.intel_summary,
+    citations:      out.subject.citations,
+  };
   tree.tactic_summary = out.tactic_summary;
   tree.behaviours = out.behaviours;
 
@@ -286,22 +423,23 @@ async function handleResearch(
     tree.actor_coverage_seed = [];
   }
 
-  // Size the per-session budget caps from the actual behaviour count.
+  // Stage-based budget. The initial cap covers the pre-opportunity phases:
+  //   classifier (preflight):      1 call
+  //   research (singleton):        ~3-5 calls (iter cap 5)
+  //   attack_research × N:         ~3 calls each (iter cap 6, ~3 avg)
+  //   opportunity_planning:        ~3-6 calls (iter cap 6, singleton)
+  // handleOpportunityPlanning bumps the cap (via tr_bump_caps) once M
+  // canonical opportunities are known, sizing for the detection + qa
+  // per-opportunity work that follows.
   //
-  // Per-behaviour worst-case call count, with actor-critic now wired in qa:
-  //   Detection (initial gen): 1 wrapper call × up-to-8 validation iters → ~3 avg
-  //   Per-opp QA (actor-critic, ~2 opps/leaf):
-  //     QA: 1 call × up-to-2 iters × 3 rounds (initial + 2 revs) → ~5 avg
-  //     Revision: up to 2 × 1 call × up-to-3 iters → ~4 avg
-  //   Plus attack_research: ~3 avg
-  // So ~15 model calls per behaviour average, ~30 worst case.
-  //
-  // Formula: 5 + 18*N capped at 800. For N=24: 437. For N=12: 221. For the
-  // hallucination ceiling N=30: 545. Cap raised from 400 → 800 to fit
-  // worst-case spikes without prematurely starving back-half leaves.
+  // Formula: 25 + 6*N (was 15+6*N, and before that 5+6*N — pre-fix, the headroom didn't cover
+  // retries on the four pre-opportunity phases together; e.g. one
+  // attack_research leaf retrying twice + a planner retry could exhaust
+  // the budget and starve the planner's final call). The extra 10 calls
+  // are cheap insurance for classifier/research/planner validation retries.
   const N = out.behaviours.length;
-  const modelCap = Math.min(800, 5 + 18 * N);
-  const toolCap  = Math.min(800, 5 + 18 * N);
+  const modelCap = Math.min(800, 25 + 6 * N);
+  const toolCap  = Math.min(800, 25 + 6 * N);
 
   await supabase
     .from('threat_research_sessions')
@@ -313,6 +451,27 @@ async function handleResearch(
       updated_at: new Date().toISOString(),
     })
     .eq('id', session.id);
+}
+
+/** Build the list of composite "{primary_behaviour_id}/{opportunity_id}"
+ *  strings that the detection phase will fan out on. Called by the
+ *  attack_research/opportunity_planning promote step after the planner has
+ *  populated behaviour.opportunities[]. */
+function collectOpportunityCompositeIds(tree: ThreatResearchTree): string[] {
+  const ids: string[] = [];
+  for (const b of tree.behaviours) {
+    for (const o of b.opportunities) {
+      // Skip opportunities the planner explicitly flagged as not_detectable
+      // or needs_telemetry — there's nothing for the engineer to do on
+      // those, and enqueuing a detection job just to produce an empty
+      // result wastes a worker invocation + 1+ model calls.
+      if (o.detectability === 'not_detectable' || o.detectability === 'needs_telemetry') {
+        continue;
+      }
+      ids.push(`${b.id}/${o.id}`);
+    }
+  }
+  return ids;
 }
 
 async function handleAttackResearch(
@@ -343,17 +502,233 @@ async function handleAttackResearch(
   });
 }
 
+/** Singleton phase: cluster all behaviours' attack-research outputs into
+ *  canonical detection opportunities. After this phase, the tree's
+ *  behaviour.opportunities[] is fully populated (with empty detection slots)
+ *  and the detection phase fans out per opportunity. */
+async function handleOpportunityPlanning(
+  supabase: SupabaseClient,
+  runCtx: RunContext,
+  toolCtx: ToolContext,
+  session: { id: string; environment_snapshot: unknown },
+  tree: ThreatResearchTree,
+): Promise<void> {
+  if (!tree.subject) throw new Error('opportunity_planning before research');
+  if (tree.behaviours.length === 0) {
+    // Edge case: research produced zero behaviours. Nothing to plan. Skip
+    // to finalise gracefully — no detection jobs will be enqueued.
+    await emit(runCtx, {
+      agent: 'detection-engineer',
+      event_type: 'opportunity_created',
+      message: 'no behaviours to plan — session will finalise empty',
+      payload: { count: 0 },
+    });
+    return;
+  }
+
+  const queryLanguage = resolveQueryLanguage(session.environment_snapshot ?? null);
+  const out = await runOpportunityPlanner(toolCtx, runCtx, tree.subject, tree.behaviours);
+  if (!out) {
+    // Planner failed. Don't blow up the session — fall back to a no-op:
+    // every behaviour gets one opportunity that mirrors its title/tactic.
+    // The Detection Engineer will then work per-behaviour (same as pre-PR2
+    // semantics). This preserves output even when the planner step is
+    // unavailable.
+    //
+    // CRITICAL: surface this as tree.planner_status='degraded' so the UI
+    // can render a banner. Without the flag, users can't tell whether the
+    // output went through proper opportunity dedup or fell back. The
+    // fallback path WILL produce AF_ALG-style sibling duplicates that the
+    // planner exists to merge, and downstream cost/quality differs
+    // materially from the completed path.
+    console.warn('[handleOpportunityPlanning] planner failed — falling back to 1:1 behaviour->opportunity');
+    tree.planner_status = 'degraded';
+    // Surface as an orchestrator-level event, not under planner — the
+    // planner already emitted its agent_failed; this is the orchestrator's
+    // decision to enter degraded mode. Distinct event_type so the activity
+    // console can highlight it instead of treating it like a routine
+    // opportunity_created.
+    await emit(runCtx, {
+      agent: 'orchestrator',
+      event_type: 'planner_degraded',
+      message: 'PLANNER DEGRADED — falling back to 1:1 behaviour→opportunity (no dedup). Detections will be generated per behaviour with no cross-behaviour deduplication. Recovery requires starting a new session.',
+      payload: {
+        planner_status: 'degraded',
+        behaviour_count: tree.behaviours.length,
+      },
+    });
+    for (const b of tree.behaviours) {
+      const fallbackOpp: DetectionOpportunity = {
+        id: 'o1',
+        title: b.title,
+        description: b.narrative_description,
+        observable_chain: b.artefacts,
+        telemetry: b.data_sources,
+        mitre_technique_ids: b.mitre_technique_ids,
+        tactic: b.tactic,
+        primary_behaviour_id: b.id,
+        source_behaviour_ids: [b.id],
+        variants: [],
+        detectability: 'siem',
+        detectability_rationale: 'Planner unavailable; defaulting to SIEM-detectable per behaviour-level data sources.',
+        detection: {
+          id: 'd_o1',
+          name: '',
+          description: '',
+          query_language: queryLanguage,
+          query: '',
+          mitre_technique_ids: b.mitre_technique_ids,
+          unverified_mitre_ids: [],
+          tactic: b.tactic,
+          suggested_severity: 'Medium',
+          suggested_detection_type: 'Detection',
+          feasibility: 'partial',
+          feasibility_notes: '',
+          citations: [],
+          covers_behaviour_ids: [b.id],
+          qa: null,
+          qa_error: null,
+          saved_detection_id: null,
+          archived: false,
+        },
+      };
+      b.opportunities = [fallbackOpp];
+      await patchBehaviour(supabase, session.id, b.id, { opportunities: b.opportunities });
+    }
+    return;
+  }
+
+  // Group canonical opportunities into TWO maps:
+  //   byPrimary  — opportunities physically attached to this behaviour
+  //                (this behaviour is the planner's primary_behaviour_id)
+  //   bySource   — opportunities that REFERENCE this behaviour in their
+  //                source_behaviour_ids but are physically attached
+  //                elsewhere. Used to populate behaviour.merged_into_
+  //                opportunity_ids so the UI can render "merged into N
+  //                opportunities" instead of falsely showing not_detectable.
+  const byPrimary = new Map<string, DetectionOpportunity[]>();
+  const bySource  = new Map<string, Array<{ ref: string; opp: DetectionOpportunity }>>();
+  for (const cop of out.opportunities) {
+    const opp = toDetectionOpportunity(cop, queryLanguage);
+    const primary = opp.primary_behaviour_id!;
+    const list = byPrimary.get(primary) ?? [];
+    // Renumber the opportunity id within the primary behaviour's scope so
+    // composite ids (b1/o1, b1/o2, ...) are dense per behaviour. The
+    // planner-emitted ids are globally numbered which would leave gaps.
+    opp.id = `o${list.length + 1}`;
+    opp.detection.id = `d_${opp.id}`;
+    list.push(opp);
+    byPrimary.set(primary, list);
+
+    const compositeRef = `${primary}/${opp.id}`;
+    for (const srcId of opp.source_behaviour_ids ?? []) {
+      if (srcId === primary) continue; // primary attaches via byPrimary already
+      const refs = bySource.get(srcId) ?? [];
+      refs.push({ ref: compositeRef, opp });
+      bySource.set(srcId, refs);
+    }
+  }
+
+  const priority: Record<string, number> = { siem: 4, edr: 3, needs_telemetry: 2, not_detectable: 1 };
+
+  for (const b of tree.behaviours) {
+    const opps = byPrimary.get(b.id) ?? [];
+    const merged = bySource.get(b.id) ?? [];
+    b.opportunities = opps;
+    b.merged_into_opportunity_ids = merged.map(m => m.ref);
+
+    if (opps.length === 0 && merged.length === 0) {
+      // No canonical opportunity claims this behaviour as primary AND no
+      // opportunity includes it in source_behaviour_ids. Planner judged
+      // it not actionable.
+      b.detectability = 'not_detectable';
+      b.detectability_rationale = 'Opportunity planner did not produce a detection opportunity for this behaviour.';
+      b.artefacts_required = [];
+    } else if (opps.length === 0 && merged.length > 0) {
+      // Behaviour was merged into other behaviours' canonical opportunities.
+      // Roll up detectability from the strongest covering opportunity so
+      // the behaviour-level verdict reflects "this IS covered, just over
+      // there". UI uses merged_into_opportunity_ids to link to the actual
+      // opportunity slots.
+      const bestMerged = merged.reduce((acc, m) =>
+        (priority[m.opp.detectability ?? 'siem'] ?? 0) > (priority[acc.opp.detectability ?? 'siem'] ?? 0) ? m : acc,
+        merged[0]);
+      b.detectability = bestMerged.opp.detectability ?? 'siem';
+      b.detectability_rationale = `Merged into ${merged.length} canonical opportunit${merged.length === 1 ? 'y' : 'ies'} under sibling behaviour(s). Strongest verdict: ${bestMerged.opp.detectability ?? 'siem'}.`;
+      // Telemetry rollup from the canonical opportunities covering this
+      // behaviour, deduped.
+      b.artefacts_required = Array.from(new Set(merged.flatMap(m => m.opp.telemetry ?? [])));
+    } else {
+      // Behaviour has its own primary opportunities. Prefer
+      // siem > edr > needs_telemetry > not_detectable for the rollup.
+      const best = opps.reduce((acc, o) =>
+        (priority[o.detectability ?? 'siem'] ?? 0) > (priority[acc.detectability ?? 'siem'] ?? 0) ? o : acc,
+        opps[0]);
+      b.detectability = best.detectability ?? 'siem';
+      b.detectability_rationale = best.detectability_rationale ?? '';
+      b.artefacts_required = Array.from(new Set(opps.flatMap(o => o.telemetry ?? [])));
+    }
+    await patchBehaviour(supabase, session.id, b.id, {
+      opportunities: b.opportunities,
+      merged_into_opportunity_ids: b.merged_into_opportunity_ids,
+      detectability: b.detectability,
+      detectability_rationale: b.detectability_rationale,
+      artefacts_required: b.artefacts_required,
+    });
+  }
+
+  // Mark planner success at the tree level so the UI can distinguish a
+  // fully-planned result from the degraded-fallback path. Singleton phase,
+  // safe to write the whole tree.
+  tree.planner_status = 'completed';
+  await persistTree(supabase, session.id, tree);
+
+  // Bump the per-session budget for the detection + qa work this phase
+  // just queued. Sized for single-pass QA (was 3-round actor-critic).
+  // Each canonical opportunity drives:
+  //   detection generation: ~3 model calls (iter cap 4 with strict tools)
+  //   QA single critique:   1 model call (sometimes 2 on JSON validation)
+  //   revision (only on fail): ~2 model calls (iter cap 3)
+  //   tool calls: ~3 across detection turn + 0-1 in revision; QA has none
+  // Sized for ~6 model calls + ~6 tool calls per opportunity, with ~50%
+  // headroom for retries. The previous sizing (12/4) was tuned for the
+  // actor-critic loop's 5-call worst case + reaper-driven re-execution
+  // tax — both gone now.
+  const oppCount = out.opportunities.length;
+  if (oppCount > 0) {
+    const { error: bumpErr } = await supabase.rpc('tr_bump_caps', {
+      p_session_id: session.id,
+      p_model_delta: 12 * oppCount,
+      p_tool_delta: 8 * oppCount,
+    });
+    if (bumpErr) {
+      console.warn(`[handleOpportunityPlanning] tr_bump_caps failed:`, bumpErr.message);
+    }
+  }
+}
+
 async function handleDetection(
   supabase: SupabaseClient,
   runCtx: RunContext,
   toolCtx: ToolContext,
   session: { id: string; user_id: string; input_text: string; environment_snapshot: unknown },
   tree: ThreatResearchTree,
-  behaviourId: string,
+  compositeId: string,
 ): Promise<void> {
+  // PR2: detection runs per canonical opportunity. behaviour_id is the
+  // composite "{primary_behaviour_id}/{opportunity_id}" path (same convention
+  // qa already uses). The Opportunity Planner upstream produced the
+  // opportunity stubs; this phase fills in detection.{name, query, ...}.
+  const slash = compositeId.indexOf('/');
+  if (slash < 0) throw new Error(`detection job behaviour_id must be "{primary_behaviour}/{opportunity}", got ${compositeId}`);
+  const behaviourId = compositeId.slice(0, slash);
+  const opportunityId = compositeId.slice(slash + 1);
+
   const behaviour = tree.behaviours.find(b => b.id === behaviourId);
   if (!behaviour) throw new Error(`behaviour ${behaviourId} not in tree`);
   if (!tree.subject) throw new Error('detection before research');
+  const opp = behaviour.opportunities.find(o => o.id === opportunityId);
+  if (!opp) throw new Error(`opportunity ${behaviourId}/${opportunityId} not in tree (planner missed it?)`);
 
   const queryLanguage = resolveQueryLanguage(session.environment_snapshot ?? null);
 
@@ -370,13 +745,14 @@ async function handleDetection(
     console.warn('[handleDetection] actor coverage seed refresh failed:', (e as Error).message);
   }
 
-  // ── 1. Library coverage shortcut. ────────────────────────────────────────
-  // If a high-similarity match exists AND it's runnable in the user's
-  // current SIEM language, skip generation entirely. Without the language
-  // gate, a user whose env now uses KQL would short-circuit on a stale
-  // SPL detection from a prior toolchain — sage-green leaf hides a real
-  // gap because the existing detection can't run in their stack.
-  const libMatch = await checkLibraryCoverage(toolCtx, behaviour);
+  // ── 1. Library coverage shortcut, AT OPPORTUNITY LEVEL (PR2). ────────────
+  // Pre-PR2 this searched the library by behaviour TITLE+NARRATIVE — too
+  // broad, often missed actual coverage of specific detection observables.
+  // Now we search by the canonical opportunity's observable chain +
+  // telemetry, which is the actual detection target. If a high-similarity
+  // match exists AND it's runnable in the user's current SIEM language,
+  // skip generation entirely.
+  const libMatch = await checkLibraryCoverage(toolCtx, behaviour, opp);
   const matchedLanguageRunnable = (() => {
     if (!libMatch) return false;
     // Empty query_language means we couldn't determine the matched
@@ -392,20 +768,27 @@ async function handleDetection(
     await emit(runCtx, {
       agent: 'detection-engineer',
       event_type: 'library_match_found',
-      message: `${behaviour.title} → already covered by "${libMatch.name}"`,
-      payload: { behaviour_id: behaviour.id, match: libMatch },
+      message: `${opp.title} → already covered by "${libMatch.name}"`,
+      payload: { behaviour_id: behaviour.id, opportunity_id: opp.id, match: libMatch },
     });
-    behaviour.library_match = libMatch;
-    behaviour.detectability = 'siem';
-    behaviour.detectability_rationale = `Already detected by existing detection "${libMatch.name}" in the user's library.`;
-    behaviour.artefacts_required = [];
-    behaviour.opportunities = [];
-    await patchBehaviour(supabase, session.id, behaviour.id, {
-      library_match: libMatch,
-      detectability: 'siem',
-      detectability_rationale: behaviour.detectability_rationale,
-      artefacts_required: [],
-      opportunities: [],
+    // Mark this OPPORTUNITY as covered (not the whole behaviour — other
+    // opportunities under the same behaviour may still need generation).
+    // The behaviour.library_match field stays null; UI surfaces per-opp
+    // coverage by reading detection.saved_detection_id + the
+    // library_match_found event log.
+    opp.detection.saved_detection_id = libMatch.existing_detection_id;
+    opp.detection.name = libMatch.name;
+    opp.detection.query_language = libMatch.query_language as ResearchQueryLanguage;
+    opp.detection.description = `Already covered by library detection "${libMatch.name}".`;
+    opp.detection.feasibility = 'covered';
+    opp.detection.feasibility_notes = `Library match (combined_score=${libMatch.combined_score.toFixed(2)})`;
+    await patchDetection(supabase, session.id, behaviour.id, opp.id, opp.detection.id, {
+      saved_detection_id: opp.detection.saved_detection_id,
+      name: opp.detection.name,
+      query_language: opp.detection.query_language,
+      description: opp.detection.description,
+      feasibility: opp.detection.feasibility,
+      feasibility_notes: opp.detection.feasibility_notes,
     });
     return;
   }
@@ -417,9 +800,10 @@ async function handleDetection(
     await emit(runCtx, {
       agent: 'detection-engineer',
       event_type: 'library_match_found',
-      message: `${behaviour.title} → near-match "${libMatch.name}" in ${libMatch.query_language || 'unknown SIEM'} (skipped: user's SIEM is ${queryLanguage})`,
+      message: `${opp.title} → near-match "${libMatch.name}" in ${libMatch.query_language || 'unknown SIEM'} (skipped: user's SIEM is ${queryLanguage})`,
       payload: {
         behaviour_id: behaviour.id,
+        opportunity_id: opp.id,
         match: libMatch,
         skipped_reason: 'language_mismatch',
         target_language: queryLanguage,
@@ -427,133 +811,196 @@ async function handleDetection(
     });
   }
 
-  // ── 2. Initial generation. ───────────────────────────────────────────────
-  // Engineer produces a wrapper of detectability + opportunities + draft
-  // detections. No actor-critic yet — that runs per-detection in step 4
-  // so a reaped worker preserves everything emitted before kill.
-  const { wrapper, pack } = await generateInitialDetections(
-    toolCtx, runCtx, tree.subject, behaviour, queryLanguage,
-    actorCoverageSeed,
+  // Resolve the full set of source behaviours referenced by this
+  // canonical opportunity. Pre-fix the orchestrator passed only the
+  // primary behaviour to the engineer, which lost the deep-dive context
+  // from the secondaries — making the resulting query shallower than the
+  // merged-from-multiple-behaviours signal warranted.
+  const sourceIds = new Set(opp.source_behaviour_ids ?? [behaviour.id]);
+  const sourceBehaviours = tree.behaviours.filter(b => sourceIds.has(b.id));
+  if (sourceBehaviours.length === 0) sourceBehaviours.push(behaviour);
+  // Visibility: warn when the planner output references behaviour ids that
+  // aren't in the tree. Shouldn't happen (planner validates against tree
+  // ids), but a real corruption would be silent otherwise.
+  if (sourceBehaviours.length < sourceIds.size) {
+    const resolved = new Set(sourceBehaviours.map(b => b.id));
+    const missing = Array.from(sourceIds).filter(id => !resolved.has(id));
+    await emit(runCtx, {
+      agent: 'orchestrator',
+      event_type: 'source_behaviour_drop',
+      message: `planner referenced ${missing.length} behaviour id(s) not in tree for opportunity ${behaviourId}/${opportunityId}`,
+      payload: {
+        behaviour_id: behaviourId,
+        opportunity_id: opportunityId,
+        expected: Array.from(sourceIds),
+        resolved: Array.from(resolved),
+        missing,
+      },
+    });
+  }
+
+  // ── 2. Generate the detection for THIS canonical opportunity. ───────────
+  // The Detection Engineer now operates per opportunity (not per behaviour).
+  // It receives the canonical opportunity shape (observable_chain, telemetry,
+  // mitre) and the FULL set of source behaviours' deep_dives — primary plus
+  // any secondaries the planner merged into this opportunity. Sibling
+  // deep-dive context is crucial when the planner merged 3 AF_ALG variants
+  // into one opportunity: the engineer needs all three to write a query
+  // that catches the variant surface, not just the primary's wording.
+  const generated = await generateDetectionForOpportunity(
+    toolCtx, runCtx, tree.subject, behaviour, sourceBehaviours, opp, queryLanguage, actorCoverageSeed,
   );
-  if (!wrapper) {
+  if (!generated) {
     // Engineer agent loop failed (budget exhausted, validation cap hit,
-    // 429 storm, etc). This is NOT a verdict that the behaviour is
-    // genuinely undetectable — it's a recoverable failure. Surface it as
-    // `engineer_failed` so the UI shows a "retry available" state instead
-    // of the misleading "not detectable" label.
-    behaviour.library_match = null;
-    behaviour.detectability = 'engineer_failed';
-    behaviour.detectability_rationale = 'Detection Engineer agent loop did not produce a valid output (budget, timeout, or validation failure). Retry recommended — this is not a model verdict that the behaviour is undetectable.';
-    behaviour.artefacts_required = [];
-    behaviour.opportunities = [];
-    await patchBehaviour(supabase, session.id, behaviour.id, {
-      library_match: null,
-      detectability: 'engineer_failed',
-      detectability_rationale: behaviour.detectability_rationale,
-      artefacts_required: [],
-      opportunities: [],
+    // 429 storm, etc). Mark THIS opportunity's detection as engineer-failed
+    // via qa_error ONLY. Pre-fix this code prefixed "[engineer failed]"
+    // into detection.name, which then leaked into list/canvas views
+    // as if it were content. The UI now reads qa_error and renders the
+    // failure state via styling — name stays as the opportunity title
+    // so users see what the detection WOULD have been, with a clear
+    // error badge alongside it.
+    opp.detection.name = opp.title;
+    opp.detection.description = '';
+    opp.detection.query = '';
+    opp.detection.qa_error = 'engineer_failed';
+    await patchDetection(supabase, session.id, behaviour.id, opp.id, opp.detection.id, {
+      name: opp.detection.name,
+      description: opp.detection.description,
+      query: opp.detection.query,
+      qa_error: opp.detection.qa_error,
     });
     return;
   }
 
-  // Post-step: validate every emitted T-id on each detection. Hallucinated
-  // ids surface via unverified_mitre_ids on the GeneratedDetection.
-  const detIds = wrapper.opportunities.flatMap(o => o.detection.mitre_technique_ids);
-  if (detIds.length > 0) {
-    const unverified = new Set(await findUnverifiedMitreIds(supabase, detIds));
-    for (const opp of wrapper.opportunities) {
-      opp.detection.unverified_mitre_ids = opp.detection.mitre_technique_ids.filter(id => unverified.has(id));
+  // Post-step: validate emitted T-ids against the canonical mitre_techniques
+  // table. Hallucinated ids surface via unverified_mitre_ids on the
+  // GeneratedDetection so the UI can flag.
+  if (generated.mitre_technique_ids.length > 0) {
+    const unverified = new Set(await findUnverifiedMitreIds(supabase, generated.mitre_technique_ids));
+    generated.unverified_mitre_ids = generated.mitre_technique_ids.filter(id => unverified.has(id));
+  }
+
+  // Post-step: deterministic schema validation for Defender XDR KQL queries.
+  // Extracts the leading table + every column reference, checks them against
+  // the imported Defender XDR schema. Unknowns get prepended to
+  // feasibility_notes so the user (and downstream QA) sees them without
+  // needing a model judgment. Catches the most common KQL hallucination
+  // (wrong column name) mechanically — no LLM call, no extra latency
+  // beyond one RPC roundtrip.
+  //
+  // Only fires when query_language is KQL AND there's actually a query body.
+  // Non-KQL languages skip this entirely; we'll add per-language schemas
+  // later. Library-match short-circuits (saved_detection_id set) skip too —
+  // the matched detection's query isn't ours to validate.
+  if (
+    generated.query_language === 'KQL' &&
+    generated.query &&
+    !generated.saved_detection_id
+  ) {
+    const findings = await validateKqlAgainstDefenderSchema(supabase, generated.query);
+    await emit(runCtx, {
+      agent: 'detection-engineer',
+      event_type: 'schema_validation_completed',
+      message: findings.unknown_columns.length === 0 && findings.table_known
+        ? `schema clean (${findings.checked_columns} refs checked on ${findings.table})`
+        : findings.table_known
+          ? `unknown columns on ${findings.table}: ${findings.unknown_columns.join(', ')}`
+          : `unknown table: ${findings.table ?? '(none)'}`,
+      payload: {
+        opportunity_id: opp.id,
+        behaviour_id: behaviour.id,
+        detection_id: generated.id,
+        findings,
+      },
+    });
+    if (!findings.table_known && findings.table) {
+      const note = `[schema] table '${findings.table}' not found in Defender XDR schema — likely a non-KQL table name or a typo.`;
+      generated.feasibility_notes = generated.feasibility_notes
+        ? `${note}\n${generated.feasibility_notes}`
+        : note;
+    } else if (findings.unknown_columns.length > 0) {
+      const note = `[schema] ${findings.unknown_columns.length} unknown column(s) on ${findings.table}: ${findings.unknown_columns.join(', ')}. Verify the column exists; common mistake: Computer vs DeviceName, ProcessCmdLine vs ProcessCommandLine.`;
+      generated.feasibility_notes = generated.feasibility_notes
+        ? `${note}\n${generated.feasibility_notes}`
+        : note;
     }
   }
 
-  // ── 3. Persist the wrapper NOW. ─────────────────────────────────────────
-  // Opportunities land in the tree with qa=null on each detection. The UI
-  // can render them as "QA pending". If this worker dies before any
-  // actor-critic completes, this state survives.
-  behaviour.library_match = null;
-  behaviour.detectability = wrapper.detectability;
-  behaviour.detectability_rationale = wrapper.detectability_rationale;
-  behaviour.artefacts_required = wrapper.artefacts_required;
-  behaviour.opportunities = wrapper.opportunities;
-  await patchBehaviour(supabase, session.id, behaviour.id, {
-    library_match: null,
-    detectability: wrapper.detectability,
-    detectability_rationale: wrapper.detectability_rationale,
-    artefacts_required: wrapper.artefacts_required,
-    opportunities: wrapper.opportunities,
+  // ── 3. Persist the detection. ───────────────────────────────────────────
+  opp.detection = generated;
+  await patchDetection(supabase, session.id, behaviour.id, opp.id, opp.detection.id, {
+    name: generated.name,
+    description: generated.description,
+    query: generated.query,
+    query_language: generated.query_language,
+    mitre_technique_ids: generated.mitre_technique_ids,
+    unverified_mitre_ids: generated.unverified_mitre_ids,
+    tactic: generated.tactic,
+    suggested_severity: generated.suggested_severity,
+    suggested_detection_type: generated.suggested_detection_type,
+    feasibility: generated.feasibility,
+    feasibility_notes: generated.feasibility_notes,
+    citations: generated.citations,
+    covers_behaviour_ids: generated.covers_behaviour_ids,
+    qa: null,
+    qa_error: null,
   });
 
-  // ── 4. Enqueue ONE qa job per opportunity. ──────────────────────────────
-  // Inline QA inside handleDetection is unreliable: even with bounded
-  // parallelism, the worker can die mid-loop (platform lifetime cap,
-  // Anthropic 429 cascade) and lose ALL in-flight QA work, leaving every
-  // opportunity with qa=null in the tree.
-  //
-  // Splitting QA into its own queue phase makes each pass a small (~10-30s)
-  // worker invocation that fits comfortably under any worker lifetime,
-  // gets reaper-protected like any other job, and chains via the existing
-  // dispatch cascade. The handleDetection worker exits cleanly as soon as
-  // opportunities are generated, freeing the worker for the next leaf.
-  //
-  // Each qa job's behaviour_id is the composite "{behaviourId}/{oppId}"
-  // — handleQa parses it and runs critiqueDetection on that single opp.
-  if (wrapper.opportunities.length > 0) {
-    // Reset any existing qa rows for this behaviour FIRST. Without this,
-    // a re-run of handleDetection (reaper reset, retry_leaf, etc.)
-    // collides with prior qa rows in 'completed'/'failed' state and the
-    // upsert below silently skips them (ignoreDuplicates) — the new
-    // opportunities then never get QA. The match is path-prefixed to
-    // catch every composite id under this behaviour, including any
-    // orphans whose opportunity index changed across runs.
-    const { error: qaResetErr } = await supabase
-      .from('threat_research_jobs')
-      .update({
-        status: 'pending',
-        attempt_count: 0,
-        started_at: null,
-        completed_at: null,
-        failure_reason: null,
-      })
-      .eq('session_id', session.id)
-      .eq('phase', 'qa')
-      .like('behaviour_id', `${behaviour.id}/%`);
-    if (qaResetErr) {
-      console.warn(`[handleDetection] qa reset for ${behaviour.id} failed:`, qaResetErr.message);
-    }
+  // ── 4. Enqueue ONE qa job for this opportunity. ─────────────────────────
+  // PR2: detection is now per-opportunity, so each detection job produces
+  // exactly one qa job — no fan-out from detection to qa.
+  const qaCompositeId = `${behaviour.id}/${opp.id}`;
+  // Reset any prior qa row with this composite id (retry_leaf path).
+  const { error: qaResetErr } = await supabase
+    .from('threat_research_jobs')
+    .update({
+      status: 'pending',
+      attempt_count: 0,
+      started_at: null,
+      completed_at: null,
+      failure_reason: null,
+    })
+    .eq('session_id', session.id)
+    .eq('phase', 'qa')
+    .eq('behaviour_id', qaCompositeId);
+  if (qaResetErr) {
+    console.warn(`[handleDetection] qa reset for ${qaCompositeId} failed:`, qaResetErr.message);
+  }
 
-    const qaRows = wrapper.opportunities.map(o => ({
-      session_id: session.id,
-      phase: 'qa' as const,
-      behaviour_id: `${behaviour.id}/${o.id}`,
-    }));
-    const { error: qaInsertErr } = await supabase
-      .from('threat_research_jobs')
-      .upsert(qaRows, { onConflict: 'session_id,phase,behaviour_id', ignoreDuplicates: true });
-    if (qaInsertErr) {
-      // Non-fatal: detection content is already persisted at step 3.
-      // The user can manually trigger complete_qa to recover later.
-      console.warn(`[handleDetection] qa job enqueue for ${behaviour.id} failed:`, qaInsertErr.message);
-    } else {
-      // Kick the dispatcher so the first qa job starts immediately
-      // rather than waiting for the next cron tick.
-      await supabase.rpc('threat_research_dispatch_next_in_phase', {
-        p_session_id: session.id,
-        p_phase: 'qa',
-      }).then(() => {/* fire-and-forget */}, () => {/* swallow */});
-    }
+  const { error: qaInsertErr } = await supabase
+    .from('threat_research_jobs')
+    .upsert(
+      [{ session_id: session.id, phase: 'qa' as const, behaviour_id: qaCompositeId }],
+      { onConflict: 'session_id,phase,behaviour_id', ignoreDuplicates: true },
+    );
+  if (qaInsertErr) {
+    // Non-fatal: detection content is already persisted at step 3. The
+    // user can manually trigger complete_qa to recover later.
+    console.warn(`[handleDetection] qa job enqueue for ${qaCompositeId} failed:`, qaInsertErr.message);
+  } else {
+    // Kick the dispatcher so the qa job starts immediately rather than
+    // waiting for the next cron tick.
+    await supabase.rpc('threat_research_dispatch_next_in_phase', {
+      p_session_id: session.id,
+      p_phase: 'qa',
+    }).then(() => {/* fire-and-forget */}, () => {/* swallow */});
   }
 }
 
-/** QA pass with full actor-critic loop on a single opportunity. Each qa
- *  job runs critiqueDetection + up to 2 engineer revision rounds, then
- *  patches the FINAL revised detection (with verdict, concerns, iteration
- *  history) back to the tree. One job per opportunity = bounded wall time
- *  (5-call ceiling × ~30-60s/call ≈ 2-5 min), fits the 4-min reaper window.
+/** Single-pass QA on one opportunity. Each qa job runs critiqueDetection
+ *  ONCE, plus one engineer revision attempt if verdict='fail' (no
+ *  re-critique on the revision). Patches the final detection (with
+ *  verdict, concerns, history of length 1) back to the tree.
  *
- *  This was previously a single-shot critique. The actor-critic loop was
- *  built but never wired in production — every detection shipped with its
- *  first-draft verdict, including verdict:fail with no follow-through.
- *  Tools used (engineer + qa kits, no web_search). */
+ *  Wall-clock per job: ~1-3 min (1 QA call + 0-1 engineer revision call,
+ *  each ~30-70s). Fits inside one edge-function invocation cleanly — no
+ *  worker death mid-loop, no state lost on restart.
+ *
+ *  Previously this ran a 3-round actor-critic loop (up to 5 LLM calls
+ *  per opp). The loop drove most of the architectural pain — workers
+ *  dying mid-iteration, state lost on restart, tokens burned re-doing
+ *  earlier rounds. Removed in favour of "trust Opus + critique once +
+ *  one fix on failure". Tools used: engineer kit only; qa has no tools. */
 async function handleQa(
   supabase: SupabaseClient,
   runCtx: RunContext,
@@ -669,6 +1116,12 @@ async function handleQa(
 
   // Patch the FULL revised detection back. Revision can change name, query,
   // mitre_technique_ids, severity, etc. — not just qa.
+  //
+  // qa_error is patched alongside qa: when the pipeline failed mid-loop,
+  // refined.qa may be null AND refined.qa_error is set. When the loop
+  // completed normally, qa is set and qa_error is null. UIs use the two
+  // together to distinguish "QA judged this fails" (qa.verdict='fail',
+  // qa_error=null) from "QA never reached a verdict" (qa=null, qa_error set).
   await patchDetection(supabase, session.id, behaviour.id, opp.id, opp.detection.id, {
     name: refined.name,
     description: refined.description,
@@ -684,6 +1137,7 @@ async function handleQa(
     citations: refined.citations,
     covers_behaviour_ids: refined.covers_behaviour_ids,
     qa: refined.qa,
+    qa_error: refined.qa_error,
   });
 }
 
@@ -719,23 +1173,71 @@ async function handleFinalise(
   // worker via tr_consume_budget). We just read them back for the event.
   const { data: row } = await supabase
     .from('threat_research_sessions')
-    .select('created_at, tool_calls_used, model_calls_used, total_tokens')
+    .select('created_at, tool_calls_used, model_calls_used, total_tokens, model_call_cap, tool_call_cap')
     .eq('id', session.id)
     .single();
   const totalMs = row?.created_at ? Date.now() - new Date(row.created_at).getTime() : 0;
 
-  // Cross-behaviour dedup. Detection-engineer runs per behaviour with no view
-  // of siblings, so two distinct behaviours can produce detections with the
-  // same name+query. Flag duplicates here so the UI can group them.
+  await annotateFailedQaJobs(supabase, session.id, tree);
+
+  // Cross-opportunity dedup (semantic fingerprint, PR3-lite). Catches
+  // duplicates the Opportunity Planner missed.
   const dupCount = flagCrossBehaviourDuplicates(tree);
   if (dupCount > 0) {
-    console.log(`[finalise] flagged ${dupCount} cross-behaviour duplicate detection(s)`);
+    console.log(`[finalise] flagged ${dupCount} cross-opportunity duplicate detection(s)`);
   }
+
+  // Build a rich session summary for the completion event. The Activity
+  // Console renders this as the final tile; the same numbers are what an
+  // analyst would look at first in a post-mortem ("did the planner cluster
+  // it? how many opportunities? how many QA errors?"). Pre-fix the payload
+  // only held three counts (tool/model/tokens) which forced clicking into
+  // each leaf to understand the run.
+  let oppCount = 0;
+  let detectionWithQuery = 0;
+  let libraryMatchCount = 0;
+  let qaPass = 0;
+  let qaPassWithConcerns = 0;
+  let qaFail = 0;
+  let qaErrorCount = 0;
+  let engineerFailedCount = 0;
+  let duplicateFlagged = 0;
+  let mergedBehaviourCount = 0;
+  for (const b of tree.behaviours) {
+    if ((b.merged_into_opportunity_ids?.length ?? 0) > 0) mergedBehaviourCount++;
+    for (const opp of b.opportunities) {
+      oppCount++;
+      const det = opp.detection;
+      if (det.query && det.query.length > 0) detectionWithQuery++;
+      if (det.saved_detection_id) libraryMatchCount++;
+      if (det.qa_error === 'engineer_failed') engineerFailedCount++;
+      else if (det.qa_error) qaErrorCount++;
+      if (det.qa?.verdict === 'pass') qaPass++;
+      else if (det.qa?.verdict === 'pass_with_concerns') qaPassWithConcerns++;
+      else if (det.qa?.verdict === 'fail') qaFail++;
+      if (det.qa?.duplicate_of) duplicateFlagged++;
+    }
+  }
+
+  // Decide final session status. A session is only "completed" if at least
+  // ONE detection actually has a usable artefact: either an LLM-generated
+  // query that passed (or pass_with_concerns) QA, or a library_match that
+  // covers the opportunity. Otherwise the session ran the pipeline but
+  // produced no usable output — that's a failure, not a success, and
+  // downstream consumers querying status='completed' to mean "you have
+  // detections" need to be told the truth.
+  const usableDetections = libraryMatchCount + qaPass + qaPassWithConcerns;
+  const allDetectionsFailed = oppCount > 0 && usableDetections === 0;
+  const finalStatus: 'completed' | 'failed' = allDetectionsFailed ? 'failed' : 'completed';
+  const failureReason = allDetectionsFailed
+    ? `pipeline ran but produced no usable detections: ${engineerFailedCount} engineer_failed, ${qaErrorCount} qa_error, ${qaFail} qa_fail across ${oppCount} opportunit${oppCount === 1 ? 'y' : 'ies'}. Use the resume_session action to retry failed detection jobs after fixing the underlying cause.`
+    : null;
 
   await supabase
     .from('threat_research_sessions')
     .update({
-      status: 'completed',
+      status: finalStatus,
+      failure_reason: failureReason,
       completed_at: new Date().toISOString(),
       duration_ms: totalMs,
       coverage_impact: 0,
@@ -748,14 +1250,31 @@ async function handleFinalise(
 
   await emit(runCtx, {
     agent: 'orchestrator',
-    event_type: 'session_completed',
-    message: 'all phases completed',
+    event_type: finalStatus === 'failed' ? 'session_failed' : 'session_completed',
+    message: `${tree.behaviours.length} behaviours → ${oppCount} opportunities → ${detectionWithQuery} detections (${libraryMatchCount} library / ${qaPass} pass / ${qaPassWithConcerns} pass+concerns / ${qaFail} fail / ${qaErrorCount} qa_error / ${engineerFailedCount} engineer_failed)${allDetectionsFailed ? ' — SESSION FAILED: no usable detections' : ''}`,
     duration_ms: totalMs,
     payload: {
-      tool_calls_used: row?.tool_calls_used ?? 0,
+      // budget
+      tool_calls_used:  row?.tool_calls_used  ?? 0,
+      tool_call_cap:    row?.tool_call_cap    ?? null,
       model_calls_used: row?.model_calls_used ?? 0,
-      total_tokens: row?.total_tokens ?? 0,
-      behaviours: tree.behaviours.length,
+      model_call_cap:   row?.model_call_cap   ?? null,
+      total_tokens:     row?.total_tokens     ?? 0,
+      // tree shape
+      classification:   tree.subject?.classification ?? null,
+      planner_status:   tree.planner_status ?? null,
+      behaviours:       tree.behaviours.length,
+      opportunities:    oppCount,
+      // detection state breakdown
+      detections_with_query: detectionWithQuery,
+      library_matches:       libraryMatchCount,
+      qa_pass:               qaPass,
+      qa_pass_with_concerns: qaPassWithConcerns,
+      qa_fail:               qaFail,
+      qa_error_count:        qaErrorCount,
+      engineer_failed_count: engineerFailedCount,
+      merged_behaviours:     mergedBehaviourCount,
+      duplicate_flagged:     duplicateFlagged,
     },
   });
 }
@@ -779,50 +1298,114 @@ async function persistTree(
     .eq('id', sessionId);
 }
 
-/** Cross-behaviour duplicate detection finder. Walks every detection across
- *  every behaviour, normalises name + query, and flags second-and-later
- *  occurrences as duplicates by setting qa.duplicate_of to the canonical id.
- *  Returns the number of duplicates flagged.
+/** Cross-opportunity duplicate detection finder. Runs at finalise time after
+ *  all detection workers have committed their per-leaf patches. Catches
+ *  anything the Opportunity Planner missed.
  *
- *  Why here and not in QA agent: QA sees one detection at a time and can't
- *  spot cross-behaviour collisions. This pass runs once at finalise after all
- *  detection workers have committed their per-leaf patches.
+ *  Pre-PR2 used exact-string name+query match. PR3-lite upgrades to a
+ *  SEMANTIC FINGERPRINT that combines:
+ *    1. normalized MITRE technique set (sorted, deduped) — catches "same
+ *       T1003.001 different wording" duplicates
+ *    2. canonical telemetry source set — catches "same Sysmon EID 10
+ *       different field projections" duplicates
+ *    3. extracted query tokens: table name, key field references,
+ *       operator class — catches "same DeviceProcessEvents | where
+ *       FileName contains 'mimikatz'" semantic duplicates that differ
+ *       in formatting / aliasing
  *
- *  Mutates `tree` in place. */
+ *  Two detections matching on (2 of 3) buckets are flagged as duplicates.
+ *  The first occurrence wins canonicity; later ones get qa.duplicate_of set.
+ *
+ *  Mutates `tree` in place. Returns the number of duplicates flagged. */
 function flagCrossBehaviourDuplicates(tree: ThreatResearchTree): number {
-  const seen = new Map<string, string>(); // normalized key → canonical detection id
+  type Fingerprint = {
+    mitre: string;       // sorted, joined technique ids
+    telemetry: string;   // sorted, normalized data source set
+    queryTokens: string; // sorted, normalized query token set
+  };
+  const seen = new Array<{ fp: Fingerprint; detectionId: string }>();
   let flagged = 0;
+
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+  const fingerprintQuery = (q: string): string => {
+    if (!q) return '';
+    // Strip inline comments and string literals — they're variable across
+    // detections that are otherwise semantically identical (e.g. different
+    // case styles, paraphrased rationales). Keep the structural tokens.
+    const stripped = q
+      .replace(/\/\/.*?$/gm, '')           // // line comments
+      .replace(/\/\*[\s\S]*?\*\//g, '')    // /* block comments */
+      .replace(/"[^"\n]*"/g, '"S"')        // double-quoted strings → placeholder
+      .replace(/'[^'\n]*'/g, "'S'")        // single-quoted strings → placeholder
+      .toLowerCase();
+    // Extract identifier-like tokens (table names, fields, operators).
+    // Sort+dedupe so reordering doesn't change the fingerprint.
+    const tokens = stripped.match(/[a-z_][a-z0-9_.]{2,}/g) ?? [];
+    return Array.from(new Set(tokens)).sort().join('|');
+  };
+  const fingerprintTelemetry = (det: GeneratedDetection, opp: DetectionOpportunity): string => {
+    const src = new Set<string>();
+    for (const t of opp.telemetry ?? []) src.add(norm(t));
+    // Pull common data-source hints from the query body too (e.g. "Sysmon
+    // EID 1", "DeviceProcessEvents", "process_creation").
+    const hints = (det.query || '').match(/\b(sysmon|deviceprocessevents|deviceloginevents|securityalert|signinlogs|networktraffic|auditd|powershell|wineventlog)[a-z0-9_.]*/gi) ?? [];
+    for (const h of hints) src.add(norm(h));
+    return Array.from(src).sort().join('|');
+  };
+  const fingerprintMitre = (det: GeneratedDetection): string => {
+    return Array.from(new Set(det.mitre_technique_ids.map(s => s.toUpperCase().trim()))).sort().join(',');
+  };
+
   for (const b of tree.behaviours) {
     for (const opp of b.opportunities) {
       const det = opp.detection;
       if (det.archived) continue;
-      // Key off normalized name + query — two detections with the same name
-      // but different queries are not actually duplicates, and vice versa.
-      const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
-      const key = `${norm(det.name)}::${norm(det.query)}`;
-      if (!key || key === '::') continue;
-      const existingId = seen.get(key);
-      if (!existingId) {
-        seen.set(key, det.id);
+      if (!det.query) continue; // empty detection — skip (engineer_failed / library_match path)
+
+      const fp: Fingerprint = {
+        mitre: fingerprintMitre(det),
+        telemetry: fingerprintTelemetry(det, opp),
+        queryTokens: fingerprintQuery(det.query),
+      };
+      // Don't dedup against a fingerprint that's entirely empty.
+      if (!fp.mitre && !fp.telemetry && !fp.queryTokens) continue;
+
+      // Match against any prior fingerprint with at least 2 of 3 buckets
+      // identical. 2-of-3 catches semantic duplicates while tolerating
+      // legitimate variation (e.g. one might cite different MITRE if the
+      // engineer dropped a sub-technique tag).
+      const match = seen.find(({ fp: other }) => {
+        let hits = 0;
+        if (fp.mitre && fp.mitre === other.mitre) hits++;
+        if (fp.telemetry && fp.telemetry === other.telemetry) hits++;
+        if (fp.queryTokens && fp.queryTokens === other.queryTokens) hits++;
+        return hits >= 2;
+      });
+
+      if (!match) {
+        seen.push({ fp, detectionId: det.id });
         continue;
       }
-      // Found a duplicate. Record on qa.duplicate_of (creating qa if missing —
-      // the actor-critic loop normally fills it, but be defensive).
+
+      // Flag the duplicate. Preserve any existing qa verdict — we're
+      // adding a concern, not overwriting the model's judgement.
+      const dupNote = `Semantic duplicate of detection ${match.detectionId} (fingerprint match across MITRE/telemetry/query tokens).`;
       if (det.qa) {
-        det.qa.duplicate_of = existingId;
-        if (!det.qa.concerns.some(c => c.startsWith('Duplicate of'))) {
-          det.qa.concerns = [
-            ...det.qa.concerns,
-            `Duplicate of detection ${existingId} (same name + query, different behaviour).`,
-          ];
+        det.qa.duplicate_of = match.detectionId;
+        if (!det.qa.concerns.some(c => c.startsWith('Semantic duplicate'))) {
+          det.qa.concerns = [...det.qa.concerns, dupNote];
         }
       } else {
+        // No qa block (the detection may have shipped with qa_error or
+        // never reached QA). Don't fabricate a verdict — just attach
+        // duplicate metadata via a sentinel block that the UI can
+        // surface separately from a real verdict.
         det.qa = {
           verdict: 'pass_with_concerns',
           coverage_quality: 'acceptable',
-          concerns: [`Duplicate of detection ${existingId} (same name + query, different behaviour).`],
+          concerns: [dupNote],
           suggested_changes: [],
-          duplicate_of: existingId,
+          duplicate_of: match.detectionId,
           iteration_history: [],
           iteration_count: 0,
         };
@@ -858,8 +1441,8 @@ async function patchBehaviour(
 }
 
 /** Atomic merge of a JSONB patch into one detection (deeper path). Used by
- *  handleDetection to land each refined detection in the tree as soon as
- *  its actor-critic finishes — so a reaped worker preserves everything
+ *  handleDetection / handleQa to land each detection's state in the tree
+ *  as soon as it's finalised — so a reaped worker preserves everything
  *  completed before kill. Verifies the detection id matches before merging. */
 async function patchDetection(
   supabase: SupabaseClient,
@@ -881,7 +1464,42 @@ async function patchDetection(
     throw new Error(`patchDetection ${detectionId}: ${error.message}`);
   }
   if (data === false) {
-    console.warn(`[worker] patchDetection: detection ${detectionId} not found at expected path in session ${sessionId}`);
+    throw new Error(`patchDetection: detection ${detectionId} not found at expected path ${behaviourId}/${opportunityId} in session ${sessionId}`);
+  }
+}
+
+/** Before finalise, make queue-level QA failures visible in the tree. A job
+ *  can fail via the SQL reaper without running handleQa's normal
+ *  qa_error patch path. If we leave those leaves as qa=null/qa_error=null,
+ *  the UI reads as "still pending" even though the queue is terminal. */
+async function annotateFailedQaJobs(
+  supabase: SupabaseClient,
+  sessionId: string,
+  tree: ThreatResearchTree,
+): Promise<void> {
+  const { data: failedJobs, error } = await supabase
+    .from('threat_research_jobs')
+    .select('behaviour_id, failure_reason')
+    .eq('session_id', sessionId)
+    .eq('phase', 'qa')
+    .eq('status', 'failed');
+  if (error) {
+    console.warn('[finalise] failed to load failed QA jobs:', error.message);
+    return;
+  }
+
+  for (const job of failedJobs ?? []) {
+    const composite = String(job.behaviour_id ?? '');
+    const slash = composite.indexOf('/');
+    if (slash < 0) continue;
+    const behaviourId = composite.slice(0, slash);
+    const opportunityId = composite.slice(slash + 1);
+    const behaviour = tree.behaviours.find(b => b.id === behaviourId);
+    const opp = behaviour?.opportunities.find(o => o.id === opportunityId);
+    if (!opp || opp.detection.qa || opp.detection.qa_error) continue;
+    opp.detection.qa_error = job.failure_reason
+      ? `qa_job_failed: ${job.failure_reason}`
+      : 'qa_job_failed';
   }
 }
 
@@ -917,6 +1535,65 @@ async function failJob(supabase: SupabaseClient, job: JobRow, reason: string): P
       failure_reason: reason.slice(0, 1000),
     })
     .eq('id', job.id);
+}
+
+/** Gated finalise promotion. Fires only when BOTH detection AND qa phases
+ *  are fully terminal — the generic promote_phase(...,'finalise') was
+ *  unsafe because it only checks the source phase, and qa jobs are enqueued
+ *  by detection workers (so the last detection completes while qa is still
+ *  pending). Idempotent via session-scoped advisory lock + existing-row check
+ *  inside the SQL function.
+ *
+ *  Emits a finalise_gate_checked event every call so we can see, in the
+ *  activity console, why finalise is or isn't firing. Pre-fix the RPC
+ *  returned NULL on blocked and the caller had zero visibility into the
+ *  decision. */
+async function promoteFinaliseIfReady(
+  supabase: SupabaseClient,
+  runCtx: RunContext,
+  sessionId: string,
+): Promise<void> {
+  const { data, error } = await supabase.rpc('tr_promote_finalise_if_ready', {
+    p_session_id: sessionId,
+  });
+  if (error) {
+    console.error(`[worker] promote_finalise_if_ready failed:`, error.message);
+    // Don't throw — the dispatcher cron will retry the gate on the next
+    // tick. Worst case the session sits without finalise for ~60s.
+    await emit(runCtx, {
+      agent: 'orchestrator',
+      event_type: 'finalise_gate_checked',
+      message: `gate RPC error: ${error.message.slice(0, 200)}`,
+      payload: { rpc_error: error.message.slice(0, 600) },
+    });
+    return;
+  }
+  // The RPC returns a jsonb diagnostic. data shape:
+  //   { fired: boolean, reason: 'blocked' | 'already_exists' | 'gate_cleared',
+  //     detection_pending?: number, detection_total: number,
+  //     qa_pending?: number, qa_total: number, finalise_job_id?: uuid }
+  const result = (data ?? {}) as {
+    fired?: boolean;
+    reason?: string;
+    detection_pending?: number;
+    detection_total?: number;
+    qa_pending?: number;
+    qa_total?: number;
+    finalise_job_id?: string;
+  };
+  const fired = result.fired === true;
+  const reason = result.reason ?? 'unknown';
+  const msg = fired
+    ? `finalise gate cleared (detection=${result.detection_total}/0 qa=${result.qa_total}/0)`
+    : reason === 'already_exists'
+    ? `finalise already queued by sibling worker (job ${result.finalise_job_id?.slice(0, 8) ?? '?'})`
+    : `finalise blocked: detection=${result.detection_total ?? 0}/${result.detection_pending ?? 0} pending, qa=${result.qa_total ?? 0}/${result.qa_pending ?? 0} pending`;
+  await emit(runCtx, {
+    agent: 'orchestrator',
+    event_type: 'finalise_gate_checked',
+    message: msg,
+    payload: result,
+  });
 }
 
 /** Atomic fan-in promotion via SQL helper. The SQL function takes a session

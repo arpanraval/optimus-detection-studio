@@ -78,6 +78,17 @@ export async function listSessions(opts?: {
   return (data ?? []) as ThreatResearchSession[];
 }
 
+/** Permanently delete a research session and its events. RLS restricts this
+ *  to owners; on a forbidden response Supabase returns a typed error which
+ *  the caller's toast surfaces verbatim. */
+export async function deleteSession(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('threat_research_sessions')
+    .delete()
+    .eq('id', id);
+  if (error) throw error;
+}
+
 export async function getSession(id: string): Promise<ThreatResearchSession | null> {
   const { data, error } = await supabase
     .from('threat_research_sessions')
@@ -137,22 +148,32 @@ export async function saveDetectionFromLeaf(
   // 2. Mark this leaf saved via the atomic patch RPC. NEVER full-row update —
   //    background workers may be writing other behaviours concurrently and a
   //    full-row write here would clobber their progress.
-  const { error: patchErr } = await supabase.rpc('tr_patch_detection', {
+  //
+  //    CRITICAL: tr_patch_detection returns a boolean (false when the node
+  //    isn't found at the expected behaviour/opportunity/detection path).
+  //    PostgREST surfaces this as data === false with error === null — i.e.
+  //    HTTP 200, no error object. We MUST check the data payload and treat
+  //    `false` as a partial failure, otherwise the UI shows a green "Saved"
+  //    toast while the leaf badge stays stale, causing duplicate saves on
+  //    refresh.
+  const { data: patched, error: patchErr } = await supabase.rpc('tr_patch_detection', {
     p_session_id: session.id,
     p_behaviour_id: behaviourId,
     p_opportunity_id: opportunityId,
     p_detection_id: detection.id,
     p_patch: { saved_detection_id: inserted.id },
   });
-  if (patchErr) {
+  if (patchErr || patched === false) {
     // The detection IS saved in the library — don't throw and lose that.
     // But surface the partial failure so the caller can show a yellow toast
     // ("Saved, but leaf badge will update next refresh") instead of green.
-    console.warn('[threatResearchService] tr_patch_detection failed:', patchErr.message);
+    const reason = patchErr?.message
+      ?? 'tr_patch_detection returned false (leaf not found at expected path; tree may have drifted)';
+    console.warn('[threatResearchService] tr_patch_detection failed:', reason);
     return {
       detection_id: inserted.id as string,
       tree_patched: false,
-      tree_patch_error: patchErr.message,
+      tree_patch_error: reason,
     };
   }
 
@@ -170,7 +191,7 @@ export async function archiveLeaf(
   opportunityId: string,
   detectionId: string,
 ): Promise<void> {
-  const { error } = await supabase.rpc('tr_patch_detection', {
+  const { data, error } = await supabase.rpc('tr_patch_detection', {
     p_session_id: session.id,
     p_behaviour_id: behaviourId,
     p_opportunity_id: opportunityId,
@@ -178,6 +199,12 @@ export async function archiveLeaf(
     p_patch: { archived: true },
   });
   if (error) throw error;
+  // PostgREST returns HTTP 200 with data===false when the RPC's node-lookup
+  // misses (path mismatch). Without this check the UI would think the leaf
+  // was archived while the tree state stays exactly as it was.
+  if (data === false) {
+    throw new Error('archiveLeaf: detection node not found at expected path (tree drift)');
+  }
 }
 
 /**
@@ -189,7 +216,7 @@ export async function unarchiveLeaf(
   opportunityId: string,
   detectionId: string,
 ): Promise<void> {
-  const { error } = await supabase.rpc('tr_patch_detection', {
+  const { data, error } = await supabase.rpc('tr_patch_detection', {
     p_session_id: session.id,
     p_behaviour_id: behaviourId,
     p_opportunity_id: opportunityId,
@@ -197,5 +224,8 @@ export async function unarchiveLeaf(
     p_patch: { archived: false },
   });
   if (error) throw error;
+  if (data === false) {
+    throw new Error('unarchiveLeaf: detection node not found at expected path (tree drift)');
+  }
 }
 

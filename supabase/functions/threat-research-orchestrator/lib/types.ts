@@ -10,7 +10,7 @@ export type ResearchInputClassification =
 
 export type ResearchAgent =
   | 'orchestrator' | 'preflight'
-  | 'research' | 'attack-researcher' | 'detection-engineer' | 'qa';
+  | 'research' | 'attack-researcher' | 'planner' | 'detection-engineer' | 'qa';
 
 export type ResearchEventType =
   | 'agent_started' | 'agent_iteration' | 'agent_tool_call' | 'agent_narration'
@@ -20,7 +20,41 @@ export type ResearchEventType =
   | 'qa_verdict' | 'qa_refinement_started' | 'qa_refinement_completed'
   | 'session_completed' | 'session_cancelled' | 'session_failed' | 'job_failed'
   | 'tool_call' | 'tool_cache_hit'
-  | 'library_match_found' | 'attack_research_completed';
+  | 'library_match_found' | 'attack_research_completed'
+  // Observability additions (PR3-followup):
+  //   job_resumed              — emitted when a worker claims a job with
+  //                              attempt_count > 1 (i.e. reaper reset it
+  //                              from a prior failed/stuck attempt)
+  //   finalise_gate_checked    — emitted every time the finalise gate is
+  //                              queried; payload includes fired flag,
+  //                              reason, detection/qa pending counts
+  //   source_behaviour_drop    — emitted when handleDetection's source
+  //                              behaviour resolution finds fewer
+  //                              behaviours than the opportunity refers to
+  //                              (planner output → tree mismatch)
+  | 'job_resumed' | 'finalise_gate_checked' | 'source_behaviour_drop'
+  // High-signal orchestration events worth their own dot in the UI:
+  | 'planner_degraded'
+  // Visibility additions (2026-05-21): make "worker died silently" impossible.
+  //   agent_response_received  — emitted after every callAnthropic return.
+  //                              Captures text_length, tool_uses_count,
+  //                              text_preview, token usage. Pairs with
+  //                              agent_iteration so we can see what came
+  //                              back vs what was asked.
+  //   agent_loop_exit          — emitted unconditionally at EVERY exit path
+  //                              of runAgentLoop (success / cap / budget /
+  //                              throw). Always paired with the existing
+  //                              agent_completed / agent_failed events.
+  //   worker_exit              — emitted from a finally block wrapping
+  //                              runJob's entire body. exit_kind ∈
+  //                              {returned, threw, unknown}. If we don't
+  //                              see worker_exit, the platform killed the
+  //                              isolate.
+  //   schema_validation_completed — Defender XDR KQL post-engineer findings.
+  | 'agent_response_received' | 'agent_loop_exit' | 'worker_exit'
+  | 'schema_validation_completed'
+  | 'agent_model_call_start' | 'agent_model_call_debug'
+  | 'agent_model_call_returned' | 'agent_post_response_checkpoint';
 
 /** MITRE ATT&CK Tactic (post-exploitation phases). NOT "kill chain phases". */
 export type MitreTacticName =
@@ -82,10 +116,10 @@ export interface PreflightSummary {
 }
 
 /** When the Detection Engineer finds an existing detection in the user's
- *  library that already covers a behaviour (combined_score >= 0.75 by default),
- *  it sets `library_match` on the behaviour and skips generation entirely. The
- *  UI renders the leaf with a sage-green glow and a link to the existing
- *  detection. */
+ *  library that already covers a behaviour (combined_score >= 0.6 by default;
+ *  THREAT_RESEARCH_LIBRARY_MATCH_THRESHOLD overrides), it sets `library_match`
+ *  on the behaviour and skips generation entirely. The UI renders the leaf
+ *  with a sage-green glow and a link to the existing detection. */
 export interface LibraryMatch {
   existing_detection_id: string;
   name: string;
@@ -117,8 +151,23 @@ export interface QaResult {
   coverage_quality: QaCoverageQuality;
   concerns: string[];
   suggested_changes: string[];
+  /**
+   * The id of an existing library or research detection this candidate
+   * duplicates. NEVER set by the QA agent — dedup is the responsibility of
+   * the Opportunity Planner (upstream conceptual dedup), the library-match
+   * phase (per-opp library lookup), and the finalise cross-opportunity
+   * dedup pass (semantic post-hoc check). QA leaves this null; finalise
+   * populates it when a semantic duplicate is detected across opportunities.
+   */
   duplicate_of: string | null;
+  /**
+   * Always one entry under single-pass QA. Field kept for forward-compat
+   * if multi-round critique is ever reinstated for a specific workflow.
+   */
   iteration_history: QaIteration[];
+  /**
+   * Always 1 under single-pass QA.
+   */
   iteration_count: number;
 }
 
@@ -138,7 +187,18 @@ export interface GeneratedDetection {
   feasibility_notes: string;
   citations: ResearchCitation[];
   covers_behaviour_ids: string[];
+  /** Filled when the QA loop completed (with any verdict — pass, pass_with_concerns,
+   *  fail). Null when QA is pending or didn't run. Mutually informative with qa_error:
+   *  qa_error != null means the QA *pipeline* failed (timeout, validation cap,
+   *  model error) — that is NOT the same as QA returning verdict:'fail'. UIs should
+   *  render qa_error distinctly so the user understands "QA didn't run, retryable"
+   *  vs "QA judged this detection insufficient". */
   qa: QaResult | null;
+  /** Non-null when the QA pipeline failed for THIS detection. The string is a
+   *  short reason like 'iteration_cap', 'model_budget_exhausted', 'anthropic_failed'.
+   *  This is a pipeline state, not a detection-quality verdict. Don't conflate
+   *  with qa.verdict='fail'. */
+  qa_error: string | null;
   saved_detection_id: string | null;
   archived: boolean;
 }
@@ -147,6 +207,36 @@ export interface DetectionOpportunity {
   id: string;
   title: string;
   description: string;
+  // ─── Fields populated by the Opportunity Planner (PR2) ────────────────
+  // All optional for back-compat with pre-PR2 sessions (cancelled by the
+  // 20260518a hard-cutover, but kept loose in the type for safety).
+  /** Ordered list of observable signals this opportunity catches. The
+   *  detection-engineering equivalent of the behaviour's narrative — but
+   *  scoped to ONE detection. Example: ["AF_ALG socket() syscall",
+   *  "splice() with O_TMPFILE", "execve bash with euid=0"]. */
+  observable_chain?: string[];
+  /** Log sources / EDR signals the detection needs. Used by library
+   *  search at opportunity level (instead of behaviour-text search). */
+  telemetry?: string[];
+  /** MITRE technique IDs this opportunity covers. */
+  mitre_technique_ids?: string[];
+  /** Primary MITRE tactic. */
+  tactic?: MitreTacticName;
+  /** The behaviour this opportunity is physically attached to in the tree.
+   *  When multiple behaviours feed one canonical opportunity, primary is
+   *  the lowest-numbered / most specific. */
+  primary_behaviour_id?: string;
+  /** Every behaviour that contributed to this canonical opportunity,
+   *  including the primary. The Detection Engineer reads this to know
+   *  what context to consider; finalise-time UI surfaces it. */
+  source_behaviour_ids?: string[];
+  /** When multiple source_behaviour_ids contribute, notes on how the
+   *  manifestations vary across them. Empty when only one source. */
+  variants?: string[];
+  /** Planner's verdict on whether this opportunity is detectable. The
+   *  Detection Engineer can refine this but typically inherits it. */
+  detectability?: DetectabilityVerdict;
+  detectability_rationale?: string;
   detection: GeneratedDetection;
 }
 
@@ -226,6 +316,13 @@ export interface AttackBehaviour {
    *  observable signal, no count cap. Empty when `library_match` is set,
    *  empty when `detectability === 'not_detectable'`. */
   opportunities: DetectionOpportunity[];
+  /** PR2: composite "{primary_behaviour_id}/{opportunity_id}" references to
+   *  canonical opportunities under OTHER behaviours that include this
+   *  behaviour in their source_behaviour_ids. Without this, a behaviour that
+   *  the Opportunity Planner correctly merged into another behaviour's
+   *  canonical opportunity would render as not_detectable — falsely
+   *  reporting coverage loss. Optional for back-compat. */
+  merged_into_opportunity_ids?: string[];
 }
 
 export interface ResearchOpenQuestion {
@@ -259,6 +356,8 @@ export interface ActorCoverageSeedItem {
   matching_aliases: string[];
 }
 
+export type PlannerStatus = 'completed' | 'degraded';
+
 export interface ThreatResearchTree {
   subject: ResearchSubject | null;
   preflight: PreflightSummary | null;
@@ -268,6 +367,15 @@ export interface ThreatResearchTree {
    *  actor/campaign. Populated once after Research, used as context by the
    *  Detection Engineer. Empty for non-actor threats (CVEs, generic concepts). */
   actor_coverage_seed?: ActorCoverageSeedItem[];
+  /** Opportunity-planner outcome for this session.
+   *    'completed' — planner produced canonical opportunities (normal path).
+   *    'degraded' — planner failed; orchestrator fell back to 1:1
+   *                 behaviour→opportunity. UI should surface a banner so the
+   *                 user knows the output isn't deduplicated and may contain
+   *                 the AF_ALG-style duplicates the planner exists to merge.
+   *  Optional for back-compat with pre-PR2 sessions (cancelled by the
+   *  20260518a hard-cutover, but kept loose in the type for safety). */
+  planner_status?: PlannerStatus | null;
   behaviours: AttackBehaviour[];
   open_questions: ResearchOpenQuestion[];
 }

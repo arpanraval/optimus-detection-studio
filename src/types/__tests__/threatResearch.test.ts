@@ -43,8 +43,11 @@ describe('threat research types', () => {
   });
 
   it('exposes the research agent enum', () => {
-    const agents: ResearchAgent[] = ['orchestrator','preflight','research','attack-researcher','detection-engineer','qa'];
-    expect(agents).toHaveLength(6);
+    const agents: ResearchAgent[] = [
+      'orchestrator','preflight','research','attack-researcher',
+      'planner','detection-engineer','qa',
+    ];
+    expect(agents).toHaveLength(7);
   });
 
   it('exposes a typed AttackBehaviour', () => {

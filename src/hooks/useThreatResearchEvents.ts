@@ -28,10 +28,22 @@ export function useThreatResearchEvents(sessionId: string | null): ThreatResearc
     let active = true;
     // Initial fetch already orders by created_at ascending; keep only the
     // tail-window so the very-long-session case doesn't spike at mount.
-    getSessionEvents(sessionId).then(es => {
-      if (!active) return;
-      setEvents(es.length > EVENT_WINDOW ? es.slice(-EVENT_WINDOW) : es);
-    });
+    //
+    // Catch is non-negotiable: getSessionEvents throws on Supabase errors,
+    // and an unhandled rejection here would surface in DevTools as a
+    // promise warning AND, in strict-mode builds, can detach the hook's
+    // Realtime subscription from the activity-console renderer. We log
+    // and proceed — the Realtime stream below still fills in newer events
+    // even if the historical fetch failed.
+    getSessionEvents(sessionId)
+      .then(es => {
+        if (!active) return;
+        setEvents(es.length > EVENT_WINDOW ? es.slice(-EVENT_WINDOW) : es);
+      })
+      .catch(err => {
+        if (!active) return;
+        console.warn('[useThreatResearchEvents] initial fetch failed:', err instanceof Error ? err.message : String(err));
+      });
 
     const channel = supabase
       .channel(`tr-events-${sessionId}`)

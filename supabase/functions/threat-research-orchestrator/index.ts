@@ -283,6 +283,25 @@ serve(async (req: Request) => {
         .eq('id', sessionId)
         .eq('status', 'failed');
 
+      // Bump model + tool caps so the retry has room to spend. Without this,
+      // a leaf retry on a session whose original run already consumed the
+      // entire cap (the common case — that's why we're retrying) will
+      // instantly hit consumeBudget's allowed:false path on the FIRST model
+      // call and emit qa_error: 'model_budget_exhausted' in milliseconds.
+      // Sizing for single-pass QA: one retry = ~3 engineer calls + 1-2 QA
+      // calls + 0-1 revision calls ≈ 6 model calls + ~6 tool calls. We bump
+      // by 10/8 to give ~50% headroom in case the first attempt also dies.
+      // The tr_bump_caps RPC caps absolute ceiling at 2000/2000 so a
+      // misbehaving caller can't run the meter up indefinitely.
+      const { error: bumpErr } = await adminClient.rpc('tr_bump_caps', {
+        p_session_id: sessionId,
+        p_model_delta: 10,
+        p_tool_delta: 8,
+      });
+      if (bumpErr) {
+        console.warn('[entry] retry_leaf cap bump failed (non-fatal):', bumpErr.message);
+      }
+
       const { error: dispatchErr } = await adminClient.rpc('threat_research_dispatch_job', {
         p_job_id: jobId,
       });
@@ -305,9 +324,10 @@ serve(async (req: Request) => {
       const sessionId = typeof body?.session_id === 'string' ? body.session_id : '';
       if (!sessionId) return corsErrorResponse('session_id is required', req, 400);
 
+      // Need tree to detect planner_status='degraded' below.
       const { data: ownedSession } = await userClient
         .from('threat_research_sessions')
-        .select('id')
+        .select('id, tree')
         .eq('id', sessionId)
         .maybeSingle();
       if (!ownedSession) return corsErrorResponse('Session not found', req, 404);
@@ -345,23 +365,124 @@ serve(async (req: Request) => {
         }
       }
 
+      // Planner-degraded recovery: when the Opportunity Planner failed and
+      // the orchestrator fell back to 1:1 behaviour→opportunity, simply
+      // re-running the failed detection jobs would preserve the degraded
+      // (un-clustered) opportunities — defeating the planner's purpose.
+      // Detect this and ALSO reset the opportunity_planning job back to
+      // pending. The planner re-runs from scratch; new canonical
+      // opportunities replace the 1:1 ones; the existing detection jobs
+      // (now in pending) pick up against the proper clusters.
+      //
+      // We also clear tree.planner_status so a clean re-run can flip it
+      // back to 'completed' on success.
+      const treeAny = (ownedSession as { tree: unknown }).tree as
+        | { planner_status?: string | null }
+        | null;
+      let plannerReset = 0;
+      if (treeAny?.planner_status === 'degraded') {
+        // Reset opportunity_planning back to pending so the planner re-runs
+        // from scratch. CRITICAL: also DELETE downstream detection + qa
+        // jobs. Their composite behaviour_ids (e.g. "b1/o1") were keyed off
+        // the degraded-mode 1:1 opportunities. After the planner re-runs,
+        // canonical opportunities will be renumbered — old composite IDs
+        // would no longer match any tree entry and detection workers would
+        // throw "opportunity not in tree". Deleting clears the slate so
+        // promote_phase('detection') after re-planning creates fresh jobs
+        // against the new opportunity IDs.
+        const { error: deleteErr } = await adminClient
+          .from('threat_research_jobs')
+          .delete()
+          .eq('session_id', sessionId)
+          .in('phase', ['detection', 'qa', 'finalise']);
+        if (deleteErr) {
+          console.warn('[entry] resume_session detection/qa delete failed (non-fatal):', deleteErr.message);
+        }
+
+        const { data: plannerJobs, error: plannerErr } = await adminClient
+          .from('threat_research_jobs')
+          .update({
+            status: 'pending',
+            attempt_count: 0,
+            started_at: null,
+            completed_at: null,
+            failure_reason: null,
+          })
+          .eq('session_id', sessionId)
+          .eq('phase', 'opportunity_planning')
+          .select('id');
+        if (plannerErr) {
+          console.warn('[entry] resume_session planner-reset failed (non-fatal):', plannerErr.message);
+        } else {
+          plannerReset = plannerJobs?.length ?? 0;
+          // Clear the degraded flag and any partial opportunities in the
+          // tree so the re-run can write fresh state. We don't touch
+          // behaviours/subject/preflight/actor_coverage_seed — those are
+          // valid output from upstream phases.
+          const patchedTree = { ...(treeAny as Record<string, unknown>) };
+          delete (patchedTree as { planner_status?: unknown }).planner_status;
+          // Strip per-behaviour opportunities (the degraded 1:1 ones) so
+          // the planner re-run writes against a clean slate.
+          if (Array.isArray((patchedTree as { behaviours?: unknown }).behaviours)) {
+            const behaviours = (patchedTree as { behaviours: Array<Record<string, unknown>> }).behaviours;
+            for (const b of behaviours) {
+              b.opportunities = [];
+              delete b.merged_into_opportunity_ids;
+            }
+          }
+          await adminClient
+            .from('threat_research_sessions')
+            .update({ tree: patchedTree })
+            .eq('id', sessionId);
+        }
+      }
+
       await adminClient
         .from('threat_research_sessions')
         .update({ status: 'running', failure_reason: null, completed_at: null, updated_at: new Date().toISOString() })
         .eq('id', sessionId)
         .in('status', ['failed', 'cancelled']);
 
+      // Bump caps proportional to the retry workload BEFORE dispatching.
+      // The first failed run almost always exhausted the cap (that's the
+      // typical reason jobs failed in the first place); resuming without a
+      // bump means every retry's first model call instantly trips
+      // consumeBudget and emits qa_error: 'model_budget_exhausted' before
+      // the worker even loads its prompt. Sizing for single-pass QA:
+      // 10 model + 8 tool per retried job covers one full single-pass
+      // detection+qa (~6 model + ~6 tool) plus ~50% headroom for one
+      // worker death. Planner reset re-runs the planner and cascades to
+      // detection + qa for every behaviour — but handleOpportunityPlanning
+      // bumps its own caps when it fans out, so we only need to cover the
+      // planner call itself (~5 model + ~5 tool). The RPC's hard ceiling
+      // (2000/2000) prevents runaway accumulation.
+      if (retried > 0 || plannerReset > 0) {
+        const modelDelta = (retried * 10) + (plannerReset > 0 ? 10 : 0);
+        const toolDelta = (retried * 8) + (plannerReset > 0 ? 8 : 0);
+        const { error: bumpErr } = await adminClient.rpc('tr_bump_caps', {
+          p_session_id: sessionId,
+          p_model_delta: modelDelta,
+          p_tool_delta: toolDelta,
+        });
+        if (bumpErr) {
+          console.warn('[entry] resume_session cap bump failed (non-fatal):', bumpErr.message);
+        }
+      }
+
       // Kick the cap-aware dispatcher per distinct phase. Cron picks up
-      // anything we don't dispatch here within a minute.
-      const phases = Array.from(new Set((failed ?? []).map(j => j.phase)));
-      for (const p of phases) {
+      // anything we don't dispatch here within a minute. Include
+      // opportunity_planning in the phase list when we reset it above so
+      // it fires immediately rather than waiting for cron.
+      const phaseSet = new Set<string>((failed ?? []).map(j => j.phase));
+      if (plannerReset > 0) phaseSet.add('opportunity_planning');
+      for (const p of phaseSet) {
         await adminClient.rpc('threat_research_dispatch_next_in_phase', {
           p_session_id: sessionId,
           p_phase: p,
         });
       }
 
-      return corsJsonResponse({ ok: true, retried }, req);
+      return corsJsonResponse({ ok: true, retried, planner_reset: plannerReset }, req);
     }
 
     // ──────────────────────────────────────────────────────────────────────

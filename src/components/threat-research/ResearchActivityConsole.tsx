@@ -10,7 +10,8 @@ interface Props {
 }
 
 const ALL_AGENTS: ResearchAgent[] = [
-  'orchestrator', 'preflight', 'research', 'attack-researcher', 'detection-engineer', 'qa',
+  'orchestrator', 'preflight', 'research', 'attack-researcher',
+  'planner', 'detection-engineer', 'qa',
 ];
 
 const AGENT_LABEL: Record<ResearchAgent, string> = {
@@ -18,6 +19,7 @@ const AGENT_LABEL: Record<ResearchAgent, string> = {
   preflight:           'Preflight',
   research:            'Research',
   'attack-researcher': 'Attack',
+  planner:             'Planner',
   'detection-engineer':'Engineer',
   qa:                  'QA',
 };
@@ -27,6 +29,7 @@ const AGENT_DOT: Record<ResearchAgent, string> = {
   preflight:           'bg-secondary',
   research:            'bg-primary',
   'attack-researcher': 'bg-tertiary',
+  planner:             'bg-secondary-container',
   'detection-engineer':'bg-tertiary',
   qa:                  'bg-primary',
 };
@@ -130,9 +133,21 @@ export function ResearchActivityConsole({ events, open, onToggle }: Props) {
   );
 }
 
+/** HH:MM:SS in the user's local timezone. We intentionally drop the date —
+ *  a session runs in minutes so seeing the same date on every row is noise.
+ *  If a session ever spans midnight, the surrounding chrome (session title,
+ *  created-at) already shows the date. */
+function formatEventTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 function EventItem({ event }: { event: ThreatResearchEvent }) {
   const isNarration = event.event_type === 'agent_narration';
   const dot = AGENT_DOT[event.agent] ?? 'bg-surface-variant';
+  const ts = formatEventTime(event.created_at);
   // Click-to-expand for long messages so the default state stays compact
   // while letting users read the full text (tool args, behaviour ids,
   // queries) when investigating. Previously the `truncate` class hard-cut
@@ -149,6 +164,12 @@ function EventItem({ event }: { event: ThreatResearchEvent }) {
           <span className="text-[11px] font-medium uppercase tracking-wide text-on-surface-variant">
             {AGENT_LABEL[event.agent]} · thinking
           </span>
+          <span
+            className="ml-auto font-mono text-[10px] tabular-nums text-on-surface-variant"
+            title={event.created_at}
+          >
+            {ts}
+          </span>
         </div>
         <div className="whitespace-pre-wrap text-xs leading-relaxed text-on-surface">{event.narration}</div>
       </div>
@@ -162,6 +183,12 @@ function EventItem({ event }: { event: ThreatResearchEvent }) {
         isLong ? 'cursor-pointer hover:bg-surface-container' : 'cursor-default'
       }`}
     >
+      <span
+        className="mt-0.5 flex-shrink-0 font-mono text-[10px] tabular-nums text-on-surface-variant"
+        title={event.created_at}
+      >
+        {ts}
+      </span>
       <span className={`mt-1.5 inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full ${dot}`} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">

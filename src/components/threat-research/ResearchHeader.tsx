@@ -1,6 +1,8 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { Icon } from '../Icon';
 import { CoverageImpactBadge } from './coverage/CoverageImpactBadge';
+import { ROUTES } from '../../router/routes';
 import type { ThreatResearchSession } from '../../types/threatResearch';
 
 interface Props {
@@ -10,11 +12,11 @@ interface Props {
 }
 
 const STATUS_STYLE: Record<string, string> = {
-  pending:    'bg-surface-variant text-on-surface-variant',
-  running:    'bg-secondary-container text-on-secondary-container animate-pulse',
-  completed:  'bg-tertiary-container text-on-tertiary-container',
-  failed:     'bg-error-container text-on-error-container',
-  cancelled:  'bg-surface-variant text-on-surface-variant',
+  pending:    'bg-on-surface/5 text-on-surface-variant ring-1 ring-inset ring-on-surface/10',
+  running:    'bg-primary/10 text-primary ring-1 ring-inset ring-primary/25 animate-pulse',
+  completed:  'bg-on-surface/[0.04] text-on-surface ring-1 ring-inset ring-on-surface/15',
+  failed:     'bg-error/10 text-error ring-1 ring-inset ring-error/25',
+  cancelled:  'bg-on-surface/5 text-on-surface-variant ring-1 ring-inset ring-on-surface/10',
 };
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
@@ -29,12 +31,29 @@ export function ResearchHeader({ session, view, onViewChange }: Props) {
   const subject = session.tree.subject;
   const title = subject?.subject ?? session.input_text;
 
+  // Multi-SIEM environments only get one query-language output per session
+  // (the first SIEM in the env profile's siem_platforms list). When the
+  // user has 2+ SIEMs configured, surface that the session covers only
+  // one of them — they may want to re-run for the second.
+  const envSnapshot = session.environment_snapshot as
+    | { siem_platforms?: string[] }
+    | null
+    | undefined;
+  const allSiems = envSnapshot?.siem_platforms ?? [];
+  const targetedSiem = allSiems[0];
+  const otherSiems = allSiems.slice(1);
+
   return (
     <header className="border-b border-outline-variant bg-surface-container px-6 py-4">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex items-center gap-2 text-xs text-on-surface-variant">
-            <span>Threat Research</span>
+            <Link
+              to={ROUTES.RESEARCH}
+              className="rounded-sm text-on-surface-variant transition-colors hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            >
+              Threat Research
+            </Link>
             <Icon name="chevron-right" size={12} />
             <span className="truncate">{session.input_text.slice(0, 60)}{session.input_text.length > 60 ? '...' : ''}</span>
           </div>
@@ -44,8 +63,17 @@ export function ResearchHeader({ session, view, onViewChange }: Props) {
               {session.status}
             </span>
             {session.input_classification && (
-              <span className="inline-flex items-center rounded-full bg-primary-container px-2 py-0.5 text-xs font-medium text-on-primary-container">
+              <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary ring-1 ring-inset ring-primary/25">
                 {CLASSIFICATION_LABEL[session.input_classification] ?? session.input_classification}
+              </span>
+            )}
+            {otherSiems.length > 0 && targetedSiem && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-ext-amber/10 px-2 py-0.5 text-xs font-medium text-ext-amber ring-1 ring-inset ring-ext-amber/30"
+                title={`Detections written for ${targetedSiem} only. Other configured SIEMs (${otherSiems.join(', ')}) are NOT covered by this session. Re-order siem_platforms or run a separate session for each.`}
+              >
+                <Icon name="alert-triangle" size={10} />
+                {targetedSiem} only · {otherSiems.length} uncovered
               </span>
             )}
             <CoverageImpactBadge impact={session.coverage_impact} />

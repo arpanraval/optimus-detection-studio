@@ -12,7 +12,12 @@
 import type { ResearchAgent } from "../types.ts";
 import { ToolContext, executeTool } from "../tools/index.ts";
 import { RunContext, emit, consumeBudget } from "../events.ts";
-import { callAnthropic, AnthropicMessage, AnthropicContentBlock } from "../llm/anthropic-direct.ts";
+import { callAnthropic } from "../llm/anthropic-direct.ts";
+import type {
+  AnthropicMessage,
+  AnthropicContentBlock,
+  AnthropicDebugEvent,
+} from "../llm/anthropic-direct.ts";
 
 /** Discriminated result from a final-output validator. The `reason` lets the
  *  agent loop give the model SPECIFIC feedback on retry instead of a generic
@@ -25,7 +30,10 @@ export type ValidationResult<T> =
 
 export interface AgentLoopConfig<T> {
   agent: ResearchAgent;
-  /** Anthropic model id, e.g. claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5. */
+  /** Anthropic model id, e.g. claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5.
+   *  Callers should resolve this via ROLE_CONFIG from ../llm/model-routing.ts
+   *  rather than hardcoding — that file is the single source of truth for
+   *  per-role model routing. */
   model: string;
   /** Base agent role + output schema. Goes into Anthropic `system`. */
   systemInstruction: string;
@@ -48,6 +56,20 @@ export interface AgentLoopConfig<T> {
    *  / opportunity_id / detection_id so the UI can show per-leaf progress
    *  indicators ("which behaviour is currently being worked on"). */
   contextPayload?: Record<string, unknown>;
+  /** Per-call wall-clock ceiling forwarded to the Anthropic adapter. Tuned
+   *  per role in ROLE_CONFIG: Opus calls (PLANNER, ENGINEER) get 240s, QA
+   *  gets 120s. When unset, the adapter falls back to its 180s default. */
+  timeoutMs?: number;
+  /** Per-call max_tokens cap. Sized per role in ROLE_CONFIG — Research and
+   *  Engineer legitimately use 8K-12K output tokens; QA and revision turns
+   *  are <2K. */
+  maxTokens?: number;
+  /** When true, the agent-loop forwards strict:true on every tool definition
+   *  to enable grammar-constrained sampling. Recommended for every reasoning
+   *  agent — eliminates the parse/retry loop on tool-call inputs. Default
+   *  true; pass false only for debugging non-strict-supported deployments. */
+  strictTools?: boolean;
+  maxValidationRetries?: number;
 }
 
 export interface AgentLoopOutcome<T> {
@@ -80,6 +102,65 @@ your training cutoff is older than the current date. Defer to web_search
 results and upstream agent sources for current-year information.`;
 }
 
+function toolNames(toolDeclarations: readonly any[]): string[] {
+  const names: string[] = [];
+  for (const tool of toolDeclarations) {
+    for (const fn of tool?.functionDeclarations ?? []) {
+      if (typeof fn?.name === 'string') names.push(fn.name);
+    }
+  }
+  return names;
+}
+
+function contentSummary(content: AnthropicMessage['content']): Record<string, unknown> {
+  if (typeof content === 'string') {
+    return {
+      kind: 'string',
+      chars: content.length,
+      preview: content.slice(0, 120),
+    };
+  }
+
+  let textChars = 0;
+  let toolUseBlocks = 0;
+  let toolResultBlocks = 0;
+  let toolResultChars = 0;
+  const toolResultSizes: number[] = [];
+  const toolNamesSeen: string[] = [];
+
+  for (const block of content) {
+    if (block.type === 'text') {
+      textChars += block.text.length;
+    } else if (block.type === 'tool_use') {
+      toolUseBlocks++;
+      toolNamesSeen.push(block.name);
+    } else if (block.type === 'tool_result') {
+      toolResultBlocks++;
+      toolResultChars += block.content.length;
+      toolResultSizes.push(block.content.length);
+    }
+  }
+
+  return {
+    kind: 'blocks',
+    blocks: content.length,
+    text_chars: textChars,
+    tool_use_blocks: toolUseBlocks,
+    tool_result_blocks: toolResultBlocks,
+    tool_result_chars: toolResultChars,
+    tool_result_sizes: toolResultSizes,
+    tool_names: toolNamesSeen,
+  };
+}
+
+function messageSummaries(messages: AnthropicMessage[]): Record<string, unknown>[] {
+  return messages.map((m, index) => ({
+    index,
+    role: m.role,
+    ...contentSummary(m.content),
+  }));
+}
+
 export async function runAgentLoop<T>(
   cfg: AgentLoopConfig<T>,
   toolCtx: ToolContext,
@@ -88,15 +169,24 @@ export async function runAgentLoop<T>(
 ): Promise<AgentLoopOutcome<T>> {
   const startedAt = Date.now();
 
-  // First user turn: knowledge pack + the task.
+  // First user turn: just the task. The knowledge pack used to be inline
+  // here, but that broke Opus 4.7's 4096-token cache minimum:
+  //   system prompt (~1.5K) + tools (~0.7K) = ~2.2K prefix — under the floor.
+  //   Cache writes were silently skipped while Anthropic still charged the
+  //   25% write surcharge. Net: ~30% wasted cost on every Opus call.
+  // The pack is now in the system block (see callAnthropic below) so the
+  // cached prefix reaches ~5K tokens — well above the 4K floor — and
+  // subsequent calls within the 5-min TTL pay 0.1x for the prefix.
   const messages: AnthropicMessage[] = [
     {
       role: 'user',
-      content: `${cfg.knowledgePack}\n\n---\n\n${initialTaskMessage}`,
+      content: initialTaskMessage,
     },
   ];
 
   const ctxPayload = cfg.contextPayload ?? {};
+  const maxValidationRetries = cfg.maxValidationRetries ?? 1;
+  let validationFailures = 0;
 
   await emit(runCtx, {
     agent: cfg.agent,
@@ -104,6 +194,27 @@ export async function runAgentLoop<T>(
     message: `${cfg.agent} loop start`,
     payload: { ...ctxPayload },
   });
+
+  // Universal exit emitter — fires on every return path of the loop so we
+  // can always tell the difference between "loop returned X" and "worker
+  // was killed externally". The specific agent_completed / agent_failed
+  // events still fire alongside this one (they carry semantically richer
+  // payloads); agent_loop_exit is the no-matter-what marker.
+  const exitLoop = async (outcome: AgentLoopOutcome<T>): Promise<AgentLoopOutcome<T>> => {
+    await emit(runCtx, {
+      agent: cfg.agent,
+      event_type: 'agent_loop_exit',
+      message: outcome.success ? 'loop exit: success' : `loop exit: ${outcome.reason ?? 'unknown'}`,
+      duration_ms: Date.now() - startedAt,
+      payload: {
+        ...ctxPayload,
+        success: outcome.success,
+        reason: outcome.reason,
+        iterations: outcome.iterations,
+      },
+    });
+    return outcome;
+  };
 
   for (let iteration = 1; iteration <= cfg.iterationCap; iteration++) {
     // Atomic check-and-spend at the session level. If the cap is reached,
@@ -116,7 +227,7 @@ export async function runAgentLoop<T>(
         message: `model-call budget exhausted: ${modelBudget.reason ?? ''}`,
         payload: { ...ctxPayload, reason: 'model_budget_exhausted' },
       });
-      return { success: false, output: null, iterations: iteration - 1, reason: 'model_budget_exhausted' };
+      return exitLoop({ success: false, output: null, iterations: iteration - 1, reason: 'model_budget_exhausted' });
     }
 
     await emit(runCtx, {
@@ -129,32 +240,171 @@ export async function runAgentLoop<T>(
     const callStart = Date.now();
     let response;
     try {
+      // Compose the system block. Order matters for cache prefix size:
+      //   date header (small, changes daily — rotation is fine, cache rolls)
+      //   ↓
+      //   agent system instruction (large, stable per agent)
+      //   ↓
+      //   knowledge pack (large, stable per agent)
+      // Total size for typical agent: ~5K tokens, comfortably above the
+      // Opus 4.7 4096-token cache minimum. The pack used to be inline in
+      // messages[0] which left the cached prefix under the floor.
+      const composedSystem = cfg.knowledgePack
+        ? `${buildDateContextHeader()}\n\n${cfg.systemInstruction}\n\n# Knowledge pack\n\n${cfg.knowledgePack}`
+        : `${buildDateContextHeader()}\n\n${cfg.systemInstruction}`;
+      const strictTools = cfg.strictTools !== false;
+      const cacheMode = 'on';
+      const callShape = {
+        ...ctxPayload,
+        iteration,
+        model: cfg.model,
+        feature: cfg.feature,
+        timeout_ms: cfg.timeoutMs ?? null,
+        max_tokens: cfg.maxTokens ?? null,
+        strict_tools: strictTools,
+        cache: cacheMode,
+        tool_names: toolNames(cfg.toolDeclarations),
+        system_chars: composedSystem.length,
+        system_instruction_chars: cfg.systemInstruction.length,
+        knowledge_pack_chars: cfg.knowledgePack.length,
+        message_count: messages.length,
+        messages: messageSummaries(messages),
+      };
+      await emit(runCtx, {
+        agent: cfg.agent,
+        event_type: 'agent_model_call_start',
+        message: `model call start iteration ${iteration}`,
+        payload: callShape,
+      });
+
+      const debugModelCall = async (event: AnthropicDebugEvent): Promise<void> => {
+        await emit(runCtx, {
+          agent: cfg.agent,
+          event_type: 'agent_model_call_debug',
+          message: event.stage,
+          payload: {
+            ...ctxPayload,
+            iteration,
+            model: cfg.model,
+            feature: cfg.feature,
+            ...event,
+          },
+        });
+      };
+
       response = await callAnthropic(
         { userId: runCtx.userId, feature: cfg.feature, model: cfg.model },
         {
           model: cfg.model,
-          // Date context is prepended at the use site rather than baked
-          // into each agent's prompt constant, so every agent gets a
-          // freshly-resolved ISO date on every call (not deploy time).
-          systemInstruction: `${buildDateContextHeader()}\n\n${cfg.systemInstruction}`,
+          systemInstruction: composedSystem,
           tools: cfg.toolDeclarations,
           messages,
           // Force deterministic sampling. Default is 1.0 which produced
           // wildly different behaviour lists across runs of the same input.
           // Same-input runs should converge to the same TTP coverage.
           temperature: 0,
+          // Default ON: strict tool use guarantees Claude emits inputs that
+          // match the tool's input_schema. Callers can opt out by setting
+          // cfg.strictTools=false (debugging only).
+          strictTools,
+          // Default ON: prompt caching of system prompt + tools array.
+          // The 5-minute TTL fits the orchestrator's per-session wall time;
+          // sibling workers within a session reuse the cached prefix.
+          cache: cacheMode,
+          // Per-role overrides (model-routing.ts). When unset, the adapter
+          // applies its own defaults (180s / 16384).
+          timeoutMs: cfg.timeoutMs,
+          maxTokens: cfg.maxTokens,
+          debug: debugModelCall,
         },
       );
+      await emit(runCtx, {
+        agent: cfg.agent,
+        event_type: 'agent_model_call_returned',
+        message: `model call returned iteration ${iteration}`,
+        duration_ms: Date.now() - callStart,
+        payload: {
+          ...ctxPayload,
+          iteration,
+          model: cfg.model,
+          text_length: response.text.length,
+          tool_uses_count: response.toolUses.length,
+          tool_use_names: response.toolUses.map(t => t.name),
+          raw_content_blocks: response.rawAssistantContent.length,
+          input_tokens: response.usage.inputTokens,
+          output_tokens: response.usage.outputTokens,
+          cached_input_tokens: response.usage.cachedInputTokens,
+          cache_creation_input_tokens: response.usage.cacheCreationInputTokens,
+        },
+      });
     } catch (e) {
       const errMsg = (e as Error)?.message ?? String(e);
+      // Try to extract a clean reason from Anthropic's JSON error body.
+      // Adapter formats errors as "Anthropic <status>: <body>". When the
+      // body is JSON we surface error.type + error.message in the activity
+      // console message instead of the raw blob. Full raw error stays in
+      // payload.error for forensics. Falls back to the raw error string
+      // if parsing fails — never throw from the error-handling path.
+      let cleanMessage = errMsg.slice(0, 300);
+      let parsedType: string | null = null;
+      let parsedReason: string | null = null;
+      const httpMatch = errMsg.match(/Anthropic (\d{3}):\s*(\{[\s\S]*)/);
+      if (httpMatch) {
+        const status = httpMatch[1];
+        try {
+          const body = JSON.parse(httpMatch[2]);
+          parsedType = body?.error?.type ?? null;
+          parsedReason = body?.error?.message ?? null;
+          if (parsedReason) {
+            cleanMessage = `Anthropic ${status} ${parsedType ?? 'error'}: ${parsedReason}`.slice(0, 300);
+          }
+        } catch {
+          // Body wasn't JSON; leave cleanMessage as the truncated raw error.
+        }
+      } else if (errMsg.startsWith('Anthropic call timed out')) {
+        cleanMessage = errMsg;
+      }
       await emit(runCtx, {
         agent: cfg.agent,
         event_type: 'agent_failed',
-        message: `anthropic: ${errMsg.slice(0, 300)}`,
-        payload: { ...ctxPayload, error: errMsg.slice(0, 800) },
+        message: cleanMessage,
+        payload: {
+          ...ctxPayload,
+          error: errMsg.slice(0, 800),
+          error_type: parsedType,
+          error_reason: parsedReason,
+        },
       });
-      return { success: false, output: null, iterations: iteration, reason: 'anthropic_failed' };
+      return exitLoop({ success: false, output: null, iterations: iteration, reason: 'anthropic_failed' });
     }
+
+    // Visibility: every Anthropic response gets an event regardless of
+    // whether it contained text. Without this we cannot tell apart "model
+    // returned tool_uses only" from "worker died after call". Captures
+    // enough shape info to diagnose without the full body.
+    await emit(runCtx, {
+      agent: cfg.agent,
+      event_type: 'agent_response_received',
+      duration_ms: Date.now() - callStart,
+      payload: {
+        ...ctxPayload,
+        iteration,
+        text_length: response.text.length,
+        text_preview: response.text.slice(0, 500),
+        tool_uses_count: response.toolUses.length,
+        tool_use_names: response.toolUses.map(t => t.name),
+        input_tokens: response.usage.inputTokens,
+        output_tokens: response.usage.outputTokens,
+        cached_input_tokens: response.usage.cachedInputTokens,
+      },
+    });
+    await emit(runCtx, {
+      agent: cfg.agent,
+      event_type: 'agent_post_response_checkpoint',
+      message: 'response event persisted',
+      duration_ms: Date.now() - callStart,
+      payload: { ...ctxPayload, iteration, checkpoint: 'response_event_persisted' },
+    });
 
     if (response.text) {
       await emit(runCtx, {
@@ -163,6 +413,18 @@ export async function runAgentLoop<T>(
         narration: response.text,
         duration_ms: Date.now() - callStart,
         payload: { ...ctxPayload },
+      });
+      await emit(runCtx, {
+        agent: cfg.agent,
+        event_type: 'agent_post_response_checkpoint',
+        message: 'narration persisted',
+        duration_ms: Date.now() - callStart,
+        payload: {
+          ...ctxPayload,
+          iteration,
+          checkpoint: 'narration_persisted',
+          text_length: response.text.length,
+        },
       });
     }
 
@@ -175,6 +437,18 @@ export async function runAgentLoop<T>(
     if (totalTokens > 0) {
       await consumeBudget(runCtx, { tokens: totalTokens });
     }
+    await emit(runCtx, {
+      agent: cfg.agent,
+      event_type: 'agent_post_response_checkpoint',
+      message: 'token budget recorded',
+      duration_ms: Date.now() - callStart,
+      payload: {
+        ...ctxPayload,
+        iteration,
+        checkpoint: 'token_budget_recorded',
+        total_tokens: totalTokens,
+      },
+    });
 
     // Push the assistant turn into history with FULL content blocks. This is
     // critical: the next call must include the assistant's tool_use blocks
@@ -184,11 +458,43 @@ export async function runAgentLoop<T>(
       role: 'assistant',
       content: response.rawAssistantContent,
     });
+    await emit(runCtx, {
+      agent: cfg.agent,
+      event_type: 'agent_post_response_checkpoint',
+      message: 'assistant message appended',
+      duration_ms: Date.now() - callStart,
+      payload: {
+        ...ctxPayload,
+        iteration,
+        checkpoint: 'assistant_message_appended',
+        message_count: messages.length,
+        assistant_content: contentSummary(response.rawAssistantContent),
+      },
+    });
 
     // No tool calls → try to finalise.
     if (response.toolUses.length === 0) {
+      await emit(runCtx, {
+        agent: cfg.agent,
+        event_type: 'agent_post_response_checkpoint',
+        message: 'validation starting',
+        duration_ms: Date.now() - callStart,
+        payload: {
+          ...ctxPayload,
+          iteration,
+          checkpoint: 'validation_start',
+          text_length: response.text.length,
+        },
+      });
       const parsed = cfg.validateFinalOutput(response.text);
       if (parsed.ok) {
+        await emit(runCtx, {
+          agent: cfg.agent,
+          event_type: 'agent_post_response_checkpoint',
+          message: 'validation passed',
+          duration_ms: Date.now() - callStart,
+          payload: { ...ctxPayload, iteration, checkpoint: 'validation_passed' },
+        });
         await emit(runCtx, {
           agent: cfg.agent,
           event_type: 'agent_completed',
@@ -196,7 +502,7 @@ export async function runAgentLoop<T>(
           duration_ms: Date.now() - startedAt,
           payload: { ...ctxPayload, iteration_count: iteration },
         });
-        return { success: true, output: parsed.value, iterations: iteration, reason: null };
+        return exitLoop({ success: true, output: parsed.value, iterations: iteration, reason: null });
       }
       // Output didn't validate — surface the specific reason so the model can
       // fix that exact thing instead of retrying blindly.
@@ -204,8 +510,53 @@ export async function runAgentLoop<T>(
         agent: cfg.agent,
         event_type: 'agent_validation_failed',
         message: parsed.reason.slice(0, 200),
-        payload: { ...ctxPayload, iteration, reason: parsed.reason.slice(0, 800) },
+        payload: {
+          ...ctxPayload,
+          iteration,
+          reason: parsed.reason.slice(0, 800),
+          validation_failures: validationFailures + 1,
+          max_validation_retries: maxValidationRetries,
+        },
       });
+      validationFailures++;
+      // Keep retries small. The failed assistant output can be 15-25K chars;
+      // carrying it into the next request caused 15K+ input-token retries and
+      // pushed edge workers back into timeout territory. The model only needs
+      // the validator's exact reason, not its whole invalid JSON.
+      messages[messages.length - 1] = {
+        role: 'assistant',
+        content: `[invalid JSON output omitted: ${response.text.length} chars; validation failed]`,
+      };
+      await emit(runCtx, {
+        agent: cfg.agent,
+        event_type: 'agent_post_response_checkpoint',
+        message: 'validation failed',
+        duration_ms: Date.now() - callStart,
+        payload: {
+          ...ctxPayload,
+          iteration,
+          checkpoint: 'validation_failed',
+          reason: parsed.reason.slice(0, 800),
+          validation_failures: validationFailures,
+          max_validation_retries: maxValidationRetries,
+        },
+      });
+      if (validationFailures > maxValidationRetries) {
+        await emit(runCtx, {
+          agent: cfg.agent,
+          event_type: 'agent_failed',
+          message: `validation failed: ${parsed.reason.slice(0, 220)}`,
+          duration_ms: Date.now() - startedAt,
+          payload: {
+            ...ctxPayload,
+            reason: 'validation_failed',
+            validation_reason: parsed.reason.slice(0, 800),
+            validation_failures: validationFailures,
+            max_validation_retries: maxValidationRetries,
+          },
+        });
+        return exitLoop({ success: false, output: null, iterations: iteration, reason: 'validation_failed' });
+      }
       messages.push({
         role: 'user',
         content:
@@ -244,10 +595,24 @@ export async function runAgentLoop<T>(
       });
       try {
         const result = await executeTool(toolCtx, call.name, call.args);
+        const resultText = JSON.stringify(result).slice(0, TOOL_RESULT_MAX_CHARS);
         toolResultBlocks.push({
           type: 'tool_result',
           tool_use_id: call.id,
-          content: JSON.stringify(result).slice(0, TOOL_RESULT_MAX_CHARS),
+          content: resultText,
+        });
+        await emit(runCtx, {
+          agent: cfg.agent,
+          event_type: 'agent_post_response_checkpoint',
+          message: `tool result ready: ${call.name}`,
+          duration_ms: Date.now() - callStart,
+          payload: {
+            ...ctxPayload,
+            iteration,
+            checkpoint: 'tool_result_ready',
+            tool: call.name,
+            tool_result_chars: resultText.length,
+          },
         });
       } catch (e) {
         toolResultBlocks.push({
@@ -263,6 +628,20 @@ export async function runAgentLoop<T>(
       role: 'user',
       content: toolResultBlocks,
     });
+    await emit(runCtx, {
+      agent: cfg.agent,
+      event_type: 'agent_post_response_checkpoint',
+      message: 'tool results appended',
+      duration_ms: Date.now() - callStart,
+      payload: {
+        ...ctxPayload,
+        iteration,
+        checkpoint: 'tool_results_appended',
+        message_count: messages.length,
+        tool_result_count: toolResultBlocks.length,
+        tool_result_chars: toolResultBlocks.reduce((sum, block) => sum + block.content.length, 0),
+      },
+    });
   }
 
   await emit(runCtx, {
@@ -271,5 +650,5 @@ export async function runAgentLoop<T>(
     message: 'iteration cap reached',
     payload: { ...ctxPayload, reason: 'iteration_cap' },
   });
-  return { success: false, output: null, iterations: cfg.iterationCap, reason: 'iteration_cap' };
+  return exitLoop({ success: false, output: null, iterations: cfg.iterationCap, reason: 'iteration_cap' });
 }

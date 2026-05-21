@@ -2,7 +2,10 @@ import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react'
 import dagre from 'dagre';
 import { Icon } from '../Icon';
 import type {
-  ThreatResearchTree, AttackBehaviour, DetectionOpportunity, MitreTacticName,
+  ThreatResearchTree,
+  AttackBehaviour,
+  DetectionOpportunity,
+  MitreTacticName,
 } from '../../types/threatResearch';
 
 interface Props {
@@ -22,14 +25,15 @@ interface Props {
 type NodeKind = 'subject' | 'tactic' | 'behaviour' | 'opportunity' | 'detection' | 'library_match';
 
 type NodeState =
-  | 'default'         // idle, has content
-  | 'active'          // worker currently processing
-  | 'pending'         // expected but not yet produced (qa null on detection, no opps yet)
-  | 'covered'         // library match — nothing new to do
-  | 'fail'            // qa failed
-  | 'archived'        // user archived
+  | 'default' // idle, has content
+  | 'active' // worker currently processing
+  | 'pending' // expected but not yet produced (qa null on detection, no opps yet)
+  | 'covered' // library match — nothing new to do
+  | 'fail' // qa returned verdict:'fail'
+  | 'qa_error' // QA pipeline failed mid-run (timeout / model error) — distinct from a qa verdict
+  | 'archived' // user archived
   | 'engineer_failed' // detection-engineer agent loop crashed — retry available
-  | 'not_detectable'  // model verdict: no observable signal exists
+  | 'not_detectable' // model verdict: no observable signal exists
   | 'needs_telemetry'; // detectable in principle but env lacks the source
 
 interface CanvasNode {
@@ -58,27 +62,45 @@ interface CanvasEdge {
   state: NodeState;
 }
 
-const TILE = 48;       // 48×48 icon tile
-const NODE_W = 128;    // overall node footprint (tile + label) — keep tree narrow
-const NODE_H = 96;     // tile + label below (room for 2-line labels)
-const RANK_SEP = 100;  // vertical gap between layers — generous so edges don't crowd labels
-const NODE_SEP = 12;   // horizontal gap between siblings — tight, avoids "stretched" look
+const TILE = 48; // 48×48 icon tile
+const NODE_W = 128; // overall node footprint (tile + label) — keep tree narrow
+const NODE_H = 96; // tile + label below (room for 2-line labels)
+const RANK_SEP = 100; // vertical gap between layers — generous so edges don't crowd labels
+const NODE_SEP = 12; // horizontal gap between siblings — tight, avoids "stretched" look
 
 // MITRE tactic display order (kill-chain order, lowercase-with-hyphens).
 const TACTIC_ORDER: MitreTacticName[] = [
-  'reconnaissance', 'resource-development', 'initial-access', 'execution',
-  'persistence', 'privilege-escalation', 'defense-evasion', 'credential-access',
-  'discovery', 'lateral-movement', 'collection', 'command-and-control',
-  'exfiltration', 'impact',
+  'reconnaissance',
+  'resource-development',
+  'initial-access',
+  'execution',
+  'persistence',
+  'privilege-escalation',
+  'defense-evasion',
+  'credential-access',
+  'discovery',
+  'lateral-movement',
+  'collection',
+  'command-and-control',
+  'exfiltration',
+  'impact',
 ];
 
 function tacticLabel(t: MitreTacticName): string {
-  return t.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+  return t
+    .split('-')
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(' ');
 }
 
 function detectionState(det: DetectionOpportunity['detection'], behaviourActive: boolean): NodeState {
   if (det.archived) return 'archived';
   if (det.qa?.verdict === 'fail') return 'fail';
+  // qa_error is a pipeline failure (QA never returned a verdict). Distinct
+  // from 'fail' (a real verdict) — UI must render the two differently so
+  // operators know whether QA judged the detection or never ran. When
+  // qa is null AND qa_error is set, this is the case.
+  if (!det.qa && det.qa_error) return 'qa_error';
   if (!det.qa) return behaviourActive ? 'active' : 'pending';
   return 'default';
 }
@@ -105,11 +127,14 @@ function buildLayout(
   const subjectId = 'subject';
   const subjectActive = activeBehaviourIds.size > 0 || tree.behaviours.length === 0;
   nodes.push({
-    id: subjectId, parentId: null, kind: 'subject',
+    id: subjectId,
+    parentId: null,
+    kind: 'subject',
     label: tree.subject.subject,
     state: subjectActive ? 'active' : 'default',
     hasChildren: tree.behaviours.length > 0,
-    x: 0, y: 0,
+    x: 0,
+    y: 0,
   });
   g.setNode(subjectId, { width: NODE_W, height: NODE_H });
   if (collapsed.has(subjectId)) {
@@ -126,18 +151,21 @@ function buildLayout(
   }
 
   // Render tactics in canonical MITRE order, only the observed ones.
-  const observedTactics = TACTIC_ORDER.filter(t => byTactic.has(t));
+  const observedTactics = TACTIC_ORDER.filter((t) => byTactic.has(t));
 
   for (const tactic of observedTactics) {
     const tacticId = `tactic/${tactic}`;
     const behaviours = byTactic.get(tactic)!;
-    const tacticActive = behaviours.some(b => activeBehaviourIds.has(b.id));
+    const tacticActive = behaviours.some((b) => activeBehaviourIds.has(b.id));
     nodes.push({
-      id: tacticId, parentId: subjectId, kind: 'tactic',
+      id: tacticId,
+      parentId: subjectId,
+      kind: 'tactic',
       label: tacticLabel(tactic),
       state: tacticActive ? 'active' : 'default',
       hasChildren: behaviours.length > 0,
-      x: 0, y: 0,
+      x: 0,
+      y: 0,
     });
     g.setNode(tacticId, { width: NODE_W, height: NODE_H });
     edges.push({ from: subjectId, to: tacticId, state: tacticActive ? 'active' : 'default' });
@@ -166,17 +194,35 @@ function buildLayout(
                 : b.opportunities.length === 0
                   ? 'pending'
                   : 'default';
+      // Subtitle precedence on behaviour tiles:
+      //   merged-only (no own opps, has merged_into) → "merged into N
+      //     opportunit(y/ies)" — surface the planner's clustering decision
+      //     so users don't think the behaviour was dropped
+      //   library_match → name of the matched library detection
+      //   otherwise → no subtitle (label uses both lines)
+      const mergedCount = b.merged_into_opportunity_ids?.length ?? 0;
+      const ownOppCount = b.opportunities.length;
+      const behaviourSubtitle =
+        ownOppCount === 0 && mergedCount > 0
+          ? `merged into ${mergedCount} opp${mergedCount === 1 ? '' : 's'}`
+          : undefined;
       nodes.push({
-        id: b.id, parentId: tacticId, kind: 'behaviour',
+        id: b.id,
+        parentId: tacticId,
+        kind: 'behaviour',
         label: b.title,
+        subtitle: behaviourSubtitle,
         state: bState,
         // Show children only when there's actually something to expand to.
         // engineer_failed / not_detectable / needs_telemetry leaves are
-        // terminal — chevron would offer nothing.
+        // terminal — chevron would offer nothing. Merged-only behaviours
+        // also have no children (their detections live under sibling
+        // behaviours via covers_behaviour_ids).
         hasChildren: !!b.library_match || b.opportunities.length > 0,
         behaviourId: b.id,
         behaviour: b,
-        x: 0, y: 0,
+        x: 0,
+        y: 0,
       });
       g.setNode(b.id, { width: NODE_W, height: NODE_H });
       edges.push({ from: tacticId, to: b.id, state: bState });
@@ -188,14 +234,17 @@ function buildLayout(
       if (b.library_match) {
         const lmId = `${b.id}/library_match`;
         nodes.push({
-          id: lmId, parentId: b.id, kind: 'library_match',
+          id: lmId,
+          parentId: b.id,
+          kind: 'library_match',
           label: 'Already in library',
           subtitle: b.library_match.name,
           state: 'covered',
           hasChildren: false,
           behaviourId: b.id,
           behaviour: b,
-          x: 0, y: 0,
+          x: 0,
+          y: 0,
         });
         g.setNode(lmId, { width: NODE_W, height: NODE_H });
         edges.push({ from: b.id, to: lmId, state: 'covered' });
@@ -209,15 +258,21 @@ function buildLayout(
           ? 'archived'
           : o.detection.qa?.verdict === 'fail'
             ? 'fail'
-            : (bActive && !o.detection.qa) ? 'active' : 'default';
+            : bActive && !o.detection.qa
+              ? 'active'
+              : 'default';
         nodes.push({
-          id: oId, parentId: b.id, kind: 'opportunity',
+          id: oId,
+          parentId: b.id,
+          kind: 'opportunity',
           label: o.title,
           state: oState,
           hasChildren: true,
           behaviourId: b.id,
-          behaviour: b, opportunity: o,
-          x: 0, y: 0,
+          behaviour: b,
+          opportunity: o,
+          x: 0,
+          y: 0,
         });
         g.setNode(oId, { width: NODE_W, height: NODE_H });
         edges.push({ from: b.id, to: oId, state: oState });
@@ -228,18 +283,31 @@ function buildLayout(
         const det = o.detection;
         const dId = `${oId}/${det.id}`;
         const dState = detectionState(det, bActive);
-        const sub = det.qa
-          ? `${det.qa.verdict.replace(/_/g, ' ')}${det.saved_detection_id ? ' · saved' : ''}`
-          : (bActive ? 'in review…' : 'qa pending');
+        // Subtitle precedence (most-specific first):
+        //   qa_error → "QA didn't run" (recoverable pipeline failure)
+        //   qa verdict → "<verdict> · saved" (real verdict from completed QA)
+        //   active → "in review…"
+        //   neither → "qa pending"
+        const sub = det.qa_error
+          ? "QA didn't run"
+          : det.qa
+            ? `${det.qa.verdict.replace(/_/g, ' ')}${det.saved_detection_id ? ' · saved' : ''}`
+            : bActive
+              ? 'in review…'
+              : 'qa pending';
         nodes.push({
-          id: dId, parentId: oId, kind: 'detection',
+          id: dId,
+          parentId: oId,
+          kind: 'detection',
           label: det.name,
           subtitle: sub,
           state: dState,
           hasChildren: false,
           behaviourId: b.id,
-          behaviour: b, opportunity: o,
-          x: 0, y: 0,
+          behaviour: b,
+          opportunity: o,
+          x: 0,
+          y: 0,
         });
         g.setNode(dId, { width: NODE_W, height: NODE_H });
         edges.push({ from: oId, to: dId, state: dState });
@@ -259,7 +327,10 @@ function finishLayout(
 ): { nodes: CanvasNode[]; edges: CanvasEdge[]; width: number; height: number } {
   for (const n of nodes) {
     const laid = g.node(n.id);
-    if (laid) { n.x = laid.x - NODE_W / 2; n.y = laid.y - NODE_H / 2; }
+    if (laid) {
+      n.x = laid.x - NODE_W / 2;
+      n.y = laid.y - NODE_H / 2;
+    }
   }
   const info = g.graph();
   return { nodes, edges, width: info.width ?? NODE_W * 4, height: info.height ?? NODE_H * 6 };
@@ -269,7 +340,11 @@ function finishLayout(
 // Pan / zoom view
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface ViewTransform { tx: number; ty: number; scale: number }
+interface ViewTransform {
+  tx: number;
+  ty: number;
+  scale: number;
+}
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 2.5;
 const clampScale = (s: number) => Math.max(MIN_SCALE, Math.min(MAX_SCALE, s));
@@ -303,15 +378,17 @@ export function ResearchCanvas({ tree, status, activeBehaviourIds, onLeafClick, 
       // is huge, and the canvas opens off-centre at MIN_SCALE.
       lastFitSubjectRef.current = null;
     }
-  }, [tree.subject?.subject, tree.behaviours.length]);
+    // tree.behaviours included in deps: the for-loop reads behaviour.tactic
+    // off each element. The one-shot ref guard above keeps this effect from
+    // re-running once it's done its job, but the deps still need to be
+    // honest — otherwise React lint flags the loop's reference, and a future
+    // refactor that removes the guard would yield stale data.
+  }, [tree.subject?.subject, tree.behaviours]);
   const [view, setView] = useState<ViewTransform>({ tx: 0, ty: 0, scale: 1 });
   const dragRef = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
   const lastFitSubjectRef = useRef<string | null>(null);
 
-  const layout = useMemo(
-    () => buildLayout(tree, activeIds, collapsed),
-    [tree, activeIds, collapsed],
-  );
+  const layout = useMemo(() => buildLayout(tree, activeIds, collapsed), [tree, activeIds, collapsed]);
 
   // Auto-fit ONCE per subject (don't yank user's pan/zoom on every event).
   const fitToView = useCallback(() => {
@@ -320,21 +397,54 @@ export function ResearchCanvas({ tree, status, activeBehaviourIds, onLeafClick, 
     const padding = 60;
     const W = el.clientWidth;
     const H = el.clientHeight;
-    const scaleX = (W - padding * 2) / Math.max(1, layout.width);
-    const scaleY = (H - padding * 2) / Math.max(1, layout.height);
+    // Tight bounding box of the nodes themselves — dagre's reported width/height
+    // includes its marginx/marginy (32px on each side) plus internal gutters
+    // that don't belong to the visible content. Using it directly biases the
+    // centering up-and-left. Compute the real content extent from node coords.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of layout.nodes) {
+      if (n.x < minX) minX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.x + NODE_W > maxX) maxX = n.x + NODE_W;
+      if (n.y + NODE_H > maxY) maxY = n.y + NODE_H;
+    }
+    const contentW = Math.max(1, maxX - minX);
+    const contentH = Math.max(1, maxY - minY);
+    const scaleX = (W - padding * 2) / contentW;
+    const scaleY = (H - padding * 2) / contentH;
     const scale = clampScale(Math.min(scaleX, scaleY, 1));
-    const tx = (W - layout.width * scale) / 2;
-    const ty = (H - layout.height * scale) / 2;
+    const tx = (W - contentW * scale) / 2 - minX * scale;
+    const ty = (H - contentH * scale) / 2 - minY * scale;
     setView({ tx, ty, scale });
-  }, [layout.width, layout.height, layout.nodes.length]);
+  }, [layout.nodes]);
 
   useEffect(() => {
     const subject = tree.subject?.subject ?? null;
     if (!subject || layout.nodes.length === 0) return;
     if (lastFitSubjectRef.current === subject) return;
     lastFitSubjectRef.current = subject;
-    fitToView();
+    // Wait two frames so the container has its final size after the page
+    // main area's flex children settle. Without this, the first fit runs
+    // against a 0-size or pre-resize container and the tree opens at a
+    // tiny scale parked in the upper-left.
+    requestAnimationFrame(() => requestAnimationFrame(fitToView));
   }, [tree.subject?.subject, layout.nodes.length, fitToView]);
+
+  // Re-fit when the container itself resizes (sidebar toggles, window
+  // resize, side panel opens), but only until the user has manually
+  // panned/zoomed — after that, preserve their viewport.
+  const userInteractedRef = useRef(false);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      if (userInteractedRef.current) return;
+      if (layout.nodes.length === 0) return;
+      requestAnimationFrame(() => requestAnimationFrame(fitToView));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [fitToView, layout.nodes.length]);
 
   // Native wheel listener — React's onWheel is passive, so preventDefault
   // there is a no-op and the page steals our zoom (browser zoom on Ctrl,
@@ -354,9 +464,10 @@ export function ResearchCanvas({ tree, status, activeBehaviourIds, onLeafClick, 
 
       // Ctrl/⌘ + wheel OR pinch-zoom (ctrlKey is set on pinch by browsers)
       // → zoom canvas. Plain wheel → pan.
+      userInteractedRef.current = true;
       if (e.ctrlKey || e.metaKey) {
         const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-        setView(v => {
+        setView((v) => {
           const nextScale = clampScale(v.scale * factor);
           const ratio = nextScale / v.scale;
           return {
@@ -367,7 +478,7 @@ export function ResearchCanvas({ tree, status, activeBehaviourIds, onLeafClick, 
         });
       } else {
         // Pan with wheel. deltaX = horizontal, deltaY = vertical.
-        setView(v => ({ ...v, tx: v.tx - e.deltaX, ty: v.ty - e.deltaY }));
+        setView((v) => ({ ...v, tx: v.tx - e.deltaX, ty: v.ty - e.deltaY }));
       }
     };
 
@@ -378,14 +489,17 @@ export function ResearchCanvas({ tree, status, activeBehaviourIds, onLeafClick, 
   // Mouse-drag pan (only when starting outside a node).
   function onMouseDown(e: React.MouseEvent) {
     if ((e.target as HTMLElement).closest('[data-canvas-node]')) return;
+    userInteractedRef.current = true;
     dragRef.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty };
   }
   function onMouseMove(e: React.MouseEvent) {
     const d = dragRef.current;
     if (!d) return;
-    setView(v => ({ ...v, tx: d.tx + (e.clientX - d.x), ty: d.ty + (e.clientY - d.y) }));
+    setView((v) => ({ ...v, tx: d.tx + (e.clientX - d.x), ty: d.ty + (e.clientY - d.y) }));
   }
-  function onMouseUp() { dragRef.current = null; }
+  function onMouseUp() {
+    dragRef.current = null;
+  }
 
   // Touch handlers — single-finger pan, two-finger pinch zoom.
   // Without these, the canvas was non-interactive on tablet/mobile.
@@ -421,8 +535,10 @@ export function ResearchCanvas({ tree, status, activeBehaviourIds, onLeafClick, 
         kind: 'pinch',
         dist: distance(a, b),
         scale: view.scale,
-        cx, cy,
-        tx: view.tx, ty: view.ty,
+        cx,
+        cy,
+        tx: view.tx,
+        ty: view.ty,
       };
     }
   }
@@ -432,7 +548,7 @@ export function ResearchCanvas({ tree, status, activeBehaviourIds, onLeafClick, 
     if (!r) return;
     if (r.kind === 'pan' && e.touches.length === 1) {
       const t = e.touches[0];
-      setView(v => ({ ...v, tx: r.tx + (t.clientX - r.x), ty: r.ty + (t.clientY - r.y) }));
+      setView((v) => ({ ...v, tx: r.tx + (t.clientX - r.x), ty: r.ty + (t.clientY - r.y) }));
     } else if (r.kind === 'pinch' && e.touches.length === 2) {
       const [a, b] = [e.touches[0], e.touches[1]];
       const newDist = distance(a, b);
@@ -448,10 +564,12 @@ export function ResearchCanvas({ tree, status, activeBehaviourIds, onLeafClick, 
     }
   }
 
-  function onTouchEnd() { touchRef.current = null; }
+  function onTouchEnd() {
+    touchRef.current = null;
+  }
 
   function zoomBy(factor: number) {
-    setView(v => {
+    setView((v) => {
       const el = containerRef.current;
       if (!el) return v;
       const cx = el.clientWidth / 2;
@@ -463,7 +581,7 @@ export function ResearchCanvas({ tree, status, activeBehaviourIds, onLeafClick, 
   }
 
   function toggleCollapsed(id: string) {
-    setCollapsed(prev => {
+    setCollapsed((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -531,10 +649,7 @@ export function ResearchCanvas({ tree, status, activeBehaviourIds, onLeafClick, 
         cursor: dragRef.current ? 'grabbing' : 'grab',
       }}
     >
-      <svg
-        className="absolute inset-0 h-full w-full"
-        style={{ overflow: 'visible' }}
-      >
+      <svg className="absolute inset-0 h-full w-full" style={{ overflow: 'visible' }}>
         <defs>
           {/* Soft drop shadow used by every node tile. Gives the canvas
               physical depth; flat rects on a flat background read as a
@@ -544,22 +659,36 @@ export function ResearchCanvas({ tree, status, activeBehaviourIds, onLeafClick, 
           </filter>
         </defs>
         <g transform={`translate(${view.tx}, ${view.ty}) scale(${view.scale})`} style={{ pointerEvents: 'auto' }}>
-          {layout.edges.map(e => <Edge key={`${e.from}->${e.to}`} edge={e} layout={layout} />)}
-          {layout.nodes.map(n => (
-            <NodeTile
-              key={n.id}
-              node={n}
-              collapsed={collapsed.has(n.id)}
-              onToggle={() => toggleCollapsed(n.id)}
-              onClick={
-                n.kind === 'detection' && n.behaviour && n.opportunity
-                  ? () => onLeafClick(n.behaviour!, n.opportunity!)
-                  : n.kind === 'library_match' && n.behaviour
-                    ? () => onLibraryMatchClick(n.behaviour!)
-                    : undefined
-              }
-            />
+          {layout.edges.map((e) => (
+            <Edge key={`${e.from}->${e.to}`} edge={e} layout={layout} />
           ))}
+          {layout.nodes.map((n) => {
+            // Capture node fields into local consts so TypeScript's narrowing
+            // survives into the click-handler closure. Without these, the
+            // arrow functions below would lose the n.behaviour/n.opportunity
+            // narrowing from the outer ternary and require non-null assertions
+            // (which can mask a real crash if layout drift ever puts a null
+            // here at click time). Explicit local refs make the contract
+            // visible and crash-safe.
+            const detBehaviour = n.kind === 'detection' ? n.behaviour : null;
+            const detOpportunity = n.kind === 'detection' ? n.opportunity : null;
+            const libBehaviour = n.kind === 'library_match' ? n.behaviour : null;
+            const onClick: (() => void) | undefined =
+              detBehaviour && detOpportunity
+                ? () => onLeafClick(detBehaviour, detOpportunity)
+                : libBehaviour
+                  ? () => onLibraryMatchClick(libBehaviour)
+                  : undefined;
+            return (
+              <NodeTile
+                key={n.id}
+                node={n}
+                collapsed={collapsed.has(n.id)}
+                onToggle={() => toggleCollapsed(n.id)}
+                onClick={onClick}
+              />
+            );
+          })}
         </g>
       </svg>
 
@@ -567,16 +696,28 @@ export function ResearchCanvas({ tree, status, activeBehaviourIds, onLeafClick, 
           never fight with the activity panel handle or top-left status
           banners. */}
       <div className="pointer-events-auto absolute right-3 bottom-3 z-10 flex flex-col gap-0.5 rounded-2xl border border-outline-variant bg-surface p-1 shadow-sm">
-        <button type="button" onClick={() => zoomBy(1.2)} aria-label="Zoom in"
-          className="flex h-8 w-8 items-center justify-center rounded-xl text-on-surface hover:bg-surface-container">
+        <button
+          type="button"
+          onClick={() => zoomBy(1.2)}
+          aria-label="Zoom in"
+          className="flex h-8 w-8 items-center justify-center rounded-xl text-on-surface hover:bg-surface-container"
+        >
           <Icon name="plus" size={14} />
         </button>
-        <button type="button" onClick={() => zoomBy(1 / 1.2)} aria-label="Zoom out"
-          className="flex h-8 w-8 items-center justify-center rounded-xl text-on-surface hover:bg-surface-container">
+        <button
+          type="button"
+          onClick={() => zoomBy(1 / 1.2)}
+          aria-label="Zoom out"
+          className="flex h-8 w-8 items-center justify-center rounded-xl text-on-surface hover:bg-surface-container"
+        >
           <Icon name="minus" size={14} />
         </button>
-        <button type="button" onClick={fitToView} aria-label="Fit to view"
-          className="flex h-8 w-8 items-center justify-center rounded-xl text-[10px] font-medium tracking-tight text-on-surface hover:bg-surface-container">
+        <button
+          type="button"
+          onClick={fitToView}
+          aria-label="Fit to view"
+          className="flex h-8 w-8 items-center justify-center rounded-xl text-[10px] font-medium tracking-tight text-on-surface hover:bg-surface-container"
+        >
           FIT
         </button>
         <div className="my-0.5 h-px bg-outline-variant" />
@@ -609,10 +750,10 @@ function dottedBg(): string {
 }
 
 interface TileColors {
-  fillVar: string;       // background fill
-  strokeVar: string;     // stroke
-  iconClass: string;     // text color class for the icon
-  labelClass: string;    // text color class for the label
+  fillVar: string; // background fill
+  strokeVar: string; // stroke
+  iconClass: string; // text color class for the icon
+  labelClass: string; // text color class for the label
   dashed: boolean;
   pulse: boolean;
 }
@@ -625,7 +766,8 @@ function tileColors(state: NodeState): TileColors {
         strokeVar: '--md-sys-color-primary',
         iconClass: 'text-on-primary',
         labelClass: 'text-on-surface',
-        dashed: false, pulse: true,
+        dashed: false,
+        pulse: true,
       };
     case 'covered':
       return {
@@ -633,7 +775,8 @@ function tileColors(state: NodeState): TileColors {
         strokeVar: '--md-sys-color-tertiary',
         iconClass: 'text-on-tertiary-container',
         labelClass: 'text-on-surface',
-        dashed: false, pulse: false,
+        dashed: false,
+        pulse: false,
       };
     case 'fail':
       return {
@@ -641,7 +784,8 @@ function tileColors(state: NodeState): TileColors {
         strokeVar: '--md-sys-color-error',
         iconClass: 'text-on-error-container',
         labelClass: 'text-error',
-        dashed: false, pulse: false,
+        dashed: false,
+        pulse: false,
       };
     case 'engineer_failed':
       // Recoverable failure — orange/error-container so it's visually
@@ -651,7 +795,21 @@ function tileColors(state: NodeState): TileColors {
         strokeVar: '--md-sys-color-error',
         iconClass: 'text-on-error-container',
         labelClass: 'text-on-surface',
-        dashed: true, pulse: false,
+        dashed: true,
+        pulse: false,
+      };
+    case 'qa_error':
+      // QA pipeline failed without producing a verdict. ext-amber matches
+      // the design system's Warning / Medium-severity / Pending colour;
+      // distinct from 'fail' (ext-coral, a real model verdict). Dashed
+      // border signals "recoverable, retry-eligible".
+      return {
+        fillVar: '--md-ext-color-amber',
+        strokeVar: '--md-ext-color-amber',
+        iconClass: 'text-on-surface',
+        labelClass: 'text-on-surface',
+        dashed: true,
+        pulse: false,
       };
     case 'not_detectable':
       // Terminal verdict — neutral muted, no error styling. Real intel.
@@ -660,7 +818,8 @@ function tileColors(state: NodeState): TileColors {
         strokeVar: '--md-sys-color-outline',
         iconClass: 'text-on-surface-variant',
         labelClass: 'text-on-surface-variant',
-        dashed: false, pulse: false,
+        dashed: false,
+        pulse: false,
       };
     case 'needs_telemetry':
       return {
@@ -668,7 +827,8 @@ function tileColors(state: NodeState): TileColors {
         strokeVar: '--md-sys-color-secondary',
         iconClass: 'text-on-secondary-container',
         labelClass: 'text-on-surface',
-        dashed: true, pulse: false,
+        dashed: true,
+        pulse: false,
       };
     case 'pending':
       return {
@@ -676,7 +836,8 @@ function tileColors(state: NodeState): TileColors {
         strokeVar: '--md-sys-color-outline-variant',
         iconClass: 'text-on-surface-variant',
         labelClass: 'text-on-surface-variant',
-        dashed: true, pulse: false,
+        dashed: true,
+        pulse: false,
       };
     case 'archived':
       return {
@@ -684,7 +845,8 @@ function tileColors(state: NodeState): TileColors {
         strokeVar: '--md-sys-color-outline-variant',
         iconClass: 'text-on-surface-variant',
         labelClass: 'text-on-surface-variant line-through',
-        dashed: true, pulse: false,
+        dashed: true,
+        pulse: false,
       };
     default:
       return {
@@ -692,7 +854,8 @@ function tileColors(state: NodeState): TileColors {
         strokeVar: '--md-sys-color-primary',
         iconClass: 'text-primary',
         labelClass: 'text-on-surface',
-        dashed: false, pulse: false,
+        dashed: false,
+        pulse: false,
       };
   }
 }
@@ -710,21 +873,29 @@ function tileIcon(node: CanvasNode): string {
   //   shield-check      — verified, generated detections
   //   clipboard-check   — already-in-library matches
   switch (node.kind) {
-    case 'subject':       return 'threat-actor';
-    case 'tactic':        return 'git-fork';
+    case 'subject':
+      return 'threat-actor';
+    case 'tactic':
+      return 'git-fork';
     case 'behaviour':
       if (node.state === 'engineer_failed') return 'alert-triangle';
-      if (node.state === 'not_detectable')  return 'eye-off';
+      if (node.state === 'not_detectable') return 'eye-off';
       if (node.state === 'needs_telemetry') return 'help-circle';
       return 'swords';
-    case 'opportunity':   return 'search';
-    case 'detection':     return 'shield-check';
-    case 'library_match': return 'clipboard-check';
+    case 'opportunity':
+      return 'search';
+    case 'detection':
+      return 'shield-check';
+    case 'library_match':
+      return 'clipboard-check';
   }
 }
 
 function NodeTile({
-  node, collapsed, onToggle, onClick,
+  node,
+  collapsed,
+  onToggle,
+  onClick,
 }: {
   node: CanvasNode;
   collapsed: boolean;
@@ -741,16 +912,15 @@ function NodeTile({
   const isClickable = !!onClick;
 
   return (
-    <g
-      data-canvas-node="true"
-      transform={`translate(${node.x}, ${node.y})`}
-      onMouseDown={(e) => e.stopPropagation()}
-    >
+    <g data-canvas-node="true" transform={`translate(${node.x}, ${node.y})`} onMouseDown={(e) => e.stopPropagation()}>
       {/* Active pulse ring */}
       {c.pulse && (
         <rect
-          x={tileX - 4} y={tileY - 4}
-          width={TILE + 8} height={TILE + 8} rx={10}
+          x={tileX - 4}
+          y={tileY - 4}
+          width={TILE + 8}
+          height={TILE + 8}
+          rx={10}
           fill="none"
           stroke={`rgb(var(${c.strokeVar}))`}
           strokeWidth={2}
@@ -762,7 +932,11 @@ function NodeTile({
 
       {/* Tile */}
       <rect
-        x={tileX} y={tileY} width={TILE} height={TILE} rx={8}
+        x={tileX}
+        y={tileY}
+        width={TILE}
+        height={TILE}
+        rx={8}
         fill={`rgb(var(${c.fillVar}))`}
         stroke={`rgb(var(${c.strokeVar}))`}
         strokeWidth={1.5}
@@ -787,10 +961,20 @@ function NodeTile({
       {node.hasChildren && !isClickable && (
         <g
           transform={`translate(${tileX + TILE - 14}, ${tileY - 6})`}
-          onClick={(e) => { e.stopPropagation(); onToggle(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
           style={{ cursor: 'pointer' }}
         >
-          <circle r={8} cx={6} cy={6} fill={`rgb(var(--md-sys-color-surface-container-high))`} stroke={`rgb(var(${c.strokeVar}))`} strokeWidth={1} />
+          <circle
+            r={8}
+            cx={6}
+            cy={6}
+            fill={`rgb(var(--md-sys-color-surface-container-high))`}
+            stroke={`rgb(var(${c.strokeVar}))`}
+            strokeWidth={1}
+          />
           <foreignObject x={-2} y={-2} width={16} height={16} pointerEvents="none">
             <div className="flex h-4 w-4 items-center justify-center text-on-surface">
               <Icon name={collapsed ? 'plus' : 'minus'} size={9} />
@@ -805,41 +989,42 @@ function NodeTile({
           shows the same hallucination-defence signal at-a-glance — without
           this, users have to click into every leaf to see whether content
           is verified. Severity ranking: unverified > inconsistent > unsourced. */}
-      {node.kind === 'behaviour' && node.behaviour && (() => {
-        const b = node.behaviour;
-        const unverifiedCount = (b.unverified_mitre_ids ?? []).length;
-        const inconsistentCount = (b.tactic_inconsistent_mitre_ids ?? []).length;
-        const unsourced = b.unsourced === true;
-        if (!unverifiedCount && !inconsistentCount && !unsourced) return null;
-        const fillVar = unverifiedCount > 0
-          ? '--md-sys-color-error'
-          : '--md-sys-color-secondary';
-        const titleAttr = [
-          unverifiedCount > 0 ? `${unverifiedCount} unverified MITRE id${unverifiedCount === 1 ? '' : 's'}` : null,
-          inconsistentCount > 0 ? `${inconsistentCount} tactic mismatch${inconsistentCount === 1 ? '' : 'es'}` : null,
-          unsourced ? 'training-only behaviour' : null,
-        ].filter(Boolean).join(' • ');
-        const totalCount = unverifiedCount + inconsistentCount;
-        return (
-          <g
-            transform={`translate(${tileX - 4}, ${tileY - 6})`}
-            style={{ pointerEvents: 'auto' }}
-          >
-            <title>{titleAttr}</title>
-            <circle
-              r={8} cx={6} cy={6}
-              fill={`rgb(var(${fillVar}))`}
-              stroke={`rgb(var(--md-sys-color-surface))`}
-              strokeWidth={1.5}
-            />
-            <foreignObject x={-2} y={-2} width={16} height={16} pointerEvents="none">
-              <div className="flex h-4 w-4 items-center justify-center text-[8px] font-bold text-on-error">
-                {totalCount > 0 ? totalCount : '!'}
-              </div>
-            </foreignObject>
-          </g>
-        );
-      })()}
+      {node.kind === 'behaviour' &&
+        node.behaviour &&
+        (() => {
+          const b = node.behaviour;
+          const unverifiedCount = (b.unverified_mitre_ids ?? []).length;
+          const inconsistentCount = (b.tactic_inconsistent_mitre_ids ?? []).length;
+          const unsourced = b.unsourced === true;
+          if (!unverifiedCount && !inconsistentCount && !unsourced) return null;
+          const fillVar = unverifiedCount > 0 ? '--md-sys-color-error' : '--md-sys-color-secondary';
+          const titleAttr = [
+            unverifiedCount > 0 ? `${unverifiedCount} unverified MITRE id${unverifiedCount === 1 ? '' : 's'}` : null,
+            inconsistentCount > 0 ? `${inconsistentCount} tactic mismatch${inconsistentCount === 1 ? '' : 'es'}` : null,
+            unsourced ? 'training-only behaviour' : null,
+          ]
+            .filter(Boolean)
+            .join(' • ');
+          const totalCount = unverifiedCount + inconsistentCount;
+          return (
+            <g transform={`translate(${tileX - 4}, ${tileY - 6})`} style={{ pointerEvents: 'auto' }}>
+              <title>{titleAttr}</title>
+              <circle
+                r={8}
+                cx={6}
+                cy={6}
+                fill={`rgb(var(${fillVar}))`}
+                stroke={`rgb(var(--md-sys-color-surface))`}
+                strokeWidth={1.5}
+              />
+              <foreignObject x={-2} y={-2} width={16} height={16} pointerEvents="none">
+                <div className="flex h-4 w-4 items-center justify-center text-[8px] font-bold text-on-error">
+                  {totalCount > 0 ? totalCount : '!'}
+                </div>
+              </foreignObject>
+            </g>
+          );
+        })()}
 
       {/* Label — line-clamp-2 uses the 2-line space NODE_H reserves. The
           previous `truncate` class enforced a single line, wasting half
@@ -855,7 +1040,9 @@ function NodeTile({
             {node.label}
           </div>
           {node.subtitle && (
-            <div className="truncate px-1 text-[10px] opacity-80" title={node.subtitle}>{node.subtitle}</div>
+            <div className="truncate px-1 text-[10px] opacity-80" title={node.subtitle}>
+              {node.subtitle}
+            </div>
           )}
         </div>
       </foreignObject>
@@ -864,20 +1051,21 @@ function NodeTile({
 }
 
 const EDGE_STROKE: Record<NodeState, { color: string; opacity: number; width: number }> = {
-  active:           { color: '--md-sys-color-primary',         opacity: 1.0, width: 2 },
-  covered:          { color: '--md-sys-color-tertiary',        opacity: 0.7, width: 1.5 },
-  fail:             { color: '--md-sys-color-error',           opacity: 0.7, width: 1.5 },
-  engineer_failed:  { color: '--md-sys-color-error',           opacity: 0.7, width: 1.5 },
-  not_detectable:   { color: '--md-sys-color-outline',         opacity: 0.5, width: 1.2 },
-  needs_telemetry:  { color: '--md-sys-color-secondary',       opacity: 0.7, width: 1.5 },
-  pending:          { color: '--md-sys-color-outline-variant', opacity: 0.6, width: 1.2 },
-  archived:         { color: '--md-sys-color-outline-variant', opacity: 0.4, width: 1 },
-  default:          { color: '--md-sys-color-outline',         opacity: 0.6, width: 1.2 },
+  active: { color: '--md-sys-color-primary', opacity: 1.0, width: 2 },
+  covered: { color: '--md-sys-color-tertiary', opacity: 0.7, width: 1.5 },
+  fail: { color: '--md-sys-color-error', opacity: 0.7, width: 1.5 },
+  qa_error: { color: '--md-sys-color-secondary', opacity: 0.7, width: 1.5 },
+  engineer_failed: { color: '--md-sys-color-error', opacity: 0.7, width: 1.5 },
+  not_detectable: { color: '--md-sys-color-outline', opacity: 0.5, width: 1.2 },
+  needs_telemetry: { color: '--md-sys-color-secondary', opacity: 0.7, width: 1.5 },
+  pending: { color: '--md-sys-color-outline-variant', opacity: 0.6, width: 1.2 },
+  archived: { color: '--md-sys-color-outline-variant', opacity: 0.4, width: 1 },
+  default: { color: '--md-sys-color-outline', opacity: 0.6, width: 1.2 },
 };
 
 function Edge({ edge, layout }: { edge: CanvasEdge; layout: { nodes: CanvasNode[] } }) {
-  const from = layout.nodes.find(n => n.id === edge.from);
-  const to = layout.nodes.find(n => n.id === edge.to);
+  const from = layout.nodes.find((n) => n.id === edge.from);
+  const to = layout.nodes.find((n) => n.id === edge.to);
   if (!from || !to) return null;
 
   // Cubic bezier with vertical-tangent control points at both ends.
@@ -886,9 +1074,9 @@ function Edge({ edge, layout }: { edge: CanvasEdge; layout: { nodes: CanvasNode[
   // from parent's bottom and entering vertically at child's top.
   const tileX = (NODE_W - TILE) / 2;
   const x1 = from.x + tileX + TILE / 2;
-  const y1 = from.y + NODE_H;       // emerge BELOW parent label
+  const y1 = from.y + NODE_H; // emerge BELOW parent label
   const x2 = to.x + tileX + TILE / 2;
-  const y2 = to.y;                  // enter at TOP of child tile
+  const y2 = to.y; // enter at TOP of child tile
 
   const s = EDGE_STROKE[edge.state];
 

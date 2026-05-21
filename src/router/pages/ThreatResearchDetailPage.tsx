@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/Button';
 import { useToast } from '../../hooks/useToast';
 import { useThreatResearchSession } from '../../hooks/useThreatResearchSession';
 import { useThreatResearchEvents } from '../../hooks/useThreatResearchEvents';
+import { useThreatResearchJobs } from '../../hooks/useThreatResearchJobs';
 import { cancelThreatResearch, resumeFailedSession, retryDetectionLeaf } from '../../lib/threatResearchService';
 import { ResearchHeader } from '../../components/threat-research/ResearchHeader';
 import { ResearchCanvas } from '../../components/threat-research/ResearchCanvas';
@@ -12,41 +13,29 @@ import { ResearchList } from '../../components/threat-research/ResearchList';
 import { ResearchActivityConsole } from '../../components/threat-research/ResearchActivityConsole';
 import { DetectionLeafCard } from '../../components/threat-research/DetectionLeafCard';
 import { ROUTES } from '../routes';
-import type { AttackBehaviour, DetectionOpportunity, ThreatResearchEvent } from '../../types/threatResearch';
+import type { AttackBehaviour, DetectionOpportunity } from '../../types/threatResearch';
 import { usePermissions } from '../../context/PermissionsContext';
 
-/** Count `agent_started` minus terminal events per behaviour_id; behaviours
- *  with positive count have an agent running on them right now. The agent
- *  loop emits exactly one agent_started and exactly one agent_completed/failed
- *  per invocation, so this stays balanced even with QA refinements stacking
- *  on top of the engineer pass.
+/** Behaviour ids with an agent currently working on them, derived from the
+ *  jobs table (authoritative). The previous events-derived implementation
+ *  short-circuited on any historical session_failed event — which meant
+ *  after resume_session flipped the session back to running, the UI showed
+ *  zero active workers forever, even while real workers were emitting
+ *  qa_refinement_started and agent_started events in real time.
  *
- *  Defence against stuck counts: if a session-terminal event has been emitted,
- *  the session is over and nothing can still be running — return empty.
- *  Workers that die before emitting agent_failed (e.g. reaper-killed) would
- *  otherwise leave a behaviour pulsing forever. */
-function deriveActiveBehaviourIds(events: ThreatResearchEvent[]): Set<string> {
-  const sessionEnded = events.some(
-    e => e.event_type === 'session_completed'
-      || e.event_type === 'session_failed'
-      || e.event_type === 'session_cancelled',
-  );
-  if (sessionEnded) return new Set();
-
-  const counts = new Map<string, number>();
-  for (const ev of events) {
-    const payload = ev.payload as { behaviour_id?: unknown } | null;
-    const bid = typeof payload?.behaviour_id === 'string' ? payload.behaviour_id : null;
-    if (!bid) continue;
-    if (ev.event_type === 'agent_started') {
-      counts.set(bid, (counts.get(bid) ?? 0) + 1);
-    } else if (ev.event_type === 'agent_completed' || ev.event_type === 'agent_failed') {
-      counts.set(bid, (counts.get(bid) ?? 0) - 1);
+ *  A behaviour is "active" if any of its composite leaves (b1/o1, b1/o2,
+ *  ...) has a detection or qa job in `running` status. We also fold in the
+ *  attack_research phase, which is keyed off the bare behaviour id. */
+function deriveActiveBehaviourIds(
+  byLeaf: ReadonlyMap<string, { detection_status: string | null; qa_status: string | null }>,
+  attackResearchActive: ReadonlySet<string>,
+): Set<string> {
+  const active = new Set<string>(attackResearchActive);
+  for (const [composite, leaf] of byLeaf) {
+    if (leaf.detection_status === 'running' || leaf.qa_status === 'running') {
+      const slash = composite.indexOf('/');
+      if (slash >= 0) active.add(composite.slice(0, slash));
     }
-  }
-  const active = new Set<string>();
-  for (const [bid, count] of counts) {
-    if (count > 0) active.add(bid);
   }
   return active;
 }
@@ -62,7 +51,11 @@ export function ThreatResearchDetailPage() {
   // realtime updates after any mutation; replaced.
   const { session, loading, error, refetch } = useThreatResearchSession(id ?? null);
   const events = useThreatResearchEvents(id ?? null);
-  const activeBehaviourIds = useMemo(() => deriveActiveBehaviourIds(events), [events]);
+  const jobs = useThreatResearchJobs(id ?? null);
+  const activeBehaviourIds = useMemo(
+    () => deriveActiveBehaviourIds(jobs.byLeaf, jobs.attackResearchActive),
+    [jobs.byLeaf, jobs.attackResearchActive],
+  );
   const [view, setView] = useState<'canvas' | 'list'>('canvas');
   const [activityOpen, setActivityOpen] = useState(false);
   const [selected, setSelected] = useState<{ behaviour: AttackBehaviour; opportunity: DetectionOpportunity } | null>(null);
@@ -135,6 +128,23 @@ export function ThreatResearchDetailPage() {
   return (
     <div className="flex h-full flex-col">
       <ResearchHeader session={session} view={view} onViewChange={setView} />
+
+      {/* Planner-degraded banner. ext-amber wash matches the design
+          system's Warning / Medium-severity treatment. */}
+      {tree.planner_status === 'degraded' && (
+        <div className="flex items-center gap-3 border-b border-ext-amber/30 bg-ext-amber/10 px-6 py-3">
+          <Icon name="alert-triangle" size={16} className="flex-shrink-0 text-ext-amber" />
+          <div className="min-w-0 flex-1 text-sm text-on-surface">
+            <span className="font-semibold">Opportunity Planner did not run.</span>{' '}
+            <span className="text-on-surface-variant">
+              Detections were generated 1:1 per behaviour without canonical clustering, so this output may contain near-duplicate detections. Resume the session to re-run the planner.
+            </span>
+          </div>
+          <Button variant="filled" color="primary" size="sm" onClick={handleResume}>
+            Re-run planner
+          </Button>
+        </div>
+      )}
 
       {/* List view: inline status banner row above the table — full width,
           no overlap. */}
@@ -225,23 +235,24 @@ export function ThreatResearchDetailPage() {
             session={session}
             tree={tree}
             activeBehaviourIds={activeBehaviourIds}
+            jobsByLeaf={jobs.byLeaf}
             sessionFailed={session.status === 'failed'}
             onLeafClick={(b, o) => setSelected({ behaviour: b, opportunity: o })}
             onRetryLeaf={handleRetryLeaf}
             onMutated={refetch}
           />
         )}
-      </div>
 
-      {selected && (
-        <DetectionLeafCard
-          session={session}
-          behaviour={selected.behaviour}
-          opportunity={selected.opportunity}
-          onClose={() => setSelected(null)}
-          onMutated={refetch}
-        />
-      )}
+        {selected && (
+          <DetectionLeafCard
+            session={session}
+            behaviour={selected.behaviour}
+            opportunity={selected.opportunity}
+            onClose={() => setSelected(null)}
+            onMutated={refetch}
+          />
+        )}
+      </div>
     </div>
   );
 }

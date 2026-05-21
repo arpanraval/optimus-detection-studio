@@ -19,6 +19,7 @@ export type {
   AnthropicCallResponse,
   AnthropicMessage,
   AnthropicContentBlock,
+  AnthropicDebugEvent,
   ToolUse,
 } from "./anthropic-raw.ts";
 

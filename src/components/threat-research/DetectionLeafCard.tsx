@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
 import { useToast } from '../../hooks/useToast';
-import { saveDetectionFromLeaf, archiveLeaf, unarchiveLeaf } from '../../lib/threatResearchService';
+import { saveDetectionFromLeaf, archiveLeaf, unarchiveLeaf, completeQa } from '../../lib/threatResearchService';
 import { routeHelpers } from '../../router/routes';
 import type { ThreatResearchSession, AttackBehaviour, DetectionOpportunity } from '../../types/threatResearch';
 
@@ -121,25 +121,38 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
     }
   }
 
+  async function handleRetryQa() {
+    setBusy(true);
+    try {
+      const { enqueued } = await completeQa(session.id);
+      showToast('info', enqueued > 0 ? `Queued QA for ${enqueued} detection${enqueued === 1 ? '' : 's'}` : 'No QA work to queue');
+      onMutated();
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'QA retry failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // Collapsed: just a thin rail with an expand button.
   if (collapsed) {
     return (
-      <aside className="fixed right-0 top-0 z-40 flex h-full w-10 flex-col items-center border-l border-outline-variant bg-surface-container shadow-2xl">
+      <aside className="absolute inset-y-0 right-0 z-40 flex w-10 flex-col items-center border-l border-outline-variant bg-surface-container shadow-2xl animate-slide-left">
         <button
           onClick={() => setCollapsed(false)}
           aria-label="Expand detection panel"
-          className="mt-3 flex h-8 w-8 items-center justify-center rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
+          className="mt-3 flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-primary/10 hover:text-primary"
         >
           <Icon name="chevron-left" size={18} />
         </button>
         <button
           onClick={onClose}
           aria-label="Close detection panel"
-          className="mt-1 flex h-8 w-8 items-center justify-center rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
+          className="mt-1 flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-error/10 hover:text-error"
         >
           <Icon name="x" size={16} />
         </button>
-        <div className="mt-3 -rotate-90 whitespace-nowrap text-[11px] font-medium text-on-surface-variant">
+        <div className="pointer-events-none mt-3 -rotate-90 whitespace-nowrap text-[11px] font-medium text-on-surface-variant">
           {det.name.slice(0, 40)}
         </div>
       </aside>
@@ -148,7 +161,7 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
 
   return (
     <aside
-      className="fixed right-0 top-0 z-40 flex h-full flex-col border-l border-outline-variant bg-surface-container shadow-2xl"
+      className="absolute inset-y-0 right-0 z-40 flex flex-col border-l border-outline-variant bg-surface-container shadow-2xl animate-slide-left"
       style={{ width: `${width}px` }}
     >
       {/* Resize handle on the LEFT edge */}
@@ -217,6 +230,14 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
                   </span>
                 )}
               </>
+            )}
+            {!det.qa && det.qa_error && (
+              <span
+                className="inline-flex items-center rounded-full bg-surface-variant px-2 py-0.5 font-medium text-on-surface-variant"
+                title={`QA pipeline did not produce a verdict (${det.qa_error}). The detection itself is still valid — retry to re-run QA.`}
+              >
+                QA: didn&apos;t run
+              </span>
             )}
             <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${FEASIBILITY_STYLE[det.feasibility]}`}>
               Feasibility: {det.feasibility}
@@ -337,13 +358,14 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
         onSave={handleSave}
         onArchive={handleArchive}
         onUnarchive={handleUnarchive}
+        onRetryQa={handleRetryQa}
       />
     </aside>
   );
 }
 
 function Footer({
-  det, busy, confirmFailedSave, setConfirmFailedSave, onSave, onArchive, onUnarchive,
+  det, busy, confirmFailedSave, setConfirmFailedSave, onSave, onArchive, onUnarchive, onRetryQa,
 }: {
   det: DetectionOpportunity['detection'];
   busy: boolean;
@@ -352,11 +374,28 @@ function Footer({
   onSave: () => void;
   onArchive: () => void;
   onUnarchive: () => void;
+  onRetryQa: () => void;
 }) {
   const qaFailed = det.qa?.verdict === 'fail';
-  const saveBlocked = qaFailed && !confirmFailedSave;
+  const qaMissing = !det.saved_detection_id && !det.qa;
+  const saveBlocked = (qaFailed && !confirmFailedSave) || qaMissing;
   return (
     <div className="border-t border-outline-variant px-5 py-3">
+      {qaMissing && (
+        <div className="mb-2 flex items-start justify-between gap-3 rounded-md bg-surface-variant px-3 py-2 text-xs text-on-surface-variant">
+          <span>
+            <span className="font-medium text-on-surface">QA verdict required.</span>{' '}
+            {det.qa_error
+              ? `The QA pipeline stopped with ${det.qa_error}. Retry QA before saving.`
+              : 'QA is still pending. Wait for the verdict before saving.'}
+          </span>
+          {det.qa_error && (
+            <Button variant="tonal" color="primary" size="sm" onClick={onRetryQa} disabled={busy}>
+              Retry QA
+            </Button>
+          )}
+        </div>
+      )}
       {qaFailed && !det.saved_detection_id && (
         <label className="mb-2 flex items-start gap-2 text-xs text-on-surface-variant">
           <input
