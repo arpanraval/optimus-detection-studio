@@ -1443,6 +1443,9 @@ async function devRunPreflightDefenderXdr(params: {
   if (integration.provider !== 'defender_xdr') {
     throw new Error('Pre-flight currently supports Microsoft Defender XDR integrations only');
   }
+  if (integration.status !== 'connected') {
+    throw new Error('Integration is not connected (INTEGRATION_NOT_CONNECTED)');
+  }
 
   const { data: detection, error: detErr } = await supabase
     .from('detections')
@@ -1451,6 +1454,7 @@ async function devRunPreflightDefenderXdr(params: {
     .single();
   if (detErr || !detection) throw new Error('Detection not found');
 
+  // KQL-query extraction — mirrors pickKqlQuery() in supabase/functions/integration-ops/index.ts; keep in sync.
   const kqlFromArray = (detection.queries || []).find(
     (q: { language?: string; query?: string }) =>
       q.language && q.language.toUpperCase() === 'KQL' && q.query && q.query.trim() !== '',
@@ -1458,6 +1462,7 @@ async function devRunPreflightDefenderXdr(params: {
   const kqlQuery =
     kqlFromArray?.query ||
     (detection.detectionQuery &&
+    detection.detectionQuery.trim() !== '' &&
     detection.queryLanguage &&
     detection.queryLanguage.toUpperCase() === 'KQL'
       ? detection.detectionQuery
@@ -1465,6 +1470,9 @@ async function devRunPreflightDefenderXdr(params: {
   if (!kqlQuery) throw new Error('Detection has no KQL query to run');
 
   const config = (integration.config || {}) as Record<string, unknown>;
+  if (!config.tenantId) {
+    throw new Error('Integration is missing tenantId — re-save its credentials in integration settings.');
+  }
   const credentials = await migrateDevCredentials(params.integrationId, config);
   if (!credentials) {
     throw new Error('Dev credentials not found — please re-enter credentials in integration settings.');
