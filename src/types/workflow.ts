@@ -159,6 +159,7 @@ export type AuditEventAction =
   | 'detection.promoted'
   | 'detection.promotion_requested'
   | 'detection.deployed'
+  | 'detection.preflight'
   | 'detection.assigned'
   | 'detection.unassigned'
   | 'detection.copied'
