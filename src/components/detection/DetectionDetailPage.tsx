@@ -29,6 +29,15 @@ import { TabErrorBoundary } from './TabErrorBoundary';
 import { DetectionInsightsPanel } from './DetectionInsightsPanel';
 import { useDetectionQuality } from '../../hooks/useDetectionQuality';
 
+const PREFLIGHT_STATUS_LABEL: Record<string, string> = {
+  pending: 'pending',
+  success: 'done',
+  query_error: 'error',
+  connection_error: 'error',
+  timeout: 'timed out',
+  permission_denied: 'denied',
+};
+
 interface DetectionDetailPageProps {
   detection: Detection;
   onBack: () => void;
@@ -493,13 +502,13 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                    onClick={() => setShowPreflight(true)}
                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-outline-variant/30 text-on-surface hover:bg-surface-container-high transition-colors"
                  >
-                   <Icon name="zap" className="w-3.5 h-3.5" />
+                   <Icon name="play" className="w-3.5 h-3.5" />
                    Test in SIEM
                    {latestPreflight && (
                      <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-md bg-surface-container-highest text-on-surface-variant">
                        {latestPreflight.hit_count !== null
                          ? `${latestPreflight.hit_count.toLocaleString()} hits`
-                         : latestPreflight.status}
+                         : (PREFLIGHT_STATUS_LABEL[latestPreflight.status] ?? latestPreflight.status)}
                      </span>
                    )}
                  </button>
