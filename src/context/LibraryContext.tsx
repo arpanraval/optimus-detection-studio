@@ -94,7 +94,6 @@ export interface ServerFilters {
   queryLanguage?: string[];
   author?: string[];
   detectionType?: string[];
-  maturity?: string[];
   technology?: string[];
   logSource?: string[];
   promotion_status?: string[];
@@ -132,7 +131,7 @@ const applyServerFilters = (query: any, filters: ServerFilters): any => {
   // String fields: .in(field, values)
   const stringFields: (keyof ServerFilters)[] = [
     'status', 'severity', 'queryLanguage', 'author', 'detectionType',
-    'maturity', 'technology', 'logSource', 'promotion_status', 'source', 'review_status'
+    'technology', 'logSource', 'promotion_status', 'source', 'review_status'
   ];
   for (const field of stringFields) {
     const vals = filters[field];
@@ -220,7 +219,7 @@ const applyServerFilters = (query: any, filters: ServerFilters): any => {
 // only needed by DetectionDetailPage and DetectionFormPage, which fetch on-demand.
 const LIBRARY_COLUMNS = [
   'id', 'name', 'description', 'author', 'user_id',
-  'status', 'severity', 'maturity', 'detectionType', 'confidence',
+  'status', 'severity', 'detectionType',
   'testedAndValidated', 'qualityScore',
   'queryLanguage', 'platforms', 'logSources', 'logSource', 'technology',
   'mitreAttackIds', 'mitreTactics', 'mitreTechniques',

@@ -522,13 +522,11 @@ const CompleteDetectionMockup = () => (
           </div>
         </div>
 
-        {/* Status / Severity / Confidence / Maturity row */}
-        <div className="grid grid-cols-4 gap-3">
+        {/* Status / Severity row */}
+        <div className="grid grid-cols-2 gap-3">
           {[
             { label: 'STATUS', value: 'Draft', valueColor: 'text-white/35' },
             { label: 'SEVERITY', value: 'Medium', valueColor: 'text-amber-400/70' },
-            { label: 'CONFIDENCE', value: 'Medium', valueColor: 'text-white/40' },
-            { label: 'MATURITY', value: 'Initial', valueColor: 'text-white/35' },
           ].map(f => (
             <div key={f.label}>
               <label className="mono text-[8px] text-white/25 tracking-wider block mb-1">{f.label}</label>

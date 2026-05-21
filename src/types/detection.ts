@@ -1,4 +1,4 @@
-import { Status, Maturity, DetectionType, Severity, Confidence } from './enums';
+import { Status, DetectionType, Severity } from './enums';
 import {
   type LibraryType,
   type PromotionStatus,
@@ -120,10 +120,8 @@ export interface Detection {
   description: string;
   author: string;
   status: Status;
-  maturity: Maturity;
   detectionType: DetectionType;
   severity: Severity;
-  confidence: Confidence;
 
   // === DATA SOURCES ===
   logSource: string;              // Legacy - single log source
@@ -226,10 +224,8 @@ export const createEmptyDetection = (userId: string): Partial<Detection> => ({
   description: '',
   author: '',
   status: Status.Draft,
-  maturity: Maturity.Experimental,
   detectionType: DetectionType.Detection,
   severity: Severity.Medium,
-  confidence: Confidence.Medium,
   logSource: '',
   logSources: [],
   dataSources: [],

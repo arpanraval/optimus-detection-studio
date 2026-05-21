@@ -437,7 +437,6 @@ export interface MatchedDetection {
   id: string;
   name: string;
   severity: string;
-  confidence: string;
   mitreAttackIds: string[];
   mitreTechniques: string[];
   mitreTactics: string[];
@@ -498,7 +497,7 @@ export async function matchDetectionsByLogSources(
   while (!done) {
     const { data, error } = await supabase
       .from('detections')
-      .select('id,name,severity,confidence,mitreAttackIds,mitreTechniques,mitreTactics,queryLanguage,logSource,technology,status,qualityScore,testedAndValidated')
+      .select('id,name,severity,mitreAttackIds,mitreTechniques,mitreTactics,queryLanguage,logSource,technology,status,qualityScore,testedAndValidated')
       .range(from, from + pageSize - 1);
 
     if (error) {
@@ -513,7 +512,6 @@ export async function matchDetectionsByLogSources(
           id: d.id,
           name: d.name,
           severity: d.severity || 'Medium',
-          confidence: d.confidence || 'Medium',
           mitreAttackIds: d.mitreAttackIds || [],
           mitreTechniques: d.mitreTechniques || [],
           mitreTactics: d.mitreTactics || [],

@@ -35,7 +35,6 @@ export interface RecommendedDetection {
   id: string;
   name: string;
   severity: string;
-  confidence: string;
   mitreTechniques: string[];
   mitreAttackIds: string[];
   queryLanguage: string;
@@ -400,7 +399,6 @@ export function useProfileIntelligence(
               {
                 name: d.name,
                 severity: d.severity,
-                confidence: d.confidence,
                 queryLanguage: d.queryLanguage,
                 qualityScore: d.qualityScore ?? 0,
                 testedAndValidated: d.testedAndValidated ?? false,
@@ -417,7 +415,6 @@ export function useProfileIntelligence(
               id: d.id,
               name: d.name,
               severity: d.severity,
-              confidence: d.confidence,
               mitreTechniques: d.mitreTechniques || [],
               mitreAttackIds: ids,
               queryLanguage: d.queryLanguage,

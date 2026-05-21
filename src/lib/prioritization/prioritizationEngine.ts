@@ -14,7 +14,6 @@ import { scoreToGrade } from '../quality/scoringEngine';
 
 export interface PriorityBreakdown {
   severity: number;
-  confidence: number;
   threatGroups: number;
   siemReady: number;
   crownJewel: number;
@@ -44,10 +43,6 @@ export interface PriorityResult {
 
 export const SEVERITY_SCORE: Record<string, number> = {
   'Critical': 4, 'High': 3, 'Medium': 2, 'Low': 1, 'Informational': 0,
-};
-
-export const CONFIDENCE_SCORE: Record<string, number> = {
-  'High': 1, 'Medium': 0, 'Low': -1,
 };
 
 export const QUALITY_BOOST: Record<string, number> = {
@@ -126,7 +121,6 @@ export function buildCrownJewelPatterns(crownJewels: string[]): Map<RegExp, stri
  *
  * Score components:
  *  - Severity:      0-12 (weighted x3 for stronger differentiation)
- *  - Confidence:    -2 to +2 (weighted x2)
  *  - Threat groups: 0-6 (capped, scales with matched group count)
  *  - SIEM ready:    0-3 (native=3, Sigma=1, other=0)
  *  - Crown jewel:   0 or 3
@@ -137,7 +131,6 @@ export function computePriorityScore(
   detection: {
     name: string;
     severity: string;
-    confidence: string;
     queryLanguage: string;
     qualityScore: number;
     testedAndValidated: boolean;
@@ -151,8 +144,6 @@ export function computePriorityScore(
 
   // Severity: 0-12 (weighted x3 for stronger differentiation)
   const sevScore = (SEVERITY_SCORE[detection.severity] || 0) * 3;
-  // Confidence: -2 to +2 (weighted x2)
-  const confScore = (CONFIDENCE_SCORE[detection.confidence] || 0) * 2;
   // Threat groups: scales with count, capped at 6
   const groupBoost = Math.min(context.matchedGroupNames.length * 2, 6);
   // SIEM readiness: native > Sigma > other
@@ -177,11 +168,10 @@ export function computePriorityScore(
   // Validated/tested bonus
   const validatedBoost = detection.testedAndValidated ? 2 : 0;
 
-  const score = sevScore + confScore + groupBoost + siemBoost + crownBoost + qualityBoost + validatedBoost;
+  const score = sevScore + groupBoost + siemBoost + crownBoost + qualityBoost + validatedBoost;
 
   const breakdown: PriorityBreakdown = {
     severity: sevScore,
-    confidence: confScore,
     threatGroups: groupBoost,
     siemReady: siemBoost,
     crownJewel: crownBoost,

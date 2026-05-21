@@ -9,7 +9,7 @@ import { ROUTES, routeHelpers } from '../routes';
 const URL_FILTER_KEYS = [
   'status', 'severity', 'technology', 'logSource', 'queryLanguage',
   'author', 'platforms', 'mitreTactics', 'mitreTechniques', 'tags',
-  'detectionType', 'maturity', 'qualityGrade', 'testedAndValidated',
+  'detectionType', 'qualityGrade', 'testedAndValidated',
   'publish_status', 'source', 'threatActors', 'campaigns', 'software',
   'associatedCVEs',
 ];

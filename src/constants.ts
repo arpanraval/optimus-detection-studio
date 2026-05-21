@@ -1,5 +1,5 @@
 
-import { Status, Severity, DetectionType, Maturity, Confidence } from './types';
+import { Status, Severity, DetectionType } from './types';
 
 // Query language options
 export const QUERY_LANGUAGES = [
@@ -98,10 +98,8 @@ export const TECHNOLOGIES = [
 
 // All enum values as arrays for dropdowns
 export const STATUSES = Object.values(Status);
-export const MATURITIES = Object.values(Maturity);
 export const DETECTION_TYPES = Object.values(DetectionType);
 export const SEVERITIES = Object.values(Severity);
-export const CONFIDENCES = Object.values(Confidence);
 
 // Color mappings
 export const SEVERITY_COLORS: Record<Severity, string> = {
@@ -110,12 +108,6 @@ export const SEVERITY_COLORS: Record<Severity, string> = {
   [Severity.Medium]: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
   [Severity.Low]: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
   [Severity.Informational]: 'bg-gray-500/20 text-gray-400 border-gray-500/30'
-};
-
-export const CONFIDENCE_COLORS: Record<Confidence, string> = {
-  [Confidence.High]: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-  [Confidence.Medium]: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-  [Confidence.Low]: 'bg-red-500/20 text-red-400 border-red-500/30'
 };
 
 export const STATUS_COLORS: Record<Status, string> = {

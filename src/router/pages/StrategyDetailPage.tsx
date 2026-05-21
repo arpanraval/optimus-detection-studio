@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { DetectionStrategyDetailPage } from '../../components/strategies';
 import { PageErrorBoundary } from '../../components/ErrorBoundary';
 import { ROUTES, routeHelpers } from '../routes';
-import { Status, Maturity, DetectionType, Severity, Confidence } from '../../types';
+import { Status, DetectionType, Severity } from '../../types';
 
 export const StrategyDetailPage: React.FC = () => {
   const navigate = useNavigate();
@@ -41,10 +41,8 @@ export const StrategyDetailPage: React.FC = () => {
       linkedGroups: prefill.linkedGroups || [],
       linkedCampaigns: prefill.linkedCampaigns || [],
       status: Status.Draft,
-      maturity: Maturity.Experimental,
       detectionType: DetectionType.Detection,
       severity: Severity.Medium,
-      confidence: Confidence.Medium,
     };
     sessionStorage.setItem('detectionDraft', JSON.stringify(draft));
     navigate(ROUTES.DETECTION_NEW);

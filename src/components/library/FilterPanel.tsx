@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { FilterCheckboxGroup } from './FilterCheckboxGroup';
 import type { FilterOptions } from '../../hooks/useFilterOptions';
-import { Status, Severity, DetectionType, Maturity, Confidence } from '../../types';
+import { Status, Severity, DetectionType } from '../../types';
 import { QUERY_LANGUAGES } from '../../constants';
 
 export interface FilterPreset {
@@ -26,8 +26,6 @@ interface FilterPanelProps {
 const STATUS_OPTIONS = Object.values(Status);
 const SEVERITY_OPTIONS = Object.values(Severity);
 const TYPE_OPTIONS = Object.values(DetectionType);
-const MATURITY_OPTIONS = Object.values(Maturity);
-const CONFIDENCE_OPTIONS = Object.values(Confidence);
 const QUALITY_GRADE_OPTIONS = ['A', 'B', 'C', 'D', 'F'];
 const REVIEW_STATUS_OPTIONS = ['none', 'requested', 'in_review', 'approved', 'rejected'];
 const PROMOTION_STATUS_OPTIONS = ['none', 'pending', 'promoted', 'rejected'];
@@ -48,8 +46,6 @@ const FILTER_FIELDS: FilterFieldDef[] = [
   { field: 'status', label: 'Status', options: STATUS_OPTIONS },
   { field: 'severity', label: 'Severity', options: SEVERITY_OPTIONS },
   { field: 'detectionType', label: 'Detection Type', options: TYPE_OPTIONS },
-  { field: 'maturity', label: 'Maturity', options: MATURITY_OPTIONS },
-  { field: 'confidence', label: 'Confidence', options: CONFIDENCE_OPTIONS },
   { field: 'testedAndValidated', label: 'Validated', options: VALIDATED_OPTIONS },
   { field: 'mitreTactics', label: 'MITRE Tactics', options: 'dynamic', dynamicKey: 'mitre_tactics' },
   { field: 'mitreTechniques', label: 'MITRE Techniques', options: 'dynamic', dynamicKey: 'mitre_techniques' },

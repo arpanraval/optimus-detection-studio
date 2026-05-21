@@ -1,7 +1,7 @@
 // Context for sharing app data across route components
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { User } from '@supabase/supabase-js';
-import { Detection, Profile, Status, Severity, Maturity, DetectionType, Confidence } from '../types';
+import { Detection, Profile, Status, Severity, DetectionType } from '../types';
 import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION } from '../constants/library';
 import { supabase } from '../lib/supabaseClient';
 import { loadMitreFrameworkData, getMitreFramework, MitreFramework } from '../mitre';
@@ -49,10 +49,8 @@ const sanitizeDetectionData = (data: any[]): Detection[] => {
 const sanitizeSingleDetection = (d: any): Detection => ({
   ...d,
   status: d.status || Status.Backlog,
-  maturity: d.maturity || Maturity.Experimental,
   detectionType: d.detectionType || DetectionType.Detection,
   severity: d.severity || Severity.Low,
-  confidence: d.confidence || Confidence.Medium,
   testedAndValidated: d.testedAndValidated ?? false,
   name: d.name || 'Untitled Detection',
   description: d.description || '',
@@ -115,7 +113,7 @@ const sanitizeSingleDetection = (d: any): Detection => ({
 // only needed by DetectionDetailPage and DetectionFormPage, which fetch on-demand.
 const LIGHTWEIGHT_COLUMNS = [
   'id', 'name', 'description', 'author', 'user_id',
-  'status', 'severity', 'maturity', 'detectionType', 'confidence',
+  'status', 'severity', 'detectionType',
   'testedAndValidated', 'qualityScore',
   'queryLanguage', 'platforms', 'logSources', 'logSource', 'technology',
   'mitreAttackIds', 'mitreTactics', 'mitreTechniques',

@@ -13,13 +13,6 @@ export enum Status {
   Archived = 'Archived'
 }
 
-export enum Maturity {
-  Experimental = 'Experimental',
-  Beta = 'Beta',
-  Production = 'Production',
-  Stable = 'Stable'
-}
-
 export enum DetectionType {
   Detection = 'Detection',
   Hunting = 'Threat Hunting',
@@ -33,10 +26,4 @@ export enum Severity {
   Medium = 'Medium',
   Low = 'Low',
   Informational = 'Informational'
-}
-
-export enum Confidence {
-  High = 'High',
-  Medium = 'Medium',
-  Low = 'Low'
 }

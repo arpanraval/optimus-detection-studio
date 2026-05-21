@@ -72,21 +72,6 @@ const SEVERITY_COLORS: Record<string, { bg: string; text: string }> = {
   'Informational': { bg: COLORS.surfaceDim, text: COLORS.textMuted },
 };
 
-// Confidence color mapping
-const CONFIDENCE_COLORS: Record<string, { bg: string; text: string }> = {
-  'High': { bg: COLORS.successLight, text: COLORS.success },
-  'Medium': { bg: COLORS.warningLight, text: COLORS.warning },
-  'Low': { bg: COLORS.errorLight, text: COLORS.error },
-};
-
-// Maturity color mapping
-const MATURITY_COLORS: Record<string, { bg: string; text: string }> = {
-  'Stable': { bg: COLORS.successLight, text: COLORS.success },
-  'Production': { bg: COLORS.primaryLight, text: COLORS.primary },
-  'Beta': { bg: COLORS.warningLight, text: COLORS.warning },
-  'Experimental': { bg: COLORS.surfaceDim, text: COLORS.textSecondary },
-};
-
 // Detection type color mapping
 const DETECTION_TYPE_COLORS: Record<string, { bg: string; text: string }> = {
   'Detection': { bg: COLORS.infoLight, text: COLORS.info },
@@ -143,10 +128,8 @@ export const EXPORT_COLUMNS: ExportColumn[] = [
   { key: 'description', header: 'Description', getValue: d => d.description || '', width: 60, category: 'basic' },
   { key: 'author', header: 'Author', getValue: d => d.author || '', width: 20, category: 'basic' },
   { key: 'status', header: 'Status', getValue: d => d.status || '', width: 14, category: 'basic' },
-  { key: 'maturity', header: 'Maturity', getValue: d => d.maturity || '', width: 14, category: 'basic' },
   { key: 'detectionType', header: 'Detection Type', getValue: d => d.detectionType || '', width: 16, category: 'basic' },
   { key: 'severity', header: 'Severity', getValue: d => d.severity || '', width: 12, category: 'basic' },
-  { key: 'confidence', header: 'Confidence', getValue: d => d.confidence || '', width: 12, category: 'basic' },
   { key: 'qualityScore', header: 'Quality Score', getValue: d => String(d.qualityScore || 0), width: 14, category: 'basic' },
   
   // === DATA SOURCES ===
@@ -223,7 +206,7 @@ export const EXPORT_COLUMNS: ExportColumn[] = [
 // Column categories for export modal
 export const COLUMN_CATEGORIES: { key: string; label: string; columns: string[] }[] = [
   { key: 'identity', label: 'Identity', columns: ['id', 'user_id', 'version', 'external_id'] },
-  { key: 'basic', label: 'Basic Information', columns: ['name', 'description', 'author', 'status', 'maturity', 'detectionType', 'severity', 'confidence', 'qualityScore'] },
+  { key: 'basic', label: 'Basic Information', columns: ['name', 'description', 'author', 'status', 'detectionType', 'severity', 'qualityScore'] },
   { key: 'datasources', label: 'Data Sources', columns: ['logSource', 'logSources', 'dataSources', 'dataComponents', 'platforms', 'technology'] },
   { key: 'detection', label: 'Detection Logic', columns: ['queryLanguage', 'detectionQuery', 'queryExplanation', 'queries'] },
   { key: 'mitre', label: 'MITRE ATT&CK', columns: ['mitreAttackIds', 'mitreTactics', 'mitreTechniques'] },
@@ -488,14 +471,6 @@ export async function downloadExcel(detections: Detection[], filename?: string, 
         
         if (col.key === 'status' && value && STATUS_COLORS[value]) {
           applyColorStyle(cell, STATUS_COLORS[value]);
-        }
-        
-        if (col.key === 'maturity' && value && MATURITY_COLORS[value]) {
-          applyColorStyle(cell, MATURITY_COLORS[value]);
-        }
-        
-        if (col.key === 'confidence' && value && CONFIDENCE_COLORS[value]) {
-          applyColorStyle(cell, CONFIDENCE_COLORS[value]);
         }
         
         if (col.key === 'detectionType' && value && DETECTION_TYPE_COLORS[value]) {

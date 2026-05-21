@@ -33,7 +33,6 @@ const BREAKDOWN_LABELS: Record<keyof PriorityBreakdown, string> = {
   siemReady: 'SIEM Ready',
   crownJewel: 'Crown Jewel',
   validated: 'Validated',
-  confidence: 'Confidence',
 };
 
 interface DetectionActionQueueProps {

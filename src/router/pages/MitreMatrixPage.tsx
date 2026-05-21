@@ -4,7 +4,7 @@ import { MitreDashboard } from '../../components/MitreDashboard';
 import { PageErrorBoundary } from '../../components/ErrorBoundary';
 import { useAppData } from '../AppDataContext';
 import { ROUTES, routeHelpers } from '../routes';
-import { Detection, Status, Maturity, DetectionType, Severity, Confidence } from '../../types';
+import { Detection, Status, DetectionType, Severity } from '../../types';
 
 export const MitreMatrixPage: React.FC = () => {
   const navigate = useNavigate();
@@ -40,10 +40,8 @@ export const MitreMatrixPage: React.FC = () => {
       logSources: draft.dataSources || [],
       platforms: draft.platforms || [],
       status: Status.Draft,
-      maturity: Maturity.Experimental,
       detectionType: DetectionType.Detection,
       severity: Severity.Medium,
-      confidence: Confidence.Medium,
     };
     sessionStorage.setItem('detectionDraft', JSON.stringify(fullDraft));
     navigate(ROUTES.DETECTION_NEW);

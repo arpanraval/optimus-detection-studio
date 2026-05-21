@@ -64,19 +64,6 @@ const DETECTION_TYPE_COLORS: Record<string, { bg: string; text: string }> = {
   Heuristic: { bg: COLORS.warningLight, text: COLORS.warning },
 };
 
-const CONFIDENCE_COLORS: Record<string, { bg: string; text: string }> = {
-  High: { bg: COLORS.successLight, text: COLORS.success },
-  Medium: { bg: COLORS.warningLight, text: COLORS.warning },
-  Low: { bg: COLORS.errorLight, text: COLORS.error },
-};
-
-const MATURITY_COLORS: Record<string, { bg: string; text: string }> = {
-  Mature: { bg: COLORS.successLight, text: COLORS.success },
-  Stable: { bg: COLORS.primaryLight, text: COLORS.primary },
-  Experimental: { bg: COLORS.warningLight, text: COLORS.warning },
-  Deprecated: { bg: COLORS.errorLight, text: COLORS.error },
-};
-
 // ============================================================================
 // PDF EXPORT SECTIONS CONFIGURATION
 // ============================================================================
@@ -91,7 +78,7 @@ export interface PDFExportSection {
 export const PDF_EXPORT_SECTIONS: PDFExportSection[] = [
   { key: 'header', label: 'Header & Summary', description: 'Detection name, ID, status badges, quality score', icon: 'file-text' },
   { key: 'description', label: 'Description', description: 'Full detection description text', icon: 'align-left' },
-  { key: 'classification', label: 'Classification', description: 'Status, severity, confidence, maturity, detection type', icon: 'tag' },
+  { key: 'classification', label: 'Classification', description: 'Status, severity, detection type', icon: 'tag' },
   { key: 'datasources', label: 'Data Sources', description: 'Log sources, platforms, technologies', icon: 'database' },
   { key: 'mitre', label: 'MITRE ATT&CK', description: 'Tactics, techniques, and sub-techniques mapping', icon: 'shield' },
   { key: 'threat_intel', label: 'Threat Intelligence', description: 'Linked groups, software, campaigns', icon: 'users' },
@@ -335,14 +322,8 @@ export async function generateDetectionPDF(
     const severityColors = SEVERITY_COLORS[detection.severity] ?? { bg: COLORS.surfaceDim, text: COLORS.textSecondary };
     badgeX += drawPill(doc, badgeX, yPos, detection.severity, severityColors.bg, severityColors.text, 22) + 4;
     const typeColors = DETECTION_TYPE_COLORS[detection.detectionType] ?? { bg: COLORS.infoLight, text: COLORS.info };
-    badgeX += drawPill(doc, badgeX, yPos, detection.detectionType, typeColors.bg, typeColors.text, 26) + 4;
-    
-    // Confidence and Maturity pills
-    const confColors = CONFIDENCE_COLORS[detection.confidence] ?? { bg: COLORS.surfaceDim, text: COLORS.textSecondary };
-    badgeX += drawPill(doc, badgeX, yPos, detection.confidence, confColors.bg, confColors.text, 22) + 4;
-    const matColors = MATURITY_COLORS[detection.maturity] ?? { bg: COLORS.surfaceDim, text: COLORS.textSecondary };
-    drawPill(doc, badgeX, yPos, detection.maturity, matColors.bg, matColors.text, 26);
-    
+    drawPill(doc, badgeX, yPos, detection.detectionType, typeColors.bg, typeColors.text, 26);
+
     yPos += 12;
     doc.setDrawColor(...hexToRgb(COLORS.border));
     doc.setLineWidth(0.3);
@@ -377,8 +358,6 @@ export async function generateDetectionPDF(
     const classificationRows = [
       ['Status', detection.status, 'status'],
       ['Severity', detection.severity, 'severity'],
-      ['Confidence', detection.confidence, 'confidence'],
-      ['Maturity', detection.maturity, 'maturity'],
       ['Detection Type', detection.detectionType, 'type'],
       ['Author', detection.author || 'N/A', 'text'],
     ];
@@ -399,8 +378,6 @@ export async function generateDetectionPDF(
         let colors: { bg: string; text: string } | undefined;
         if (rowType === 'status') colors = STATUS_COLORS[value];
         else if (rowType === 'severity') colors = SEVERITY_COLORS[value];
-        else if (rowType === 'confidence') colors = CONFIDENCE_COLORS[value];
-        else if (rowType === 'maturity') colors = MATURITY_COLORS[value];
         else if (rowType === 'type') colors = DETECTION_TYPE_COLORS[value];
         if (colors) { data.cell.styles.fillColor = hexToRgb(colors.bg); data.cell.styles.textColor = hexToRgb(colors.text); data.cell.styles.fontStyle = 'bold'; }
       },
