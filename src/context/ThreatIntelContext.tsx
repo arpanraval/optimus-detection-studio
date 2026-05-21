@@ -314,7 +314,7 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
       const { data, error } = await withTimeout(
         supabase
           .from('threat_intel_reports')
-          .select('id, name, updated_at, report_title, threat_level, attack_type, attribution, organization, ttp_count, ioc_count, rule_count, coverage_percent, ttps, source, source_feed_name, source_article_url, review_status, review_note, relevance_score, feasible_gap_count, infeasible_gap_count, campaign_id')
+          .select('id, name, updated_at, report_title, threat_level, attack_type, attribution, organization, ttp_count, ioc_count, rule_count, coverage_percent, ttps, summary, classification, mitre_mapping, source, source_feed_name, source_article_url, review_status, review_note, relevance_score, feasible_gap_count, infeasible_gap_count, campaign_id')
           .eq('user_id', userId)
           .order('updated_at', { ascending: false })
           .limit(100),
@@ -323,7 +323,8 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
 
       if (error) throw error;
 
-      // Calculate coverage on the fly if not stored
+      // Calculate coverage on the fly if not stored; fall back to JSONB for
+      // cached columns that were null due to a historic field-name mismatch
       const summaries = (data || []).map((record: any) => {
         let coveragePercent = record.coverage_percent ?? 0;
 
@@ -334,10 +335,20 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
           coveragePercent = Math.round((coveredTtps / ttps.length) * 100);
         }
 
-        return {
-          ...dbRecordToSummary(record),
-          coveragePercent,
-        };
+        const summary = dbRecordToSummary(record);
+
+        // Backfill cached columns from JSONB when missing (older auto-digested reports)
+        if (!summary.threatLevel && record.summary?.threatLevel) {
+          summary.threatLevel = record.summary.threatLevel as ThreatLevel;
+        }
+        if (!summary.attackType && record.classification?.primaryType) {
+          summary.attackType = record.classification.primaryType as AttackType;
+        }
+        if (!summary.attribution && record.mitre_mapping?.matchedGroups?.[0]?.name) {
+          summary.attribution = record.mitre_mapping.matchedGroups[0].name;
+        }
+
+        return { ...summary, coveragePercent };
       });
       setReports(summaries);
     } catch (err) {

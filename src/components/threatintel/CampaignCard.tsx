@@ -23,7 +23,7 @@ export const CampaignCard: React.FC<CampaignCardProps> = ({ campaign }) => {
       <div className="flex items-center gap-2 mb-3">
         <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-md bg-primary/20 text-primary inline-flex items-center gap-1">
           <Icon name="git-merge" className="w-2.5 h-2.5" />
-          Campaign
+          Story
         </span>
         {campaign.severity && (
           <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-md bg-on-surface/5 text-on-surface-variant">

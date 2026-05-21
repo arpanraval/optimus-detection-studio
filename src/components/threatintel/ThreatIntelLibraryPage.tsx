@@ -15,6 +15,7 @@ import {
   badgeSizes,
   getThreatLevelConfig,
   getAttackTypeConfig,
+  mitreChipColors,
 } from '../../lib/ui/badges';
 
 // =============================================================================
@@ -421,8 +422,23 @@ const isCoverageMeaningful = (report: { ttpCount?: number; coveragePercent?: num
 };
 
 // =============================================================================
-// REPORT CARD - Cyber Aesthetic Design
+// REPORT CARD
 // =============================================================================
+
+/** Tracks the document's dark-mode class so card styles can respond. */
+const useDarkMode = () => {
+  const [dark, setDark] = useState(() =>
+    document.documentElement.classList.contains('dark')
+  );
+  useEffect(() => {
+    const mo = new MutationObserver(() =>
+      setDark(document.documentElement.classList.contains('dark'))
+    );
+    mo.observe(document.documentElement, { attributeFilter: ['class'] });
+    return () => mo.disconnect();
+  }, []);
+  return dark;
+};
 
 interface ReportCardProps {
   report: ThreatIntelSessionSummary;
@@ -431,129 +447,148 @@ interface ReportCardProps {
   onDelete: () => void;
 }
 
-const ReportCard: React.FC<ReportCardProps> = ({ report, to, onClick, onDelete }) => {
-  const coveragePercent = report.coveragePercent ?? 0;
 
-  // Threat level badge colors
-  const threatColors: Record<string, { bg: string; text: string }> = {
-    Critical: { bg: 'bg-red-500/15', text: 'text-red-400' },
-    High: { bg: 'bg-orange-500/15', text: 'text-orange-400' },
-    Medium: { bg: 'bg-yellow-500/15', text: 'text-yellow-400' },
-    Low: { bg: 'bg-blue-500/15', text: 'text-blue-400' },
-    Informational: { bg: 'bg-slate-500/15', text: 'text-slate-400' },
-  };
-  const threatStyle = threatColors[report.threatLevel || ''] || threatColors.Informational;
+const ReportCard: React.FC<ReportCardProps> = ({ report, to, onClick, onDelete }) => {
+  const [hovered, setHovered] = useState(false);
+  const dark = useDarkMode();
+  const coveragePercent = report.coveragePercent ?? 0;
+  const threat = getThreatLevelConfig(report.threatLevel);
+  const attackCfg = getAttackTypeConfig(report.attackType);
+  const attrCfg = mitreChipColors.group;
+
+  // Light mode: dark drop-shadows show depth.
+  // Dark mode: drop-shadows are invisible — use bright inset top-edge highlight
+  // for resting elevation, and a brand-colored outer glow on hover.
+  const shadow = hovered
+    ? dark
+      ? '0 0 0 3px rgba(120,50,100,0.18), 0 0 0 1px rgba(120,50,100,0.5), inset 0 1px 0 rgba(255,255,255,0.09)'
+      : '0 0 0 4px rgba(120,50,100,0.06), 0 4px 12px rgba(0,0,0,0.10), 0 12px 32px rgba(0,0,0,0.08)'
+    : dark
+      ? 'inset 0 1px 0 rgba(255,255,255,0.06)'
+      : '0 1px 2px rgba(0,0,0,0.05), 0 2px 8px rgba(0,0,0,0.06)';
+
+  const border = hovered
+    ? '1px solid rgba(120,50,100,0.5)'
+    : dark
+      ? '1px solid rgba(255,255,255,0.09)'
+      : '1px solid rgba(0,0,0,0.12)';
 
   return (
     <Link
       to={to}
       onClick={onClick}
-      className="group relative rounded-2xl p-5 cursor-pointer border border-outline-variant/20
-                 hover:border-[#783264]/40 transition-all duration-200 overflow-hidden
-                 bg-surface-container-low dark:bg-[#13161c] flex flex-col h-full no-underline text-inherit"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="flex flex-col h-full no-underline text-inherit rounded-xl cursor-pointer"
+      style={{
+        // Dark: #1c1f28 sits clearly above the ~#0d0f14 page surface.
+        // Light: use the theme surface-container token.
+        background: dark ? '#1c1f28' : 'var(--md-sys-color-surface-container)',
+        border,
+        boxShadow: shadow,
+        transition: 'box-shadow 0.2s ease, border-color 0.2s ease',
+      }}
     >
-      {/* Dot matrix pattern overlay */}
-      <div
-        className="absolute inset-0 pointer-events-none opacity-[0.02] dark:opacity-[0.03]"
-        style={{
-          backgroundImage: `radial-gradient(circle, currentColor 0.5px, transparent 0.5px)`,
-          backgroundSize: '8px 8px',
-        }}
-      />
+      {/* Card body */}
+      <div className="flex flex-col flex-1 p-5">
 
-      {/* Corner accent lines */}
-      <div className="absolute top-0 right-0 w-12 h-12 pointer-events-none overflow-hidden opacity-40">
-        <div className="absolute top-3 right-[-16px] w-10 h-px bg-gradient-to-r from-transparent via-[#783264] to-transparent rotate-45" />
-        <div className="absolute top-5 right-[-12px] w-8 h-px bg-gradient-to-r from-transparent via-[#783264]/60 to-transparent rotate-45" />
-      </div>
-
-      {/* Content */}
-      <div className="relative flex flex-col flex-1">
-        {/* Badges row - fixed height */}
-        <div className="flex items-center gap-2 flex-wrap mb-3 min-h-[28px]">
-          {report.threatLevel && (
-            <span className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md ${threatStyle.bg} ${threatStyle.text}`}>
-              {report.threatLevel}
-            </span>
-          )}
-          {report.attackType && report.attackType !== AttackType.Unknown && (
-            <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md bg-on-surface/5 text-on-surface-variant">
-              {report.attackType}
-            </span>
-          )}
-          {report.attribution && (
-            <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md bg-red-500/10 text-red-400">
-              {report.attribution}
-            </span>
-          )}
-          {report.campaignId && (
-            <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md bg-primary/15 text-primary inline-flex items-center gap-1">
-              <Icon name="git-merge" className="w-2.5 h-2.5" />
-              Campaign
-            </span>
-          )}
-          {/* Delete - top right */}
+        {/* Badges + delete */}
+        <div className="flex items-start justify-between gap-2 mb-3.5 min-h-[26px]">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {report.threatLevel && (
+              <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-md border ${threat.bg} ${threat.text} ${threat.border}`}>
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${threat.dot}`} />
+                {report.threatLevel}
+              </span>
+            )}
+            {report.attackType && report.attackType !== AttackType.Unknown && (
+              <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-md border ${attackCfg.bg} ${attackCfg.text} ${attackCfg.border}`}>
+                {report.attackType}
+              </span>
+            )}
+            {report.attribution && (
+              <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-md border ${attrCfg.bg} ${attrCfg.text} ${attrCfg.border}`}>
+                {report.attribution}
+              </span>
+            )}
+            {report.campaignId && (
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-md border ${mitreChipColors.campaign.bg} ${mitreChipColors.campaign.text} ${mitreChipColors.campaign.border}`}>
+                <Icon name="git-merge" className="w-2.5 h-2.5" />
+                Story
+              </span>
+            )}
+          </div>
           <button
             onClick={(e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); onDelete(); }}
-            className="ml-auto p-1.5 rounded-lg text-on-surface-variant/30 hover:text-error hover:bg-error/10 transition-colors"
+            className="shrink-0 p-1.5 rounded-lg text-on-surface-variant/25 hover:text-error hover:bg-error/10 transition-colors"
             aria-label="Delete"
           >
-            <Icon name="trash" className="w-4 h-4" />
+            <Icon name="trash" className="w-3.5 h-3.5" />
           </button>
         </div>
 
-        {/* Title - fixed height for 2 lines */}
-        <h3 className="text-base font-semibold text-on-surface line-clamp-2 leading-snug mb-4 min-h-[2.75rem] group-hover:text-[#783264] transition-colors">
+        {/* Title */}
+        <h3
+          className="text-[15px] font-semibold line-clamp-2 leading-snug mb-3 min-h-[2.5rem]"
+          style={{
+            color: hovered ? '#783264' : 'var(--md-sys-color-on-surface)',
+            transition: 'color 0.2s ease',
+          }}
+        >
           {report.reportTitle || 'Untitled Report'}
         </h3>
 
-        {/* Meta row - fixed height */}
-        <div className="flex items-center text-xs text-on-surface-variant/60 mb-5 min-h-[1.25rem]">
-          {report.organization ? (
+        {/* Meta */}
+        <div className="mt-auto flex items-center gap-1 text-[11px] text-on-surface-variant/50">
+          {report.organization && (
             <>
-              <Icon name="globe" className="w-3.5 h-3.5 mr-1.5 opacity-60" />
-              <span className="truncate max-w-[150px]">{report.organization}</span>
-              <span className="mx-2 opacity-40">•</span>
+              <Icon name="globe" className="w-3 h-3 shrink-0" />
+              <span className="truncate max-w-[140px] font-medium">{report.organization}</span>
+              <span className="mx-1 opacity-40">·</span>
             </>
-          ) : null}
-          <Icon name="clock" className="w-3.5 h-3.5 mr-1.5 opacity-60" />
+          )}
+          <Icon name="clock" className="w-3 h-3 shrink-0" />
           <span>{formatDate(report.updatedAt)}</span>
         </div>
+      </div>
 
-        {/* Stats row - pushed to bottom */}
-        <div className="flex items-end justify-between pt-4 border-t border-outline-variant/10 mt-auto">
-          <div className="flex items-end gap-6">
-            <div>
-              <div className="text-2xl font-mono font-bold text-tertiary">{report.ttpCount || 0}</div>
-              <div className="text-[10px] uppercase tracking-widest text-on-surface-variant/40 font-semibold">TTPs</div>
-            </div>
-            <div>
-              <div className="text-2xl font-mono font-bold text-secondary">{report.iocCount || 0}</div>
-              <div className="text-[10px] uppercase tracking-widest text-on-surface-variant/40 font-semibold">IoCs</div>
-            </div>
-            <div>
-              <div className="text-2xl font-mono font-bold text-primary">{report.ruleCount || 0}</div>
-              <div className="text-[10px] uppercase tracking-widest text-on-surface-variant/40 font-semibold">Rules</div>
-            </div>
+      {/* Stats footer — slightly recessed surface */}
+      <div
+        className="flex items-center justify-between px-5 py-3.5"
+        style={{
+          borderTop: dark ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(0,0,0,0.07)',
+          background: dark ? '#161820' : 'rgba(0,0,0,0.025)',
+        }}
+      >
+        <div className="flex items-center">
+          <div className="pr-4 border-r border-outline-variant/25 text-center">
+            <div className="text-xl font-mono font-bold text-tertiary leading-none mb-0.5">{report.ttpCount || 0}</div>
+            <div className="text-[9px] uppercase tracking-widest text-on-surface-variant/40 font-bold">TTPs</div>
           </div>
-          {/* Coverage */}
-          <div className="text-right">
-            {isCoverageMeaningful(report) ? (
-              <>
-                <div className={`text-2xl font-mono font-bold ${
-                  coveragePercent >= 70 ? 'text-green-400' : coveragePercent >= 40 ? 'text-amber-400' : 'text-red-400'
-                }`}>
-                  {coveragePercent}%
-                </div>
-                <div className="text-[10px] uppercase tracking-widest text-on-surface-variant/40 font-semibold">Coverage</div>
-              </>
-            ) : (
-              <>
-                <div className="text-2xl font-mono font-bold text-on-surface-variant/40">—</div>
-                <div className="text-[10px] uppercase tracking-widest text-on-surface-variant/40 font-semibold">Coverage</div>
-              </>
-            )}
+          <div className="px-4 border-r border-outline-variant/25 text-center">
+            <div className="text-xl font-mono font-bold text-secondary leading-none mb-0.5">{report.iocCount || 0}</div>
+            <div className="text-[9px] uppercase tracking-widest text-on-surface-variant/40 font-bold">IoCs</div>
           </div>
+          <div className="pl-4 text-center">
+            <div className="text-xl font-mono font-bold text-primary leading-none mb-0.5">{report.ruleCount || 0}</div>
+            <div className="text-[9px] uppercase tracking-widest text-on-surface-variant/40 font-bold">Rules</div>
+          </div>
+        </div>
+
+        <div className="text-right">
+          {isCoverageMeaningful(report) ? (
+            <>
+              <div className={`text-xl font-mono font-bold leading-none mb-0.5 ${
+                coveragePercent >= 70 ? 'text-green-400' : coveragePercent >= 40 ? 'text-amber-400' : 'text-red-400'
+              }`}>{coveragePercent}%</div>
+              <div className="text-[9px] uppercase tracking-widest text-on-surface-variant/40 font-bold">Coverage</div>
+            </>
+          ) : (
+            <>
+              <div className="text-xl font-mono font-bold text-on-surface-variant/30 leading-none mb-0.5">—</div>
+              <div className="text-[9px] uppercase tracking-widest text-on-surface-variant/40 font-bold">Coverage</div>
+            </>
+          )}
         </div>
       </div>
     </Link>
@@ -1082,13 +1117,13 @@ export const ThreatIntelLibraryPage: React.FC = () => {
       {/* ========== CONTENT ========== */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
         <div className="max-w-[1920px] mx-auto">
-          {/* Active Campaigns — auto-digest merged-report clusters */}
+          {/* Active Stories — auto-digest merged-report clusters */}
           {digestCampaigns.length > 0 && (
             <div className="mb-8">
               <div className="flex items-center gap-2 mb-3">
                 <Icon name="git-merge" className="w-4 h-4 text-primary" />
                 <h2 className="text-sm font-semibold uppercase tracking-widest text-on-surface-variant">
-                  Active Campaigns
+                  Active Stories
                 </h2>
                 <span className="text-xs font-mono text-on-surface-variant/60">({digestCampaigns.length})</span>
               </div>

@@ -54,7 +54,8 @@ const SYSTEM_ERROR_PREFIXES = [
   'Digest ',
   'Report save ',
   'Feasibility ',
-  'Campaign-detect ',
+  'Campaign-detect ',  // legacy prefix from the old actor-based detector — kept so historical errors still classify as system errors
+  'Subject-link ',     // current prefix emitted by the orchestrator when linkBySubject throws
   'Phase ',
   'No auto_digest_settings',
   'Feed query failed',

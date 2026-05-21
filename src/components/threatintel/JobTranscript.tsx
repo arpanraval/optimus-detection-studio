@@ -13,7 +13,7 @@ interface JobTranscriptProps {
 // stages. Adding a new event type requires both updating EVENT_STAGE here
 // and the CHECK constraint in 20260429d_auto_digest_run_events.sql.
 
-type StageKey = 'harvest' | 'classify' | 'rank' | 'digest';
+type StageKey = 'harvest' | 'classify' | 'rank' | 'digest' | 'link';
 
 const EVENT_STAGE: Record<DigestEventType, StageKey> = {
   feed_fetched:                'harvest',
@@ -25,6 +25,11 @@ const EVENT_STAGE: Record<DigestEventType, StageKey> = {
   article_ranked:              'rank',
   article_digested:            'digest',
   article_digest_failed:       'digest',
+  campaign_link_evaluated:     'link',
+  campaign_link_skipped:       'link',
+  campaign_link_ambiguous:     'link',
+  campaign_created:            'link',
+  campaign_updated:            'link',
 };
 
 // =============================================================================
@@ -411,7 +416,88 @@ const DigestDetail: React.FC<{
 };
 
 // =============================================================================
-// Main component — assembles 4 stage panels (collapsible)
+// Stage 5 — Link to Story detail
+// =============================================================================
+//
+// One row per linker decision (per digested article). The AI subject-equivalence
+// call may return: no matches (standalone), a single existing campaign to join,
+// or multiple campaigns (ambiguous — joined the largest). We render the
+// rationale verbatim so users can audit the call.
+
+const LinkDetail: React.FC<{
+  evaluated: DigestEvent[];
+  skipped: DigestEvent[];
+  ambiguous: DigestEvent[];
+  created: DigestEvent[];
+  updated: DigestEvent[];
+}> = ({ evaluated, skipped, ambiguous, created, updated }) => {
+  // We collapse evaluated rows that have a paired created/updated/skipped row
+  // for the same article. The terminal event carries the actionable verdict;
+  // the evaluated row is mostly an audit trace and would just duplicate.
+  const terminalByArticle = useMemo(() => {
+    const map = new Map<string, DigestEvent>();
+    for (const e of [...created, ...updated, ...ambiguous, ...skipped]) {
+      if (e.article_id) map.set(e.article_id, e);
+    }
+    return map;
+  }, [created, updated, ambiguous, skipped]);
+
+  const visibleEvaluated = evaluated.filter(
+    (e) => !e.article_id || !terminalByArticle.has(e.article_id),
+  );
+
+  const all = [
+    ...created.map((e) => ({ e, kind: 'created' as const })),
+    ...updated.map((e) => ({ e, kind: 'updated' as const })),
+    ...ambiguous.map((e) => ({ e, kind: 'ambiguous' as const })),
+    ...skipped.map((e) => ({ e, kind: 'skipped' as const })),
+    ...visibleEvaluated.map((e) => ({ e, kind: 'evaluated' as const })),
+  ].sort((a, b) => new Date(a.e.created_at).getTime() - new Date(b.e.created_at).getTime());
+
+  if (all.length === 0) {
+    return <div className="py-2 text-sm text-on-surface-variant">No articles reached the linker.</div>;
+  }
+
+  const LABELS: Record<typeof all[number]['kind'], { label: string; tone: StatusTone }> = {
+    created:   { label: 'New story',      tone: 'ok'   },
+    updated:   { label: 'Joined story',   tone: 'ok'   },
+    ambiguous: { label: 'Ambiguous',      tone: 'warn' },
+    skipped:   { label: 'Standalone',     tone: 'idle' },
+    evaluated: { label: 'Evaluated',      tone: 'idle' },
+  };
+
+  return (
+    <ul className="space-y-1">
+      {all.map(({ e, kind }) => {
+        const { label, tone } = LABELS[kind];
+        const payload = (e.payload as Record<string, unknown> | null) ?? {};
+        const subject = typeof payload.proposed_subject === 'string'
+          ? payload.proposed_subject
+          : typeof payload.subject === 'string' ? payload.subject : null;
+        return (
+          <li key={e.id} className="py-1.5">
+            <div className="grid grid-cols-[auto_auto_1fr_auto] gap-x-3 items-baseline">
+              <span className="text-xs font-mono tabular-nums text-on-surface-variant/70">{formatTime(e.created_at)}</span>
+              <Verdict tone={tone} label={label} />
+              <span className="min-w-0 truncate text-sm"><ArticleLink event={e} /></span>
+              {subject && (
+                <span className="text-xs text-on-surface-variant truncate max-w-[240px]" title={subject}>
+                  {subject}
+                </span>
+              )}
+            </div>
+            {e.reason && (
+              <div className="mt-1 ml-[calc(2.75rem+100px+0.75rem)] text-xs text-on-surface-variant leading-snug">{e.reason}</div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+};
+
+// =============================================================================
+// Main component — assembles 5 stage panels (collapsible)
 // =============================================================================
 
 export const JobTranscript: React.FC<JobTranscriptProps> = ({ job }) => {
@@ -419,7 +505,7 @@ export const JobTranscript: React.FC<JobTranscriptProps> = ({ job }) => {
   const { events, isLoading } = useAutoDigestEvents(job.id, { live: isLive });
 
   const byStage = useMemo(() => {
-    const groups: Record<StageKey, DigestEvent[]> = { harvest: [], classify: [], rank: [], digest: [] };
+    const groups: Record<StageKey, DigestEvent[]> = { harvest: [], classify: [], rank: [], digest: [], link: [] };
     for (const e of events) groups[EVENT_STAGE[e.event_type]].push(e);
     return groups;
   }, [events]);
@@ -469,6 +555,13 @@ export const JobTranscript: React.FC<JobTranscriptProps> = ({ job }) => {
   const digestFailed = byStage.digest.filter((e) => e.event_type === 'article_digest_failed');
   const totalDigestMs = digested.reduce((sum, e) => sum + (e.duration_ms ?? 0), 0);
 
+  // ── LINK ──
+  const linkEvaluated = byStage.link.filter((e) => e.event_type === 'campaign_link_evaluated');
+  const linkSkipped   = byStage.link.filter((e) => e.event_type === 'campaign_link_skipped');
+  const linkAmbiguous = byStage.link.filter((e) => e.event_type === 'campaign_link_ambiguous');
+  const linkCreated   = byStage.link.filter((e) => e.event_type === 'campaign_created');
+  const linkUpdated   = byStage.link.filter((e) => e.event_type === 'campaign_updated');
+
   // Per-stage tone — feed-transport blips never flip a stage.
   const harvestTone: StatusTone = feedFailed.length > 0 && feedFetched.length === 0
     ? 'err'
@@ -480,6 +573,11 @@ export const JobTranscript: React.FC<JobTranscriptProps> = ({ job }) => {
   const digestTone: StatusTone = digestFailed.length > 0
     ? (digested.length > 0 ? 'warn' : 'err')
     : (digested.length === 0 ? 'idle' : 'ok');
+  const linkActivity = linkEvaluated.length + linkSkipped.length + linkAmbiguous.length
+                     + linkCreated.length + linkUpdated.length;
+  const linkTone: StatusTone = linkActivity === 0
+    ? 'idle'
+    : (linkAmbiguous.length > 0 ? 'warn' : 'ok');
 
   return (
     <div className="px-3 py-2 bg-surface-container-low/30 border-t border-outline-variant/30 divide-y divide-outline-variant/30">
@@ -548,6 +646,37 @@ export const JobTranscript: React.FC<JobTranscriptProps> = ({ job }) => {
         }
       >
         <DigestDetail digested={digested} failed={digestFailed} />
+      </StageSection>
+
+      <StageSection
+        index={5}
+        title="Link to Story"
+        subtitle="Group multi-vendor coverage of the same story into one entry"
+        tone={linkTone}
+        summary={
+          <span className="text-on-surface-variant">
+            {linkActivity === 0 ? (
+              <span className="text-on-surface-variant">not run</span>
+            ) : (
+              <>
+                {linkCreated.length > 0 && <><span className="text-on-surface font-medium tabular-nums">{linkCreated.length}</span> new {linkCreated.length === 1 ? 'story' : 'stories'}</>}
+                {linkCreated.length > 0 && (linkUpdated.length > 0 || linkSkipped.length > 0) && ' · '}
+                {linkUpdated.length > 0 && <><span className="text-on-surface tabular-nums">{linkUpdated.length}</span> joined</>}
+                {linkUpdated.length > 0 && linkSkipped.length > 0 && ' · '}
+                {linkSkipped.length > 0 && <><span className="text-on-surface-variant tabular-nums">{linkSkipped.length}</span> standalone</>}
+                {linkAmbiguous.length > 0 && <> · <span className="text-ext-amber tabular-nums">{linkAmbiguous.length}</span> ambiguous</>}
+              </>
+            )}
+          </span>
+        }
+      >
+        <LinkDetail
+          evaluated={linkEvaluated}
+          skipped={linkSkipped}
+          ambiguous={linkAmbiguous}
+          created={linkCreated}
+          updated={linkUpdated}
+        />
       </StageSection>
     </div>
   );
