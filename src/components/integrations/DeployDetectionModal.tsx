@@ -17,6 +17,8 @@ import type { AutoRetryKind } from '../../lib/integrationService';
 import { hasPermission } from '../../types';
 import { getDefaultRuleConfig } from '../../lib/providerRuleConfigDefaults';
 import { ProviderRuleConfigForm } from './ProviderRuleConfigForm';
+import { SiemPreflightPanel } from './SiemPreflightPanel';
+import type { PreflightResult } from '../../types';
 
 function getQueryLanguageForProvider(provider: IntegrationProvider): string {
   switch (provider) {
@@ -136,11 +138,12 @@ function validateDetectionForDeploy(
 // Step Indicator
 // =============================================================================
 
-type StepId = 'select' | 'validate' | 'configure' | 'deploying' | 'result';
+type StepId = 'select' | 'validate' | 'preflight' | 'configure' | 'deploying' | 'result';
 
 const STEP_LABELS: { id: StepId; label: string }[] = [
   { id: 'select', label: 'Select' },
   { id: 'validate', label: 'Validate' },
+  { id: 'preflight', label: 'Pre-flight' },
   { id: 'configure', label: 'Configure' },
   { id: 'result', label: 'Result' },
 ];
@@ -219,6 +222,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
   const [deploying, setDeploying] = useState(false);
   const [deployResult, setDeployResult] = useState<DeployResultState | null>(null);
   const [validation, setValidation] = useState<DeployValidation | null>(null);
+  const [preflightResult, setPreflightResult] = useState<PreflightResult | null>(null);
   const [existingDeployment, setExistingDeployment] = useState<DeploymentRecord | null>(null);
   const [deployAction, setDeployAction] = useState<'create' | 'update'>('create');
   const [vendorIdCopied, setVendorIdCopied] = useState(false);
@@ -303,6 +307,12 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
 
   const handleProceedToConfigure = () => {
     if (!selectedIntegration) return;
+
+    // Defender XDR: route through the pre-flight step first.
+    if (selectedIntegration.provider === 'defender_xdr' && step === 'validate') {
+      setStep('preflight');
+      return;
+    }
 
     const config = getDefaultRuleConfig(selectedIntegration.provider);
 
@@ -736,6 +746,51 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                 </div>
               )}
 
+              {/* Step: Pre-flight (Defender XDR only) */}
+              {step === 'preflight' && selectedIntegration && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <button onClick={() => setStep('validate')} className="p-1 rounded hover:bg-surface-container-high">
+                      <Icon name="arrow-left" className="w-4 h-4 text-on-surface-variant" />
+                    </button>
+                    <span className="text-sm font-medium text-on-surface">
+                      Pre-flight — {selectedIntegration.name}
+                    </span>
+                  </div>
+
+                  <SiemPreflightPanel
+                    detection={detection}
+                    integration={selectedIntegration}
+                    mode="deploy"
+                    onResult={setPreflightResult}
+                  />
+
+                  {/* Soft gate: a failed validation warns but never blocks. */}
+                  {preflightResult && !preflightResult.validation_passed && (
+                    <div className="flex items-start gap-2 p-3 rounded-lg border border-error/20 bg-error/5">
+                      <Icon name="alert-triangle" className="w-4 h-4 text-error mt-0.5 flex-shrink-0" />
+                      <p className="text-xs text-error">
+                        The query did not pass validation. You can still deploy, but the rule will likely error in Defender.
+                      </p>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handleProceedToConfigure}
+                    className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-colors mt-2 ${
+                      preflightResult && !preflightResult.validation_passed
+                        ? 'text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/5'
+                        : 'text-on-surface border-outline-variant/30 hover:bg-surface-container-high'
+                    }`}
+                  >
+                    <Icon name="arrow-right" className="w-4 h-4" />
+                    {preflightResult && !preflightResult.validation_passed
+                      ? 'Continue Anyway'
+                      : 'Continue to Configure'}
+                  </button>
+                </div>
+              )}
+
               {/* Step 3: Configure */}
               {step === 'configure' && selectedIntegration && (
                 <div className="space-y-4">
@@ -745,7 +800,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                     </div>
                   )}
                   <div className="flex items-center gap-2 mb-1">
-                    <button onClick={() => setStep('validate')} className="p-1 rounded hover:bg-surface-container-high">
+                    <button onClick={() => setStep(selectedIntegration.provider === 'defender_xdr' ? 'preflight' : 'validate')} className="p-1 rounded hover:bg-surface-container-high">
                       <Icon name="arrow-left" className="w-4 h-4 text-on-surface-variant" />
                     </button>
                     <span className="text-sm font-medium text-on-surface">
