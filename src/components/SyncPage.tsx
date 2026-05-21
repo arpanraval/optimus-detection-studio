@@ -6,6 +6,7 @@ import { usePermissions } from '../context/PermissionsContext';
 import { supabase } from '../lib/supabaseClient';
 import { getEmbeddingStats, backfillDetectionEmbeddings, backfillMitreEmbeddings } from '../lib/embeddingService';
 import { submitBatchJob, checkBatchJob, processBatchResults, getActiveBatchJob, cancelBatchJob, type BatchJob } from '../lib/batchEmbeddingService';
+import { VendorDriftSection } from './sync/VendorDriftSection';
 
 // =============================================================================
 // TYPES
@@ -1540,6 +1541,11 @@ export const SyncPage: React.FC = () => {
                             )}
                         </div>
                     </div>
+                </div>
+
+                {/* ── Vendor Rule Drift ── (full-width section below the card grid) */}
+                <div className="mt-8">
+                    <VendorDriftSection />
                 </div>
 
             </div>

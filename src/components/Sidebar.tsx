@@ -4,6 +4,7 @@ import { Icon } from './Icon';
 import { Detection, Role, Profile } from '../types';
 import { useLibrary } from '../context/LibraryContext';
 import { useTheme } from '../context/ThemeContext';
+import { useDriftSummary } from '../hooks/useDriftSummary';
 import { viewToRoute, ROUTES } from '../router/routes';
 import { readDashboardSummaries } from './dashboard/enterprise/dashboardPersistence';
 import { getAvatarColor } from '../lib/avatar';
@@ -60,7 +61,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { pendingRequests } = useLibrary();
   const { theme, setTheme } = useTheme();
   const location = useLocation();
+  const { summary: driftSummary } = useDriftSummary();
   const pendingCount = pendingRequests?.length || 0;
+  const driftActionable = driftSummary?.totalActionable ?? 0;
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [isHovered, setIsHovered] = useState(false);
   const userHoveredSectionRef = useRef(false); // tracks if user explicitly hovered a rail item
@@ -87,7 +90,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const navSections = getNavSections(userRole, pendingCount);
+  const navSections = getNavSections(userRole, pendingCount, driftActionable);
 
   // Handle mouse enter - expand immediately
   const handleMouseEnter = useCallback(() => {
@@ -442,7 +445,7 @@ function isItemActive(itemId: View, currentView: View, itemUrl?: string, pathnam
   return false;
 }
 
-function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
+function getNavSections(userRole: Role, pendingCount: number, driftActionable: number = 0): NavSection[] {
   const isAdmin = userRole === 'owner' || userRole === 'admin';
   const isOwner = userRole === 'owner';
   
@@ -527,7 +530,7 @@ function getNavSections(userRole: Role, pendingCount: number): NavSection[] {
         { id: 'environment_profile' as View, label: 'Environment' },
         { id: 'scoring_settings' as View, label: 'Defense Impact Intelligence' },
         ...(isAdmin ? [{ id: 'users' as View, label: 'User Management' }] : []),
-        ...(isAdmin ? [{ id: 'data_sync' as View, label: 'Data Sync' }] : []),
+        ...(isAdmin ? [{ id: 'data_sync' as View, label: 'Data Sync', badge: driftActionable }] : []),
         ...(isAdmin ? [{ id: 'audit_log' as View, label: 'Audit Log' }] : []),
         ...(isAdmin ? [{ id: 'cost_center' as View, label: 'AI Cost Center', url: ROUTES.COST_CENTER }] : []),
       ],

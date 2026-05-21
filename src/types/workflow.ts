@@ -163,6 +163,11 @@ export type AuditEventAction =
   | 'detection.unassigned'
   | 'detection.copied'
   | 'detection.moved'
+  // Upstream drift / sync
+  | 'detection.upstream_synced'
+  | 'detection.drift_kept_local'
+  | 'detection.drift_dismissed'
+  | 'detection.sync_reverted'
   // Review
   | 'review.requested'
   | 'review.started'

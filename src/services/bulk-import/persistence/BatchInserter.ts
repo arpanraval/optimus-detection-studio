@@ -588,8 +588,15 @@ export class BatchInserter {
 
     const now = new Date().toISOString();
 
-    // Build vendor_metadata if we have vendor-specific data
-    const vendorMetadata: VendorMetadata | null = (detection as any).vendorMetadata || null;
+    // Build vendor_metadata if we have vendor-specific data.
+    // DetectionNormalizer attaches a base VendorMetadata (sourceFormat, rawContent,
+    // vendorFields, importedAt). We stamp importJobId here so the persisted row
+    // can later be traced back to its bulk_import_jobs entry — and so the drift
+    // checker has a complete baseline.
+    const baseVendorMetadata: VendorMetadata | null = (detection as any).vendorMetadata || null;
+    const vendorMetadata: VendorMetadata | null = baseVendorMetadata
+      ? { ...baseVendorMetadata, importJobId: bulkImportId }
+      : null;
 
     // Create a clean record with proper field mapping
     // Note: Database uses camelCase for most columns
@@ -601,10 +608,8 @@ export class BatchInserter {
       description: detection.description || '',
       author: detection.author || 'Imported',
       status: detection.status,
-      maturity: detection.maturity,
       detectionType: detection.detectionType,
       severity: detection.severity,
-      confidence: detection.confidence,
       logSource: detection.logSource || '',
       logSources: detection.logSources || [],
       dataSources: detection.dataSources || [],

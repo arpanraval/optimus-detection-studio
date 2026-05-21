@@ -8,7 +8,7 @@
  *    Costs 1 API call per directory - impractical for large repos without auth.
  */
 
-import { FetchedFile, FetchResult, ReconReport, RateLimitInfo } from '../types';
+import { FetchedFile, FetchResult, ReconReport, RateLimitInfo, GitTreeEntry } from '../types';
 
 /**
  * Options for GitHub fetching
@@ -26,6 +26,12 @@ export interface GitHubFetchOptions {
   extensions?: string[];
   /** Path patterns to exclude (regex) - applied to DIRECTORY segments only */
   excludePatterns?: RegExp[];
+  /** If set, only download files whose path is in this list (subset of the matching tree). */
+  onlyPaths?: string[];
+  /** AbortSignal — cancels every in-flight fetch when triggered (raw downloads, tree API,
+   *  repo info). Without this, calling `abort()` only stops queueing new batches; the
+   *  currently in-flight requests keep downloading and consume the IP rate limit. */
+  signal?: AbortSignal;
   /** Progress callback */
   onProgress?: (current: number, total: number, fileName: string) => void;
   /** Rate limit callback (legacy - fires when remaining < 10) */
@@ -63,6 +69,20 @@ const DEFAULT_OPTIONS: GitHubFetchOptions = {
 const DOWNLOAD_CONCURRENCY = 10;
 
 /**
+ * Small randomised delay between batches of raw downloads. raw.githubusercontent.com
+ * applies its own anti-abuse limits separate from the API quota — bursting hundreds
+ * of batches back-to-back can trip a 429. 50–100ms jitter every batch of 10 keeps
+ * overall throughput high (~100 files/s) while staying well under abuse thresholds.
+ */
+const BATCH_JITTER_MIN_MS = 50;
+const BATCH_JITTER_MAX_MS = 100;
+
+function batchJitterDelay(): Promise<void> {
+  const delay = BATCH_JITTER_MIN_MS + Math.random() * (BATCH_JITTER_MAX_MS - BATCH_JITTER_MIN_MS);
+  return new Promise((resolve) => setTimeout(resolve, delay));
+}
+
+/**
  * Fetcher for GitHub repositories
  */
 export class GitHubFetcher {
@@ -71,19 +91,38 @@ export class GitHubFetcher {
   private rateLimitReset: Date | null = null;
   private authenticated = false;
   private aborted = false;
+  /** Internal AbortController fired by abort() — its signal is attached to every fetch() call.
+   *  When the caller supplies its own signal in options, both are combined so either source aborts. */
+  private internalAbort = new AbortController();
 
   /**
-   * Abort current operation
+   * Abort current operation — also cancels every in-flight fetch via the internal AbortController
+   * so requests stop downloading immediately, not after the current batch completes.
    */
   abort(): void {
     this.aborted = true;
+    try { this.internalAbort.abort(); } catch { /* noop */ }
   }
 
   /**
-   * Reset abort flag
+   * Reset abort flag — also creates a fresh AbortController so subsequent fetches aren't pre-aborted.
    */
   resetAbort(): void {
     this.aborted = false;
+    this.internalAbort = new AbortController();
+  }
+
+  /** Returns a signal that aborts when EITHER the internal abort() or the caller's signal aborts. */
+  private effectiveSignal(external?: AbortSignal): AbortSignal {
+    if (!external) return this.internalAbort.signal;
+    // AbortSignal.any() is available in modern browsers (Chrome 116+, Firefox 124+, Safari 17.4+).
+    type AnyCtor = { any?: (signals: AbortSignal[]) => AbortSignal };
+    const any = (AbortSignal as unknown as AnyCtor).any;
+    if (typeof any === 'function') return any.call(AbortSignal, [this.internalAbort.signal, external]);
+    // Fallback: forward the external signal into the internal controller.
+    if (external.aborted) { try { this.internalAbort.abort(); } catch { /* noop */ } }
+    else external.addEventListener('abort', () => { try { this.internalAbort.abort(); } catch { /* noop */ } }, { once: true });
+    return this.internalAbort.signal;
   }
 
   /**
@@ -117,7 +156,7 @@ export class GitHubFetcher {
   /**
    * Get repository info including default branch
    */
-  async getRepoInfo(owner: string, repo: string, token?: string): Promise<GitHubRepoInfo | null> {
+  async getRepoInfo(owner: string, repo: string, token?: string, signal?: AbortSignal): Promise<GitHubRepoInfo | null> {
     try {
       const headers: HeadersInit = {
         Accept: 'application/vnd.github.v3+json',
@@ -130,6 +169,7 @@ export class GitHubFetcher {
 
       const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
         headers,
+        signal: this.effectiveSignal(signal),
       });
 
       this.updateRateLimits(response);
@@ -178,7 +218,7 @@ export class GitHubFetcher {
       const { owner, repo, path: urlPath, branch: urlBranch } = parsed;
 
       // Get repo info (1 API call)
-      const repoInfo = await this.getRepoInfo(owner, repo, opts.token);
+      const repoInfo = await this.getRepoInfo(owner, repo, opts.token, opts.signal);
       if (!repoInfo) {
         return {
           success: false,
@@ -191,10 +231,16 @@ export class GitHubFetcher {
       const branch = opts.branch || urlBranch || repoInfo.defaultBranch;
       const basePath = opts.path || urlPath || '';
 
-      // Use Tree API to get all file paths (1 API call)
-      const filePaths = await this.getFilePathsFromTree(owner, repo, branch, basePath, opts);
+      // Use Tree API to get all matching file entries (path + blob SHA; 1 API call)
+      let entries = await this.getFileEntriesFromTree(owner, repo, branch, basePath, opts);
 
-      if (filePaths.length === 0) {
+      // Optionally narrow to an explicit subset (e.g. drift cheap-skip)
+      if (opts.onlyPaths && opts.onlyPaths.length > 0) {
+        const wanted = new Set(opts.onlyPaths);
+        entries = entries.filter((e) => wanted.has(e.path));
+      }
+
+      if (entries.length === 0) {
         return {
           success: true,
           files: [],
@@ -204,7 +250,7 @@ export class GitHubFetcher {
 
       // Download files from raw.githubusercontent.com (no API rate limit)
       const files = await this.downloadFilesFromRaw(
-        owner, repo, branch, filePaths, opts
+        owner, repo, branch, entries, opts
       );
 
       const totalSize = files.reduce((sum, f) => sum + f.size, 0);
@@ -225,15 +271,15 @@ export class GitHubFetcher {
   }
 
   /**
-   * Get matching file paths using Git Trees API (1 API call)
+   * Get matching file entries (path + blob SHA) using Git Trees API (1 API call).
    */
-  private async getFilePathsFromTree(
+  private async getFileEntriesFromTree(
     owner: string,
     repo: string,
     branch: string,
     basePath: string,
     options: GitHubFetchOptions
-  ): Promise<string[]> {
+  ): Promise<GitTreeEntry[]> {
     const headers: HeadersInit = {
       Accept: 'application/vnd.github.v3+json',
       'User-Agent': 'Detection-Studio-Importer',
@@ -244,7 +290,7 @@ export class GitHubFetcher {
     }
 
     const treeUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`;
-    const response = await fetch(treeUrl, { headers });
+    const response = await fetch(treeUrl, { headers, signal: this.effectiveSignal(options.signal) });
     this.updateRateLimits(response, options);
 
     if (!response.ok) {
@@ -256,7 +302,7 @@ export class GitHubFetcher {
     const pathPrefix = basePath ? basePath + '/' : '';
 
     // Filter to path, extensions, and exclude patterns
-    const matching = allBlobs
+    const matching: GitTreeEntry[] = allBlobs
       .filter((entry: any) => {
         const filePath = entry.path as string;
 
@@ -280,7 +326,7 @@ export class GitHubFetcher {
 
         return true;
       })
-      .map((entry: any) => entry.path as string);
+      .map((entry: any) => ({ path: entry.path as string, sha: entry.sha as string }));
 
     // Respect maxFiles limit
     return matching.slice(0, options.maxFiles || 10000);
@@ -294,18 +340,23 @@ export class GitHubFetcher {
     owner: string,
     repo: string,
     branch: string,
-    filePaths: string[],
+    entries: GitTreeEntry[],
     options: GitHubFetchOptions
   ): Promise<FetchedFile[]> {
     const files: FetchedFile[] = [];
-    const total = filePaths.length;
+    const total = entries.length;
 
     // Process in concurrent batches
-    for (let i = 0; i < filePaths.length; i += DOWNLOAD_CONCURRENCY) {
+    for (let i = 0; i < entries.length; i += DOWNLOAD_CONCURRENCY) {
       if (this.aborted) break;
 
-      const batch = filePaths.slice(i, i + DOWNLOAD_CONCURRENCY);
-      const promises = batch.map(async (filePath) => {
+      // Jitter between batches (skip on the first one).
+      if (i > 0) await batchJitterDelay();
+
+      const batch = entries.slice(i, i + DOWNLOAD_CONCURRENCY);
+      const signal = this.effectiveSignal(options.signal);
+      const promises = batch.map(async (entry) => {
+        const filePath = entry.path;
         const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath}`;
         try {
           const headers: HeadersInit = {
@@ -316,7 +367,7 @@ export class GitHubFetcher {
             headers.Authorization = `Bearer ${options.token}`;
           }
 
-          const response = await fetch(rawUrl, { headers });
+          const response = await fetch(rawUrl, { headers, signal });
           if (!response.ok) {
             console.warn(`Failed to download ${filePath}: ${response.status}`);
             return null;
@@ -330,9 +381,13 @@ export class GitHubFetcher {
             path: filePath,
             content,
             size: content.length,
+            blobSha: entry.sha,
           } as FetchedFile;
         } catch (error) {
-          console.warn(`Failed to download ${filePath}:`, error);
+          // AbortError is expected when the caller cancels — log at debug level only.
+          if ((error as { name?: string })?.name !== 'AbortError') {
+            console.warn(`Failed to download ${filePath}:`, error);
+          }
           return null;
         }
       });
@@ -346,7 +401,7 @@ export class GitHubFetcher {
 
       // Report progress
       if (options.onProgress) {
-        options.onProgress(files.length, total, batch[batch.length - 1] || '');
+        options.onProgress(files.length, total, batch[batch.length - 1]?.path || '');
       }
     }
 
@@ -356,7 +411,7 @@ export class GitHubFetcher {
   /**
    * Scan a GitHub repository to produce a ReconReport (uses Trees API - 1 API call)
    */
-  async scanRepository(url: string, options?: { token?: string }): Promise<ReconReport> {
+  async scanRepository(url: string, options?: { token?: string; signal?: AbortSignal }): Promise<ReconReport> {
     const parsed = this.parseUrl(url);
     if (!parsed) {
       return {
@@ -372,9 +427,10 @@ export class GitHubFetcher {
 
     const { owner, repo, path: urlPath } = parsed;
     const token = options?.token;
+    const signal = options?.signal;
 
     // Get repo info (1 API call)
-    const repoInfo = await this.getRepoInfo(owner, repo, token);
+    const repoInfo = await this.getRepoInfo(owner, repo, token, signal);
     if (!repoInfo) {
       return {
         source: 'github',
@@ -383,6 +439,7 @@ export class GitHubFetcher {
         estimatedRules: 0,
         filePaths: [],
         existingLibraryCount: 0,
+        errorStatus: 404,
         warnings: [`Could not access repository: ${owner}/${repo}`],
       };
     }
@@ -399,7 +456,7 @@ export class GitHubFetcher {
     }
 
     const treeUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`;
-    const response = await fetch(treeUrl, { headers });
+    const response = await fetch(treeUrl, { headers, signal: this.effectiveSignal(signal) });
     this.updateRateLimits(response);
 
     if (!response.ok) {
@@ -411,6 +468,8 @@ export class GitHubFetcher {
         estimatedRules: 0,
         filePaths: [],
         existingLibraryCount: 0,
+        resolvedRef: branch,
+        errorStatus: response.status,
         rateLimitInfo: this.buildRateLimitInfo(0),
         warnings: [`GitHub API error: ${response.status}`],
       };
@@ -460,6 +519,8 @@ export class GitHubFetcher {
       matchingFiles: matchingFiles.length,
       estimatedRules: matchingFiles.length,
       filePaths: matchingFiles.map((f: any) => f.path as string),
+      fileEntries: matchingFiles.map((f: any) => ({ path: f.path as string, sha: f.sha as string })),
+      resolvedRef: branch,
       existingLibraryCount: 0, // Set by orchestrator
       rateLimitInfo,
       warnings,

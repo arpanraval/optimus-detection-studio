@@ -24,7 +24,8 @@ import { BulkPublishDialog } from './library/BulkPublishDialog';
 import { BulkDeployModal } from './integrations/BulkDeployModal';
 import { FilterPanel, ActiveFilterChips } from './library';
 import { useFilterOptions } from '../hooks/useFilterOptions';
-import { routeHelpers } from '../router/routes';
+import { routeHelpers, ROUTES } from '../router/routes';
+import { useDriftSummary } from '../hooks/useDriftSummary';
 import { useDetectionPatterns } from '../hooks/useDetectionPatterns';
 import { useClickOutside } from '../hooks/useClickOutside';
 import { useLocalStorage } from '../hooks/useLocalStorage';
@@ -99,7 +100,6 @@ const ALL_FILTER_FIELDS: FilterConfig[] = [
   { key: 'software', label: 'Software', type: 'array' },
   { key: 'associatedCVEs', label: 'CVE', type: 'array' },
   { key: 'tags', label: 'Tags', type: 'array' },
-  { key: 'maturity', label: 'Maturity', type: 'string' },
   { key: 'testedAndValidated', label: 'Validated', type: 'boolean' },
   { key: 'qualityGrade', label: 'Quality Grade', type: 'computed' },
   { key: 'promotion_status', label: 'Promotion Status', type: 'string', librarySpecific: LIBRARY_PRODUCTION },
@@ -612,6 +612,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
 }) => {
   const [viewMode, setViewMode] = useLocalStorage<ViewMode>('lib-view', 'grid');
   const [searchQuery, setSearchQuery] = useState(initialSearch || '');
+  const { summary: driftSummary } = useDriftSummary();
   // sortConfig now comes from context for server-side sorting
   const [filterPanelOpen, setFilterPanelOpen] = useLocalStorage<boolean>('lib-filter-panel', true);
   const [filters, setFilters] = useState<Record<string, string[]>>({});
@@ -1188,6 +1189,28 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
             <Icon name={extractingPatterns ? 'spinner' : 'cpu'} className={`w-4 h-4${extractingPatterns ? ' animate-spin' : ''}`} />
             <span>{extractingPatterns ? 'Analyzing...' : 'Analyze Patterns'}</span>
           </button>
+        )}
+
+        {driftSummary && driftSummary.totalActionable > 0 && (
+          <a
+            href={`${ROUTES.DATA_SYNC}#vendor-drift`}
+            className={`h-8 px-3 text-sm font-medium rounded-xl transition-all inline-flex items-center gap-1.5 ${
+              driftSummary.totalConflict > 0
+                ? 'bg-[#A63D40]/10 text-[#A63D40] dark:text-rose-400 hover:bg-[#A63D40]/15'
+                : 'bg-[#A6750D]/10 text-[#A6750D] dark:text-amber-400 hover:bg-[#A6750D]/15'
+            }`}
+            title={`${driftSummary.totalActionable} imported rule${driftSummary.totalActionable === 1 ? '' : 's'} need${driftSummary.totalActionable === 1 ? 's' : ''} review — open Data Sync`}
+          >
+            <Icon name={driftSummary.totalConflict > 0 ? 'alert-triangle' : 'git-branch'} className="w-4 h-4" />
+            <span>Upstream updates</span>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold tabular-nums leading-none ${
+              driftSummary.totalConflict > 0
+                ? 'bg-[#A63D40]/25 text-[#A63D40] dark:text-rose-300'
+                : 'bg-[#A6750D]/25 text-[#A6750D] dark:text-amber-300'
+            }`}>
+              {driftSummary.totalActionable}
+            </span>
+          </a>
         )}
 
         <button

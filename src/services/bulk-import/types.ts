@@ -8,7 +8,7 @@
  * - Progress tracking
  */
 
-import { Detection, LibraryType, DetectionSource, Severity, Status, Maturity } from '../../types';
+import { Detection, LibraryType, DetectionSource, Severity, Status } from '../../types';
 import { QUERY_LANGUAGES } from '../../constants';
 
 // ============================================
@@ -369,7 +369,7 @@ export interface PreCheckSummary {
 export interface VendorMetadata {
   /** Original vendor format */
   sourceFormat: VendorFormat;
-  /** Original raw content (YAML/TOML) */
+  /** Latest upstream raw content (YAML/TOML) — the drift baseline */
   rawContent?: string;
   /** Vendor-specific fields not in our schema */
   vendorFields: Record<string, unknown>;
@@ -377,6 +377,10 @@ export interface VendorMetadata {
   importedAt: string;
   /** Import job ID */
   importJobId?: string;
+  /** When this detection was last synced from upstream via the drift feature */
+  lastSyncedAt?: string;
+  /** rawContent prior to the last upstream sync — powers one-step "Revert last sync" */
+  previousRawContent?: string;
 }
 
 // ============================================
@@ -390,6 +394,14 @@ export interface FetchedFile {
   content: string;
   size: number;
   lastModified?: string;
+  /** Git blob SHA from the tree listing, when available (used for cheap drift skips). */
+  blobSha?: string;
+}
+
+/** A file entry from a git tree listing — path + blob SHA. */
+export interface GitTreeEntry {
+  path: string;
+  sha: string;
 }
 
 /** Fetch result */
@@ -455,6 +467,12 @@ export interface ReconReport {
   matchingFiles: number;
   estimatedRules: number;
   filePaths: string[];
+  /** Matching files with their git blob SHAs (GitHub only; parallel to filePaths). */
+  fileEntries?: GitTreeEntry[];
+  /** The branch/ref the tree was actually read from (may differ from the URL if it 404'd). */
+  resolvedRef?: string;
+  /** HTTP status from the tree API call, when it failed (404/403/...). */
+  errorStatus?: number;
   existingLibraryCount: number;
   rateLimitInfo?: RateLimitInfo;
   warnings: string[];
@@ -554,26 +572,6 @@ export const mapStatus = (vendorStatus: string): Status => {
       return Status.Archived;
     default:
       return Status.Draft;
-  }
-};
-
-/** Maps vendor status to Detection Maturity */
-export const mapMaturity = (vendorStatus: string): Maturity => {
-  const normalized = vendorStatus?.toLowerCase().trim();
-  switch (normalized) {
-    case 'stable':
-      return Maturity.Stable;
-    case 'production':
-      return Maturity.Production;
-    case 'test':
-    case 'testing':
-    case 'beta':
-      return Maturity.Beta;
-    case 'experimental':
-    case 'development':
-    case 'dev':
-    default:
-      return Maturity.Experimental;
   }
 };
 

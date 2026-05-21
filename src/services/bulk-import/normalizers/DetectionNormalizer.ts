@@ -7,9 +7,7 @@
 import {
   Detection,
   Status,
-  Maturity,
   Severity,
-  Confidence,
   DetectionType,
   LibraryType,
   DetectionQuery,
@@ -18,9 +16,9 @@ import {
 import {
   ParsedRule,
   ValidatedRule,
+  VendorMetadata,
   mapSeverity,
   mapStatus,
-  mapMaturity,
   mapSource,
 } from '../types';
 import { scoreDetection } from '../../../lib/quality/scoringEngine';
@@ -72,10 +70,8 @@ export class DetectionNormalizer {
       description: rule.description,
       author: rule.author || 'Imported',
       status: mapStatus(rule.status),
-      maturity: mapMaturity(rule.status),
       detectionType: DetectionType.Detection,
       severity: mapSeverity(rule.level, rule.riskScore),
-      confidence: this.inferConfidence(rule),
 
       // Data sources
       logSource: this.buildLogSource(rule),
@@ -147,6 +143,19 @@ export class DetectionNormalizer {
     // unvalidated imports correctly receive 0 for the peer_review dimension.
     detection.qualityScore = scoreDetection(detection).score;
 
+    // Carry the upstream raw content + vendor-specific fields into vendor_metadata
+    // so the upstream-drift feature has a baseline to compare against on later
+    // re-checks. BatchInserter reads `(detection as any).vendorMetadata` and
+    // persists it to the `vendor_metadata` JSONB column. Without this every
+    // import lands with vendor_metadata = {} and drift can't be tracked.
+    const vendorMetadata: VendorMetadata = {
+      sourceFormat: rule.sourceFormat,
+      rawContent: rule.rawContent,
+      vendorFields: (rule.rawRule ?? {}) as Record<string, unknown>,
+      importedAt: now,
+    };
+    (detection as { vendorMetadata?: VendorMetadata }).vendorMetadata = vendorMetadata;
+
     return detection;
   }
 
@@ -198,27 +207,6 @@ export class DetectionNormalizer {
     }
 
     return sources;
-  }
-
-  /**
-   * Infer confidence level from rule metadata
-   */
-  private inferConfidence(rule: ParsedRule): Confidence {
-    // If rule is stable/production, higher confidence
-    const status = rule.status.toLowerCase();
-    if (status === 'stable' || status === 'production') {
-      return Confidence.High;
-    }
-    if (status === 'test' || status === 'testing') {
-      return Confidence.Medium;
-    }
-
-    // If it has good MITRE coverage, moderate confidence
-    if (rule.mitreAttackIds.length > 0 && rule.references.length > 0) {
-      return Confidence.Medium;
-    }
-
-    return Confidence.Low;
   }
 
   /**

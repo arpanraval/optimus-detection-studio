@@ -26,6 +26,27 @@ export interface DuplicateCheckResult {
 }
 
 /**
+ * Tag prefixes / values that BulkImportJobManager injects onto every imported
+ * detection (`import:<jobId>`, `source:<vendor>`, `import-date:<date>`,
+ * `bulk-updated`, `needs-*`). These never appear upstream — we strip them
+ * before comparing so drift doesn't spuriously fire on every check.
+ */
+const SYNTHETIC_TAG_PREFIXES = ['import:', 'source:', 'import-date:'];
+const SYNTHETIC_TAG_EXACT = new Set(['bulk-updated', 'needs-enrichment', 'needs-mitre', 'needs-description', 'needs-references']);
+
+function isSyntheticTag(tag: string): boolean {
+  if (SYNTHETIC_TAG_EXACT.has(tag)) return true;
+  for (const p of SYNTHETIC_TAG_PREFIXES) {
+    if (tag.startsWith(p)) return true;
+  }
+  return false;
+}
+
+function stripSyntheticTags(tags: string[]): string[] {
+  return tags.filter((t) => !isSyntheticTag(t));
+}
+
+/**
  * Detects duplicate rules
  */
 export class DuplicateDetector {
@@ -145,7 +166,7 @@ export class DuplicateDetector {
   ): Promise<Map<string, Partial<Detection>>> {
     let query = supabase
       .from('detections')
-      .select('id, external_id, "detectionQuery", severity, description, "mitreTactics", "mitreTechniques", references, tags')
+      .select('id, external_id, "detectionQuery", severity, description, "mitreTactics", "mitreTechniques", "mitreAttackIds", references, tags')
       .eq('user_id', userId)
       .not('external_id', 'is', null);
 
@@ -206,25 +227,38 @@ export class DuplicateDetector {
       });
     }
 
-    // MITRE techniques (compare as sorted arrays)
+    // MITRE techniques (compare as sorted arrays).
+    // Compare ATT&CK IDs to ATT&CK IDs — `existing.mitreTechniques` holds the
+    // resolver's human-readable technique NAMES (e.g. "Windows Command Shell"),
+    // not IDs, so comparing incoming.mitreAttackIds against it always reported
+    // a fake diff for any MITRE-tagged rule. The right comparison is against
+    // existing.mitreAttackIds (the canonical IDs as imported).
     const incomingTechniques = JSON.stringify([...incoming.mitreAttackIds].sort());
-    const existingTechniques = JSON.stringify([...(existing.mitreTechniques ?? [])].sort());
+    const existingTechniques = JSON.stringify([...((existing.mitreAttackIds as string[] | undefined) ?? [])].sort());
     if (incomingTechniques !== existingTechniques) {
       diffs.push({
         field: 'mitreTechniques',
-        oldValue: existing.mitreTechniques ?? [],
+        oldValue: (existing.mitreAttackIds as string[] | undefined) ?? [],
         newValue: incoming.mitreAttackIds,
       });
     }
 
-    // tags (compare as sorted arrays)
-    const incomingTags = JSON.stringify([...incoming.tags].sort());
-    const existingTags = JSON.stringify([...(existing.tags ?? [])].sort());
+    // tags (compare as sorted arrays).
+    // BulkImportJobManager injects bookkeeping tags onto every imported detection
+    // (`import:<jobId>`, `source:<vendor>`, `import-date:<date>`, `bulk-updated`,
+    // `needs-enrichment`, `needs-mitre`, `needs-description`, `needs-references`).
+    // None of those exist upstream — comparing raw tag arrays would always report
+    // a fake diff. Strip the synthetic tags from BOTH sides before comparing so
+    // drift only fires when the actual content tags change.
+    const cleanedIncoming = stripSyntheticTags(incoming.tags);
+    const cleanedExisting = stripSyntheticTags(existing.tags ?? []);
+    const incomingTags = JSON.stringify([...cleanedIncoming].sort());
+    const existingTags = JSON.stringify([...cleanedExisting].sort());
     if (incomingTags !== existingTags) {
       diffs.push({
         field: 'tags',
-        oldValue: existing.tags ?? [],
-        newValue: incoming.tags,
+        oldValue: cleanedExisting,
+        newValue: cleanedIncoming,
       });
     }
 
