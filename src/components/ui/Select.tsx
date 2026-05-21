@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, forwardRef } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, forwardRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from '../Icon';
 
 export type SelectSize = 'sm' | 'md' | 'lg';
@@ -98,15 +99,46 @@ export const Select = forwardRef<HTMLDivElement, SelectProps>(({
 }, ref) => {
   const [isOpen, setIsOpen] = useState(false);
   const [internalValue, setInternalValue] = useState(defaultValue || '');
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const currentValue = value !== undefined ? value : internalValue;
   const selectedOption = options.find(opt => opt.value === currentValue);
 
-  // Close dropdown when clicking outside
+  // Position the portaled menu against the trigger's viewport rect so it
+  // escapes any ancestor `overflow:hidden` (e.g. card chrome with rounded
+  // corners). Keep it aligned on resize/scroll.
+  useLayoutEffect(() => {
+    if (!isOpen || !containerRef.current) return;
+
+    const updatePosition = () => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      setMenuPos({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: rect.width,
+      });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [isOpen]);
+
+  // Close on outside click — counts the portaled menu as "inside" so clicks
+  // on options don't dismiss before selection registers.
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const insideTrigger = containerRef.current?.contains(target);
+      const insideMenu = menuRef.current?.contains(target);
+      if (!insideTrigger && !insideMenu) {
         setIsOpen(false);
       }
     };
@@ -256,11 +288,18 @@ export const Select = forwardRef<HTMLDivElement, SelectProps>(({
           />
         )}
 
-        {/* Dropdown menu */}
-        {isOpen && (
+        {/* Dropdown menu — portaled so card chrome's overflow:hidden can't clip it */}
+        {isOpen && menuPos && createPortal(
           <div
+            ref={menuRef}
+            style={{
+              position: 'fixed',
+              top: menuPos.top,
+              left: menuPos.left,
+              width: menuPos.width,
+              zIndex: 1000,
+            }}
             className={[
-              'absolute z-50 w-full mt-1',
               'bg-surface-container-high border border-outline-variant/30',
               'rounded-xl shadow-lg overflow-hidden',
               'max-h-60 overflow-y-auto',
@@ -293,7 +332,8 @@ export const Select = forwardRef<HTMLDivElement, SelectProps>(({
                 </span>
               </button>
             ))}
-          </div>
+          </div>,
+          document.body,
         )}
       </div>
 
