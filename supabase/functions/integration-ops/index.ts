@@ -788,7 +788,70 @@ async function sentinelDeployRule(
   return { vendorRuleId: ruleId, response: data }
 }
 
-// -- Defender XDR --
+// -- Defender XDR (Microsoft Graph Security API) --
+// Custom Detections live on the Graph Security API (beta):
+//   https://graph.microsoft.com/beta/security/rules/detectionRules
+// Token scope: https://graph.microsoft.com/.default
+// Required app permission: CustomDetection.ReadWrite.All (Application) on Microsoft Graph.
+// The legacy api.security.microsoft.com/api/customdetections surface is NOT used —
+// app registrations are consented for Graph, so a token for that resource fails.
+const GRAPH_DEFENDER_BASE = 'https://graph.microsoft.com/beta/security/rules/detectionRules'
+const GRAPH_DEFENDER_SCOPE = 'https://graph.microsoft.com/.default'
+
+// First MITRE tactic -> Defender XDR alert category.
+const DEFENDER_TACTIC_CATEGORY: Record<string, string> = {
+  'reconnaissance': 'Discovery',
+  'resource development': 'Malware',
+  'initial access': 'InitialAccess',
+  'execution': 'Execution',
+  'persistence': 'Persistence',
+  'privilege escalation': 'PrivilegeEscalation',
+  'defense evasion': 'DefenseEvasion',
+  'credential access': 'CredentialAccess',
+  'discovery': 'Discovery',
+  'lateral movement': 'LateralMovement',
+  'collection': 'Collection',
+  'command and control': 'CommandAndControl',
+  'exfiltration': 'Exfiltration',
+  'impact': 'Impact',
+}
+
+/** Build the Graph detectionRules request body, shared by create and update. */
+function defenderXdrRuleBody(query: string, ruleConfig: Record<string, unknown>): string {
+  const displayName = (ruleConfig.name as string) || 'Optimus Detection'
+  const description = (ruleConfig.description as string) || 'Deployed from Optimus Detection Studio'
+  const severity = ((ruleConfig.severity as string) || 'medium').toLowerCase()
+  const period = ((ruleConfig.frequency as string) || '24H').toUpperCase()
+  const tactics = (ruleConfig.tactics as string[]) || []
+  const category = (ruleConfig.category as string) ||
+    (tactics.length > 0
+      ? DEFENDER_TACTIC_CATEGORY[tactics[0].toLowerCase()] || 'SuspiciousActivity'
+      : 'SuspiciousActivity')
+  const techniques = (ruleConfig.techniques as string[]) || []
+
+  return JSON.stringify({
+    displayName,
+    isEnabled: true,
+    queryCondition: { queryText: query },
+    schedule: { period },
+    detectionAction: {
+      alertTemplate: {
+        title: displayName,
+        description,
+        severity,
+        category,
+        mitreTechniques: techniques,
+        impactedAssets: [
+          { '@odata.type': '#microsoft.graph.security.impactedDeviceAsset', identifier: 'deviceId' },
+        ],
+        recommendedActions: null,
+      },
+      organizationalScope: null,
+      responseActions: [],
+    },
+  })
+}
+
 async function defenderXdrTestConnection(
   config: Record<string, unknown>,
   credentials: Record<string, string>
@@ -796,15 +859,24 @@ async function defenderXdrTestConnection(
   const tenantId = config.tenantId as string
   const start = Date.now()
 
-  const token = await microsoftGetToken(
-    tenantId,
-    credentials.clientId,
-    credentials.clientSecret,
-    'https://api.security.microsoft.com/.default'
-  )
+  let token: string
+  try {
+    token = await microsoftGetToken(
+      tenantId,
+      credentials.clientId,
+      credentials.clientSecret,
+      GRAPH_DEFENDER_SCOPE
+    )
+  } catch (err) {
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : 'Microsoft authentication failed',
+      latency_ms: Date.now() - start,
+    }
+  }
 
   const response = await withRetry(() =>
-    vendorFetch('https://api.security.microsoft.com/api/customdetections?$top=1', {
+    vendorFetch(`${GRAPH_DEFENDER_BASE}?$top=1`, {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
     })
@@ -816,7 +888,7 @@ async function defenderXdrTestConnection(
     return { success: false, message: `Defender XDR error ${response.status}: ${text.slice(0, 200)}`, latency_ms: latency }
   }
 
-  return { success: true, message: 'Connected to Microsoft Defender XDR', latency_ms: latency }
+  return { success: true, message: 'Connected to Microsoft Defender XDR via Graph API', latency_ms: latency }
 }
 
 async function defenderXdrListRules(
@@ -824,10 +896,10 @@ async function defenderXdrListRules(
   credentials: Record<string, string>
 ): Promise<unknown[]> {
   const tenantId = config.tenantId as string
-  const token = await microsoftGetToken(tenantId, credentials.clientId, credentials.clientSecret, 'https://api.security.microsoft.com/.default')
+  const token = await microsoftGetToken(tenantId, credentials.clientId, credentials.clientSecret, GRAPH_DEFENDER_SCOPE)
 
   const response = await withRetry(() =>
-    vendorFetch('https://api.security.microsoft.com/api/customdetections', {
+    vendorFetch(GRAPH_DEFENDER_BASE, {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
     })
@@ -839,7 +911,7 @@ async function defenderXdrListRules(
     id: r.id,
     name: r.displayName,
     query: r.queryCondition?.queryText,
-    frequency: r.frequency,
+    frequency: r.schedule?.period,
     enabled: r.isEnabled,
   }))
 }
@@ -853,53 +925,52 @@ async function defenderXdrDeployRule(
   vendorRuleId?: string
 ): Promise<{ vendorRuleId: string; response: Record<string, unknown> }> {
   const tenantId = config.tenantId as string
-  const token = await microsoftGetToken(tenantId, credentials.clientId, credentials.clientSecret, 'https://api.security.microsoft.com/.default')
+  const token = await microsoftGetToken(tenantId, credentials.clientId, credentials.clientSecret, GRAPH_DEFENDER_SCOPE)
 
-  const baseUrl = 'https://api.security.microsoft.com/api/customdetections'
-  const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+  const headers = {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  }
 
   if (action === 'delete' && vendorRuleId) {
     const response = await withRetry(() =>
-      vendorFetch(`${baseUrl}/${vendorRuleId}`, { method: 'DELETE', headers })
+      vendorFetch(`${GRAPH_DEFENDER_BASE}/${vendorRuleId}`, { method: 'DELETE', headers })
     )
-    if (!response.ok) throw new Error(`Defender XDR delete failed: ${response.status}`)
+    if (!response.ok) {
+      const text = await response.text()
+      throw new Error(`Defender XDR delete failed: ${response.status} - ${text.slice(0, 300)}`)
+    }
     return { vendorRuleId, response: { deleted: true } }
   }
 
-  const body: Record<string, unknown> = {
-    displayName: (ruleConfig.name as string) || `Optimus Detection`,
-    description: (ruleConfig.description as string) || 'Deployed from Optimus Detection Studio',
-    isEnabled: true,
-    queryCondition: { queryText: query },
-    frequency: (ruleConfig.frequency as string) || '24h',
-  }
+  const body = defenderXdrRuleBody(query, ruleConfig)
 
-  if (action === 'create') {
-    const response = await withRetry(() =>
-      vendorFetch(baseUrl, { method: 'POST', headers, body: JSON.stringify(body) })
-    )
-    if (!response.ok) {
-      const text = await response.text()
-      throw new Error(`Defender XDR create failed: ${response.status} - ${text.slice(0, 300)}`)
-    }
-    const data = await response.json()
-    return { vendorRuleId: data.id, response: data }
-  }
-
-  // Update
+  // Update an existing rule. A 404 means it was deleted in the portal — fall through to create.
   if (vendorRuleId) {
-    const response = await withRetry(() =>
-      vendorFetch(`${baseUrl}/${vendorRuleId}`, { method: 'PATCH', headers, body: JSON.stringify(body) })
+    const updateRes = await withRetry(() =>
+      vendorFetch(`${GRAPH_DEFENDER_BASE}/${vendorRuleId}`, { method: 'PATCH', headers, body })
     )
-    if (!response.ok) {
-      const text = await response.text()
-      throw new Error(`Defender XDR update failed: ${response.status} - ${text.slice(0, 300)}`)
+    if (updateRes.status !== 404) {
+      if (!updateRes.ok) {
+        const text = await updateRes.text()
+        throw new Error(`Defender XDR update failed: ${updateRes.status} - ${text.slice(0, 300)}`)
+      }
+      const data = await updateRes.json()
+      return { vendorRuleId: data.id || vendorRuleId, response: data }
     }
-    const data = await response.json()
-    return { vendorRuleId: data.id || vendorRuleId, response: data }
   }
 
-  throw new Error('vendorRuleId required for update action')
+  // Create
+  const response = await withRetry(() =>
+    vendorFetch(GRAPH_DEFENDER_BASE, { method: 'POST', headers, body })
+  )
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`Defender XDR create failed: ${response.status} - ${text.slice(0, 300)}`)
+  }
+  const data = await response.json()
+  return { vendorRuleId: data.id, response: data }
 }
 
 // -- Elastic Security --
@@ -1544,10 +1615,13 @@ async function handleSaveCredentials(
       )
     }
 
-    // Allowlist config fields to prevent mass assignment
+    // Allowlist config fields to prevent mass assignment.
+    // MUST stay in sync with the isConfig keys in integrationFormConfig.ts PROVIDER_FIELDS.
     const ALLOWED_CONFIG_KEYS = [
-      'host', 'port', 'ssl', 'spaceId', 'baseUrl', 'region',
-      'index', 'workspace', 'tenant', 'apiUrl', 'environment',
+      'host', 'port', 'ssl', 'app', 'owner',
+      'tenantId', 'subscriptionId', 'resourceGroup', 'workspaceName',
+      'cloudId', 'spaceId', 'baseUrl', 'customerId', 'region', 'instanceId',
+      'repo', 'branch', 'projectId', 'projectKey', 'channel',
     ]
     const rawConfig = body.config || {}
     const sanitizedConfig: Record<string, unknown> = {}
@@ -1582,10 +1656,13 @@ async function handleSaveCredentials(
     if (body.config || body.name) {
       const updates: Record<string, unknown> = {}
       if (body.config) {
-        // Allowlist config fields to prevent mass assignment (same as create path)
+        // Allowlist config fields to prevent mass assignment (same as create path).
+        // MUST stay in sync with the isConfig keys in integrationFormConfig.ts PROVIDER_FIELDS.
         const ALLOWED_CONFIG_KEYS = [
-          'host', 'port', 'ssl', 'spaceId', 'baseUrl', 'region',
-          'index', 'workspace', 'tenant', 'apiUrl', 'environment',
+          'host', 'port', 'ssl', 'app', 'owner',
+          'tenantId', 'subscriptionId', 'resourceGroup', 'workspaceName',
+          'cloudId', 'spaceId', 'baseUrl', 'customerId', 'region', 'instanceId',
+          'repo', 'branch', 'projectId', 'projectKey', 'channel',
         ]
         const rawConfig = body.config as Record<string, unknown>
         const sanitizedConfig: Record<string, unknown> = {}
@@ -2185,9 +2262,9 @@ async function handleToggleRule(
       }
       case 'defender_xdr': {
         const tenantId = integration.config.tenantId as string
-        const token = await microsoftGetToken(tenantId, credentials.clientId, credentials.clientSecret, 'https://api.security.microsoft.com/.default')
+        const token = await microsoftGetToken(tenantId, credentials.clientId, credentials.clientSecret, GRAPH_DEFENDER_SCOPE)
         const response = await withRetry(() =>
-          vendorFetch(`https://api.security.microsoft.com/api/customdetections/${body.vendorRuleId}`, {
+          vendorFetch(`${GRAPH_DEFENDER_BASE}/${body.vendorRuleId}`, {
             method: 'PATCH',
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ isEnabled: enabled }),
@@ -2403,21 +2480,24 @@ serve(async (req: Request) => {
     }
 
     // Route to action handler
+    // NOTE: each handler is awaited. Returning the promise unawaited would let
+    // a handler rejection escape this try/catch — Deno's serve() then emits a
+    // bare 500 with no CORS headers, which the browser surfaces as a CORS error.
     switch (body.action) {
       case 'save_credentials':
-        return handleSaveCredentials(body, user.id, corsHeaders)
+        return await handleSaveCredentials(body, user.id, corsHeaders)
       case 'test_connection':
-        return handleTestConnection(body, user.id, corsHeaders)
+        return await handleTestConnection(body, user.id, corsHeaders)
       case 'deploy_rule':
-        return handleDeployRule(body, user.id, corsHeaders)
+        return await handleDeployRule(body, user.id, corsHeaders)
       case 'list_rules':
-        return handleListRules(body, user.id, corsHeaders)
+        return await handleListRules(body, user.id, corsHeaders)
       case 'delete_rule':
-        return handleDeleteRule(body, user.id, corsHeaders)
+        return await handleDeleteRule(body, user.id, corsHeaders)
       case 'toggle_rule':
-        return handleToggleRule(body, user.id, corsHeaders)
+        return await handleToggleRule(body, user.id, corsHeaders)
       case 'delete_vendor_rule':
-        return handleDeleteVendorRule(body, user.id, corsHeaders)
+        return await handleDeleteVendorRule(body, user.id, corsHeaders)
       default:
         return new Response(
           JSON.stringify({ error: 'Unknown action' }),
