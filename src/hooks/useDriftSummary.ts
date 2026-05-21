@@ -35,8 +35,11 @@ export function useDriftSummary() {
     };
 
     refresh();
+    // Unique topic per mount: this hook runs in several components at once
+    // (sidebar, library, data-sync). supabase.channel() dedupes by topic, so a
+    // shared topic hands back an already-subscribed channel and .on() throws.
     const channel = supabase
-      .channel('detection_drift_summary')
+      .channel(`detection_drift_summary-${crypto.randomUUID()}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'detection_drift' }, scheduleRefresh)
       .subscribe();
 
