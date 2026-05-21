@@ -7,6 +7,8 @@ export const ROUTES = {
   // Enterprise Dashboard
   ENTERPRISE_DASHBOARD: '/dashboard/enterprise',
   ENTERPRISE_DASHBOARD_DETAIL: '/dashboard/enterprise/:dashboardId',
+  /** Friendly redirect → the seeded "Over-Time Comparison" dashboard. */
+  OVER_TIME_DASHBOARD: '/dashboard/over-time',
 
   // Detection Library
   LIBRARY: '/library',
@@ -223,6 +225,7 @@ export const viewToRoute: Record<string, string> = {
 // Page headers for each route
 export const routeHeaders: Record<string, { title: string; description?: string }> = {
   [ROUTES.ENTERPRISE_DASHBOARD]: { title: 'Enterprise Dashboard', description: 'Customizable drag-and-drop dashboard with widgets' },
+  [ROUTES.OVER_TIME_DASHBOARD]: { title: 'Over-Time Comparison', description: 'Trajectory dashboard — coverage, velocity, quality, pipeline trends with PoP and YoY comparison' },
   [ROUTES.LIBRARY]: { title: 'Detection Library', description: 'Browse and manage your security detections' },
   [ROUTES.DETECTION_NEW]: { title: 'New Detection', description: 'Create a new detection rule' },
   [ROUTES.DETECTION_DETAIL]: { title: 'Detection Details', description: undefined },
@@ -245,7 +248,7 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.THREAT_INTEL_DETAIL]: { title: 'Report Analysis', description: undefined },
   [ROUTES.RESEARCH]: { title: 'Threat Research', description: 'AI-powered detection research from any threat input' },
   [ROUTES.RESEARCH_DETAIL]: { title: 'Research Session', description: undefined },
-  [ROUTES.CAMPAIGN_DIGEST_DETAIL]: { title: 'Campaign Intelligence', description: 'Merged intelligence from multiple sources' },
+  [ROUTES.CAMPAIGN_DIGEST_DETAIL]: { title: 'Story', description: 'Multi-vendor coverage of a single subject, merged into one view' },
   [ROUTES.THREAT_INTEL_FEEDS]: { title: 'Threat Intel Feeds', description: 'Subscribe to RSS and TAXII threat intelligence feeds' },
   [ROUTES.REPORTS]: { title: 'Analysis Reports', description: 'Historical analysis reports with trend tracking' },
   [ROUTES.REPORT_DETAIL]: { title: 'Report Detail' },
@@ -261,7 +264,7 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.INTEGRATION_DETAIL]: { title: 'Integration Details', description: undefined },
   [ROUTES.SCORING]: { title: 'Defense Impact Intelligence', description: 'Configure detection scoring and impact metrics' },
   [ROUTES.USERS]: { title: 'User Management', description: 'Manage user accounts and permissions' },
-  [ROUTES.DATA_SYNC]: { title: 'Data Sync', description: 'Sync MITRE ATT&CK data and vector embeddings' },
+  [ROUTES.DATA_SYNC]: { title: 'Data Sync', description: 'Sync MITRE ATT&CK data, vector embeddings, and upstream vendor rule drift' },
   [ROUTES.AUDIT_LOG]: { title: 'Audit Log', description: 'Enterprise audit trail for compliance and accountability' },
   [ROUTES.ENVIRONMENT_PROFILE]: { title: 'Environment Profile', description: 'Configure your security environment for personalized intelligence' },
   [ROUTES.AUTO_DIGEST]: { title: 'Auto-Digest', description: 'Automatic threat intelligence ingestion and analysis' },

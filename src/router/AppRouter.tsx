@@ -25,7 +25,7 @@ import { logAuditEvent } from '../lib/audit';
 import { AppErrorBoundary } from '../components/ErrorBoundary';
 import { AppLoader } from '../components/AppLoader';
 import { NotFoundRedirect } from './pages/NotFoundRedirect';
-import { resolveLandingDashboardId } from '../components/dashboard/enterprise/dashboardPersistence';
+import { resolveDashboardIdByName, resolveLandingDashboardId } from '../components/dashboard/enterprise/dashboardPersistence';
 
 // ============================================================================
 // Capture auth action from URL hash BEFORE Supabase SDK consumes it.
@@ -186,6 +186,14 @@ const DashboardLanding: React.FC = () => {
   return <Navigate to={id ? `/dashboard/enterprise/${id}` : '/dashboard/enterprise'} replace />;
 };
 
+// Named redirect: /dashboard/over-time → the seeded "Over-Time Comparison"
+// dashboard. Keeps a stable, shareable URL for the preset even though the
+// underlying dashboard is created with a fresh UUID per user.
+const OverTimeDashboardRedirect: React.FC = () => {
+  const id = resolveDashboardIdByName('Over-Time Comparison');
+  return <Navigate to={id ? `/dashboard/enterprise/${id}` : '/dashboard/enterprise'} replace />;
+};
+
 // Create router with all routes
 const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
   {
@@ -202,6 +210,8 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       // Enterprise Dashboard (with optional dashboardId for deep-linking)
       { path: 'dashboard/enterprise', element: <EnterpriseDashboardPage /> },
       { path: 'dashboard/enterprise/:dashboardId', element: <EnterpriseDashboardPage /> },
+      // Friendly redirect → the seeded Over-Time Comparison dashboard
+      { path: 'dashboard/over-time', element: <OverTimeDashboardRedirect /> },
 
       // Detection Library
       { path: 'library', element: <DetectionLibraryPage /> },

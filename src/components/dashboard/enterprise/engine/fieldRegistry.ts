@@ -9,10 +9,8 @@ export const DETECTION_FIELDS: FieldDefinition[] = [
   { name: 'name',               label: 'Detection Name',      type: 'string',  groupable: false, aggregatable: false, filterable: true },
   { name: 'author',             label: 'Author',              type: 'string',  groupable: true,  aggregatable: false, filterable: true },
   { name: 'status',             label: 'Status',              type: 'string',  groupable: true,  aggregatable: false, filterable: true,  values: ['Draft', 'Development', 'Review', 'Testing', 'Production'] },
-  { name: 'maturity',           label: 'Maturity',            type: 'string',  groupable: true,  aggregatable: false, filterable: true,  values: ['Proof of Concept', 'Baseline', 'Tuned', 'Stable'] },
   { name: 'detectionType',      label: 'Detection Type',      type: 'string',  groupable: true,  aggregatable: false, filterable: true },
   { name: 'severity',           label: 'Severity',            type: 'string',  groupable: true,  aggregatable: false, filterable: true,  values: ['Critical', 'High', 'Medium', 'Low', 'Informational'] },
-  { name: 'confidence',         label: 'Confidence',          type: 'string',  groupable: true,  aggregatable: false, filterable: true,  values: ['High', 'Medium', 'Low'] },
 
   // Data Sources
   { name: 'logSource',          label: 'Log Source',           type: 'string',  groupable: true,  aggregatable: false, filterable: true },

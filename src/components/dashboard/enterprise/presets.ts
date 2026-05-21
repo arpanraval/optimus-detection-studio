@@ -249,7 +249,6 @@ export function createQualityGapsPreset(
 
     // Row 4: Quality visualizations
     wi(WIDGET_TYPE.QUALITY_SCORE),
-    wi(WIDGET_TYPE.CONFIDENCE_BREAKDOWN),
     wi(WIDGET_TYPE.DETECTION_AGE),
 
     // Row 8: Hygiene + Maturity
@@ -270,13 +269,12 @@ export function createQualityGapsPreset(
     /* row 2 */  { i: widgets[5].id,  x: 3,  y: 2,  w: 3, h: 2, minW: 2, minH: 2 },
     /* row 2 */  { i: widgets[6].id,  x: 6,  y: 2,  w: 3, h: 2, minW: 2, minH: 2 },
     /* row 2 */  { i: widgets[7].id,  x: 9,  y: 2,  w: 3, h: 2, minW: 2, minH: 2 },
-    /* row 4 */  { i: widgets[8].id,  x: 0,  y: 4,  w: 4, h: 4, minW: 3, minH: 3 },
-    /* row 4 */  { i: widgets[9].id,  x: 4,  y: 4,  w: 4, h: 2, minW: 2, minH: 2 },
-    /* row 4 */  { i: widgets[10].id, x: 8,  y: 4,  w: 4, h: 4, minW: 3, minH: 3 },
-    /* row 8 */  { i: widgets[11].id, x: 0,  y: 8,  w: 12, h: 2, minW: 2, minH: 1 },
-    /* row 10 */ { i: widgets[12].id, x: 0,  y: 10, w: 6, h: 5, minW: 2, minH: 2 },
-    /* row 10 */ { i: widgets[13].id, x: 6,  y: 10, w: 6, h: 5, minW: 2, minH: 2 },
-    /* row 15 */ { i: widgets[14].id, x: 0,  y: 15, w: 6, h: 3, minW: 2, minH: 2 },
+    /* row 4 */  { i: widgets[8].id,  x: 0,  y: 4,  w: 6, h: 4, minW: 3, minH: 3 },   // QualityScore
+    /* row 4 */  { i: widgets[9].id,  x: 6,  y: 4,  w: 6, h: 4, minW: 3, minH: 3 },   // DetectionAge
+    /* row 8 */  { i: widgets[10].id, x: 0,  y: 8,  w: 12, h: 2, minW: 2, minH: 1 },  // HygieneAlerts (banner)
+    /* row 10 */ { i: widgets[11].id, x: 0,  y: 10, w: 6, h: 5, minW: 2, minH: 2 },   // MaturityRadar
+    /* row 10 */ { i: widgets[12].id, x: 6,  y: 10, w: 6, h: 5, minW: 2, minH: 2 },   // StaleWatchlist
+    /* row 15 */ { i: widgets[13].id, x: 0,  y: 15, w: 12, h: 3, minW: 2, minH: 2 },  // Gaps
   ];
 
   const md = lg.map(l => ({ ...l, w: Math.min(l.w, 8), x: Math.min(l.x, 8 - Math.min(l.w, 8)) }));
@@ -480,6 +478,65 @@ export function createMitreExplorerPreset(
 }
 
 // ---------------------------------------------------------------------------
+// Over-Time Comparison — manager-facing trajectory dashboard
+//
+// Organized into six sections that map to the questions a detection
+// engineering manager asks each week/month:
+//   1. Snapshot KPIs with PoP deltas
+//   2. Coverage trajectory (MITRE % over time)
+//   3. Per-tactic progress (small multiples)
+//   4. Output velocity vs prior period
+//   5. Quality + metadata completeness
+//   6. Pipeline flow + threat actor coverage
+// ---------------------------------------------------------------------------
+
+export function createOverTimeComparisonPreset(
+  _dashboardId: string,
+): Omit<DashboardDefinition, 'id' | 'createdAt' | 'updatedAt'> {
+  const widgets: WidgetInstance[] = [
+    // Section 1 — KPI strip (snapshot with PoP deltas)
+    wi(WIDGET_TYPE.COMPARISON_KPI_STRIP),
+
+    // Section 2 — Coverage trajectory
+    wi(WIDGET_TYPE.COVERAGE_OVER_TIME),
+    wi(WIDGET_TYPE.VELOCITY_COMPARISON),
+
+    // Section 3 — Per-tactic progress + threat actor trajectory
+    wi(WIDGET_TYPE.TACTIC_COVERAGE_HEAT_STRIP),
+    wi(WIDGET_TYPE.QUALITY_TRAJECTORY),
+
+    // Section 4 — Quality / metadata trends
+    wi(WIDGET_TYPE.METADATA_COMPLETENESS_TREND),
+    wi(WIDGET_TYPE.PIPELINE_FLOW_OVER_TIME),
+
+    // Section 5 — Threat actor coverage over time (full width)
+    wi(WIDGET_TYPE.THREAT_ACTOR_COVERAGE_TREND),
+  ];
+
+  const lg = [
+    /* row 0  */ { i: widgets[0].id, x: 0, y: 0,  w: 12, h: 2, minW: 6, minH: 2 },  // KPI Strip
+    /* row 2  */ { i: widgets[1].id, x: 0, y: 2,  w: 8,  h: 4, minW: 4, minH: 3 },  // Coverage Over Time
+    /* row 2  */ { i: widgets[2].id, x: 8, y: 2,  w: 4,  h: 4, minW: 3, minH: 3 },  // Velocity Comparison
+    /* row 6  */ { i: widgets[3].id, x: 0, y: 6,  w: 6,  h: 5, minW: 4, minH: 4 },  // Tactic Heat Strip
+    /* row 6  */ { i: widgets[4].id, x: 6, y: 6,  w: 6,  h: 5, minW: 3, minH: 3 },  // Quality Trajectory
+    /* row 11 */ { i: widgets[5].id, x: 0, y: 11, w: 6,  h: 4, minW: 4, minH: 3 },  // Metadata Completeness
+    /* row 11 */ { i: widgets[6].id, x: 6, y: 11, w: 6,  h: 4, minW: 4, minH: 3 },  // Pipeline Flow Over Time
+    /* row 15 */ { i: widgets[7].id, x: 0, y: 15, w: 12, h: 5, minW: 6, minH: 4 },  // Threat Actor Coverage Trend
+  ];
+
+  const md = lg.map(l => ({ ...l, w: Math.min(l.w, 8), x: Math.min(l.x, 8 - Math.min(l.w, 8)) }));
+  const sm = lg.map(l => ({ ...l, w: Math.min(l.w, 4), x: 0 }));
+  const xs = lg.map(l => ({ ...l, w: 2, x: 0 }));
+
+  return {
+    name: 'Over-Time Comparison',
+    isDefault: false,
+    widgets,
+    layouts: { lg, md, sm, xs },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Presets list
 // ---------------------------------------------------------------------------
 
@@ -537,6 +594,12 @@ export const DASHBOARD_PRESETS: DashboardPreset[] = [
     name: 'MITRE ATT&CK Framework Explorer',
     description: 'ATT&CK framework reference — techniques, tactics, adversaries, and malware',
     create: createMitreExplorerPreset,
+  },
+  {
+    id: 'over-time-comparison',
+    name: 'Over-Time Comparison',
+    description: 'Trajectory dashboard — coverage, velocity, quality, pipeline trends with PoP and YoY comparison',
+    create: createOverTimeComparisonPreset,
   },
   {
     id: 'blank-canvas',

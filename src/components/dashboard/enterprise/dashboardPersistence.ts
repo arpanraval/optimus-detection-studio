@@ -9,7 +9,7 @@ import { DASHBOARD_PRESETS } from './presets';
 
 const LS_KEY = 'enterprise-dashboards';
 const PREBUILT_VERSION_KEY = 'enterprise-prebuilt-version';
-const PREBUILT_VERSION = 12; // Bump to force re-seed — renamed "SOC Overview" → "Detection Studio Overview"
+const PREBUILT_VERSION = 13; // Bump to force re-seed — added "Over-Time Comparison" preset
 const LAST_ACTIVE_KEY = 'enterprise-last-dashboard';
 
 // ---------------------------------------------------------------------------
@@ -309,4 +309,16 @@ export function resolveLandingDashboardId(): string | null {
   const last = getLastActiveDashboardId();
   if (last && summaries.some(d => d.id === last)) return last;
   return summaries.find(d => d.isDefault)?.id ?? summaries[0].id;
+}
+
+/**
+ * Resolve a prebuilt dashboard's UUID by its preset name. Used by named
+ * redirect routes (e.g. /dashboard/over-time) that want a stable URL pointing
+ * to a specific preset dashboard, regardless of the UUID it was seeded with.
+ * Returns null if no matching dashboard exists yet.
+ */
+export function resolveDashboardIdByName(name: string): string | null {
+  ensureLocalDashboardsExist();
+  const summaries = readDashboardSummaries();
+  return summaries.find(d => d.name === name)?.id ?? null;
 }
