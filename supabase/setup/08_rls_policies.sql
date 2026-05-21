@@ -16,8 +16,7 @@ ALTER TABLE public.deployment_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detection_preflight_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detection_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detection_comments ENABLE ROW LEVEL SECURITY;
--- NOTE: detection_embeddings does NOT have RLS enabled in production
--- ALTER TABLE public.detection_embeddings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.detection_embeddings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detection_packs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detection_reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detections ENABLE ROW LEVEL SECURITY;
@@ -25,8 +24,7 @@ ALTER TABLE public.enrichment_audit ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.environment_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.integration_credentials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.integrations ENABLE ROW LEVEL SECURITY;
--- NOTE: mitre_embeddings does NOT have RLS enabled in production
--- ALTER TABLE public.mitre_embeddings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.mitre_embeddings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mitre_metadata ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mitre_objects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mitre_relationships ENABLE ROW LEVEL SECURITY;
@@ -51,6 +49,22 @@ ALTER TABLE public.integration_credentials FORCE ROW LEVEL SECURITY;
 -- NOTE: integration_credentials has RLS enabled + forced but NO policies defined.
 -- This means all access is denied except via service_role. This is intentional for
 -- credential storage -- all access goes through edge functions using service_role.
+
+-- detection_embeddings / mitre_embeddings: RLS enabled above (hardened 2026-05-22;
+-- advisor rls_disabled_in_public). Writes are service_role-only (edge functions);
+-- reads are admin-only via the policies below; anon has no grants.
+REVOKE ALL ON public.detection_embeddings FROM anon;
+REVOKE ALL ON public.mitre_embeddings     FROM anon;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.detection_embeddings FROM authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.mitre_embeddings     FROM authenticated;
+
+CREATE POLICY detection_embeddings_admin_select ON public.detection_embeddings
+  FOR SELECT TO authenticated
+  USING (public.is_global_admin(auth.uid()));
+
+CREATE POLICY mitre_embeddings_admin_select ON public.mitre_embeddings
+  FOR SELECT TO authenticated
+  USING (public.is_global_admin(auth.uid()));
 
 
 -- ========================
