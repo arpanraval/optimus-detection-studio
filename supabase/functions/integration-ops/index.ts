@@ -16,6 +16,7 @@ type Action =
   | 'delete_rule'
   | 'toggle_rule'
   | 'delete_vendor_rule'
+  | 'run_preflight'
 
 type Provider =
   | 'splunk'
@@ -46,6 +47,7 @@ interface IntegrationRequest {
   deploymentId?: string
   vendorRuleId?: string
   enabled?: boolean
+  windowDays?: number
 }
 
 interface ConnectionTestResult {
@@ -107,6 +109,7 @@ const ACTION_PERMISSIONS: Record<Action, GranularPermission> = {
   delete_rule: 'integrations:sync',
   toggle_rule: 'integrations:sync',
   delete_vendor_rule: 'integrations:sync',
+  run_preflight: 'integrations:sync',
 }
 
 function computeEffectivePermissions(
@@ -2408,6 +2411,320 @@ async function handleDeleteVendorRule(
 }
 
 // =============================================================================
+// SIEM Query Pre-flight — Microsoft Defender XDR (Advanced Hunting)
+// ISOLATED BLOCK. Pure helpers below mirror src/lib/preflightQuery.ts — keep in sync.
+// =============================================================================
+
+const GRAPH_HUNTING_URL = 'https://graph.microsoft.com/v1.0/security/runHuntingQuery'
+const GRAPH_DEFAULT_SCOPE = 'https://graph.microsoft.com/.default'
+
+const PREFLIGHT_ENTITY_COLUMNS = [
+  'DeviceName', 'DeviceId', 'AccountName', 'AccountUpn', 'AccountObjectId',
+  'AccountSid', 'InitiatingProcessAccountName', 'RemoteIP', 'FileName',
+]
+
+function pfNormalizeQuery(query: string): string {
+  return query.trim().replace(/;+$/g, '').trim()
+}
+function pfAppendOperator(baseQuery: string, operator: string): string {
+  return `${pfNormalizeQuery(baseQuery)}\n${operator}`
+}
+function pfBuildWindowClause(windowDays: number, hasTimestamp: boolean): string {
+  return hasTimestamp ? `| where Timestamp > ago(${windowDays}d)` : ''
+}
+function pfExtractColumns(schema: { name: string }[] | undefined): string[] {
+  return (schema || []).map((s) => s.name)
+}
+function pfHasTimestamp(columns: string[]): boolean {
+  return columns.includes('Timestamp')
+}
+function pfDetectEntityColumn(columns: string[]): string | null {
+  const set = new Set(columns)
+  for (const col of PREFLIGHT_ENTITY_COLUMNS) if (set.has(col)) return col
+  return null
+}
+function pfBuildDerivedQueries(opts: {
+  baseQuery: string; windowDays: number; hasTimestamp: boolean; entityColumn: string | null
+}): { count: string; sample: string; timeBreakdown: string | null; entityBreakdown: string | null } {
+  const base = pfNormalizeQuery(opts.baseQuery)
+  const win = pfBuildWindowClause(opts.windowDays, opts.hasTimestamp)
+  const withWin = win ? `${base}\n${win}` : base
+  return {
+    count: `${withWin}\n| count`,
+    sample: `${withWin}\n| take 25`,
+    timeBreakdown: opts.hasTimestamp
+      ? `${withWin}\n| summarize Hits = count() by bin(Timestamp, 1d)\n| order by Timestamp asc`
+      : null,
+    entityBreakdown: opts.entityColumn
+      ? `${withWin}\n| summarize Hits = count() by ${opts.entityColumn}\n| top 10 by Hits`
+      : null,
+  }
+}
+function pfLintSchema(columns: string[]): { code: string; message: string }[] {
+  const warnings: { code: string; message: string }[] = []
+  const set = new Set(columns)
+  if (!set.has('Timestamp')) warnings.push({ code: 'MISSING_TIMESTAMP', message: 'Query does not return a Timestamp column — required to save it as a Defender custom detection.' })
+  if (!set.has('ReportId')) warnings.push({ code: 'MISSING_REPORTID', message: 'Query does not return a ReportId column — required to save it as a Defender custom detection.' })
+  if (!pfDetectEntityColumn(columns)) warnings.push({ code: 'MISSING_ENTITY', message: 'Query does not return a recognized entity column (e.g. DeviceId, AccountSid) — Defender custom detections require at least one impacted-asset identifier.' })
+  return warnings
+}
+function pfParseCount(results: Record<string, unknown>[]): number {
+  if (!results || results.length === 0) return 0
+  const row = results[0]
+  const raw = row.Count ?? row.count ?? Object.values(row)[0]
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : 0
+}
+function pfParseTime(results: Record<string, unknown>[]): { date: string; hits: number }[] {
+  return (results || []).map((r) => ({ date: String(r.Timestamp ?? ''), hits: Number(r.Hits ?? 0) || 0 })).filter((b) => b.date)
+}
+function pfParseEntity(results: Record<string, unknown>[], col: string): { name: string; hits: number }[] {
+  return (results || []).map((r) => ({ name: String(r[col] ?? '(unknown)'), hits: Number(r.Hits ?? 0) || 0 }))
+}
+function pfMapError(httpStatus: number, body: string): { status: string; message: string; guidance: string } {
+  let text = ''
+  try {
+    const data = JSON.parse(body)
+    text = data?.error?.message || data?.error_description || data?.message || ''
+  } catch { text = body ? body.slice(0, 300) : '' }
+  const insufficientPerms = { status: 'permission_denied', message: 'Insufficient Graph API permissions for Advanced Hunting', guidance: 'Grant the ThreatHunting.Read.All application permission to your Azure AD app registration and grant admin consent.' }
+  const authFailed = { status: 'permission_denied', message: 'Authentication failed', guidance: 'Check the Client ID, Client Secret, and Tenant ID configured for this integration.' }
+  // Route by explicit HTTP status first — a definite status always wins over text matching.
+  if (httpStatus === 403) return insufficientPerms
+  if (httpStatus === 401) return authFailed
+  if (httpStatus === 429) {
+    return { status: 'connection_error', message: 'Microsoft Advanced Hunting API rate limit reached', guidance: 'Defender throttles hunting queries. Wait a moment and run the pre-flight again.' }
+  }
+  if (httpStatus >= 500) {
+    return { status: 'connection_error', message: 'Microsoft Graph is unavailable', guidance: 'Graph returned a server error. Try again shortly.' }
+  }
+  // Text-based fallback — only for ambiguous statuses (e.g. a 2xx wrapper that embeds an error).
+  if (/forbidden|insufficient|privilege/i.test(text)) return insufficientPerms
+  if (/unauthorized|invalid.*token|expired/i.test(text)) return authFailed
+  return { status: 'query_error', message: text ? `Query error: ${text.slice(0, 240)}` : `Query failed (HTTP ${httpStatus})`, guidance: 'Fix the KQL query so it compiles in Defender Advanced Hunting, then run the pre-flight again.' }
+}
+
+interface HuntingResponse {
+  ok: boolean; httpStatus: number; body: string
+  schema?: { name: string; type: string }[]; results?: Record<string, unknown>[]
+}
+
+async function runHuntingQuery(token: string, query: string): Promise<HuntingResponse> {
+  const response = await vendorFetch(
+    GRAPH_HUNTING_URL,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({ query }),
+    },
+    60000,
+  )
+  const body = await response.text()
+  if (!response.ok) return { ok: false, httpStatus: response.status, body }
+  try {
+    const data = JSON.parse(body)
+    return { ok: true, httpStatus: 200, body, schema: data.schema, results: data.results }
+  } catch {
+    return { ok: false, httpStatus: response.status, body }
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('PREFLIGHT_TIMEOUT')), ms)),
+  ])
+}
+
+/** Pick the KQL query from a detection, preferring the queries[] array. */
+function pickKqlQuery(detection: {
+  queries?: { language?: string; query?: string }[]
+  queryLanguage?: string
+  detectionQuery?: string
+}): string | null {
+  const fromArray = (detection.queries || []).find(
+    (q) => q.language && q.language.toUpperCase() === 'KQL' && q.query && q.query.trim() !== '',
+  )
+  if (fromArray?.query) return fromArray.query
+  if (
+    detection.detectionQuery && detection.detectionQuery.trim() !== '' &&
+    detection.queryLanguage && detection.queryLanguage.toUpperCase() === 'KQL'
+  ) {
+    return detection.detectionQuery
+  }
+  return null
+}
+
+async function handleRunPreflight(
+  body: IntegrationRequest,
+  userId: string,
+  corsHeaders: Record<string, string>,
+): Promise<Response> {
+  const json = (payload: unknown, status = 200) =>
+    new Response(JSON.stringify(payload), {
+      status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+
+  if (!body.integrationId || !body.detectionId) {
+    return json({ error: 'integrationId and detectionId are required' }, 400)
+  }
+  const windowDays = body.windowDays === 7 || body.windowDays === 14 ? body.windowDays : 30
+
+  const serviceClient = getServiceClient()
+
+  // Pre-flight-specific rate limit (10 runs / 5 min), separate from the function-wide limiter.
+  const { allowed } = await checkRateLimit(serviceClient, `user:${userId}:preflight`, 10, 300)
+  if (!allowed) {
+    return json({ error: 'Pre-flight rate limit reached. Wait a few minutes and try again.' }, 429)
+  }
+
+  // Integration must be a connected Defender XDR integration owned by the user.
+  const { data: integration, error: intError } = await serviceClient
+    .from('integrations')
+    .select('*')
+    .eq('id', body.integrationId)
+    .eq('user_id', userId)
+    .single()
+  if (intError || !integration) return json({ error: 'Integration not found' }, 404)
+  if (integration.provider !== 'defender_xdr') {
+    return json({ error: 'Pre-flight currently supports Microsoft Defender XDR integrations only' }, 400)
+  }
+  if (integration.status !== 'connected') {
+    return json({ error: 'Integration is not connected', code: 'INTEGRATION_NOT_CONNECTED' }, 400)
+  }
+
+  // Detection must be owned by the user and have a KQL query. (No production/status gate.)
+  const { data: detection, error: detError } = await serviceClient
+    .from('detections')
+    .select('id, user_id, queries, queryLanguage, detectionQuery')
+    .eq('id', body.detectionId)
+    .single()
+  if (detError || !detection) return json({ error: 'Detection not found' }, 404)
+  if (detection.user_id !== userId) return json({ error: 'You do not own this detection' }, 403)
+
+  const kqlQuery = pickKqlQuery(detection)
+  if (!kqlQuery) {
+    return json({ error: 'Detection has no KQL query to run', code: 'DETECTION_NO_KQL_QUERY' }, 400)
+  }
+
+  const credentials = await getDecryptedCredentials(body.integrationId)
+  const config = (integration.config || {}) as Record<string, unknown>
+  const startedAt = Date.now()
+
+  let status = 'success'
+  let validationPassed = false
+  let errorMessage: string | null = null
+  let errorGuidance: string | null = null
+  let hitCount: number | null = null
+  let windowApplied = false
+  let schemaWarnings: { code: string; message: string }[] = []
+  let sample: Record<string, unknown>[] = []
+  const breakdown: {
+    overTime: { date: string; hits: number }[]
+    byEntity: { name: string; hits: number }[]
+    entityColumn: string | null
+  } = { overTime: [], byEntity: [], entityColumn: null }
+
+  try {
+    await withTimeout((async () => {
+      const token = await microsoftGetToken(
+        config.tenantId as string, credentials.clientId, credentials.clientSecret, GRAPH_DEFAULT_SCOPE,
+      )
+
+      // 1. Probe — validates the query and reveals its result schema.
+      const probe = await runHuntingQuery(token, pfAppendOperator(kqlQuery, '| take 1'))
+      if (!probe.ok) {
+        const mapped = pfMapError(probe.httpStatus, probe.body)
+        status = mapped.status
+        errorMessage = mapped.message
+        errorGuidance = mapped.guidance
+        return
+      }
+      validationPassed = true
+      const columns = pfExtractColumns(probe.schema)
+      const hasTimestamp = pfHasTimestamp(columns)
+      const entityColumn = pfDetectEntityColumn(columns)
+      schemaWarnings = pfLintSchema(columns)
+      windowApplied = hasTimestamp
+      breakdown.entityColumn = entityColumn
+
+      const derived = pfBuildDerivedQueries({ baseQuery: kqlQuery, windowDays, hasTimestamp, entityColumn })
+
+      // 2. Count.
+      const countRes = await runHuntingQuery(token, derived.count)
+      if (!countRes.ok) {
+        const mapped = pfMapError(countRes.httpStatus, countRes.body)
+        status = mapped.status
+        errorMessage = mapped.message
+        errorGuidance = mapped.guidance
+        return
+      }
+      hitCount = pfParseCount(countRes.results || [])
+
+      // 3. Sample (best-effort).
+      const sampleRes = await runHuntingQuery(token, derived.sample)
+      if (sampleRes.ok) sample = (sampleRes.results || []).slice(0, 25)
+
+      // 4. Time breakdown (best-effort).
+      if (derived.timeBreakdown) {
+        const tRes = await runHuntingQuery(token, derived.timeBreakdown)
+        if (tRes.ok) breakdown.overTime = pfParseTime(tRes.results || [])
+      }
+      // 5. Entity breakdown (best-effort).
+      if (derived.entityBreakdown && entityColumn) {
+        const eRes = await runHuntingQuery(token, derived.entityBreakdown)
+        if (eRes.ok) breakdown.byEntity = pfParseEntity(eRes.results || [], entityColumn)
+      }
+    })(), 85000)
+  } catch (err) {
+    if (err instanceof Error && err.message === 'PREFLIGHT_TIMEOUT') {
+      status = 'timeout'
+      errorMessage = 'The query took too long to run'
+      errorGuidance = 'Narrow the query or choose a shorter backtest window, then try again.'
+    } else {
+      status = 'connection_error'
+      errorMessage = err instanceof Error ? err.message : 'Pre-flight failed'
+      errorGuidance = 'Could not reach Microsoft Graph. Check the integration and try again.'
+    }
+  }
+
+  const durationMs = Date.now() - startedAt
+
+  const { data: row, error: insErr } = await serviceClient
+    .from('detection_preflight_runs')
+    .insert({
+      user_id: userId,
+      integration_id: body.integrationId,
+      detection_id: body.detectionId,
+      provider: 'defender_xdr',
+      window_days: windowDays,
+      status,
+      validation_passed: validationPassed,
+      hit_count: hitCount,
+      window_applied: windowApplied,
+      error_message: errorMessage,
+      error_guidance: errorGuidance,
+      schema_warnings: schemaWarnings,
+      query_text: kqlQuery,
+      query_language: 'KQL',
+      sample,
+      breakdown,
+      duration_ms: durationMs,
+    })
+    .select()
+    .single()
+
+  if (insErr || !row) {
+    return json({ error: 'Pre-flight ran but the result could not be saved' }, 500)
+  }
+  return json(row)
+}
+
+// =============================================================================
 // Main Handler
 // =============================================================================
 
@@ -2498,6 +2815,8 @@ serve(async (req: Request) => {
         return await handleToggleRule(body, user.id, corsHeaders)
       case 'delete_vendor_rule':
         return await handleDeleteVendorRule(body, user.id, corsHeaders)
+      case 'run_preflight':
+        return await handleRunPreflight(body, user.id, corsHeaders)
       default:
         return new Response(
           JSON.stringify({ error: 'Unknown action' }),
