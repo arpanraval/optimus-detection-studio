@@ -10,7 +10,21 @@ import type {
   DeploymentRecord,
   VendorRuleConfig,
   VendorRule,
+  PreflightResult,
+  PreflightBreakdown,
 } from '../types';
+import {
+  appendOperator,
+  buildDerivedQueries,
+  detectEntityColumn,
+  extractColumns,
+  hasTimestampColumn,
+  lintCustomDetectionSchema,
+  mapHuntingError,
+  parseCountResult,
+  parseEntityBreakdown,
+  parseTimeBreakdown,
+} from './preflightQuery';
 
 // =============================================================================
 // Integration Service
@@ -1378,6 +1392,181 @@ async function devDeleteDefenderXdrRule(
 }
 
 // =============================================================================
+// Defender XDR Advanced Hunting — pre-flight (dev mode)
+// =============================================================================
+
+const GRAPH_HUNTING_URL = 'https://graph.microsoft.com/v1.0/security/runHuntingQuery';
+
+interface DevHuntingResponse {
+  ok: boolean;
+  status: number;
+  body: string;
+  schema?: { name: string; type: string }[];
+  results?: Record<string, unknown>[];
+}
+
+async function devRunHuntingQuery(token: string, query: string): Promise<DevHuntingResponse> {
+  const res = await devProxy(
+    GRAPH_HUNTING_URL,
+    'POST',
+    {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    JSON.stringify({ query }),
+  );
+  if (!res.ok) return { ok: false, status: res.status, body: res.body };
+  try {
+    const data = JSON.parse(res.body);
+    return { ok: true, status: 200, body: res.body, schema: data.schema, results: data.results };
+  } catch {
+    return { ok: false, status: res.status, body: res.body };
+  }
+}
+
+/** Dev-mode mirror of the edge function's run_preflight action. */
+async function devRunPreflightDefenderXdr(params: {
+  detectionId: string;
+  integrationId: string;
+  windowDays: 7 | 14 | 30;
+}): Promise<PreflightResult> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { data: integration, error: intErr } = await supabase
+    .from('integrations')
+    .select('*')
+    .eq('id', params.integrationId)
+    .single();
+  if (intErr || !integration) throw new Error('Integration not found');
+  if (integration.provider !== 'defender_xdr') {
+    throw new Error('Pre-flight currently supports Microsoft Defender XDR integrations only');
+  }
+
+  const { data: detection, error: detErr } = await supabase
+    .from('detections')
+    .select('id, queries, queryLanguage, detectionQuery')
+    .eq('id', params.detectionId)
+    .single();
+  if (detErr || !detection) throw new Error('Detection not found');
+
+  const kqlFromArray = (detection.queries || []).find(
+    (q: { language?: string; query?: string }) =>
+      q.language && q.language.toUpperCase() === 'KQL' && q.query && q.query.trim() !== '',
+  );
+  const kqlQuery =
+    kqlFromArray?.query ||
+    (detection.detectionQuery &&
+    detection.queryLanguage &&
+    detection.queryLanguage.toUpperCase() === 'KQL'
+      ? detection.detectionQuery
+      : null);
+  if (!kqlQuery) throw new Error('Detection has no KQL query to run');
+
+  const config = (integration.config || {}) as Record<string, unknown>;
+  const credentials = await migrateDevCredentials(params.integrationId, config);
+  if (!credentials) {
+    throw new Error('Dev credentials not found — please re-enter credentials in integration settings.');
+  }
+
+  const startedAt = Date.now();
+  let status = 'success';
+  let validationPassed = false;
+  let errorMessage: string | null = null;
+  let errorGuidance: string | null = null;
+  let hitCount: number | null = null;
+  let windowApplied = false;
+  let schemaWarnings: { code: string; message: string }[] = [];
+  let sample: Record<string, unknown>[] = [];
+  const breakdown: PreflightBreakdown = { overTime: [], byEntity: [], entityColumn: null };
+
+  try {
+    const token = await devMicrosoftGetToken(
+      config.tenantId as string,
+      credentials.clientId,
+      credentials.clientSecret,
+      'https://graph.microsoft.com/.default',
+    );
+
+    const probe = await devRunHuntingQuery(token, appendOperator(kqlQuery, '| take 1'));
+    if (!probe.ok) {
+      const mapped = mapHuntingError(probe.status, probe.body);
+      status = mapped.status;
+      errorMessage = mapped.message;
+      errorGuidance = mapped.guidance;
+    } else {
+      validationPassed = true;
+      const columns = extractColumns(probe.schema);
+      const hasTimestamp = hasTimestampColumn(columns);
+      const entityColumn = detectEntityColumn(columns);
+      schemaWarnings = lintCustomDetectionSchema(columns);
+      windowApplied = hasTimestamp;
+      breakdown.entityColumn = entityColumn;
+
+      const derived = buildDerivedQueries({
+        baseQuery: kqlQuery,
+        windowDays: params.windowDays,
+        hasTimestamp,
+        entityColumn,
+      });
+
+      const countRes = await devRunHuntingQuery(token, derived.count);
+      if (!countRes.ok) {
+        const mapped = mapHuntingError(countRes.status, countRes.body);
+        status = mapped.status;
+        errorMessage = mapped.message;
+        errorGuidance = mapped.guidance;
+      } else {
+        hitCount = parseCountResult(countRes.results || []);
+        const sampleRes = await devRunHuntingQuery(token, derived.sample);
+        if (sampleRes.ok) sample = (sampleRes.results || []).slice(0, 25);
+        if (derived.timeBreakdown) {
+          const tRes = await devRunHuntingQuery(token, derived.timeBreakdown);
+          if (tRes.ok) breakdown.overTime = parseTimeBreakdown(tRes.results || []);
+        }
+        if (derived.entityBreakdown && entityColumn) {
+          const eRes = await devRunHuntingQuery(token, derived.entityBreakdown);
+          if (eRes.ok) breakdown.byEntity = parseEntityBreakdown(eRes.results || [], entityColumn);
+        }
+      }
+    }
+  } catch (err) {
+    status = 'connection_error';
+    errorMessage = err instanceof Error ? err.message : 'Pre-flight failed';
+    errorGuidance = 'Could not reach Microsoft Graph. Check the integration and try again.';
+  }
+
+  const durationMs = Date.now() - startedAt;
+
+  const { data: row, error: insErr } = await supabase
+    .from('detection_preflight_runs')
+    .insert({
+      user_id: user.id,
+      integration_id: params.integrationId,
+      detection_id: params.detectionId,
+      provider: 'defender_xdr',
+      window_days: params.windowDays,
+      status,
+      validation_passed: validationPassed,
+      hit_count: hitCount,
+      window_applied: windowApplied,
+      error_message: errorMessage,
+      error_guidance: errorGuidance,
+      schema_warnings: schemaWarnings,
+      query_text: kqlQuery,
+      query_language: 'KQL',
+      sample,
+      breakdown,
+      duration_ms: durationMs,
+    })
+    .select()
+    .single();
+  if (insErr || !row) throw new Error('Pre-flight ran but the result could not be saved');
+  return row as PreflightResult;
+}
+
+// =============================================================================
 // Microsoft Sentinel (Azure Management API)
 // =============================================================================
 
@@ -2478,6 +2667,27 @@ export const integrationService = {
     if (error) throw new Error(`Deployment failed: ${error.message}`);
     if (data?.error) throw new Error(data.error);
     return data.deployment as DeploymentRecord;
+  },
+
+  async runPreflight(params: {
+    detectionId: string;
+    integrationId: string;
+    windowDays: 7 | 14 | 30;
+  }): Promise<PreflightResult> {
+    if (IS_DEV) {
+      return devRunPreflightDefenderXdr(params);
+    }
+    const { data, error } = await supabase.functions.invoke('integration-ops', {
+      body: {
+        action: 'run_preflight',
+        detectionId: params.detectionId,
+        integrationId: params.integrationId,
+        windowDays: params.windowDays,
+      },
+    });
+    if (error) throw new Error(`Pre-flight failed: ${error.message}`);
+    if (data?.error) throw new Error(data.error);
+    return data as PreflightResult;
   },
 
   async listVendorRules(integrationId: string): Promise<unknown[]> {
