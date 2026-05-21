@@ -1023,7 +1023,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                                                         isComplete={!!msg.content || msg.toolCalls.every(tc => tc.status !== 'running')}
                                                     />
                                                 )}
-                                                {/* Render visualization card FIRST (hero element), then text below */}
+                                                {/* Render visualization card FIRST (pure data UI), then prose explanation below */}
                                                 {msg.structuredResponse?.visualization && hasVisualizationData(msg.structuredResponse.visualization) ? (
                                                     <div className="mb-3">
                                                         <OptimusResponseRenderer
@@ -1047,7 +1047,7 @@ export const AIAgentChat: React.FC<AIAgentChatProps> = ({ detections, onOpenDraf
                                                         />
                                                     </div>
                                                 )}
-                                                {/* Render text explanation after the card */}
+                                                {/* Prose explanation always rendered below the card — cards are data UI only */}
                                                 {(msg.structuredResponse?.text || msg.content) && (
                                                     <FormattedText
                                                         text={msg.structuredResponse?.text || msg.content || ''}

@@ -1,6 +1,6 @@
 /**
  * Search Results Card
- * M3-inspired design for detection search results
+ * Clean enterprise-grade design for detection search results
  */
 
 import React, { useState } from 'react';
@@ -18,11 +18,11 @@ interface Props {
 
 const getStatusStyle = (status: string) => {
   switch (status?.toLowerCase()) {
-    case 'production': return { bg: 'bg-primary/15', text: 'text-primary', border: 'border-primary/20' };
-    case 'testing': return { bg: 'bg-tertiary/15', text: 'text-tertiary', border: 'border-tertiary/20' };
-    case 'review': return { bg: 'bg-secondary/15', text: 'text-secondary', border: 'border-secondary/20' };
+    case 'production': return { bg: 'bg-primary/10', text: 'text-primary', border: 'border-primary/20' };
+    case 'testing': return { bg: 'bg-tertiary/10', text: 'text-tertiary', border: 'border-tertiary/20' };
+    case 'review': return { bg: 'bg-secondary/10', text: 'text-secondary', border: 'border-secondary/20' };
     case 'draft': return { bg: 'bg-surface-container-highest', text: 'text-on-surface-variant', border: 'border-outline-variant/30' };
-    case 'deprecated': return { bg: 'bg-error/15', text: 'text-error', border: 'border-error/20' };
+    case 'deprecated': return { bg: 'bg-error/10', text: 'text-error', border: 'border-error/20' };
     default: return { bg: 'bg-surface-container-highest', text: 'text-on-surface-variant', border: 'border-outline-variant/30' };
   }
 };
@@ -36,22 +36,24 @@ export const SearchResultsCard: React.FC<Props> = ({ summary, data, actions, onA
   const hasMore = results && results.length > INITIAL_SHOW;
 
   return (
-    <div className="bg-surface-container rounded-2xl border border-outline-variant/15 overflow-hidden shadow-sm">
-      {/* Header */}
-      <div className="px-5 pt-5 pb-4">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+    <div className="bg-surface-container-highest rounded-2xl border border-outline-variant/40 overflow-hidden shadow-md shadow-black/[0.04]">
+      {/* Header Section */}
+      <div className="p-5 border-b border-outline-variant/10 bg-surface-container-lowest/30">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center border border-primary/20">
             <Icon name="search" className="w-5 h-5 text-primary" />
           </div>
           <div className="flex-1">
-            <h3 className="text-base font-semibold text-on-surface">Search Results</h3>
-            <p className="text-xs text-on-surface-variant/60">{total} detection{total !== 1 ? 's' : ''} found</p>
+            <h3 className="text-base font-bold text-on-surface tracking-tight">Search Results</h3>
+            <p className="text-sm text-on-surface-variant/80">
+              <span className="font-semibold text-on-surface">{total}</span> detection{total !== 1 ? 's' : ''} found
+            </p>
           </div>
         </div>
       </div>
 
       {/* Results list */}
-      <div className="px-4 pb-2">
+      <div className="p-5 bg-surface-container-lowest/30">
         {displayResults && displayResults.length > 0 ? (
           <div className="space-y-2">
             {displayResults.map((result: SearchResult) => {
@@ -60,18 +62,18 @@ export const SearchResultsCard: React.FC<Props> = ({ summary, data, actions, onA
                 <Link
                   key={result.id}
                   to={routeHelpers.detectionDetail(result.id)}
-                  className="block no-underline text-inherit p-3 rounded-xl border border-outline-variant/10 hover:bg-surface-container-high/50 transition-colors cursor-pointer"
+                  className="group block no-underline p-3 rounded-lg border border-outline-variant/15 hover:border-outline-variant/30 bg-surface-container-low hover:bg-surface-container transition-all"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
-                      <h4 className="text-sm font-medium text-on-surface">
+                      <h4 className="text-sm font-semibold text-on-surface group-hover:text-primary transition-colors">
                         {result.name}
                       </h4>
 
                       {/* Tags row */}
-                      <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
                         {/* Status badge */}
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}>
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-wider border ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}>
                           {result.status}
                         </span>
 
@@ -79,14 +81,14 @@ export const SearchResultsCard: React.FC<Props> = ({ summary, data, actions, onA
                         {result.mitreIds && result.mitreIds.slice(0, 4).map((id) => (
                           <span
                             key={id}
-                            className="text-[10px] font-mono font-medium px-1.5 py-0.5 bg-tertiary/10 text-tertiary rounded"
+                            className="text-[10px] font-mono font-medium px-1.5 py-0.5 bg-surface-container-highest text-on-surface-variant rounded border border-outline-variant/20"
                           >
                             {id}
                           </span>
                         ))}
                         {result.mitreIds && result.mitreIds.length > 4 && (
-                          <span className="text-[10px] text-on-surface-variant/50">
-                            +{result.mitreIds.length - 4}
+                          <span className="text-[10px] text-on-surface-variant/60 font-medium">
+                            +{result.mitreIds.length - 4} more
                           </span>
                         )}
                       </div>
@@ -95,7 +97,7 @@ export const SearchResultsCard: React.FC<Props> = ({ summary, data, actions, onA
                     {/* Similarity score */}
                     {result.similarity !== undefined && result.similarity > 0 && (
                       <div className="text-right shrink-0">
-                        <span className="text-xs font-mono text-on-surface-variant/40 bg-surface-container-highest px-2 py-1 rounded">
+                        <span className="text-xs font-mono text-on-surface-variant bg-surface-container px-2 py-1 rounded border border-outline-variant/10">
                           {Math.round(result.similarity * 100)}%
                         </span>
                       </div>
@@ -106,8 +108,8 @@ export const SearchResultsCard: React.FC<Props> = ({ summary, data, actions, onA
             })}
           </div>
         ) : (
-          <div className="py-8 text-center">
-            <Icon name="search" className="w-8 h-8 text-on-surface-variant/20 mx-auto mb-2" />
+          <div className="py-10 text-center">
+            <Icon name="search" className="w-8 h-8 text-on-surface-variant/20 mx-auto mb-3" />
             <p className="text-sm text-on-surface-variant">No detections found for "{query}"</p>
           </div>
         )}
@@ -116,7 +118,7 @@ export const SearchResultsCard: React.FC<Props> = ({ summary, data, actions, onA
         {hasMore && (
           <button
             onClick={() => setShowAll(!showAll)}
-            className="w-full mt-3 py-2.5 text-xs font-medium text-primary hover:bg-primary/5 rounded-xl transition-colors"
+            className="w-full mt-3 py-2 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
           >
             {showAll
               ? 'Show less'
@@ -128,19 +130,21 @@ export const SearchResultsCard: React.FC<Props> = ({ summary, data, actions, onA
 
       {/* Related techniques */}
       {relatedTechniques && relatedTechniques.length > 0 && (
-        <div className="mx-4 mb-4 p-3 rounded-xl bg-surface-container-high/30 border border-outline-variant/10">
-          <p className="text-[10px] text-on-surface-variant/60 uppercase tracking-wider mb-2">Related Techniques</p>
+        <div className="px-5 py-4 border-t border-outline-variant/10 bg-surface-container-low">
+          <p className="text-[10px] font-semibold text-on-surface-variant/80 uppercase tracking-wide mb-2.5">
+            Related Techniques
+          </p>
           <div className="flex flex-wrap gap-1.5">
             {relatedTechniques.slice(0, 8).map((id) => (
               <span
                 key={id}
-                className="text-[10px] font-mono px-2 py-0.5 bg-surface-container-highest text-on-surface-variant rounded"
+                className="text-xs font-mono px-2 py-1 bg-surface-container-highest text-on-surface-variant rounded border border-outline-variant/10"
               >
                 {id}
               </span>
             ))}
             {relatedTechniques.length > 8 && (
-              <span className="text-[10px] text-on-surface-variant/40">
+              <span className="text-[10px] text-on-surface-variant/50 self-center ml-1 font-medium">
                 +{relatedTechniques.length - 8} more
               </span>
             )}
@@ -150,15 +154,15 @@ export const SearchResultsCard: React.FC<Props> = ({ summary, data, actions, onA
 
       {/* Actions */}
       {actions && actions.length > 0 && (
-        <div className="px-4 pb-4 pt-2 border-t border-outline-variant/10 flex flex-wrap gap-2">
+        <div className="px-5 py-4 border-t border-outline-variant/10 bg-surface-container-lowest flex flex-wrap gap-2.5">
           {actions.map((action, i) => (
             <button
               key={i}
               onClick={() => onAction(action)}
-              className={`px-4 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 ease-emphasized ${
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
                 i === 0
                   ? 'bg-primary text-on-primary hover:bg-primary/90 shadow-sm'
-                  : 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest border border-outline-variant/10'
+                  : 'bg-surface-container text-on-surface hover:bg-surface-container-high border border-outline-variant/20'
               }`}
             >
               {action.label}

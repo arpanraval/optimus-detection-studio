@@ -57,7 +57,7 @@ export const NavigatorLayerCard: React.FC<Props> = ({ summary, data, actions, on
   };
 
   return (
-    <div className="bg-surface-container-low rounded-2xl border border-outline-variant/15 overflow-hidden shadow-sm">
+    <div className="bg-surface-container-highest rounded-2xl border border-outline-variant/40 overflow-hidden shadow-md shadow-black/[0.04]">
       <div className="p-5 border-b border-outline-variant/10 bg-surface-container-lowest/30">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
@@ -86,12 +86,6 @@ export const NavigatorLayerCard: React.FC<Props> = ({ summary, data, actions, on
           </div>
         </div>
       </div>
-
-      {summary && (
-        <div className="px-5 py-4 bg-surface-container-low border-b border-outline-variant/5">
-          <p className="text-sm text-on-surface-variant leading-relaxed">{summary}</p>
-        </div>
-      )}
 
       <div className="px-5 py-4 bg-surface-container-lowest flex flex-wrap gap-2.5">
         <button

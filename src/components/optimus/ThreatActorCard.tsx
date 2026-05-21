@@ -5,7 +5,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { Icon } from '../Icon';
-import { FormattedText } from './FormattedText';
 import { OptimusAction, ThreatActorData } from '../../types/optimus';
 
 interface Props {
@@ -69,7 +68,7 @@ export const ThreatActorCard: React.FC<Props> = ({ summary, data, actions, onAct
   const displayGaps = showAllGaps ? gapTechniques : gapTechniques.slice(0, 6);
 
   return (
-    <div className="w-full bg-surface-container-low rounded-2xl border border-outline-variant/15 overflow-hidden shadow-sm">
+    <div className="w-full bg-surface-container-highest rounded-2xl border border-outline-variant/40 overflow-hidden shadow-md shadow-black/[0.04]">
       {/* Header Section */}
       <div className="p-6 border-b border-outline-variant/10 bg-surface-container-lowest/30 flex items-center gap-6">
         {/* Left: Actor Details */}
@@ -137,13 +136,6 @@ export const ThreatActorCard: React.FC<Props> = ({ summary, data, actions, onAct
           </div>
         </div>
       </div>
-
-      {/* Summary Text */}
-      {summary && (
-        <div className="px-6 py-4 border-b border-outline-variant/10 bg-surface-container-low">
-          <FormattedText text={summary} />
-        </div>
-      )}
 
       {/* Coverage Gaps Grid */}
       {gapsCount > 0 && gapTechniques.length > 0 && (

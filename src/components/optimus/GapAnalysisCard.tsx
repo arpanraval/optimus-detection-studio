@@ -1,6 +1,6 @@
 /**
  * Gap Analysis Card
- * Displays coverage gap analysis against threat profiles
+ * Displays coverage gap analysis against threat profiles in a clean enterprise format
  */
 
 import React from 'react';
@@ -14,11 +14,11 @@ interface Props {
   onAction: (action: OptimusAction) => void;
 }
 
-const getCoverageColor = (percent: number) => {
-  if (percent >= 75) return { text: 'text-primary', bg: 'bg-primary', gradientFrom: 'from-primary/20', gradientTo: 'to-primary/5', border: 'border-primary/20' };
-  if (percent >= 50) return { text: 'text-secondary', bg: 'bg-secondary', gradientFrom: 'from-secondary/20', gradientTo: 'to-secondary/5', border: 'border-secondary/20' };
-  if (percent >= 25) return { text: 'text-tertiary', bg: 'bg-tertiary', gradientFrom: 'from-tertiary/20', gradientTo: 'to-tertiary/5', border: 'border-tertiary/20' };
-  return { text: 'text-error', bg: 'bg-error', gradientFrom: 'from-error/20', gradientTo: 'to-error/5', border: 'border-error/20' };
+const getCoverageTheme = (percent: number) => {
+  if (percent >= 75) return { text: 'text-primary', bg: 'bg-primary/10', fill: 'bg-primary', icon: 'text-primary', border: 'border-primary/20' };
+  if (percent >= 50) return { text: 'text-secondary', bg: 'bg-secondary/10', fill: 'bg-secondary', icon: 'text-secondary', border: 'border-secondary/20' };
+  if (percent >= 25) return { text: 'text-tertiary', bg: 'bg-tertiary/10', fill: 'bg-tertiary', icon: 'text-tertiary', border: 'border-tertiary/20' };
+  return { text: 'text-error', bg: 'bg-error/10', fill: 'bg-error', icon: 'text-error', border: 'border-error/20' };
 };
 
 const getProfileIcon = (profile: string) => {
@@ -46,74 +46,73 @@ const formatProfileName = (profile: string) => {
 
 export const GapAnalysisCard: React.FC<Props> = ({ summary, data, actions, onAction }) => {
   const { profile, profileTechniques, covered, coveragePercent, gaps, quickWins, recommendation } = data;
-  const colors = getCoverageColor(coveragePercent);
+  const theme = getCoverageTheme(coveragePercent || 0);
+  
+  const totalTechs = profileTechniques || 0;
+  const coveredTechs = covered || 0;
+  const gapsCount = totalTechs - coveredTechs;
 
   return (
-    <div className="bg-surface-container-low rounded-2xl border border-outline-variant/15 overflow-hidden">
-      {/* Header */}
-      <div className="relative p-6 pb-5">
-        {/* Background accent */}
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-secondary/5" />
-
-        <div className="relative flex items-start justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-11 h-11 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-                <Icon name={getProfileIcon(profile)} className="w-5 h-5 text-primary" />
-              </div>
-              <div>
-                <span className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider">
+    <div className="bg-surface-container-highest rounded-2xl border border-outline-variant/40 overflow-hidden shadow-md shadow-black/[0.04]">
+      {/* Header Section */}
+      <div className="p-5 border-b border-outline-variant/10 bg-surface-container-lowest/30">
+        <div className="flex items-start justify-between gap-4 mb-5">
+          <div className="flex gap-3">
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${theme.bg} ${theme.border} border`}>
+              <Icon name={getProfileIcon(profile)} className={`w-5 h-5 ${theme.icon}`} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-[10px] font-semibold text-on-surface-variant uppercase tracking-widest">
                   Gap Analysis
                 </span>
-                <h3 className="text-xl font-bold text-on-surface">
-                  {formatProfileName(profile)} Profile
-                </h3>
               </div>
+              <h3 className="text-base font-bold text-on-surface tracking-tight">
+                {formatProfileName(profile)} Profile
+              </h3>
             </div>
-            <p className="text-sm text-on-surface-variant">
-              {profileTechniques} techniques in profile
-            </p>
           </div>
-
-          {/* Coverage metric badge */}
-          <div className="relative flex-shrink-0">
-            <div className={`w-20 h-20 rounded-2xl flex flex-col items-center justify-center bg-gradient-to-br ${colors.gradientFrom} ${colors.gradientTo} border ${colors.border}`}>
-              <span className={`text-2xl font-bold ${colors.text}`}>
-                {coveragePercent}<span className="text-sm">%</span>
-              </span>
-              <span className="text-[9px] font-medium text-on-surface-variant/70 uppercase tracking-wider">Covered</span>
+          <div className="text-right">
+            <div className={`text-2xl font-bold tabular-nums tracking-tight ${theme.text}`}>
+              {coveragePercent || 0}%
+            </div>
+            <div className="text-[10px] font-medium text-on-surface-variant/60 uppercase tracking-wider mt-0.5">
+              Covered
             </div>
           </div>
         </div>
 
-        {/* Progress bar */}
-        <div className="mt-4 h-2 bg-surface-container-highest rounded-full overflow-hidden">
-          <div
-            className={`h-full ${colors.bg} rounded-full transition-all`}
-            style={{ width: `${coveragePercent}%` }}
-          />
+        {/* Progress Bar */}
+        <div className="space-y-2">
+          <div className="h-1.5 flex rounded-sm overflow-hidden bg-surface-container-highest">
+            <div
+              className={`h-full ${theme.fill} transition-all duration-1000 ease-out`}
+              style={{ width: `${coveragePercent || 0}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-xs text-on-surface-variant/70">
+            <span><span className="font-medium text-on-surface">{coveredTechs}</span> of {totalTechs} techniques covered</span>
+            <span>{gapsCount} gaps</span>
+          </div>
         </div>
-        <div className="flex justify-between text-xs text-on-surface-variant/60 mt-1.5">
-          <span>{covered}/{profileTechniques} covered</span>
-        </div>
-
-        <p className="text-sm text-on-surface-variant mt-4">{summary}</p>
       </div>
 
-      {/* Quick Wins section */}
+      {/* Quick Wins */}
       {quickWins && quickWins.length > 0 && (
-        <div className="p-4 border-b border-outline-variant/10 bg-gradient-to-r from-primary/5 to-transparent">
-          <h4 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3 flex items-center gap-1.5">
-            <Icon name="zap" className="w-3.5 h-3.5" />
-            Quick Wins
+        <div className="px-5 py-4 border-b border-outline-variant/10 bg-primary/5">
+          <h4 className="text-xs font-semibold text-primary uppercase tracking-wide mb-3 flex items-center gap-2">
+            <Icon name="zap" className="w-4 h-4" />
+            Priority Quick Wins
           </h4>
           <div className="space-y-2">
             {quickWins.slice(0, 3).map((win: QuickWin) => (
-              <div key={win.id} className="flex items-start gap-2 text-sm">
-                <span className="font-mono text-primary shrink-0">{win.id}</span>
-                <span className="text-on-surface-variant">{win.name}</span>
+              <div key={win.id} className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3 bg-surface-container-lowest/50 p-2.5 rounded-lg border border-primary/10">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs font-medium text-primary shrink-0">{win.id}</span>
+                  <span className="text-sm text-on-surface font-medium truncate">{win.name}</span>
+                </div>
                 {win.reason && (
-                  <span className="text-on-surface-variant/50 text-xs">- {win.reason}</span>
+                  <span className="text-xs text-on-surface-variant/70 truncate">- {win.reason}</span>
                 )}
               </div>
             ))}
@@ -121,25 +120,25 @@ export const GapAnalysisCard: React.FC<Props> = ({ summary, data, actions, onAct
         </div>
       )}
 
-      {/* Gaps list */}
+      {/* Gaps List */}
       {gaps && gaps.length > 0 && (
-        <div className="p-4 border-b border-outline-variant/10">
-          <h4 className="text-xs font-semibold text-error uppercase tracking-wider mb-3 flex items-center gap-1.5">
-            <Icon name="alert-triangle" className="w-3.5 h-3.5" />
-            Coverage Gaps ({gaps.length})
+        <div className="p-5 border-b border-outline-variant/10 bg-surface-container-lowest/30">
+          <h4 className="text-xs font-semibold text-error uppercase tracking-wide mb-3 flex items-center gap-2">
+            <Icon name="alert-triangle" className="w-4 h-4" />
+            Identified Gaps ({gaps.length})
           </h4>
-          <div className="space-y-2 max-h-48 overflow-y-auto">
+          <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1 scrollbar-thin">
             {gaps.slice(0, 10).map((gap: TechniqueGap) => (
               <div
                 key={gap.id}
-                className="flex items-center justify-between gap-2 px-3 py-2 bg-surface-container-high/50 rounded-lg"
+                className="flex items-center justify-between gap-3 px-3 py-2 bg-surface-container-low border border-outline-variant/10 rounded-lg hover:border-outline-variant/30 transition-colors"
               >
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-mono text-sm text-error shrink-0">{gap.id}</span>
-                  <span className="text-sm text-on-surface-variant truncate">{gap.name}</span>
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="font-mono text-xs font-medium text-error shrink-0">{gap.id}</span>
+                  <span className="text-sm text-on-surface truncate">{gap.name}</span>
                 </div>
                 {gap.priority && (
-                  <span className={`text-[9px] font-semibold px-2 py-0.5 rounded uppercase shrink-0 ${
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-wider shrink-0 ${
                     gap.priority === 'critical' ? 'bg-error/10 text-error' :
                     gap.priority === 'high' ? 'bg-orange-500/10 text-orange-500' :
                     gap.priority === 'medium' ? 'bg-amber-500/10 text-amber-600' :
@@ -151,21 +150,23 @@ export const GapAnalysisCard: React.FC<Props> = ({ summary, data, actions, onAct
               </div>
             ))}
             {gaps.length > 10 && (
-              <p className="text-xs text-on-surface-variant/50 text-center pt-2">
-                +{gaps.length - 10} more gaps
-              </p>
+              <div className="pt-2 text-center">
+                <span className="text-xs font-medium text-on-surface-variant/60">
+                  + {gaps.length - 10} additional techniques
+                </span>
+              </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Empty state: no gaps and no quick wins */}
+      {/* Empty State */}
       {(!gaps || gaps.length === 0) && (!quickWins || quickWins.length === 0) && (
-        <div className="p-4 border-b border-outline-variant/10">
-          <div className="flex items-center gap-3 p-4 bg-primary/5 border border-primary/10 rounded-xl">
+        <div className="p-5 border-b border-outline-variant/10 bg-surface-container-lowest/30">
+          <div className="flex items-center gap-3 p-4 bg-primary/5 border border-primary/10 rounded-lg">
             <Icon name="shield-check" className="w-5 h-5 text-primary flex-shrink-0" />
-            <p className="text-sm text-on-surface-variant">
-              No gaps detected — all techniques in this profile are covered.
+            <p className="text-sm text-on-surface">
+              No gaps detected. Full coverage for this profile.
             </p>
           </div>
         </div>
@@ -173,26 +174,26 @@ export const GapAnalysisCard: React.FC<Props> = ({ summary, data, actions, onAct
 
       {/* Recommendation */}
       {recommendation && (
-        <div className="p-4 border-b border-outline-variant/10 bg-surface-container/30">
-          <h4 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-2 flex items-center gap-1.5">
-            <Icon name="lightbulb" className="w-3.5 h-3.5" />
+        <div className="p-5 border-b border-outline-variant/10 bg-surface-container-low">
+          <h4 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide mb-2 flex items-center gap-2">
+            <Icon name="lightbulb" className="w-4 h-4" />
             Recommendation
           </h4>
-          <p className="text-sm text-on-surface">{recommendation}</p>
+          <p className="text-sm text-on-surface leading-relaxed">{recommendation}</p>
         </div>
       )}
 
       {/* Actions */}
       {actions && actions.length > 0 && (
-        <div className="p-4 flex flex-wrap gap-2">
+        <div className="px-5 py-4 bg-surface-container-lowest flex flex-wrap gap-2.5">
           {actions.map((action, i) => (
             <button
               key={i}
               onClick={() => onAction(action)}
-              className={`px-4 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 ease-emphasized ${
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
                 i === 0
                   ? 'bg-primary text-on-primary hover:bg-primary/90 shadow-sm'
-                  : 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest border border-outline-variant/10'
+                  : 'bg-surface-container text-on-surface hover:bg-surface-container-high border border-outline-variant/20'
               }`}
             >
               {action.label}
