@@ -35,6 +35,9 @@ CREATE INDEX IF NOT EXISTS detection_preflight_runs_detection_idx
 
 ALTER TABLE detection_preflight_runs ENABLE ROW LEVEL SECURITY;
 
+-- No UPDATE policy: rows are written atomically by the edge function (service_role),
+-- which bypasses RLS. Client code should never UPDATE a run directly.
+
 CREATE POLICY "Users can create own preflight runs" ON detection_preflight_runs
   AS PERMISSIVE FOR INSERT TO public
   WITH CHECK (auth.uid() = user_id);

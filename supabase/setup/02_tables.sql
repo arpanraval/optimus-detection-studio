@@ -724,6 +724,9 @@ CREATE TABLE IF NOT EXISTS detection_preflight_runs (
   CONSTRAINT detection_preflight_runs_status_check CHECK (status = ANY (ARRAY['pending'::text, 'success'::text, 'query_error'::text, 'connection_error'::text, 'timeout'::text, 'permission_denied'::text]))
 );
 
+CREATE INDEX IF NOT EXISTS detection_preflight_runs_detection_idx
+  ON detection_preflight_runs (detection_id, created_at DESC);
+
 -- ----------------------------------------------------------
 -- integration_credentials
 -- ----------------------------------------------------------
