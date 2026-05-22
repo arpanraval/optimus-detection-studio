@@ -51,6 +51,7 @@ export function useFinetuneRun() {
     if (!runId || stoppedRef.current) return;
     try {
       const poll = await finetuneService.poll(runId);
+      if (stoppedRef.current) return;
       applyPoll(poll);
 
       if (poll.status !== 'running') { stoppedRef.current = true; return; }
