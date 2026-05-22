@@ -431,6 +431,24 @@ async function handlePoll(body: ReqBody, userId: string, admin: SupabaseClient, 
   }, req);
 }
 
+async function handleCancel(body: ReqBody, userId: string, admin: SupabaseClient, req: Request): Promise<Response> {
+  if (!body.runId) return json({ error: 'runId is required.' }, req, 400);
+  const { data: run, error } = await admin
+    .from('detection_finetune_runs')
+    .select('id, user_id, status, anthropic_session_id')
+    .eq('id', body.runId)
+    .single();
+  if (error || !run) return json({ error: 'Run not found.' }, req, 404);
+  if (run.user_id !== userId) return json({ error: 'Forbidden.' }, req, 403);
+  if (run.status === 'running' && run.anthropic_session_id) {
+    try { await sendEvents(run.anthropic_session_id as string, [interrupt()]); } catch { /* best effort */ }
+  }
+  await admin.from('detection_finetune_runs')
+    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+    .eq('id', run.id).eq('status', 'running');
+  return json({ status: 'cancelled' }, req);
+}
+
 Deno.serve(async (req: Request) => {
   const preflight = handleCorsPreflight(req);
   if (preflight) return preflight;

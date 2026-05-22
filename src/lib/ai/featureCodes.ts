@@ -15,6 +15,7 @@ export const AI_FEATURE_CODES = {
   DETECTION_FORM_ASSIST:  'detection-form-assist',
   MULTI_QUERY_ASSIST:     'multi-query-assist',
   INVESTIGATION_ASSIST:   'investigation-assist',
+  DETECTION_FINETUNE:     'detection-finetune',
 
   // Threat intel
   THREAT_INTEL_DIGEST:    'threat-intel-digest',
@@ -61,6 +62,7 @@ export const FEATURE_DISPLAY: Record<AiFeatureCode, { label: string; group: stri
   'detection-form-assist':  { label: 'Detection Form Assist',  group: 'Authoring',        icon: 'edit' },
   'multi-query-assist':     { label: 'Multi-Query Assist',     group: 'Authoring',        icon: 'edit' },
   'investigation-assist':   { label: 'Investigation Assist',   group: 'Authoring',        icon: 'edit' },
+  'detection-finetune':     { label: 'Detection Finetuning',   group: 'Authoring',        icon: 'sliders' },
   'threat-intel-digest':    { label: 'Threat Intel Digest',    group: 'Threat Intel',     icon: 'file-text' },
   'auto-digest-classify':   { label: 'Auto-Digest Classifier', group: 'Threat Intel',     icon: 'filter' },
   'auto-digest-full':       { label: 'Auto-Digest Full',       group: 'Threat Intel',     icon: 'file-text' },

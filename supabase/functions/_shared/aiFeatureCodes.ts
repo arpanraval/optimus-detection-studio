@@ -10,6 +10,7 @@ const KNOWN_FEATURES = new Set<string>([
   'detection-form-assist',
   'multi-query-assist',
   'investigation-assist',
+  'detection-finetune',
   'threat-intel-digest',
   'auto-digest-classify',
   'auto-digest-full',
