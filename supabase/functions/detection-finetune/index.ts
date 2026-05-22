@@ -9,8 +9,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getCorsHeaders, handleCorsPreflight } from '../_shared/cors.ts';
 import { decryptCredentials, getGraphToken, runHuntingQuery } from '../_shared/defender-hunting.ts';
-import { createSession, sendEvents, listEvents, userMessage, interrupt } from '../_shared/managed-agents.ts';
-import { buildKickoffMessage } from '../_shared/finetune-logic.ts';
+import { createSession, sendEvents, listEvents, userMessage, customToolResult, interrupt } from '../_shared/managed-agents.ts';
+import { buildKickoffMessage, capHuntingResult, mapHuntingError, validateLadder } from '../_shared/finetune-logic.ts';
 import { checkPermission } from '../_shared/permissions.ts';
 import { checkRateLimit } from '../_shared/rate-limiter.ts';
 
@@ -220,6 +220,107 @@ async function handleStart(body: ReqBody, userId: string, admin: SupabaseClient,
   if (!run) return json({ error: 'Failed to create the finetuning run.' }, req, 500);
 
   return json({ runId: run.id, sessionId }, req);
+}
+
+const QUERY_ABORT_MS = 60000;
+
+async function handleTool(body: ReqBody, userId: string, admin: SupabaseClient, req: Request): Promise<Response> {
+  if (!body.runId || !body.toolUseId) {
+    return json({ error: 'runId and toolUseId are required.' }, req, 400);
+  }
+  const { data: run, error } = await admin
+    .from('detection_finetune_runs')
+    .select('id, user_id, status, anthropic_session_id, integration_id, window_days')
+    .eq('id', body.runId)
+    .single();
+  if (error || !run) return json({ error: 'Run not found.' }, req, 404);
+  if (run.user_id !== userId) return json({ error: 'Forbidden.' }, req, 403);
+  if (run.status !== 'running') return json({ status: run.status }, req);
+
+  const sessionId = run.anthropic_session_id as string;
+
+  // Anti-spoof + integrity: the toolUseId must be a real, still-unresolved tool call,
+  // and the query/intent are read from the AGENT'S event — never from the client
+  // request — so a caller cannot substitute its own KQL.
+  const events = await listEvents(sessionId);
+  const toolEvent = events.find(
+    (e) => e.type === 'agent.custom_tool_use' && e.id === body.toolUseId,
+  );
+  const alreadyResolved = events.some(
+    (e) => e.type === 'user.custom_tool_result' && e.custom_tool_use_id === body.toolUseId,
+  );
+  if (!toolEvent || alreadyResolved) {
+    return json({ status: 'running', note: 'tool already resolved or unknown' }, req);
+  }
+  const toolName = String(toolEvent.name ?? '');
+  const toolInput = (toolEvent.input ?? {}) as Record<string, unknown>;
+
+  if (toolName === 'submit_refinement_ladder') {
+    const v = validateLadder(toolInput);
+    if (!v.ok) {
+      await sendEvents(sessionId, [customToolResult(
+        body.toolUseId,
+        `Ladder rejected: ${v.reason} Fix it and call submit_refinement_ladder again.`,
+        true,
+      )]);
+      return json({ status: 'running' }, req);
+    }
+    await admin.from('detection_finetune_runs').update({
+      result: v.ladder, status: 'completed',
+      completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    }).eq('id', run.id);
+    await sendEvents(sessionId, [customToolResult(
+      body.toolUseId, 'Ladder received and saved. You are done — end your turn.', false,
+    )]);
+    return json({ status: 'completed' }, req);
+  }
+
+  if (toolName === 'run_hunting_query') {
+    // Atomically reserve a budget slot.
+    const { data: reserved } = await admin.rpc('reserve_finetune_query_slot', {
+      p_run_id: run.id, p_budget: QUERY_BUDGET,
+    });
+    if (reserved == null) {
+      await sendEvents(sessionId, [customToolResult(body.toolUseId, JSON.stringify({
+        error: 'query_budget_exhausted',
+        guidance: 'You have used your query budget. Call submit_refinement_ladder now with the evidence you have gathered.',
+      }), false)]);
+      return json({ status: 'running' }, req);
+    }
+
+    const query = String(toolInput.query ?? '');
+    let payload: string;
+    let isError = false;
+    try {
+      const token = await defenderToken(admin, run.integration_id as string);
+      const result = await runHuntingQuery(token, query, run.window_days as number, QUERY_ABORT_MS);
+      if (result.ok) {
+        const capped = capHuntingResult(result.schema, result.results);
+        capped.window_days = run.window_days as number;
+        payload = JSON.stringify(capped);
+      } else if (result.kind === 'oversized') {
+        payload = JSON.stringify({ error: 'result_too_large',
+          guidance: 'The result exceeded 5MB. Add | summarize or | take N to bound it.' });
+        isError = true;
+      } else if (result.kind === 'timeout') {
+        payload = JSON.stringify({ error: 'query_timeout',
+          guidance: 'The query exceeded 60s. Narrow it with a tighter filter or summarize.' });
+        isError = true;
+      } else {
+        payload = JSON.stringify(mapHuntingError(result.httpStatus, result.body));
+        isError = true;
+      }
+    } catch (e) {
+      payload = JSON.stringify({ error: 'execution_error',
+        message: e instanceof Error ? e.message : String(e),
+        guidance: 'The query could not be executed.' });
+      isError = true;
+    }
+    await sendEvents(sessionId, [customToolResult(body.toolUseId, payload, isError)]);
+    return json({ status: 'running' }, req);
+  }
+
+  return json({ error: `Unknown tool: ${toolName}` }, req, 400);
 }
 
 Deno.serve(async (req: Request) => {
