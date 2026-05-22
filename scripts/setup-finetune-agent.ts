@@ -3,6 +3,10 @@
  * Run once:  ANTHROPIC_API_KEY=... bun scripts/setup-finetune-agent.ts
  * Then set the printed IDs as Supabase Edge Function secrets:
  *   FINETUNE_AGENT_ID, FINETUNE_ENVIRONMENT_ID
+ *
+ * Not idempotent: re-running creates a SECOND environment and agent under
+ * the same names. If you re-run after a partial failure, delete the orphaned
+ * resources in the Anthropic console.
  */
 
 const API_BASE = 'https://api.anthropic.com';
@@ -98,7 +102,11 @@ async function post(path: string, body: unknown): Promise<Record<string, unknown
   });
   const text = await res.text();
   if (!res.ok) throw new Error(`POST ${path} -> ${res.status}: ${text}`);
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`POST ${path} -> ${res.status} but non-JSON body: ${text}`);
+  }
 }
 
 async function main() {
@@ -114,6 +122,11 @@ async function main() {
     system: SYSTEM_PROMPT,
     tools: [RUN_HUNTING_QUERY_TOOL, SUBMIT_LADDER_TOOL],
   });
+  if (!env.id || !agent.id) {
+    throw new Error(
+      `Unexpected API response shape — environment: ${JSON.stringify(env)}, agent: ${JSON.stringify(agent)}`,
+    );
+  }
   console.log('\n=== Done. Set these as Supabase Edge Function secrets ===');
   console.log(`FINETUNE_ENVIRONMENT_ID=${env.id}`);
   console.log(`FINETUNE_AGENT_ID=${agent.id}`);
