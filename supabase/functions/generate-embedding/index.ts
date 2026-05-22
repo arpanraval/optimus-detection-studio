@@ -618,6 +618,41 @@ serve(async (req: Request) => {
       }
 
       ctx = { userId: user.id, feature: body.feature || 'embedding-detection' }
+
+      // ACCESS CHECK: a user-JWT caller may only embed detections they can see.
+      // The handlers below read detections with the service-role client (RLS
+      // bypassed), so re-check visibility here with a user-scoped client. MITRE
+      // objects are public reference data and 'query' carries no detection id;
+      // only detection-type requests are checked. The service-role branch above
+      // is trusted (orchestrator / cron) and skips this.
+      if (type === 'detection' || type === 'batch_detections') {
+        const reqIds: string[] = type === 'detection' ? (id ? [id] : []) : (ids ?? [])
+        if (reqIds.length > 0) {
+          const userClient = createClient(
+            Deno.env.get('SUPABASE_URL')!,
+            Deno.env.get('SUPABASE_ANON_KEY')!,
+            { global: { headers: { Authorization: `Bearer ${token}` } } }
+          )
+          const { data: visibleRows, error: accessError } = await userClient
+            .from('detections')
+            .select('id')
+            .in('id', reqIds)
+          if (accessError) {
+            return new Response(
+              JSON.stringify({ error: 'Detection access check failed' }),
+              { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            )
+          }
+          const visible = new Set((visibleRows ?? []).map((r: any) => r.id))
+          const denied = reqIds.filter((x) => !visible.has(x))
+          if (denied.length > 0) {
+            return new Response(
+              JSON.stringify({ error: 'Forbidden: no access to requested detection(s)', denied }),
+              { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            )
+          }
+        }
+      }
     }
 
     // Validate batch size and UUID format

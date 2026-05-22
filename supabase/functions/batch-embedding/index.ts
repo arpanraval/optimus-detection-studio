@@ -323,6 +323,15 @@ serve(async (req: Request) => {
     const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
     const { data: { user }, error: authError } = await supabase.auth.getUser(token)
     if (authError || !user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    // ADMIN GATE: batch embedding is a global maintenance operation -- it scans
+    // and re-embeds the entire detection corpus and drives Gemini batch jobs.
+    // Restrict to owner/admin (the Data Sync page). Non-admin callers that reach
+    // here (e.g. a bulk import using the 'batch' strategy) get 403; that path is
+    // fire-and-forget and degrades gracefully.
+    const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+    if (!profile || !['owner', 'admin'].includes(profile.role)) {
+      return new Response(JSON.stringify({ error: 'Forbidden: admin access required' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
     const body = await req.json()
     const { action, jobId } = body
     switch (action) {

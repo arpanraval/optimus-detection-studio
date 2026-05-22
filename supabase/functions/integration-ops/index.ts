@@ -1657,6 +1657,22 @@ async function handleSaveCredentials(
 
     integrationId = integration.id
   } else {
+    // OWNERSHIP CHECK: an existing integrationId must belong to the caller
+    // before any of its config or credentials are touched. Without this, a user
+    // with integrations:configure could pass another user's integrationId and
+    // overwrite their stored credentials.
+    const { data: owned } = await serviceClient
+      .from('integrations')
+      .select('id')
+      .eq('id', integrationId)
+      .eq('user_id', userId)
+      .maybeSingle()
+    if (!owned) {
+      return new Response(
+        JSON.stringify({ error: 'Forbidden: integration not found or not owned by you' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
     // Update existing integration config
     if (body.config || body.name) {
       const updates: Record<string, unknown> = {}
