@@ -265,10 +265,18 @@ async function handleTool(body: ReqBody, userId: string, admin: SupabaseClient, 
       )]);
       return json({ status: 'running' }, req);
     }
-    await admin.from('detection_finetune_runs').update({
+    const { error: saveErr } = await admin.from('detection_finetune_runs').update({
       result: v.ladder, status: 'completed',
       completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     }).eq('id', run.id);
+    if (saveErr) {
+      await sendEvents(sessionId, [customToolResult(
+        body.toolUseId,
+        'The ladder could not be saved due to a server error. Call submit_refinement_ladder again.',
+        true,
+      )]);
+      return json({ status: 'running' }, req);
+    }
     await sendEvents(sessionId, [customToolResult(
       body.toolUseId, 'Ladder received and saved. You are done — end your turn.', false,
     )]);
@@ -320,7 +328,11 @@ async function handleTool(body: ReqBody, userId: string, admin: SupabaseClient, 
     return json({ status: 'running' }, req);
   }
 
-  return json({ error: `Unknown tool: ${toolName}` }, req, 400);
+  // Unknown tool — resolve the call with an error so the agent does not stall.
+  await sendEvents(sessionId, [customToolResult(
+    body.toolUseId, `Unknown tool: ${toolName}. Use run_hunting_query or submit_refinement_ladder.`, true,
+  )]);
+  return json({ status: 'running' }, req);
 }
 
 Deno.serve(async (req: Request) => {
