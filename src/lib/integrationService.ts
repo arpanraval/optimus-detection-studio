@@ -1429,7 +1429,7 @@ async function devRunHuntingQuery(token: string, query: string): Promise<DevHunt
 async function devRunPreflightDefenderXdr(params: {
   detectionId: string;
   integrationId: string;
-  windowDays: 7 | 14 | 30;
+  windowDays: number;
 }): Promise<PreflightResult> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
@@ -2681,7 +2681,7 @@ export const integrationService = {
   async runPreflight(params: {
     detectionId: string;
     integrationId: string;
-    windowDays: 7 | 14 | 30;
+    windowDays: number;
   }): Promise<PreflightResult> {
     if (IS_DEV) {
       return devRunPreflightDefenderXdr(params);

@@ -720,7 +720,7 @@ CREATE TABLE IF NOT EXISTS detection_preflight_runs (
   CONSTRAINT detection_preflight_runs_pkey PRIMARY KEY (id),
   CONSTRAINT detection_preflight_runs_integration_id_fkey FOREIGN KEY (integration_id) REFERENCES integrations(id) ON DELETE CASCADE,
   CONSTRAINT detection_preflight_runs_provider_check CHECK (provider = ANY (ARRAY['defender_xdr'::text])),
-  CONSTRAINT detection_preflight_runs_window_days_check CHECK (window_days = ANY (ARRAY[7, 14, 30])),
+  CONSTRAINT detection_preflight_runs_window_days_check CHECK (window_days >= 1 AND window_days <= 90),
   CONSTRAINT detection_preflight_runs_status_check CHECK (status = ANY (ARRAY['pending'::text, 'success'::text, 'query_error'::text, 'connection_error'::text, 'timeout'::text, 'permission_denied'::text]))
 );
 

@@ -2505,7 +2505,7 @@ function pfMapError(httpStatus: number, body: string): { status: string; message
     const data = JSON.parse(body)
     text = data?.error?.message || data?.error_description || data?.message || ''
   } catch { text = body ? body.slice(0, 300) : '' }
-  const insufficientPerms = { status: 'permission_denied', message: 'Insufficient Graph API permissions for Advanced Hunting', guidance: 'Grant the ThreatHunting.Read.All application permission to your Azure AD app registration and grant admin consent.' }
+  const insufficientPerms = { status: 'permission_denied', message: 'Insufficient Graph API permissions for Advanced Hunting', guidance: 'Add ThreatHunting.Read.All as an Application permission (not Delegated) on Microsoft Graph for your Azure AD app registration, then grant admin consent for the tenant.' }
   const authFailed = { status: 'permission_denied', message: 'Authentication failed', guidance: 'Check the Client ID, Client Secret, and Tenant ID configured for this integration.' }
   // Route by explicit HTTP status first — a definite status always wins over text matching.
   if (httpStatus === 403) return insufficientPerms
@@ -2590,7 +2590,9 @@ async function handleRunPreflight(
   if (!body.integrationId || !body.detectionId) {
     return json({ error: 'integrationId and detectionId are required' }, 400)
   }
-  const windowDays = body.windowDays === 7 || body.windowDays === 14 ? body.windowDays : 30
+  // Custom backtest window — clamp to the DB CHECK range (1–90 days); default 30.
+  const rawWindow = Math.round(Number(body.windowDays))
+  const windowDays = Number.isFinite(rawWindow) ? Math.min(Math.max(rawWindow, 1), 90) : 30
 
   const serviceClient = getServiceClient()
 

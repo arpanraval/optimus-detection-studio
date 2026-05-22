@@ -496,24 +496,6 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                  </button>
                )}
 
-               {/* Test in SIEM — permission gated */}
-               {hasPermission(userRole, 'integrations:sync') && (
-                 <button
-                   onClick={() => setShowPreflight(true)}
-                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-outline-variant/30 text-on-surface hover:bg-surface-container-high transition-colors"
-                 >
-                   <Icon name="play" className="w-3.5 h-3.5" />
-                   Test in SIEM
-                   {latestPreflight && (
-                     <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-md bg-surface-container-highest text-on-surface-variant">
-                       {latestPreflight.hit_count !== null
-                         ? `${latestPreflight.hit_count.toLocaleString()} hits`
-                         : (PREFLIGHT_STATUS_LABEL[latestPreflight.status] ?? latestPreflight.status)}
-                     </span>
-                   )}
-                 </button>
-               )}
-
                {/* Deploy to SIEM — permission gated */}
                {detection.detectionQuery && hasPermission(userRole, 'integrations:sync') && (
                  isProductionRule ? (
@@ -660,7 +642,36 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
         )}
         {activeTab === 'logic' && (
           <TabErrorBoundary tabName="Logic">
-            <DetectionLogicTab detection={localDetection} />
+            <div className="space-y-4">
+              {hasPermission(userRole, 'integrations:sync') && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-outline-variant/30 bg-surface-container-high/40 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium text-on-surface">Test in SIEM</p>
+                    <p className="mt-0.5 text-xs text-on-surface-variant">
+                      Validate this query against Defender XDR and backtest it for false positives before deploying.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {latestPreflight && (
+                      <span className="rounded-md bg-surface-container-highest px-2 py-0.5 text-[11px] text-on-surface-variant">
+                        Last run:{' '}
+                        {latestPreflight.hit_count !== null
+                          ? `${latestPreflight.hit_count.toLocaleString()} hits`
+                          : (PREFLIGHT_STATUS_LABEL[latestPreflight.status] ?? latestPreflight.status)}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => setShowPreflight(true)}
+                      className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-on-primary transition-colors hover:bg-primary/90"
+                    >
+                      <Icon name="play" className="h-3.5 w-3.5" />
+                      Run pre-flight
+                    </button>
+                  </div>
+                </div>
+              )}
+              <DetectionLogicTab detection={localDetection} />
+            </div>
           </TabErrorBoundary>
         )}
         {activeTab === 'investigation' && (

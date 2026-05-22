@@ -158,7 +158,7 @@ export function mapHuntingError(
     status: 'permission_denied' as const,
     message: 'Insufficient Graph API permissions for Advanced Hunting',
     guidance:
-      'Grant the ThreatHunting.Read.All application permission to your Azure AD app registration and grant admin consent.',
+      'Add ThreatHunting.Read.All as an Application permission (not Delegated) on Microsoft Graph for your Azure AD app registration, then grant admin consent for the tenant.',
   };
   const authFailed = {
     status: 'permission_denied' as const,

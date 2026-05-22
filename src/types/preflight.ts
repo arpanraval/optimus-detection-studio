@@ -9,7 +9,8 @@ export type PreflightStatus =
   | 'timeout'
   | 'permission_denied';
 
-export type PreflightWindowDays = 7 | 14 | 30;
+/** Backtest window in days — any custom value within the DB CHECK range (1–90). */
+export type PreflightWindowDays = number;
 
 export interface PreflightSchemaWarning {
   code: string;
