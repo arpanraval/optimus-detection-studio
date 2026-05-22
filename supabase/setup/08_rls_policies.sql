@@ -211,6 +211,14 @@ CREATE POLICY "Users can view own preflight runs" ON public.detection_preflight_
   USING ((auth.uid() = user_id));
 
 -- --------------------------------------------------------
+-- Table: detection_finetune_runs
+-- --------------------------------------------------------
+
+CREATE POLICY "Users can view own finetune runs" ON public.detection_finetune_runs
+  AS PERMISSIVE FOR SELECT TO public
+  USING ((auth.uid() = user_id));
+
+-- --------------------------------------------------------
 -- Table: detection_assignments
 -- --------------------------------------------------------
 
