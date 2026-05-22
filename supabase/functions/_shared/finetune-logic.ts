@@ -47,20 +47,17 @@ export interface HuntingErrorResult { error: string; message: string; guidance: 
 /** Maps a Graph Advanced Hunting HTTP failure to an agent-readable tool error. */
 export function mapHuntingError(httpStatus: number, body: string): HuntingErrorResult {
   const text = (body || '').toLowerCase();
-  if (httpStatus === 403 || /forbidden|insufficient|privilege/.test(text)) {
-    return {
-      error: 'permission_denied',
-      message: 'Insufficient Graph API permissions for Advanced Hunting.',
-      guidance: 'The integration needs ThreatHunting.Read.All granted as an Application permission with admin consent.',
-    };
-  }
-  if (httpStatus === 401 || /unauthorized|invalid.*token|expired/.test(text)) {
-    return {
-      error: 'permission_denied',
-      message: 'Authentication with Microsoft Graph failed.',
-      guidance: 'The integration Client ID, Client Secret, or Tenant ID is invalid or expired.',
-    };
-  }
+  const insufficientPerms: HuntingErrorResult = {
+    error: 'permission_denied',
+    message: 'Insufficient Graph API permissions for Advanced Hunting.',
+    guidance: 'The integration needs ThreatHunting.Read.All granted as an Application permission with admin consent.',
+  };
+  const authFailed: HuntingErrorResult = {
+    error: 'permission_denied',
+    message: 'Authentication with Microsoft Graph failed.',
+    guidance: 'The integration Client ID, Client Secret, or Tenant ID is invalid or expired.',
+  };
+  // Explicit HTTP status wins over body-text heuristics (matches integration-ops' pfMapError).
   if (httpStatus === 429) {
     return {
       error: 'rate_limited',
@@ -75,6 +72,11 @@ export function mapHuntingError(httpStatus: number, body: string): HuntingErrorR
       guidance: 'This is transient — retry the query.',
     };
   }
+  if (httpStatus === 403) return insufficientPerms;
+  if (httpStatus === 401) return authFailed;
+  // Status was not decisive — fall back to body-text heuristics.
+  if (/forbidden|insufficient|privilege/.test(text)) return insufficientPerms;
+  if (/unauthorized|invalid.*token|expired/.test(text)) return authFailed;
   return {
     error: 'query_error',
     message: `Query error (HTTP ${httpStatus}): ${(body || '').slice(0, 400)}`,
@@ -125,13 +127,15 @@ export function validateLadder(input: unknown): LadderValidation {
   for (let i = 0; i < o.refinements.length; i++) {
     const r = o.refinements[i] as Record<string, unknown>;
     const where = `refinement ${i + 1}`;
+    if (!r || typeof r !== 'object')
+      return { ok: false, reason: `${where}: must be an object.` };
     if (typeof r.title !== 'string' || !r.title.trim())
       return { ok: false, reason: `${where}: title is required.` };
     if (typeof r.kql !== 'string' || !r.kql.trim())
       return { ok: false, reason: `${where}: kql is required.` };
-    if (typeof r.measured_hit_count !== 'number')
+    if (!Number.isFinite(r.measured_hit_count))
       return { ok: false, reason: `${where}: measured_hit_count must be a number you measured.` };
-    if (typeof r.noise_reduction_pct !== 'number')
+    if (!Number.isFinite(r.noise_reduction_pct))
       return { ok: false, reason: `${where}: noise_reduction_pct must be a number.` };
     if (r.noise_reduction_pct < 0 || r.noise_reduction_pct > 100)
       return { ok: false, reason: `${where}: noise_reduction_pct must be between 0 and 100.` };

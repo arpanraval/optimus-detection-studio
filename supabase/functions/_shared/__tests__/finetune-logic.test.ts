@@ -27,6 +27,17 @@ describe('capHuntingResult', () => {
     expect(out.rows).toHaveLength(50);
     expect(out.note).toContain('200');
   });
+
+  it('halves rows to stay under the JSON size budget', () => {
+    const schema = [{ name: 'A', type: 'String' }];
+    const big = 'x'.repeat(2000);
+    const rows = Array.from({ length: 20 }, (_, i) => ({ A: `${i}-${big}` }));
+    const out = capHuntingResult(schema, rows);
+    expect(out.row_count).toBe(20);
+    expect(out.truncated).toBe(true);
+    expect(out.rows.length).toBeLessThan(20);
+    expect(JSON.stringify(out.rows).length).toBeLessThanOrEqual(12_000);
+  });
 });
 
 describe('mapHuntingError', () => {
@@ -43,6 +54,9 @@ describe('mapHuntingError', () => {
   });
   it('maps 500 to a connection error', () => {
     expect(mapHuntingError(503, '').error).toBe('connection_error');
+  });
+  it('keeps a 5xx as a connection error even when the body mentions auth', () => {
+    expect(mapHuntingError(500, 'unauthorized gateway').error).toBe('connection_error');
   });
 });
 
@@ -88,6 +102,18 @@ describe('validateLadder', () => {
       good.refinements[0],
       { ...good.refinements[1], coverage_tradeoff: undefined },
     ]};
+    expect(validateLadder(bad).ok).toBe(false);
+  });
+  it('rejects a NaN noise_reduction_pct', () => {
+    const bad = { ...good, refinements: [
+      { ...good.refinements[0], noise_reduction_pct: NaN },
+      good.refinements[1],
+    ]};
+    expect(validateLadder(bad).ok).toBe(false);
+  });
+  it('does not throw on a null refinement element', () => {
+    const bad = { ...good, refinements: [null, null] };
+    expect(() => validateLadder(bad)).not.toThrow();
     expect(validateLadder(bad).ok).toBe(false);
   });
 });
