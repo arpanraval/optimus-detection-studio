@@ -8,6 +8,8 @@ import { integrationService } from '../../lib/integrationService';
 import { usePreflight } from '../../hooks/usePreflight';
 import { PreflightTimeChart, PreflightEntityChart } from './SiemPreflightCharts';
 import type { Detection, Integration, PreflightResult, PreflightWindowDays } from '../../types';
+import { SiemFinetuneModal } from './SiemFinetuneModal';
+import type { FinetuneRefinement } from '../../types/finetune';
 
 interface SiemPreflightPanelProps {
   detection: Detection;
@@ -49,6 +51,7 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
   const [loadingIntegrations, setLoadingIntegrations] = useState(!integration);
   const [selectedId, setSelectedId] = useState<string | undefined>(integration?.id);
   const [windowDays, setWindowDays] = useState<PreflightWindowDays>(30);
+  const [showFinetune, setShowFinetune] = useState(false);
 
   useEffect(() => {
     if (integration) return;
@@ -87,6 +90,18 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
     const rows = result?.sample ?? [];
     return rows.length > 0 ? Object.keys(rows[0]).slice(0, 6) : [];
   }, [result?.sample]);
+
+  const handleApplyRefinement = (refinement: FinetuneRefinement) => {
+    if (!window.confirm(
+      `Replace this detection's KQL query with the Level ${refinement.level} refinement?`,
+    )) return;
+    // Apply path: navigate to the detection's query editor with the refined KQL.
+    // The detail page reads this state on the Detection Query tab.
+    navigate(`/detections/${detection.id}`, {
+      state: { applyKql: refinement.kql, applyLanguage: 'KQL' },
+    });
+    setShowFinetune(false);
+  };
 
   const handleRun = async () => {
     if (!activeIntegration) return;
@@ -298,6 +313,24 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
             </div>
           )}
 
+          {/* Finetune with AI entry card — shown when the backtest found hits */}
+          {result.validation_passed && (result.hit_count ?? 0) > 0 && activeIntegration && (
+            <button
+              type="button"
+              onClick={() => setShowFinetune(true)}
+              className="flex w-full items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 text-left transition-colors hover:bg-primary/10"
+            >
+              <Icon name="magic-wand" className="h-5 w-5 flex-shrink-0 text-primary" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-on-surface">Finetune with AI</p>
+                <p className="text-[11px] text-on-surface-variant">
+                  Let an AI agent investigate this noise and propose measured, refined queries.
+                </p>
+              </div>
+              <Icon name="arrowRight" className="h-4 w-4 flex-shrink-0 text-primary" />
+            </button>
+          )}
+
           {/* Schema-lint warnings */}
           {(result.schema_warnings || []).map((w) => (
             <div
@@ -375,6 +408,18 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
             </details>
           )}
         </div>
+      )}
+
+      {showFinetune && activeIntegration && result && (
+        <SiemFinetuneModal
+          detection={detection}
+          integrationId={activeIntegration.id}
+          windowDays={windowDays}
+          baselineHitCount={result.hit_count ?? 0}
+          preflightRunId={result.id}
+          onApplyRefinement={handleApplyRefinement}
+          onClose={() => setShowFinetune(false)}
+        />
       )}
     </div>
   );
