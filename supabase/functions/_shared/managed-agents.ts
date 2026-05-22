@@ -50,19 +50,15 @@ export async function sendEvents(sessionId: string, events: SessionEvent[]): Pro
   await call('POST', `/v1/sessions/${sessionId}/events`, { events });
 }
 
-/** Lists all events for a session (paginates until exhausted). */
+/**
+ * Lists all events for a session. The events endpoint uses cursor pagination
+ * (a numeric `page` is rejected as an invalid cursor); a finetuning session
+ * stays well under the 1000-event page size, so one request returns the full
+ * timeline in chronological order.
+ */
 export async function listEvents(sessionId: string): Promise<Record<string, unknown>[]> {
-  const all: Record<string, unknown>[] = [];
-  let page = 1;
-  for (;;) {
-    const eventsPath = `/v1/sessions/${sessionId}/events?limit=1000&page=${page}`;
-    const out = await call('GET', eventsPath) as { data?: Record<string, unknown>[]; has_more?: boolean };
-    const data = out.data ?? [];
-    all.push(...data);
-    if (!out.has_more || data.length === 0 || page > 20) break;
-    page += 1;
-  }
-  return all;
+  const out = await call('GET', `/v1/sessions/${sessionId}/events?limit=1000`) as { data?: Record<string, unknown>[] };
+  return out.data ?? [];
 }
 
 /** Convenience event constructors. */
