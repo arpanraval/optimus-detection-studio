@@ -9,7 +9,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getCorsHeaders, handleCorsPreflight } from '../_shared/cors.ts';
 import { decryptCredentials, getGraphToken, runHuntingQuery } from '../_shared/defender-hunting.ts';
-import { createSession, sendEvents, listEvents, userMessage } from '../_shared/managed-agents.ts';
+import { createSession, sendEvents, listEvents, userMessage, interrupt } from '../_shared/managed-agents.ts';
 import { buildKickoffMessage } from '../_shared/finetune-logic.ts';
 import { checkPermission } from '../_shared/permissions.ts';
 import { checkRateLimit } from '../_shared/rate-limiter.ts';
@@ -165,6 +165,7 @@ async function handleStart(body: ReqBody, userId: string, admin: SupabaseClient,
       .from('detection_preflight_runs')
       .select('hit_count, breakdown')
       .eq('id', body.preflightRunId)
+      .eq('user_id', userId)
       .maybeSingle();
     if (pf) { baseline = pf.hit_count as number | null; breakdown = pf.breakdown; }
   }
@@ -211,6 +212,9 @@ async function handleStart(body: ReqBody, userId: string, admin: SupabaseClient,
         .maybeSingle();
       if (dup) return json({ runId: dup.id, sessionId: dup.anthropic_session_id, resumed: true }, req);
     }
+    // The session was created but no run row owns it — interrupt it (best effort)
+    // so the orphaned agent stops burning tokens.
+    try { await sendEvents(sessionId, [interrupt()]); } catch { /* best effort */ }
     return json({ error: 'Failed to create the finetuning run.' }, req, 500);
   }
   if (!run) return json({ error: 'Failed to create the finetuning run.' }, req, 500);
