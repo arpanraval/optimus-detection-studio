@@ -10,7 +10,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getCorsHeaders, handleCorsPreflight } from '../_shared/cors.ts';
 import { decryptCredentials, getGraphToken, runHuntingQuery } from '../_shared/defender-hunting.ts';
 import { createSession, sendEvents, listEvents, userMessage, customToolResult, interrupt } from '../_shared/managed-agents.ts';
-import { buildKickoffMessage, capHuntingResult, mapHuntingError, validateLadder } from '../_shared/finetune-logic.ts';
+import { buildKickoffMessage, capHuntingResult, mapHuntingError, validateLadder, normalizeEvents } from '../_shared/finetune-logic.ts';
 import { checkPermission } from '../_shared/permissions.ts';
 import { checkRateLimit } from '../_shared/rate-limiter.ts';
 
@@ -333,6 +333,88 @@ async function handleTool(body: ReqBody, userId: string, admin: SupabaseClient, 
     body.toolUseId, `Unknown tool: ${toolName}. Use run_hunting_query or submit_refinement_ladder.`, true,
   )]);
   return json({ status: 'running' }, req);
+}
+
+const NUDGE_MS = 4 * 60 * 1000;
+const ANTHROPIC_INPUT_COST = 5 / 1_000_000;   // Opus 4.7 $/token
+const ANTHROPIC_OUTPUT_COST = 25 / 1_000_000;
+
+async function logUsage(admin: SupabaseClient, run: Record<string, unknown>, usage: {
+  input_tokens: number; output_tokens: number; cache_read_input_tokens: number;
+}, status: string): Promise<void> {
+  const costUsd =
+    usage.input_tokens * ANTHROPIC_INPUT_COST + usage.output_tokens * ANTHROPIC_OUTPUT_COST;
+  await admin.from('detection_finetune_runs')
+    .update({ usage: { ...usage, cost_usd: Number(costUsd.toFixed(6)) } })
+    .eq('id', run.id);
+  await admin.from('ai_usage_events').insert({
+    user_id: run.user_id,
+    feature: 'detection-finetune',
+    model: 'claude-opus-4-7',
+    provider: 'anthropic',
+    category: 'llm',
+    input_tokens: usage.input_tokens,
+    output_tokens: usage.output_tokens,
+    cached_input_tokens: usage.cache_read_input_tokens,
+    cost_usd: Number(costUsd.toFixed(6)),
+    status: status === 'completed' ? 'success' : 'provider_error',
+  });
+}
+
+async function handlePoll(body: ReqBody, userId: string, admin: SupabaseClient, req: Request): Promise<Response> {
+  if (!body.runId) return json({ error: 'runId is required.' }, req, 400);
+  const { data: run, error } = await admin
+    .from('detection_finetune_runs')
+    .select('*')
+    .eq('id', body.runId)
+    .single();
+  if (error || !run) return json({ error: 'Run not found.' }, req, 404);
+  if (run.user_id !== userId) return json({ error: 'Forbidden.' }, req, 403);
+
+  const sessionId = run.anthropic_session_id as string;
+  const events = sessionId ? await listEvents(sessionId) : [];
+  const norm = normalizeEvents(events);
+
+  let status = run.status as string;
+  let result = run.result;
+  let usage = run.usage;
+
+  if (status === 'running' && sessionId) {
+    const elapsed = Date.now() - new Date(run.created_at as string).getTime();
+    if (elapsed > RUN_TIMEOUT_MS) {
+      status = 'failed';
+      await admin.from('detection_finetune_runs')
+        .update({ status: 'failed', error_message: 'timeout', updated_at: new Date().toISOString() })
+        .eq('id', run.id);
+    } else if (elapsed > NUDGE_MS && run.nudged !== true) {
+      await sendEvents(sessionId, [userMessage(
+        'Time is up — call submit_refinement_ladder now with your best measured ladder.',
+      )]);
+      await admin.from('detection_finetune_runs').update({ nudged: true }).eq('id', run.id);
+    }
+  }
+
+  // Re-read status: handleTool may have completed the run between reads.
+  if (status === 'running') {
+    const { data: fresh } = await admin
+      .from('detection_finetune_runs').select('status, result, usage').eq('id', run.id).maybeSingle();
+    if (fresh) { status = fresh.status as string; result = fresh.result; usage = fresh.usage; }
+  }
+
+  // On first terminal poll, persist usage telemetry.
+  if ((status === 'completed' || status === 'failed') && !usage) {
+    await logUsage(admin, run, norm.usage, status);
+    usage = { ...norm.usage, cost_usd: undefined };
+  }
+
+  return json({
+    status,
+    timeline: norm.timeline,
+    pendingTools: status === 'running' ? norm.pendingTools : [],
+    queryCount: norm.queryCount,
+    result: result ?? null,
+    usage: usage ?? null,
+  }, req);
 }
 
 Deno.serve(async (req: Request) => {
