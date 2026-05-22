@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { routeHelpers } from '../../router/routes';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
 import { Select } from '../ui/Select';
@@ -92,15 +93,12 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
   }, [result?.sample]);
 
   const handleApplyRefinement = (refinement: FinetuneRefinement) => {
-    if (!window.confirm(
-      `Replace this detection's KQL query with the Level ${refinement.level} refinement?`,
-    )) return;
-    // Apply path: navigate to the detection's query editor with the refined KQL.
-    // The detail page reads this state on the Detection Query tab.
-    navigate(`/detections/${detection.id}`, {
-      state: { applyKql: refinement.kql, applyLanguage: 'KQL' },
-    });
+    // Hand the refined KQL to the detection's edit form for review. Nothing is
+    // persisted until the user saves there.
     setShowFinetune(false);
+    navigate(routeHelpers.detectionEdit(detection.id), {
+      state: { refinedKql: refinement.kql },
+    });
   };
 
   const handleRun = async () => {

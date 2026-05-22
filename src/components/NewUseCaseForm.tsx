@@ -43,6 +43,10 @@ interface NewDetectionFormProps {
   initialDraft?: Partial<Detection> | null;
   targetLibrary?: LibraryType;
   mitreFramework?: any;  // Optional MITRE framework data
+  /** Refined KQL from the AI finetuning flow. When set in edit mode the form
+   *  pre-fills this query and opens the query tab so the user can review before
+   *  saving. Nothing is persisted until the user clicks Save Changes. */
+  appliedRefinementKql?: string;
 }
 
 const statuses = Object.values(Status);
@@ -297,16 +301,17 @@ const DuplicateDetectedDialog: React.FC<{
 
 // --- Main Form Component ---
 
-export const NewUseCaseForm: React.FC<NewDetectionFormProps> = ({ 
-  onBack: onBackProp, 
+export const NewUseCaseForm: React.FC<NewDetectionFormProps> = ({
+  onBack: onBackProp,
   onCancel,
-  onSave, 
-  userId, 
+  onSave,
+  userId,
   userName = 'Unknown User',
   detectionToEdit,
   initialDraft,
   targetLibrary = LIBRARY_PRODUCTION,
-  mitreFramework
+  mitreFramework,
+  appliedRefinementKql,
 }) => {
   // Use onBack if provided, otherwise use onCancel
   const onBack = onBackProp || onCancel || (() => {});
@@ -603,6 +608,48 @@ export const NewUseCaseForm: React.FC<NewDetectionFormProps> = ({
       queryExplanation: primaryQuery?.explanation || ''
     }));
   };
+
+  // === APPLIED REFINEMENT KQL (from AI finetuning "Apply to detection" flow) ===
+  // Runs at most once: pre-fills the refined KQL into the query editor and
+  // opens the query tab so the user can review before saving.
+  const appliedRefinementHandled = useRef(false);
+  useEffect(() => {
+    if (appliedRefinementHandled.current) return;
+    if (!isEditMode || !appliedRefinementKql) return;
+    appliedRefinementHandled.current = true;
+
+    const current = formData.queries ?? [];
+    const kqlIndex = current.findIndex(
+      (q) => q.language && q.language.toUpperCase() === 'KQL',
+    );
+
+    let nextQueries: DetectionQuery[];
+    if (kqlIndex !== -1) {
+      // Replace the existing KQL entry's query text, keep all other fields.
+      nextQueries = current.map((q, i) =>
+        i === kqlIndex ? { ...q, query: appliedRefinementKql } : q,
+      );
+    } else {
+      // Append a new KQL entry as primary; demote existing primaries.
+      const now = new Date().toISOString();
+      const newEntry: DetectionQuery = {
+        id: crypto.randomUUID(),
+        language: 'KQL',
+        query: appliedRefinementKql,
+        isPrimary: true,
+        createdDate: now,
+        updatedDate: now,
+      };
+      nextQueries = [
+        ...current.map((q) => ({ ...q, isPrimary: false })),
+        newEntry,
+      ];
+    }
+
+    handleQueriesChange(nextQueries);
+    setActiveTab('query');
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot: intentionally ignores formData changes after mount
+  }, []);
 
   // === ATOMIC RED TEAM AUTO-POPULATE ===
   const handlePopulateAtomicTests = async () => {

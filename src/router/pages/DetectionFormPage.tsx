@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import { NewUseCaseForm } from '../../components/NewUseCaseForm';
 import { AddDetectionSelection } from '../../components/AddDetectionSelection';
 import { PageErrorBoundary } from '../../components/ErrorBoundary';
@@ -31,6 +31,8 @@ export const DetectionFormPage: React.FC<DetectionFormPageProps> = ({ mode }) =>
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const refinedKql = (location.state as { refinedKql?: string } | null)?.refinedKql;
   const { user, detections, mitreFramework, saveDetection, sanitizeDetection } = useAppData();
   const { linkDetectionToReport } = useThreatIntel();
   const { showToast } = useToast();
@@ -227,6 +229,7 @@ export const DetectionFormPage: React.FC<DetectionFormPageProps> = ({ mode }) =>
         mitreFramework={mitreFramework}
         userId={user?.id || ''}
         targetLibrary={mode === 'edit' ? (detection?.library_type || LIBRARY_PRODUCTION) : targetLibrary}
+        appliedRefinementKql={mode === 'edit' ? refinedKql : undefined}
       />
     </PageErrorBoundary>
   );
