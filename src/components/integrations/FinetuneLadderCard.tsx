@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
 import type { FinetuneRefinement } from '../../types/finetune';
+import { useToast } from '../../hooks/useToast';
 
 interface FinetuneLadderCardProps {
   refinement: FinetuneRefinement;
@@ -19,13 +20,18 @@ const LEVEL_TONE: Record<number, { ring: string; chipBg: string; chipText: strin
 export const FinetuneLadderCard: React.FC<FinetuneLadderCardProps> = ({
   refinement, baselineHitCount, onApply,
 }) => {
+  const { showToast } = useToast();
   const [copied, setCopied] = useState(false);
   const tone = LEVEL_TONE[refinement.level] ?? LEVEL_TONE[2];
 
   const copy = async () => {
-    await navigator.clipboard.writeText(refinement.kql);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    try {
+      await navigator.clipboard.writeText(refinement.kql);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      showToast('error', 'Copy failed', 'Clipboard access denied');
+    }
   };
 
   return (
