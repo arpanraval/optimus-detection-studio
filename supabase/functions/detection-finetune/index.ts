@@ -344,10 +344,23 @@ async function logUsage(admin: SupabaseClient, run: Record<string, unknown>, usa
 }, status: string): Promise<void> {
   const costUsd =
     usage.input_tokens * ANTHROPIC_INPUT_COST + usage.output_tokens * ANTHROPIC_OUTPUT_COST;
-  await admin.from('detection_finetune_runs')
+  // Claim ticket: the run-row update only succeeds while `usage` is still null,
+  // so exactly one poll wins it. Only that poll inserts the telemetry row —
+  // this prevents a double-write when two concurrent polls both observe a
+  // freshly-terminal run.
+  const { data: claimed, error: claimErr } = await admin
+    .from('detection_finetune_runs')
     .update({ usage: { ...usage, cost_usd: Number(costUsd.toFixed(6)) } })
-    .eq('id', run.id);
-  await admin.from('ai_usage_events').insert({
+    .eq('id', run.id)
+    .is('usage', null)
+    .select('id')
+    .maybeSingle();
+  if (claimErr) {
+    console.error('logUsage: run-row usage update failed:', claimErr);
+    return;
+  }
+  if (!claimed) return; // another poll already logged this run
+  const { error: insErr } = await admin.from('ai_usage_events').insert({
     user_id: run.user_id,
     feature: 'detection-finetune',
     model: 'claude-opus-4-7',
@@ -359,6 +372,7 @@ async function logUsage(admin: SupabaseClient, run: Record<string, unknown>, usa
     cost_usd: Number(costUsd.toFixed(6)),
     status: status === 'completed' ? 'success' : 'provider_error',
   });
+  if (insErr) console.error('logUsage: ai_usage_events insert failed:', insErr);
 }
 
 async function handlePoll(body: ReqBody, userId: string, admin: SupabaseClient, req: Request): Promise<Response> {
