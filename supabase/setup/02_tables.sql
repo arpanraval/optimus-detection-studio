@@ -768,26 +768,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS unique_active_finetune_run
   ON detection_finetune_runs (detection_id, user_id)
   WHERE (status = 'running');
 
-ALTER TABLE detection_finetune_runs ENABLE ROW LEVEL SECURITY;
-
--- Atomic budget reservation: increments query_count iff it is still under budget.
--- Returns the new count, or NULL when the budget is already spent.
-CREATE OR REPLACE FUNCTION reserve_finetune_query_slot(p_run_id uuid, p_budget int)
-RETURNS int
-LANGUAGE sql
-AS $$
-  UPDATE detection_finetune_runs
-     SET query_count = query_count + 1,
-         updated_at  = now()
-   WHERE id = p_run_id
-     AND query_count < p_budget
-  RETURNING query_count;
-$$;
-
--- The RPC must only be callable by the edge function (service_role), never by clients.
-REVOKE ALL ON FUNCTION reserve_finetune_query_slot(uuid, int) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION reserve_finetune_query_slot(uuid, int) TO service_role;
-
 -- ----------------------------------------------------------
 -- integration_credentials
 -- ----------------------------------------------------------

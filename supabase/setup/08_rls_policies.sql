@@ -17,6 +17,7 @@ ALTER TABLE public.detection_preflight_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detection_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detection_comments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detection_embeddings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.detection_finetune_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detection_packs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detection_reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.detections ENABLE ROW LEVEL SECURITY;
@@ -215,7 +216,9 @@ CREATE POLICY "Users can view own preflight runs" ON public.detection_preflight_
 -- --------------------------------------------------------
 
 CREATE POLICY "Users can view own finetune runs" ON public.detection_finetune_runs
-  AS PERMISSIVE FOR SELECT TO public
+  AS PERMISSIVE
+  FOR SELECT
+  TO public
   USING ((auth.uid() = user_id));
 
 -- --------------------------------------------------------
