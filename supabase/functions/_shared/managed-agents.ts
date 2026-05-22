@@ -55,8 +55,8 @@ export async function listEvents(sessionId: string): Promise<Record<string, unkn
   const all: Record<string, unknown>[] = [];
   let page = 1;
   for (;;) {
-    const out = await call('GET', `/v1/sessions/${sessionId}/events?limit=1000&page=${page}`)
-      as { data?: Record<string, unknown>[]; has_more?: boolean };
+    const eventsPath = `/v1/sessions/${sessionId}/events?limit=1000&page=${page}`;
+    const out = await call('GET', eventsPath) as { data?: Record<string, unknown>[]; has_more?: boolean };
     const data = out.data ?? [];
     all.push(...data);
     if (!out.has_more || data.length === 0 || page > 20) break;
