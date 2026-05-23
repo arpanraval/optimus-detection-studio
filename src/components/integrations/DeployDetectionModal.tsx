@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Icon } from '../Icon';
+import { Modal } from '../ui/Modal';
+import { Button } from '../ui/Button';
+import { EmptyState } from '../ui/EmptyState';
 import { IntegrationLogo } from './IntegrationLogo';
 import { getProviderMeta } from '../../lib/providerMeta';
+import { getThreatLevelConfig } from '../../lib/ui/badges';
 import type {
   Detection,
   Integration,
@@ -55,6 +59,20 @@ function severityToRiskScore(severity?: string): number {
     case 'informational': return 10;
     default: return 50;
   }
+}
+
+/** Severity → the app-standard threat-level text colour (reused from the badge system). */
+function severityTextColor(severity?: string): string {
+  if (!severity) return 'text-on-surface';
+  const key = severity.charAt(0).toUpperCase() + severity.slice(1).toLowerCase();
+  return getThreatLevelConfig(key).text;
+}
+
+/** Quality score → colour band, reusing the threat-level palette so the card stays consistent. */
+function qualityScoreColor(score: number): string {
+  if (score >= 80) return 'text-[#4D7C6F]';                       // good
+  if (score >= 60) return 'text-yellow-600 dark:text-yellow-400'; // acceptable
+  return 'text-[#A63D40]';                                        // poor
 }
 
 // =============================================================================
@@ -163,7 +181,7 @@ function StepIndicator({ current, isDefender }: { current: StepId; isDefender: b
           <React.Fragment key={s.id}>
             <div className="flex items-center gap-1">
               <div className={`w-1.5 h-1.5 rounded-full transition-colors ${
-                isActive ? 'bg-on-surface' : isPast ? 'bg-on-surface-variant/40' : 'bg-outline-variant/30'
+                isActive ? 'bg-on-surface' : isPast ? 'bg-on-surface-variant/40' : 'bg-outline-variant'
               }`} />
               <span className={`text-[10px] transition-colors ${
                 isActive ? 'text-on-surface font-medium' : isPast ? 'text-on-surface-variant/60' : 'text-on-surface-variant/30'
@@ -172,7 +190,7 @@ function StepIndicator({ current, isDefender }: { current: StepId; isDefender: b
               </span>
             </div>
             {i < labels.length - 1 && (
-              <div className={`w-4 h-px ${isPast ? 'bg-on-surface-variant/30' : 'bg-outline-variant/20'}`} />
+              <div className={`w-4 h-px ${isPast ? 'bg-on-surface-variant/30' : 'bg-outline-variant'}`} />
             )}
           </React.Fragment>
         );
@@ -459,20 +477,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
   const disconnectedIntegrations = allIntegrations.filter(i => i.status !== 'connected');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-surface-container rounded-2xl w-full max-w-2xl mx-4 max-h-[85vh] overflow-y-auto shadow-2xl border border-outline-variant/20">
-        {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-outline-variant/10">
-          <div>
-            <h2 className="text-lg font-semibold text-on-surface">Deploy Detection</h2>
-            <p className="text-xs text-on-surface-variant mt-0.5">{detection.name}</p>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface-container-high transition-colors">
-            <Icon name="x" className="w-4 h-4 text-on-surface-variant" />
-          </button>
-        </div>
-
-        <div className="p-5">
+    <Modal title="Deploy the detection" subject={{ label: 'Detection', value: detection.name }} onClose={onClose}>
           {/* C2: Permission gate */}
           {!canDeploy ? (
             <div className="text-center py-8">
@@ -489,78 +494,79 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
 
               {/* Step 1: Select Integration */}
               {step === 'select' && (
-                <div>
-                  <h3 className="text-sm font-medium text-on-surface mb-3">Select Target SIEM</h3>
+                <div className="space-y-4">
+                  <p className="text-xs leading-relaxed text-on-surface-variant">
+                    Choose where to deploy this detection as a native rule. Validation and
+                    configuration come next.
+                  </p>
                   {loading ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Icon name="loader" className="w-5 h-5 animate-spin text-on-surface-variant" />
+                    <div className="flex items-center justify-center py-10">
+                      <Icon name="loader" className="h-5 w-5 animate-spin text-on-surface-variant" />
                     </div>
                   ) : integrations.length === 0 && disconnectedIntegrations.length === 0 ? (
-                    <div className="text-center py-8">
-                      <Icon name="unlink" className="w-8 h-8 text-on-surface-variant/30 mx-auto mb-2" />
-                      <p className="text-sm text-on-surface-variant">No SIEM integrations configured</p>
-                      <p className="text-xs text-on-surface-variant/50 mt-1">
-                        Go to Integrations to connect a SIEM first
-                      </p>
-                    </div>
+                    <EmptyState
+                      icon="unlink"
+                      title="No SIEM integrations configured"
+                      description="Connect a SIEM in integration settings before deploying a detection."
+                      size="sm"
+                    />
                   ) : (
                     <div className="space-y-2">
-                      {/* Connected integrations */}
+                      {/* Connected integrations — selectable */}
                       {integrations.map(integration => {
                         const meta = getProviderMeta(integration.provider);
                         return (
                           <button
                             key={integration.id}
                             onClick={() => handleSelectIntegration(integration)}
-                            className="w-full flex items-center gap-3 p-3 rounded-xl border border-outline-variant/20 hover:border-primary/30 hover:bg-surface-container-high/50 transition-all text-left"
+                            className="flex w-full items-center gap-3 rounded-xl border border-outline-variant px-3.5 py-3 text-left transition-colors hover:border-primary/40 hover:bg-surface-container-high/50"
                           >
                             {meta ? (
                               <IntegrationLogo provider={meta} size="md" />
                             ) : (
-                              <div className="w-10 h-10 rounded-lg bg-surface-container-high flex items-center justify-center">
-                                <Icon name="database" className="w-5 h-5 text-primary" />
+                              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-container-high">
+                                <Icon name="database" className="h-5 w-5 text-on-surface-variant" />
                               </div>
                             )}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <p className="text-sm font-medium text-on-surface">{integration.name}</p>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium text-on-surface">
+                                {integration.name}
                                 {integration.is_default && (
-                                  <span className="px-1.5 py-0.5 text-[10px] font-semibold text-primary bg-primary/10 border border-primary/20 rounded-md">
+                                  <span className="ml-2 text-[11px] font-normal text-on-surface-variant/60">
                                     Default
                                   </span>
                                 )}
-                              </div>
-                              <p className="text-xs text-on-surface-variant">{meta?.name || integration.provider} &middot; {getQueryLanguageForProvider(integration.provider)}</p>
+                              </p>
+                              <p className="truncate text-xs text-on-surface-variant">
+                                {meta?.name || integration.provider} · {getQueryLanguageForProvider(integration.provider)}
+                              </p>
                             </div>
-                            <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-green-500/10 text-green-500 border border-green-500/20">
-                              Connected
-                            </span>
-                            <Icon name="chevron-right" className="w-4 h-4 text-on-surface-variant" />
+                            <Icon name="chevron-right" className="h-4 w-4 shrink-0 text-on-surface-variant" />
                           </button>
                         );
                       })}
 
-                      {/* F2: Disconnected integrations (disabled) */}
+                      {/* Disconnected integrations — shown for context, not selectable */}
                       {disconnectedIntegrations.map(integration => {
                         const meta = getProviderMeta(integration.provider);
                         return (
                           <div
                             key={integration.id}
-                            className="w-full flex items-center gap-3 p-3 rounded-xl border border-outline-variant/10 bg-surface-container/50 opacity-60 cursor-not-allowed"
+                            className="flex w-full items-center gap-3 rounded-xl border border-outline-variant px-3.5 py-3 opacity-60"
                           >
                             {meta ? (
                               <IntegrationLogo provider={meta} size="md" />
                             ) : (
-                              <div className="w-10 h-10 rounded-lg bg-surface-container-high flex items-center justify-center">
-                                <Icon name="database" className="w-5 h-5 text-on-surface-variant/50" />
+                              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-container-high">
+                                <Icon name="database" className="h-5 w-5 text-on-surface-variant/50" />
                               </div>
                             )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-on-surface-variant">{integration.name}</p>
-                              <p className="text-xs text-on-surface-variant/50">{meta?.name || integration.provider}</p>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium text-on-surface-variant">{integration.name}</p>
+                              <p className="truncate text-xs text-on-surface-variant/60">{meta?.name || integration.provider}</p>
                             </div>
-                            <span className={`px-2 py-0.5 text-[10px] font-medium rounded-full border ${
-                              integration.status === 'error' ? 'bg-error/10 text-error border-error/20' : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                            <span className={`shrink-0 text-[11px] font-medium ${
+                              integration.status === 'error' ? 'text-error' : 'text-on-surface-variant/70'
                             }`}>
                               {integration.status === 'error' ? 'Error' : integration.status === 'configured' ? 'Not tested' : integration.status}
                             </span>
@@ -575,72 +581,101 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
               {/* Step 2: Pre-Deploy Validation Summary */}
               {step === 'validate' && selectedIntegration && validation && (
                 <div className="space-y-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <button onClick={() => { setStep('select'); setValidation(null); setExistingDeployment(null); setPreflightResult(null); }} className="p-1 rounded hover:bg-surface-container-high">
-                      <Icon name="arrow-left" className="w-4 h-4 text-on-surface-variant" />
-                    </button>
-                    <span className="text-sm font-medium text-on-surface">
-                      Pre-Deploy Check — {selectedIntegration.name}
-                    </span>
-                  </div>
+                  <button
+                    onClick={() => { setStep('select'); setValidation(null); setExistingDeployment(null); setPreflightResult(null); }}
+                    className="flex items-center gap-1.5 text-xs font-medium text-on-surface-variant transition-colors hover:text-on-surface"
+                  >
+                    <Icon name="arrow-left" className="h-3.5 w-3.5" />
+                    {selectedIntegration.name}
+                  </button>
 
-                  {/* Summary card */}
-                  <div className="p-4 rounded-xl border border-outline-variant/20 bg-surface-container-high/50 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-on-surface">{detection.name}</span>
-                      <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border uppercase tracking-wide ${
-                        DEPLOYABLE_STATUSES.includes(detection.status as Status) ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-error/10 text-error border-error/20'
-                      }`}>
-                        {detection.status}
+                  {/* Verdict — the answer first, before the supporting facts */}
+                  {validation.errors.length > 0 ? (
+                    <div className="flex items-center gap-2.5 rounded-xl border border-error/40 bg-error-container/40 px-3.5 py-2.5">
+                      <Icon name="x-circle" className="h-4 w-4 flex-shrink-0 text-error" />
+                      <span className="text-xs font-medium text-on-surface">
+                        {validation.errors.length === 1
+                          ? '1 issue must be fixed before deploying'
+                          : `${validation.errors.length} issues must be fixed before deploying`}
                       </span>
                     </div>
+                  ) : validation.warnings.length > 0 ? (
+                    <div className="flex items-center gap-2.5 rounded-xl border border-ext-amber/40 bg-ext-amber-container/30 px-3.5 py-2.5">
+                      <Icon name="alert-triangle" className="h-4 w-4 flex-shrink-0 text-ext-amber" />
+                      <span className="text-xs font-medium text-on-surface">
+                        Ready to deploy — {validation.warnings.length === 1
+                          ? '1 warning to review'
+                          : `${validation.warnings.length} warnings to review`}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2.5 rounded-xl border border-ext-green/40 bg-ext-green-container/40 px-3.5 py-2.5">
+                      <Icon name="check-circle" className="h-4 w-4 flex-shrink-0 text-ext-green" />
+                      <span className="text-xs font-medium text-on-surface">
+                        Ready to deploy to {selectedIntegration.name}
+                      </span>
+                    </div>
+                  )}
 
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      {/* Quality Score */}
-                      <div className="flex items-center gap-2">
-                        <Icon name="bar-chart-2" className="w-3.5 h-3.5 text-on-surface-variant" />
-                        <span className="text-on-surface-variant">Quality:</span>
-                        <span className={`font-medium ${(detection.qualityScore ?? 0) >= 60 ? 'text-green-500' : 'text-amber-500'}`}>
+                  {/* Pre-deploy check */}
+                  <div className="rounded-xl border border-outline-variant bg-surface-container-high/40 p-4">
+                    <p className="mb-3 text-[11px] font-medium uppercase tracking-wide text-on-surface-variant/70">
+                      Pre-deploy check
+                    </p>
+
+                    {/* Scalar facts — label sits tight above its value so each pair reads as one unit */}
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+                      <div>
+                        <p className="text-[11px] text-on-surface-variant">Status</p>
+                        <p className="mt-0.5 text-sm font-semibold text-on-surface">{detection.status}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-on-surface-variant">Severity</p>
+                        <p className={`mt-0.5 text-sm font-semibold ${severityTextColor(detection.severity)}`}>
+                          {detection.severity || '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-on-surface-variant">Quality score</p>
+                        <p className={`mt-0.5 text-sm font-semibold ${qualityScoreColor(detection.qualityScore ?? 0)}`}>
                           {detection.qualityScore ?? 0}%
-                        </span>
+                        </p>
                       </div>
+                      <div>
+                        <p className="text-[11px] text-on-surface-variant">Query language</p>
+                        <p className="mt-0.5 text-sm font-semibold">
+                          {validation.errors.some(e => e.code === 'QUERY_LANGUAGE_MISMATCH') ? (
+                            <span className="text-error">No match</span>
+                          ) : (
+                            <span className="text-on-surface">{deployLanguage || detection.queryLanguage}</span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
 
-                      {/* Query Language Match */}
-                      <div className="flex items-center gap-2">
-                        <Icon name="code" className="w-3.5 h-3.5 text-on-surface-variant" />
-                        <span className="text-on-surface-variant">Query:</span>
-                        {validation.errors.some(e => e.code === 'QUERY_LANGUAGE_MISMATCH') ? (
-                          <span className="text-error font-medium flex items-center gap-1">
-                            <Icon name="x" className="w-3 h-3" /> Mismatch
-                          </span>
-                        ) : (
-                          <span className="text-green-500 font-medium flex items-center gap-1">
-                            <Icon name="check" className="w-3 h-3" /> {deployLanguage || detection.queryLanguage}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* MITRE */}
-                      <div className="flex items-center gap-2">
-                        <Icon name="target" className="w-3.5 h-3.5 text-on-surface-variant" />
-                        <span className="text-on-surface-variant">MITRE:</span>
-                        <span className={`font-medium ${(detection.mitreTactics?.length ?? 0) > 0 ? 'text-on-surface' : 'text-amber-500'}`}>
-                          {detection.mitreTactics?.length || 0} tactics, {detection.mitreTechniques?.length || 0} techniques
-                        </span>
-                      </div>
-
-                      {/* Severity */}
-                      <div className="flex items-center gap-2">
-                        <Icon name="alert-triangle" className="w-3.5 h-3.5 text-on-surface-variant" />
-                        <span className="text-on-surface-variant">Severity:</span>
-                        <span className="font-medium text-on-surface">{detection.severity}</span>
-                      </div>
+                    {/* MITRE ATT&CK — named techniques, not machine IDs or a bare count */}
+                    <div className="mt-3 border-t border-outline-variant pt-3">
+                      <p className="text-[11px] text-on-surface-variant">MITRE ATT&amp;CK techniques</p>
+                      {(detection.mitreTechniques?.length ?? 0) > 0 ? (
+                        <p className="mt-1 text-sm font-medium text-on-surface">
+                          {detection.mitreTechniques.slice(0, 6).join('   ·   ')}
+                          {detection.mitreTechniques.length > 6 && (
+                            <span className="text-on-surface-variant">
+                              {'   '}+{detection.mitreTechniques.length - 6} more
+                            </span>
+                          )}
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-sm font-medium text-yellow-600 dark:text-yellow-400">
+                          Not mapped
+                        </p>
+                      )}
                     </div>
                   </div>
 
                   {/* E3: Duplicate deployment notice — radio buttons */}
                   {existingDeployment && (
-                    <div className="p-4 rounded-xl border border-outline-variant/20 bg-surface-container-high/30">
+                    <div className="p-4 rounded-xl border border-outline-variant bg-surface-container-high/30">
                       <div className="flex items-center gap-2 mb-3">
                         <Icon name="refresh-cw" className="w-4 h-4 text-on-surface-variant" />
                         <span className="text-sm font-medium text-on-surface">Previously Deployed</span>
@@ -653,7 +688,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                       </p>
 
                       <div className="space-y-2">
-                        <label className="flex items-start gap-3 p-2.5 rounded-lg border border-outline-variant/20 cursor-pointer hover:bg-surface-container-high/50 transition-colors has-[:checked]:border-on-surface-variant/40 has-[:checked]:bg-surface-container-high/50">
+                        <label className="flex items-start gap-3 p-2.5 rounded-lg border border-outline-variant cursor-pointer hover:bg-surface-container-high/50 transition-colors has-[:checked]:border-on-surface-variant/40 has-[:checked]:bg-surface-container-high/50">
                           <input
                             type="radio"
                             name="deployAction"
@@ -672,7 +707,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                           </div>
                         </label>
 
-                        <label className="flex items-start gap-3 p-2.5 rounded-lg border border-outline-variant/20 cursor-pointer hover:bg-surface-container-high/50 transition-colors has-[:checked]:border-on-surface-variant/40 has-[:checked]:bg-surface-container-high/50">
+                        <label className="flex items-start gap-3 p-2.5 rounded-lg border border-outline-variant cursor-pointer hover:bg-surface-container-high/50 transition-colors has-[:checked]:border-on-surface-variant/40 has-[:checked]:bg-surface-container-high/50">
                           <input
                             type="radio"
                             name="deployAction"
@@ -695,8 +730,8 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                   {validation.errors.length > 0 && (
                     <div className="space-y-2">
                       {validation.errors.map((err, i) => (
-                        <div key={i} className="flex items-start gap-2 p-3 rounded-lg border border-error/20 bg-error/5">
-                          <Icon name="x-circle" className="w-4 h-4 text-error mt-0.5 flex-shrink-0" />
+                        <div key={i} className="flex items-start gap-2 rounded-xl border border-error/30 bg-error-container/40 px-3.5 py-2.5">
+                          <Icon name="x-circle" className="h-4 w-4 text-error mt-0.5 flex-shrink-0" />
                           <p className="text-xs text-error">{err.message}</p>
                         </div>
                       ))}
@@ -707,9 +742,9 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                   {validation.warnings.length > 0 && (
                     <div className="space-y-2">
                       {validation.warnings.map((warn, i) => (
-                        <div key={i} className="flex items-start gap-2 p-3 rounded-lg border border-amber-500/20 bg-amber-500/5">
-                          <Icon name="alert-triangle" className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
-                          <p className="text-xs text-amber-600 dark:text-amber-400">{warn.message}</p>
+                        <div key={i} className="flex items-start gap-2 rounded-xl border border-ext-amber/30 bg-ext-amber-container/30 px-3.5 py-2.5">
+                          <Icon name="alert-triangle" className="h-4 w-4 text-ext-amber mt-0.5 flex-shrink-0" />
+                          <p className="text-[11px] leading-relaxed text-on-surface-variant">{warn.message}</p>
                         </div>
                       ))}
                     </div>
@@ -717,48 +752,38 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
 
                   {/* Sigma hint */}
                   {validation.errors.some(e => e.code === 'QUERY_LANGUAGE_MISMATCH') && detection.queries?.some(q => q.language?.toLowerCase() === 'sigma') && (
-                    <div className="p-3 rounded-lg border border-outline-variant/20 bg-surface-container-high/50">
-                      <div className="flex items-start gap-2">
-                        <Icon name="info" className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
-                        <p className="text-xs text-on-surface-variant">
-                          This detection has a Sigma rule that could be converted to {getQueryLanguageForProvider(selectedIntegration.provider)}.
-                          Use the Sigma Converter to generate a compatible query first.
-                        </p>
-                      </div>
+                    <div className="flex items-start gap-2 rounded-xl border border-outline-variant bg-surface-container-high/50 px-3.5 py-2.5">
+                      <Icon name="info" className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
+                      <p className="text-[11px] leading-relaxed text-on-surface-variant">
+                        This detection has a Sigma rule that could be converted to {getQueryLanguageForProvider(selectedIntegration.provider)}.
+                        Use the Sigma Converter to generate a compatible query first.
+                      </p>
                     </div>
                   )}
 
-                  <button
+                  <Button
                     onClick={handleProceedToConfigure}
                     disabled={!validation.eligible}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-2 text-on-surface border-outline-variant/30 hover:bg-surface-container-high"
+                    variant="filled"
+                    color="primary"
+                    fullWidth
+                    leadingIcon={validation.eligible ? 'arrowRight' : 'x-circle'}
                   >
-                    {validation.eligible ? (
-                      <>
-                        <Icon name="arrow-right" className="w-4 h-4" />
-                        Continue
-                      </>
-                    ) : (
-                      <>
-                        <Icon name="x-circle" className="w-4 h-4" />
-                        Cannot Deploy — Fix Errors Above
-                      </>
-                    )}
-                  </button>
+                    {validation.eligible ? 'Continue' : 'Cannot Deploy — Fix Errors Above'}
+                  </Button>
                 </div>
               )}
 
               {/* Step: Pre-flight (Defender XDR only) */}
               {step === 'preflight' && selectedIntegration && (
                 <div className="space-y-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <button onClick={() => setStep('validate')} className="p-1 rounded hover:bg-surface-container-high">
-                      <Icon name="arrow-left" className="w-4 h-4 text-on-surface-variant" />
-                    </button>
-                    <span className="text-sm font-medium text-on-surface">
-                      Pre-flight — {selectedIntegration.name}
-                    </span>
-                  </div>
+                  <button
+                    onClick={() => setStep('validate')}
+                    className="flex items-center gap-1.5 text-xs font-medium text-on-surface-variant transition-colors hover:text-on-surface"
+                  >
+                    <Icon name="arrow-left" className="h-3.5 w-3.5" />
+                    {selectedIntegration.name}
+                  </button>
 
                   <SiemPreflightPanel
                     detection={detection}
@@ -769,27 +794,25 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
 
                   {/* Soft gate: a failed validation warns but never blocks. */}
                   {preflightResult && !preflightResult.validation_passed && (
-                    <div className="flex items-start gap-2 p-3 rounded-lg border border-error/20 bg-error/5">
-                      <Icon name="alert-triangle" className="w-4 h-4 text-error mt-0.5 flex-shrink-0" />
-                      <p className="text-xs text-error">
+                    <div className="flex items-start gap-2 rounded-xl border border-ext-amber/30 bg-ext-amber-container/30 px-3.5 py-2.5">
+                      <Icon name="alert-triangle" className="h-4 w-4 text-ext-amber mt-0.5 flex-shrink-0" />
+                      <p className="text-[11px] leading-relaxed text-on-surface-variant">
                         The query did not pass validation. You can still deploy, but the rule will likely error in Defender.
                       </p>
                     </div>
                   )}
 
-                  <button
+                  <Button
                     onClick={handleProceedToConfigure}
-                    className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-colors mt-2 ${
-                      preflightResult && !preflightResult.validation_passed
-                        ? 'text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/5'
-                        : 'text-on-surface border-outline-variant/30 hover:bg-surface-container-high'
-                    }`}
+                    variant="filled"
+                    color="primary"
+                    fullWidth
+                    leadingIcon="arrowRight"
                   >
-                    <Icon name="arrow-right" className="w-4 h-4" />
                     {preflightResult && !preflightResult.validation_passed
                       ? 'Continue Anyway'
                       : 'Continue to Configure'}
-                  </button>
+                  </Button>
                 </div>
               )}
 
@@ -797,18 +820,18 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
               {step === 'configure' && selectedIntegration && (
                 <div className="space-y-4">
                   {previewOnly && (
-                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-                      <p className="text-xs font-medium text-amber-300 text-center">Preview Mode — Configuration is read-only</p>
+                    <div className="flex items-start gap-2 rounded-xl border border-ext-amber/30 bg-ext-amber-container/30 px-3.5 py-2.5">
+                      <Icon name="info" className="h-3.5 w-3.5 text-ext-amber mt-0.5 flex-shrink-0" />
+                      <p className="text-[11px] leading-relaxed text-on-surface-variant">Preview Mode — Configuration is read-only</p>
                     </div>
                   )}
-                  <div className="flex items-center gap-2 mb-1">
-                    <button onClick={() => setStep(selectedIntegration.provider === 'defender_xdr' ? 'preflight' : 'validate')} className="p-1 rounded hover:bg-surface-container-high">
-                      <Icon name="arrow-left" className="w-4 h-4 text-on-surface-variant" />
-                    </button>
-                    <span className="text-sm font-medium text-on-surface">
-                      {previewOnly ? 'Preview for' : deployAction === 'update' ? 'Update on' : 'Deploy to'} {selectedIntegration.name}
-                    </span>
-                  </div>
+                  <button
+                    onClick={() => setStep(selectedIntegration.provider === 'defender_xdr' ? 'preflight' : 'validate')}
+                    className="flex items-center gap-1.5 text-xs font-medium text-on-surface-variant transition-colors hover:text-on-surface"
+                  >
+                    <Icon name="arrow-left" className="h-3.5 w-3.5" />
+                    {selectedIntegration.name}
+                  </button>
 
                   {/* Rule Name */}
                   <div>
@@ -818,7 +841,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                       value={ruleName}
                       onChange={e => setRuleName(e.target.value)}
                       readOnly={previewOnly}
-                      className={`w-full px-3 py-2 bg-surface-container-high border border-outline-variant/20 rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10${previewOnly ? ' opacity-70 cursor-default' : ''}`}
+                      className={`w-full px-3 py-2 bg-surface-container-high border border-outline-variant rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10${previewOnly ? ' opacity-70 cursor-default' : ''}`}
                     />
                   </div>
 
@@ -830,7 +853,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                       onChange={e => setRuleDescription(e.target.value)}
                       readOnly={previewOnly}
                       rows={2}
-                      className={`w-full px-3 py-2 bg-surface-container-high border border-outline-variant/20 rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10 resize-none${previewOnly ? ' opacity-70 cursor-default' : ''}`}
+                      className={`w-full px-3 py-2 bg-surface-container-high border border-outline-variant rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10 resize-none${previewOnly ? ' opacity-70 cursor-default' : ''}`}
                     />
                   </div>
 
@@ -839,7 +862,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                     <label className="block text-xs font-medium text-on-surface-variant mb-1">
                       Query ({deployLanguage || getQueryLanguageForProvider(selectedIntegration.provider)})
                     </label>
-                    <pre className="p-3 bg-surface-container-highest rounded-lg text-xs text-on-surface overflow-x-auto max-h-32 font-mono border border-outline-variant/10">
+                    <pre className="p-3 bg-surface-container-highest rounded-lg text-xs text-on-surface overflow-x-auto max-h-32 font-mono border border-outline-variant">
                       {deployQuery || 'No query available'}
                     </pre>
                   </div>
@@ -854,30 +877,30 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
 
                   {previewOnly ? (
                     <div className="space-y-4 mt-2">
-                      <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-center">
-                        <p className="text-sm font-medium text-amber-300 mb-1">Preview Only</p>
-                        <p className="text-xs text-on-surface-variant">
-                          This is a Detection Lab rule. Promote to Production to deploy.
-                        </p>
+                      <div className="flex items-start gap-2 rounded-xl border border-ext-amber/30 bg-ext-amber-container/30 px-3.5 py-3">
+                        <Icon name="info" className="h-3.5 w-3.5 text-ext-amber mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="text-xs font-medium text-on-surface mb-0.5">Preview Only</p>
+                          <p className="text-[11px] leading-relaxed text-on-surface-variant">
+                            This is a Detection Lab rule. Promote to Production to deploy.
+                          </p>
+                        </div>
                       </div>
-                      <div className="flex justify-center gap-3">
-                        <button
-                          onClick={onClose}
-                          className="px-4 py-2 text-sm font-medium bg-primary text-on-primary rounded-lg hover:bg-primary/90"
-                        >
-                          Close Preview
-                        </button>
-                      </div>
+                      <Button onClick={onClose} variant="filled" color="primary" fullWidth>
+                        Close Preview
+                      </Button>
                     </div>
                   ) : (
-                    <button
+                    <Button
                       onClick={handleDeploy}
                       disabled={!deployQuery}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-colors disabled:opacity-50 mt-2 text-on-surface border-outline-variant/30 hover:bg-surface-container-high"
+                      variant="filled"
+                      color="primary"
+                      fullWidth
+                      leadingIcon="upload"
                     >
-                      <Icon name="upload" className="w-4 h-4" />
                       {deployAction === 'update' ? 'Update' : 'Deploy'}
-                    </button>
+                    </Button>
                   )}
                 </div>
               )}
@@ -900,10 +923,10 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                 <div className="space-y-4">
                   {/* Success */}
                   {deployResult.success && (
-                    <div className="p-4 rounded-xl border bg-green-500/5 border-green-500/20">
+                    <div className="rounded-xl border border-ext-green/30 bg-ext-green-container/40 px-3.5 py-3">
                       <div className="flex items-center gap-2 mb-3">
-                        <Icon name="check-circle" className="w-5 h-5 text-green-500" />
-                        <span className="text-sm font-medium text-green-500">
+                        <Icon name="check-circle" className="h-4 w-4 text-ext-green mt-0.5 flex-shrink-0" />
+                        <span className="text-sm font-medium text-on-surface">
                           {deployResult.autoUpgraded || deployResult.autoRetried === '409_to_update'
                             ? 'Rule Updated Successfully'
                             : deployResult.autoRetried === '404_to_create'
@@ -916,17 +939,17 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
 
                       {/* Auto-retry notice */}
                       {deployResult.autoRetried === '409_to_update' && (
-                        <div className="flex items-start gap-2 p-2.5 rounded-lg bg-blue-500/5 border border-blue-500/15 mb-3 ml-7">
-                          <Icon name="info" className="w-3.5 h-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
-                          <p className="text-[11px] text-blue-500">
+                        <div className="flex items-start gap-2 rounded-xl border border-outline-variant bg-surface-container-high/50 px-3.5 py-2.5 mb-3 ml-6">
+                          <Icon name="info" className="h-3.5 w-3.5 text-on-surface-variant mt-0.5 flex-shrink-0" />
+                          <p className="text-[11px] leading-relaxed text-on-surface-variant">
                             A rule with this name already existed in Splunk — it was updated instead of creating a duplicate.
                           </p>
                         </div>
                       )}
                       {deployResult.autoRetried === '404_to_create' && (
-                        <div className="flex items-start gap-2 p-2.5 rounded-lg bg-blue-500/5 border border-blue-500/15 mb-3 ml-7">
-                          <Icon name="info" className="w-3.5 h-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
-                          <p className="text-[11px] text-blue-500">
+                        <div className="flex items-start gap-2 rounded-xl border border-outline-variant bg-surface-container-high/50 px-3.5 py-2.5 mb-3 ml-6">
+                          <Icon name="info" className="h-3.5 w-3.5 text-on-surface-variant mt-0.5 flex-shrink-0" />
+                          <p className="text-[11px] leading-relaxed text-on-surface-variant">
                             The existing rule was not found in Splunk — a new rule was created.
                           </p>
                         </div>
@@ -978,18 +1001,18 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
 
                   {/* Failure */}
                   {!deployResult.success && (
-                    <div className="p-4 rounded-xl border bg-error/5 border-error/20">
+                    <div className="rounded-xl border border-error/30 bg-error-container/40 px-3.5 py-3">
                       <div className="flex items-center gap-2 mb-2">
-                        <Icon name="x-circle" className="w-5 h-5 text-error" />
-                        <span className="text-sm font-medium text-error">Deployment Failed</span>
+                        <Icon name="x-circle" className="h-4 w-4 text-error mt-0.5 flex-shrink-0" />
+                        <span className="text-sm font-medium text-on-surface">Deployment Failed</span>
                       </div>
-                      <p className="text-xs text-on-surface ml-7 mt-1">
+                      <p className="text-xs text-on-surface-variant ml-6 mt-1">
                         {deployResult.error}
                       </p>
                       {deployResult.errorGuidance && (
-                        <div className="flex items-start gap-2 p-2.5 rounded-lg bg-surface-container-high/50 border border-outline-variant/15 mt-3 ml-7">
-                          <Icon name="info" className="w-3.5 h-3.5 text-on-surface-variant mt-0.5 flex-shrink-0" />
-                          <p className="text-[11px] text-on-surface-variant">
+                        <div className="flex items-start gap-2 rounded-xl border border-outline-variant bg-surface-container-high/50 px-3.5 py-2.5 mt-3 ml-6">
+                          <Icon name="info" className="h-3.5 w-3.5 text-on-surface-variant mt-0.5 flex-shrink-0" />
+                          <p className="text-[11px] leading-relaxed text-on-surface-variant">
                             {deployResult.errorGuidance}
                           </p>
                         </div>
@@ -1000,36 +1023,40 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                   {/* Action buttons */}
                   <div className="flex gap-2">
                     {!deployResult.success && (
-                      <button
+                      <Button
                         onClick={handleRetry}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-colors text-on-surface border-outline-variant/30 hover:bg-surface-container-high"
+                        variant="filled"
+                        color="primary"
+                        fullWidth
+                        leadingIcon="refresh-cw"
                       >
-                        <Icon name="refresh-cw" className="w-4 h-4" />
                         Try Again
-                      </button>
+                      </Button>
                     )}
                     {deployResult.success && (
-                      <button
+                      <Button
                         onClick={handleViewDeployments}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-colors text-on-surface border-outline-variant/30 hover:bg-surface-container-high"
+                        variant="outlined"
+                        color="primary"
+                        fullWidth
+                        leadingIcon="list"
                       >
-                        <Icon name="list" className="w-4 h-4" />
                         View Deployments
-                      </button>
+                      </Button>
                     )}
-                    <button
+                    <Button
                       onClick={onClose}
-                      className="flex-1 px-4 py-2.5 text-sm font-medium text-on-surface-variant bg-surface-container-high hover:bg-surface-container-highest rounded-lg transition-colors"
+                      variant="text"
+                      color="surface"
+                      fullWidth
                     >
                       Close
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )}
             </>
           )}
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 };
