@@ -12,7 +12,7 @@ export const PreflightTimeChart: React.FC<{ data: PreflightTimeBucket[] }> = ({ 
   const max = Math.max(...data.map((d) => d.hits), 1);
   return (
     <div
-      className="flex items-end gap-[3px] h-20 border-b border-outline-variant/40"
+      className="flex items-end gap-[3px] h-20 border-b border-outline-variant"
       role="img"
       aria-label="Matched events per day"
     >

@@ -133,6 +133,95 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
   const hitCount = result?.hit_count ?? 0;
   const showBreakdown = !!result?.validation_passed && !!result?.breakdown && hitCount > 0;
 
+  // The run controls — integration picker, time range, run button. Rendered as a
+  // full card before a run and inside a collapsed summary afterwards, so the
+  // result (not the configuration) leads the post-run view.
+  const controlsBody = (
+    <>
+      {!integration && (
+        <Select
+          label="Defender XDR integration"
+          fullWidth
+          options={integrations.map((i) => ({ value: i.id, label: i.name }))}
+          value={selectedId}
+          onChange={setSelectedId}
+          placeholder="Select a connected integration…"
+        />
+      )}
+
+      <div>
+        <label htmlFor="preflight-window" className="mb-1.5 block text-sm font-medium text-on-surface">
+          Time range
+        </label>
+        {/* One cohesive control — a custom day count plus quick presets, split into
+            divided segments so it reads as a single component, not loose pieces. */}
+        <div className="inline-flex items-stretch overflow-hidden rounded-xl border border-outline-variant bg-surface-container-high focus-within:border-primary/50">
+          <input
+            id="preflight-window"
+            type="number"
+            min={WINDOW_MIN}
+            max={WINDOW_MAX}
+            value={windowDays}
+            onChange={(e) => {
+              const n = Math.round(Number(e.target.value));
+              if (Number.isFinite(n)) {
+                setWindowDays(Math.min(Math.max(n, WINDOW_MIN), WINDOW_MAX));
+              }
+            }}
+            // Stop the scroll wheel from silently changing the value when the
+            // cursor passes over the input while scrolling the modal.
+            onWheel={(e) => e.currentTarget.blur()}
+            className="w-12 bg-transparent py-1.5 text-center text-sm tabular-nums text-on-surface focus:outline-none"
+          />
+          <span className="flex items-center border-l border-outline-variant px-3 text-xs text-on-surface-variant">
+            days
+          </span>
+          <div role="group" aria-label="Time range presets" className="flex items-stretch">
+            {WINDOW_PRESETS.map((w) => {
+              const active = windowDays === w;
+              return (
+                <button
+                  key={w}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setWindowDays(w)}
+                  className={`flex items-center border-l border-outline-variant px-3 text-xs font-medium transition-colors ${
+                    active
+                      ? 'bg-primary text-on-primary'
+                      : 'text-on-surface-variant hover:bg-surface-container-highest'
+                  }`}
+                >
+                  {w}d
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <p className="mt-1.5 text-[11px] text-on-surface-variant/70">
+          {WINDOW_MIN}–{WINDOW_MAX} days · Defender Advanced Hunting retains ~30 days by default.
+        </p>
+      </div>
+
+      <Button
+        variant="filled"
+        color="primary"
+        fullWidth
+        leadingIcon="play"
+        loading={loading}
+        disabled={!activeIntegration}
+        onClick={handleRun}
+      >
+        {loading ? 'Running pre-flight…' : result ? 'Run pre-flight again' : 'Run pre-flight'}
+      </Button>
+
+      {mode === 'deploy' && !result && !loading && (
+        <p className="text-[11px] text-on-surface-variant/70">
+          Optional — but recommended before deploying to catch query errors and noisy rules early.
+        </p>
+      )}
+    </>
+  );
+
   return (
     <div className="space-y-5">
       {/* What this does — idle only */}
@@ -145,7 +234,7 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
 
       {/* Query preview */}
       {previewQuery && (
-        <details className="group rounded-xl border border-outline-variant/30 bg-surface-container-highest/40">
+        <details className="group rounded-xl border border-outline-variant bg-surface-container-highest/40">
           <summary className="flex cursor-pointer items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-on-surface-variant hover:text-on-surface">
             <Icon name="code" className="h-3.5 w-3.5" />
             Query to run
@@ -154,94 +243,39 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
               className="ml-auto h-3.5 w-3.5 transition-transform group-open:rotate-180"
             />
           </summary>
-          <pre className="max-h-44 overflow-auto border-t border-outline-variant/20 px-3.5 py-3 font-mono text-[11px] leading-relaxed text-on-surface-variant">
+          <pre className="max-h-44 overflow-auto border-t border-outline-variant px-3.5 py-3 font-mono text-[11px] leading-relaxed text-on-surface-variant">
             {previewQuery}
           </pre>
         </details>
       )}
 
-      {/* Controls */}
-      <div className="space-y-4 rounded-xl border border-outline-variant/30 bg-surface-container-high/40 p-4">
-        {!integration && (
-          <Select
-            label="Defender XDR integration"
-            fullWidth
-            options={integrations.map((i) => ({ value: i.id, label: i.name }))}
-            value={selectedId}
-            onChange={setSelectedId}
-            placeholder="Select a connected integration…"
-          />
-        )}
-
-        <div>
-          <label htmlFor="preflight-window" className="mb-1.5 block text-sm font-medium text-on-surface">
-            Backtest window
-          </label>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex items-center rounded-xl border border-outline-variant/30 bg-surface-container-high focus-within:border-primary/50">
-              <input
-                id="preflight-window"
-                type="number"
-                min={WINDOW_MIN}
-                max={WINDOW_MAX}
-                value={windowDays}
-                onChange={(e) => {
-                  const n = Math.round(Number(e.target.value));
-                  if (Number.isFinite(n)) {
-                    setWindowDays(Math.min(Math.max(n, WINDOW_MIN), WINDOW_MAX));
-                  }
-                }}
-                // Stop the scroll wheel from silently changing the value when the
-                // cursor passes over the input while scrolling the modal.
-                onWheel={(e) => e.currentTarget.blur()}
-                className="w-14 bg-transparent py-1.5 pl-3 text-sm tabular-nums text-on-surface focus:outline-none"
-              />
-              <span className="pr-3 text-xs text-on-surface-variant">days</span>
-            </div>
-            <div role="group" aria-label="Window presets" className="flex flex-wrap gap-1">
-              {WINDOW_PRESETS.map((w) => {
-                const active = windowDays === w;
-                return (
-                  <button
-                    key={w}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => setWindowDays(w)}
-                    className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                      active
-                        ? 'bg-primary text-on-primary'
-                        : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-highest'
-                    }`}
-                  >
-                    {w}d
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <p className="mt-1.5 text-[11px] text-on-surface-variant/70">
-            {WINDOW_MIN}–{WINDOW_MAX} days · Defender Advanced Hunting retains ~30 days by default.
-          </p>
+      {/* Controls — a full card before a run; a collapsed summary afterwards so
+          the result, not the configuration, leads the post-run view. */}
+      {!result ? (
+        <div className="space-y-4 rounded-xl border border-outline-variant bg-surface-container-high/40 p-4">
+          {controlsBody}
         </div>
-
-        <Button
-          variant="filled"
-          color="primary"
-          fullWidth
-          leadingIcon="play"
-          loading={loading}
-          disabled={!activeIntegration}
-          onClick={handleRun}
-        >
-          {loading ? 'Running pre-flight…' : result ? 'Run pre-flight again' : 'Run pre-flight'}
-        </Button>
-
-        {mode === 'deploy' && !result && !loading && (
-          <p className="text-[11px] text-on-surface-variant/70">
-            Optional — but recommended before deploying to catch query errors and noisy rules early.
-          </p>
-        )}
-      </div>
+      ) : (
+        <details className="group rounded-xl border border-outline-variant bg-surface-container-high/40">
+          <summary className="flex cursor-pointer items-center gap-2 px-3.5 py-2.5 text-xs">
+            <span className="flex-shrink-0 text-on-surface-variant">Tested against</span>
+            <span className="truncate font-medium text-on-surface">
+              {activeIntegration?.name}
+            </span>
+            <span className="flex-shrink-0 text-on-surface-variant">· {windowDays} days</span>
+            <span className="ml-auto flex flex-shrink-0 items-center gap-1 font-medium text-on-surface-variant group-hover:text-on-surface">
+              Change &amp; re-run
+              <Icon
+                name="chevron-down"
+                className="h-3.5 w-3.5 transition-transform group-open:rotate-180"
+              />
+            </span>
+          </summary>
+          <div className="space-y-4 border-t border-outline-variant p-4">
+            {controlsBody}
+          </div>
+        </details>
+      )}
 
       {/* Service-level error (the run could not complete at all) */}
       {error && (
@@ -287,69 +321,93 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
             </div>
           )}
 
-          {/* Backtest headline — the result centrepiece */}
+          {/* Results table — the matched events ARE the result. The count + the
+              Finetune CTA become the table's toolbar instead of separate cards
+              above the data. */}
           {result.validation_passed && result.hit_count !== null && (
-            <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-high/50 px-5 py-6 text-center">
-              <div className="font-brand text-[2.75rem] font-semibold leading-none tabular-nums text-on-surface">
-                {result.hit_count.toLocaleString()}
+            <div className="overflow-hidden rounded-xl border border-outline-variant">
+              <div className="flex items-center justify-between gap-3 bg-surface-container-high/40 px-4 py-2.5">
+                <div className="min-w-0 text-xs">
+                  <span className="text-sm font-semibold tabular-nums text-on-surface">
+                    {result.hit_count.toLocaleString()}
+                  </span>
+                  <span className="ml-1 text-on-surface-variant">
+                    {result.hit_count === 1 ? 'event' : 'events'} · last {result.window_days} days
+                  </span>
+                  {!result.window_applied && (
+                    <span className="ml-2 text-on-surface-variant/70">
+                      · window filter not applied
+                    </span>
+                  )}
+                </div>
+                {(result.hit_count ?? 0) > 0 && activeIntegration ? (
+                  <Button
+                    variant="filled"
+                    color="primary"
+                    leadingIcon="magic-wand"
+                    onClick={() => setShowFinetune(true)}
+                  >
+                    Finetune with AI
+                  </Button>
+                ) : (
+                  result.hit_count === 0 && (
+                    <span className="inline-flex flex-shrink-0 items-center gap-1.5 text-[11px] text-ext-green">
+                      <Icon name="check-circle" className="h-3.5 w-3.5" />
+                      Clean to deploy
+                    </span>
+                  )
+                )}
               </div>
-              <p className="mt-2 text-xs text-on-surface-variant">
-                {result.hit_count === 1 ? 'event matched' : 'events matched'} · last{' '}
-                {result.window_days} days
-              </p>
-              {result.hit_count === 0 && (
-                <p className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-ext-green">
-                  <Icon name="check-circle" className="h-3.5 w-3.5" />
-                  No historical noise — clean to deploy
+
+              {(result.hit_count ?? 0) > 0 && (result.sample || []).length > 0 ? (
+                <div className="overflow-x-auto border-t border-outline-variant">
+                  <table className="w-full text-[11px]">
+                    <thead>
+                      <tr className="bg-surface-container-high/40">
+                        {sampleColumns.map((c) => (
+                          <th
+                            key={c}
+                            className="whitespace-nowrap px-3 py-2 text-left font-medium text-on-surface-variant"
+                          >
+                            {c}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(result.sample || []).map((row, i) => (
+                        <tr key={i} className="border-t border-outline-variant">
+                          {sampleColumns.map((c) => (
+                            <td
+                              key={c}
+                              className="max-w-[200px] truncate px-3 py-2 text-on-surface-variant"
+                            >
+                              {String(row[c] ?? '')}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : result.hit_count === 0 ? (
+                <p className="border-t border-outline-variant px-4 py-3 text-center text-xs text-on-surface-variant">
+                  No matches in the last {result.window_days} days.
                 </p>
-              )}
-              {!result.window_applied && (
-                <p className="mt-2 text-[11px] text-on-surface-variant/70">
-                  Window filter not applied — count covers Defender&apos;s full 30-day retention.
-                </p>
-              )}
+              ) : null}
             </div>
           )}
-
-          {/* Finetune with AI entry card — shown when the backtest found hits */}
-          {result.validation_passed && (result.hit_count ?? 0) > 0 && activeIntegration && (
-            <button
-              type="button"
-              onClick={() => setShowFinetune(true)}
-              className="flex w-full items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 text-left transition-colors hover:bg-primary/10"
-            >
-              <Icon name="magic-wand" className="h-5 w-5 flex-shrink-0 text-primary" />
-              <div className="flex-1">
-                <p className="text-sm font-medium text-on-surface">Finetune with AI</p>
-                <p className="text-[11px] text-on-surface-variant">
-                  Let an AI agent investigate this noise and propose measured, refined queries.
-                </p>
-              </div>
-              <Icon name="arrowRight" className="h-4 w-4 flex-shrink-0 text-primary" />
-            </button>
-          )}
-
-          {/* Schema-lint warnings */}
-          {(result.schema_warnings || []).map((w) => (
-            <div
-              key={w.code}
-              className="flex items-start gap-2.5 rounded-xl border border-ext-amber/30 bg-ext-amber-container/30 px-3.5 py-2.5"
-            >
-              <Icon name="alert-triangle" className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-ext-amber" />
-              <p className="text-[11px] leading-relaxed text-on-surface-variant">{w.message}</p>
-            </div>
-          ))}
 
           {/* Breakdown — only meaningful when there were hits */}
           {showBreakdown && result.breakdown && (
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-xl border border-outline-variant/30 p-3.5">
+              <div className="rounded-xl border border-outline-variant p-3.5">
                 <p className="mb-3 text-[11px] font-medium uppercase tracking-wide text-on-surface-variant/70">
                   Activity over time
                 </p>
                 <PreflightTimeChart data={result.breakdown.overTime} />
               </div>
-              <div className="rounded-xl border border-outline-variant/30 p-3.5">
+              <div className="rounded-xl border border-outline-variant p-3.5">
                 <p className="mb-3 text-[11px] font-medium uppercase tracking-wide text-on-surface-variant/70">
                   Top {result.breakdown.entityColumn || 'entities'}
                 </p>
@@ -361,50 +419,16 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
             </div>
           )}
 
-          {/* Sample matched events */}
-          {result.validation_passed && (result.sample || []).length > 0 && (
-            <details className="group rounded-xl border border-outline-variant/30">
-              <summary className="flex cursor-pointer items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-on-surface hover:bg-surface-container-high">
-                <Icon name="list" className="h-3.5 w-3.5 text-on-surface-variant" />
-                Sample matched events
-                <span className="text-on-surface-variant/60">({(result.sample || []).length})</span>
-                <Icon
-                  name="chevron-down"
-                  className="ml-auto h-3.5 w-3.5 text-on-surface-variant transition-transform group-open:rotate-180"
-                />
-              </summary>
-              <div className="overflow-x-auto border-t border-outline-variant/20">
-                <table className="w-full text-[11px]">
-                  <thead>
-                    <tr className="bg-surface-container-high/60">
-                      {sampleColumns.map((c) => (
-                        <th
-                          key={c}
-                          className="whitespace-nowrap px-2.5 py-1.5 text-left font-medium text-on-surface-variant"
-                        >
-                          {c}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(result.sample || []).map((row, i) => (
-                      <tr key={i} className="border-t border-outline-variant/10">
-                        {sampleColumns.map((c) => (
-                          <td
-                            key={c}
-                            className="max-w-[200px] truncate px-2.5 py-1.5 text-on-surface-variant"
-                          >
-                            {String(row[c] ?? '')}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </details>
-          )}
+          {/* Schema-lint warnings — caveats for saving as a custom detection, last */}
+          {(result.schema_warnings || []).map((w) => (
+            <div
+              key={w.code}
+              className="flex items-start gap-2.5 rounded-xl border border-ext-amber/30 bg-ext-amber-container/30 px-3.5 py-2.5"
+            >
+              <Icon name="alert-triangle" className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-ext-amber" />
+              <p className="text-[11px] leading-relaxed text-on-surface-variant">{w.message}</p>
+            </div>
+          ))}
         </div>
       )}
 
