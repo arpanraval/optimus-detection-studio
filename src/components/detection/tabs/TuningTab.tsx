@@ -3,6 +3,7 @@ import { Detection } from '../../../types';
 import { Icon } from '../../Icon';
 import { AtomicTestsSection } from './AtomicTestsSection';
 import { DetailCard } from '../DetailCard';
+import { FinetuneHistoryList } from '../../integrations/FinetuneHistoryList';
 
 interface TuningTabProps {
   detection: Detection;
@@ -13,6 +14,13 @@ export const TuningTab: React.FC<TuningTabProps> = ({ detection }) => {
   return (
     <div className="animate-fade-in space-y-6">
       
+      {/* AI Finetune Sessions — history of agentic finetuning runs for this detection.
+          Sessions are persisted by the detection-finetune edge function; surface
+          them here so the work isn't lost when the modal closes. */}
+      <DetailCard title="AI Finetune Sessions">
+        <FinetuneHistoryList detectionId={detection.id} />
+      </DetailCard>
+
       {/* Atomic Red Team Integration */}
       <DetailCard title="Atomic Red Team Tests">
         <AtomicTestsSection detection={detection} />
