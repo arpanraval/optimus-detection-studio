@@ -57,6 +57,10 @@ package-lock.json
 # Windows artifacts
 nul
 
+# Loose audit / design-iteration screenshots at the repo root.
+# Tracked PNGs live under public/ or src/ and are not affected.
+/*.png
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
