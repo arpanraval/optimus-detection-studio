@@ -6,6 +6,7 @@ import { Profile } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { AuthPage } from '../components/AuthPage';
 import { LandingPage } from '../components/LandingPage';
+import { NewLandingPage } from '../components/NewLandingPage';
 import { SetPasswordPage } from '../components/SetPasswordPage';
 import { AppLayout } from './AppLayout';
 import { AppDataProvider, useAppData } from './AppDataContext';
@@ -286,6 +287,7 @@ const createAppRouter = (user: User, profile: Profile) => createBrowserRouter([
       // Legacy redirect from old pipeline route
       { path: 'pipeline', element: <Navigate to="/library/board" replace /> },
       { path: 'onboarding', element: <OnboardingPage /> },
+      { path: 'new-landing', element: <NewLandingPage onSignIn={() => {}} /> },
 
       // Account
       { path: 'account', element: <AccountPage /> },
@@ -453,11 +455,14 @@ export const AppRouter: React.FC = () => {
   }
 
   if (!router) {
+    const isNewLanding = window.location.pathname === '/new-landing';
     return (
       <ThemeProvider>
         <ToastProvider>
           {showAuth ? (
             <AuthPage onBack={() => setShowAuth(false)} />
+          ) : isNewLanding ? (
+            <NewLandingPage onSignIn={() => setShowAuth(true)} />
           ) : (
             <LandingPage onSignIn={() => setShowAuth(true)} />
           )}
