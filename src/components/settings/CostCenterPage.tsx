@@ -10,7 +10,7 @@ import { FailuresTab } from './cost-center/FailuresTab';
 type TabId = 'overview' | 'usage' | 'budgets' | 'failures';
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
-  { id: 'overview', label: 'Overview', icon: 'bar-chart-3' },
+  { id: 'overview', label: 'Overview', icon: 'chart-bar' },
   { id: 'usage',    label: 'Usage',    icon: 'list' },
   { id: 'budgets',  label: 'Budgets',  icon: 'shield' },
   { id: 'failures', label: 'Failures', icon: 'alert-triangle' },
@@ -38,6 +38,9 @@ export const CostCenterPage: React.FC = () => {
   const [preset, setPreset] = useState<TimePreset>('30d');
   const range = useMemo(() => presetToRange(preset), [preset]);
 
+  // Headline-only rollup for the toolbar chip. The Overview tab fetches its
+  // own data for charts; this duplicate hook call is fine because both share
+  // Supabase's request dedupe.
   const overviewData = useAiUsage({ startDate: range.startDate, endDate: range.endDate }, 'feature');
   const budgetsData = useAiBudgets();
 
@@ -45,19 +48,25 @@ export const CostCenterPage: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Toolbar */}
-      <div className="flex-shrink-0 px-5 py-3 border-b border-outline-variant/10 bg-surface-container-low/50">
-        <div className="flex flex-wrap items-center gap-2">
+      {/* ===== Toolbar ===== */}
+      <div className="flex-shrink-0 px-5 py-3 border-b border-outline-variant/10 bg-surface-container-low/40 backdrop-blur-sm">
+        <div className="flex flex-wrap items-center gap-3">
           {/* Time range pill group */}
-          <div className="flex items-center gap-1 bg-surface-container border border-outline-variant/15 rounded-lg p-0.5">
+          <div
+            className="flex items-center gap-1 bg-surface-container border border-outline-variant/15 rounded-lg p-0.5"
+            role="tablist"
+            aria-label="Time range"
+          >
             {TIME_PRESETS.map(p => (
               <button
                 key={p.value}
+                role="tab"
+                aria-selected={preset === p.value}
                 onClick={() => setPreset(p.value)}
-                className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-all ${
+                className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-all duration-200 ease-emphasized ${
                   preset === p.value
-                    ? 'bg-on-surface text-surface'
-                    : 'text-on-surface-variant hover:text-on-surface'
+                    ? 'bg-on-surface text-surface shadow-sm'
+                    : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high/40'
                 }`}
               >
                 {p.label}
@@ -67,16 +76,29 @@ export const CostCenterPage: React.FC = () => {
 
           <div className="flex-1" />
 
-          <span className="text-[10px] font-bold text-on-surface-variant/30 uppercase tracking-wider">
-            {overviewData.totalCalls.toLocaleString()} calls · ${overviewData.totalCostUsd.toFixed(2)}
-          </span>
+          {/* Live spend chip: a small pulsing dot signals data is real-time */}
+          <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-surface-container border border-outline-variant/15">
+            <span className="relative flex w-1.5 h-1.5">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-primary opacity-40 animate-ping" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary" />
+            </span>
+            <span className="text-[11px] font-medium tabular-nums text-on-surface-variant">
+              {overviewData.totalCalls.toLocaleString()} calls
+            </span>
+            <span className="text-on-surface-variant/20">·</span>
+            <span className="text-[11px] font-bold tabular-nums text-on-surface">
+              ${overviewData.totalCostUsd.toFixed(2)}
+            </span>
+          </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-6 mt-3 -mb-3 border-b border-outline-variant/15">
+        <div className="flex items-center gap-6 mt-3 -mb-3 border-b border-outline-variant/15" role="tablist">
           {TABS.map(tab => (
             <button
               key={tab.id}
+              role="tab"
+              aria-selected={activeTab === tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-1.5 pb-2.5 text-sm font-medium transition-colors relative ${
                 activeTab === tab.id ? 'text-on-surface' : 'text-on-surface-variant/60 hover:text-on-surface-variant'
@@ -95,8 +117,8 @@ export const CostCenterPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Tab content */}
-      <div className="flex-1 overflow-y-auto p-5">
+      {/* ===== Tab content ===== */}
+      <div key={activeTab} className="flex-1 overflow-y-auto p-5 animate-page-enter">
         {activeTab === 'overview' && <OverviewTab range={range} />}
         {activeTab === 'usage'    && <UsageTab range={range} />}
         {activeTab === 'budgets'  && <BudgetsTab />}
