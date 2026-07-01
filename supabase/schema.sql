@@ -7674,3 +7674,48 @@ INSERT INTO public.curated_feed_sources (name,vendor,url,feed_type,category,desc
 INSERT INTO public.curated_feed_sources (name,vendor,url,feed_type,category,description,is_active,extraction_method) VALUES ('Wiz Blog','Wiz','https://www.wiz.io/feed/rss.xml','rss','threat_research','Cloud security research — misconfiguration, identity risks, supply chain threats',true,'jina_reader');
 INSERT INTO public.curated_feed_sources (name,vendor,url,feed_type,category,description,is_active,extraction_method) VALUES ('Google / Mandiant Threat Intel','Google / Mandiant','https://cloudblog.withgoogle.com/topics/threat-intelligence/rss/','rss','threat_research','APT research, malware analysis, zero-day tracking, and supply chain attacks from Google TAG and Mandiant',true,'jina_reader');
 INSERT INTO public.curated_feed_sources (name,vendor,url,feed_type,category,description,is_active,extraction_method) VALUES ('Sophos X-Ops','Sophos','https://news.sophos.com/en-us/category/threat-research/feed/','rss','threat_research','Threat research covering ransomware, exploits, and attacker tradecraft',false,'jina_reader');
+
+-- ============================================================
+-- Security hardening (mirrors production advisor remediations)
+-- ============================================================
+-- Pin search_path on all project functions (prevents search_path injection on
+-- SECURITY DEFINER functions). Behavior-preserving: public + extensions is the
+-- subset of the default path these functions already run with.
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT p.oid::regprocedure AS sig
+    FROM pg_proc p JOIN pg_namespace nsp ON nsp.oid = p.pronamespace
+    WHERE nsp.nspname = 'public' AND p.prokind IN ('f','p')
+      AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')
+      AND COALESCE(array_to_string(p.proconfig, ','), '') NOT LIKE '%search_path%'
+  LOOP
+    EXECUTE format('ALTER FUNCTION %s SET search_path = public, extensions', r.sig);
+  END LOOP;
+END $$;
+
+-- Restrict admin-check policies (those calling is_global_admin*) to signed-in
+-- users, then revoke anon EXECUTE on the admin helper functions. anon never
+-- satisfied these policies, so access is unchanged; anon just can't probe the
+-- helpers via RPC anymore.
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT cls.relname AS tbl, pol.polname AS pol
+    FROM pg_policy pol
+    JOIN pg_class cls ON cls.oid = pol.polrelid
+    JOIN pg_namespace ns ON ns.oid = cls.relnamespace
+    WHERE ns.nspname = 'public' AND 0 = ANY(pol.polroles)
+      AND (COALESCE(pg_get_expr(pol.polqual, pol.polrelid), '') LIKE '%is_global_admin%'
+        OR COALESCE(pg_get_expr(pol.polwithcheck, pol.polrelid), '') LIKE '%is_global_admin%')
+  LOOP
+    EXECUTE format('ALTER POLICY %I ON public.%I TO authenticated', r.pol, r.tbl);
+  END LOOP;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.is_global_admin(uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.is_global_admin_or_lead(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_global_admin(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.is_global_admin_or_lead(uuid) TO authenticated, service_role;
