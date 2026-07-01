@@ -1,0 +1,83 @@
+name: schema-check
+
+# Proves that supabase/schema.sql applies cleanly to a BRAND-NEW EMPTY database
+# (i.e. a fresh fork can stand up the backend from zero). Runs on any change to
+# the schema. Uses a plain Postgres 17 + pgvector image and stubs only the
+# Supabase-managed bits (auth schema/roles/helpers) that a real Supabase project
+# already provides.
+
+on:
+  push:
+    paths:
+      - 'supabase/schema.sql'
+      - '.github/workflows/schema-check.yml'
+  pull_request:
+    paths:
+      - 'supabase/schema.sql'
+      - '.github/workflows/schema-check.yml'
+  workflow_dispatch:
+
+jobs:
+  apply-on-empty-db:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # postgres:// scheme (libpq accepts it) — throwaway local CI database.
+      PGURL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Stub the Supabase-managed environment (auth, roles, realtime)
+        run: |
+          psql "$PGURL" -v ON_ERROR_STOP=1 <<'SQL'
+          -- Roles that Supabase provisions on every project
+          create role anon nologin;
+          create role authenticated nologin;
+          create role service_role nologin;
+          -- Minimal auth surface the schema references
+          create schema if not exists auth;
+          create table if not exists auth.users (id uuid primary key default gen_random_uuid(), email text);
+          create or replace function auth.uid()  returns uuid  language sql stable as $$ select null::uuid  $$;
+          create or replace function auth.jwt()  returns jsonb language sql stable as $$ select null::jsonb $$;
+          create or replace function auth.role() returns text  language sql stable as $$ select null::text  $$;
+          -- Realtime publication that the schema adds tables to
+          create publication supabase_realtime;
+          SQL
+
+      - name: Apply supabase/schema.sql on the EMPTY database
+        run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/schema.sql
+
+      - name: Assert the schema materialised correctly
+        run: |
+          fail=0
+          T=$(psql "$PGURL" -tA -c "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE';")
+          F=$(psql "$PGURL" -tA -c "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public';")
+          P=$(psql "$PGURL" -tA -c "select count(*) from pg_policies where schemaname='public';")
+          R=$(psql "$PGURL" -tA -c "select count(*) from pg_publication_tables where pubname='supabase_realtime';")
+          A=$(psql "$PGURL" -tA -c "select count(*) from pg_trigger where tgname='on_auth_user_created';")
+          echo "public tables:        $T (expect 62)"
+          echo "public functions:     $F (expect >= 80)"
+          echo "public RLS policies:  $P (expect 164)"
+          echo "realtime tables:      $R (expect 7)"
+          echo "auth signup trigger:  $A (expect 1)"
+          [ "$T" -eq 62 ] || { echo "::error::expected 62 tables, got $T"; fail=1; }
+          [ "$P" -eq 164 ] || { echo "::error::expected 164 policies, got $P"; fail=1; }
+          [ "$R" -eq 7 ]  || { echo "::error::expected 7 realtime tables, got $R"; fail=1; }
+          [ "$A" -eq 1 ]  || { echo "::error::expected on_auth_user_created trigger, got $A"; fail=1; }
+          [ "$fail" -eq 0 ] && echo "✅ supabase/schema.sql applies cleanly on an empty database"
+          exit $fail

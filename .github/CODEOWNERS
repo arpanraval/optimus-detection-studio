@@ -1,0 +1,5 @@
+# Default owner for everything in the repo.
+* @arpanraval
+
+# Backend / database changes warrant extra scrutiny.
+/supabase/ @arpanraval

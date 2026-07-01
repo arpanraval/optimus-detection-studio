@@ -18,6 +18,27 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['dist/**', 'node_modules/**', 'supabase/functions/**', 'public/**', '.internal/**'],
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'supabase/functions/**',
+      'public/**',
+      '.internal/**',
+      // Local/tooling artifacts that are not project source
+      '~/**',
+      '.bun/**',
+      '.tmp/**',
+      '.vercel/**',
+      '.playwright-mcp/**',
+      'docs/**',
+      // Loose scratch files kept out of the app build
+      'current_git_landing.tsx',
+      'initial_auth.tsx',
+    ],
+  },
+  {
+    // CLI setup scripts are allowed to write to stdout.
+    files: ['scripts/**/*.ts'],
+    rules: { 'no-console': 'off' },
   },
 );
