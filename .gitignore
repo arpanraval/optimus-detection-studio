@@ -51,7 +51,8 @@ tempcon/
 .bun/
 
 # Lock files
-bun.lock
+# bun.lock is committed so CI, Vercel, and forks install identical, reproducible
+# dependency versions (an uncommitted lockfile let newer deps break type-check).
 package-lock.json
 
 # Windows artifacts
