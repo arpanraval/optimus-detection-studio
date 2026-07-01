@@ -41,7 +41,7 @@ const ToolActivity: React.FC<{ sources: number; time: string }> = ({ sources, ti
 
 /* ─── Slide 1: Library Search ─── */
 
-const LibrarySearchMockup = () => (
+export const LibrarySearchMockup = () => (
   <MockupFrame title="OPTIMUS PRIME AGENT" accent={ACCENT}>
     <AgentHeader />
     <UserBubble>Find all detections related to credential theft</UserBubble>

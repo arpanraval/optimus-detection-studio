@@ -23,7 +23,7 @@ import { useBeforeUnload } from '../hooks/useBeforeUnload';
 import { QUERY_LANGUAGES, LOG_SOURCES, TECHNOLOGIES } from '../constants';
 import { generateAIJSON } from '../lib/aiService';
 import { useToast } from '../hooks/useToast';
-import { CircularProgress } from './CircularProgress';
+import { QualityScore } from './QualityScore';
 import { attackRuleMapService } from '@/services/attack-rule-map/AttackRuleMapService';
 import { supabase } from '../lib/supabaseClient';
 import { ConventionHintsPanel } from './patterns/ConventionHintsPanel';
@@ -1398,7 +1398,7 @@ Output JSON only, no markdown.`;
                 className="flex items-center gap-3 bg-surface-container-high/50 hover:bg-surface-container-high px-2 py-1.5 rounded-full border border-outline-variant/30 transition-colors group"
                 title="Open detection health panel"
               >
-                <CircularProgress score={qualityResult.score} size={36} strokeWidth={3} />
+                <QualityScore score={qualityResult.score || 0} size="sm" />
                 <span className="text-xs font-bold text-on-surface-variant group-hover:text-on-surface uppercase tracking-wider pr-2">Quality</span>
               </button>
 

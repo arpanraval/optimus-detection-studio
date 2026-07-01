@@ -103,11 +103,11 @@ export const SEVERITIES = Object.values(Severity);
 
 // Color mappings
 export const SEVERITY_COLORS: Record<Severity, string> = {
-  [Severity.Critical]: 'bg-red-500/20 text-red-400 border-red-500/30',
-  [Severity.High]: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-  [Severity.Medium]: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-  [Severity.Low]: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-  [Severity.Informational]: 'bg-gray-500/20 text-gray-400 border-gray-500/30'
+  [Severity.Critical]: 'text-ext-coral border-ext-coral/30',
+  [Severity.High]: 'text-ext-orange border-ext-orange/30',
+  [Severity.Medium]: 'text-ext-amber border-ext-amber/30',
+  [Severity.Low]: 'text-ext-blue border-ext-blue/30',
+  [Severity.Informational]: 'text-on-surface-variant border-outline-variant/40'
 };
 
 export const STATUS_COLORS: Record<Status, string> = {

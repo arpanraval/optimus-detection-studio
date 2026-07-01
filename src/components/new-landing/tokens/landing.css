@@ -67,27 +67,6 @@
   overflow-x: clip;
 }
 
-/* Scoped dark-theme variables for terminal mockups */
-.landing-root .dark-frame {
-  --md-sys-color-background: 8 8 11;
-  --md-sys-color-on-background: 240 240 245;
-  --md-sys-color-surface: 12 12 16;
-  --md-sys-color-on-surface: 240 240 245;
-  --md-sys-color-surface-variant: 25 25 35;
-  --md-sys-color-on-surface-variant: 160 160 170;
-  
-  --md-sys-color-surface-container-lowest: 5 5 8;
-  --md-sys-color-surface-container-low: 10 10 14;
-  --md-sys-color-surface-container: 15 15 20;
-  --md-sys-color-surface-container-high: 22 22 30;
-  --md-sys-color-surface-container-highest: 30 30 40;
-
-  --md-sys-color-outline: 70 70 80;
-  --md-sys-color-outline-variant: 45 45 55;
-
-  color: rgb(var(--md-sys-color-on-surface)) !important;
-}
-
 /* Base landing overrides */
 .landing-root {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -172,30 +151,26 @@
   transform: translateY(0) scale(1);
 }
 
-/* Glassmorphic bento cards (Light Theme) */
+/* Solid bento cards (no blur — content stays crisp) */
 .landing-root .bento-card {
-  background: rgba(255, 255, 255, 0.65);
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.06);
   border-radius: 24px;
   position: relative;
   overflow: hidden;
-  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 4px 20px -8px rgba(0, 0, 0, 0.04);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.4s, box-shadow 0.4s;
+  box-shadow: 0 4px 20px -8px rgba(0, 0, 0, 0.05);
 }
 
 .landing-root .bento-card:hover {
-  transform: translateY(-3px) scale(1.003);
+  transform: translateY(-3px);
   border-color: rgba(120, 50, 100, 0.22);
-  box-shadow: 0 16px 36px -12px rgba(120, 50, 100, 0.1), inset 0 0 24px rgba(120, 50, 100, 0.01);
+  box-shadow: 0 16px 36px -12px rgba(120, 50, 100, 0.12);
 }
 
-/* Glass card (Light Theme) */
+/* Solid card variant */
 .landing-root .glass-card {
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  background: #ffffff;
   border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
@@ -260,79 +235,30 @@
   -webkit-mask-image: linear-gradient(to right, transparent, black 15%, black 85%, transparent);
 }
 
-/* ━━━ STORYTELLER & MOCKUPS ━━━ */
-.landing-root .storyteller-grid {
-  display: grid;
-  grid-template-columns: 1fr;
+/* Hero mockup anchor — large product screenshot in hero right column */
+.landing-root .hero-mockup-shell {
   position: relative;
+  filter: drop-shadow(0 30px 60px rgba(15, 18, 30, 0.12)) drop-shadow(0 12px 30px rgba(120, 50, 100, 0.06));
 }
 
-@media (min-width: 1024px) {
-  .landing-root .storyteller-grid {
-    grid-template-columns: 4.8fr 5.2fr;
-  }
-}
-
-.landing-root .storyteller-scroll {
-  padding-bottom: 30vh;
-}
-
-.landing-root .storyteller-sticky {
-  position: sticky;
-  top: 140px;
-  height: calc(100vh - 220px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10;
-  perspective: 1600px; /* Enable 3D perspective */
-}
-
-/* Viewport-driven text checkpoint cards */
-.landing-root .checkpoint-card {
-  padding: 4rem 0;
-  opacity: 0.25;
-  transform: translateY(30px) scale(0.98);
-  transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.landing-root .checkpoint-card.active {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-}
-
-/* 3D Mockup transitions */
-.landing-root .mockup-slide {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  transform: rotateY(-18deg) rotateX(10deg) translateZ(-150px) translateY(40px) scale(0.9);
-  pointer-events: none;
-  transition: all 1s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.landing-root .mockup-slide.active {
-  opacity: 1;
-  transform: rotateY(-8deg) rotateX(4deg) translateZ(0) translateY(0) scale(1);
-  pointer-events: auto;
-  z-index: 2;
-  filter: drop-shadow(0 20px 40px rgba(0, 0, 0, 0.12));
-}
-
-/* Mockup glowing shadow highlights based on slide color */
-.landing-root .mockup-slide::after {
+.landing-root .hero-mockup-shell::before {
   content: '';
   position: absolute;
-  inset: -1px;
-  border-radius: inherit;
+  inset: -32px -32px -32px -16px;
+  background: radial-gradient(60% 60% at 30% 40%, rgba(120, 50, 100, 0.08) 0%, transparent 75%);
   pointer-events: none;
-  box-shadow: 0 0 40px -10px rgba(120, 50, 100, 0.05);
-  opacity: 0;
-  transition: opacity 1s ease;
+  z-index: -1;
 }
 
-.landing-root .mockup-slide.active::after {
-  opacity: 1;
+/* Feature section mockup shell — gives every product screenshot a consistent lift */
+.landing-root .feature-mockup-shell {
+  filter: drop-shadow(0 24px 50px rgba(15, 18, 30, 0.10)) drop-shadow(0 8px 20px rgba(120, 50, 100, 0.04));
+}
+
+.landing-root .feature-mockup-secondary {
+  opacity: 0.92;
+  transform: scale(0.97);
+  transform-origin: top center;
 }
 
 /* Interactive mechanical animations */

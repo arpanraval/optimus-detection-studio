@@ -186,7 +186,7 @@ export const GenerateQueryMockup = () => (
 /*  Slide 2 — Multi-Language (KQL / Microsoft Sentinel)                */
 /* ------------------------------------------------------------------ */
 
-const MultiLanguageMockup = () => (
+export const MultiLanguageMockup = () => (
   <MockupFrame title="AI QUERY GENERATOR" accent={BLUE}>
     <ChatHeader language="Microsoft Sentinel (KQL)" languageColor="#0078d4" />
 

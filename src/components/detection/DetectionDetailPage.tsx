@@ -10,7 +10,7 @@ import { TuningTab } from './tabs/TuningTab';
 import { HistoryTab } from './tabs/HistoryTab';
 import { SEVERITY_COLORS } from '../../constants';
 import { useToast } from '../../hooks/useToast';
-import { CircularProgress } from '../CircularProgress';
+import { QualityScore } from '../QualityScore';
 import { PublishStatusBadge, PublishModal, PDFExportModal } from '../library';
 import { useLibrary } from '../../context/LibraryContext';
 import { sourceConfig } from '../card-utils';
@@ -410,43 +410,44 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                  <h1 className="text-xl font-medium text-on-surface truncate leading-tight" title={detection.name}>
                    {detection.name}
                  </h1>
-                 <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                    <span className="font-mono text-xs text-on-surface-variant/70">#{detection.id.slice(0,8)}</span>
-                    
+                 <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    <span className="font-mono text-[11px] text-on-surface-variant/70">#{detection.id.slice(0,8)}</span>
+
+                    <span className="text-on-surface-variant/30">·</span>
+
                     {/* Library Type Badge */}
                     {isDevelopmentRule ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white border border-blue-500/30">
-                        <Icon name="flask" className="w-3 h-3" />
+                      <span className="inline-flex items-center h-5 px-2.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-surface-container-high text-ext-indigo border border-ext-indigo/30">
                         {LIBRARY_LABELS[LIBRARY_DEVELOPMENT]}
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-white border border-white/20" style={{ backgroundColor: '#783264' }}>
-                        <Icon name="user" className="w-3 h-3" />
+                      <span className="inline-flex items-center h-5 px-2.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-surface-container-high text-ext-rose border border-ext-rose/30">
                         {LIBRARY_LABELS[LIBRARY_PRODUCTION]}
                       </span>
                     )}
-                    
+
                     {/* Source Badge - for Universal rules */}
                     {isDevelopmentRule && detection.source && detection.source !== 'custom' && (
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${sourceConfig[detection.source]?.className || sourceConfig.custom.className}`}>
+                      <span className="inline-flex items-center h-5 px-2.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-surface-container-high text-on-surface-variant border border-outline-variant/40">
                         {sourceConfig[detection.source]?.label || detection.source}
                       </span>
                     )}
-                    
-                    <StatusBadge status={detection.status} />
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide ${SEVERITY_COLORS[detection.severity]}`}>
+
+                    <StatusBadge status={detection.status} size="sm" />
+
+                    <span className={`inline-flex items-center h-5 px-2.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-surface-container-high border ${SEVERITY_COLORS[detection.severity]}`}>
                         {detection.severity}
                     </span>
-                    
+
                     {/* Publish Status - only for Lab rules (they get promoted to Production) */}
                     {isDevelopmentRule && detection.promotion_status && detection.promotion_status !== PROMOTION_NONE && (
                       <PublishStatusBadge status={detection.promotion_status} size="sm" />
                     )}
-                    
+
                     {/* Forked indicator */}
                     {isForkedFromDevelopment && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20">
-                        <Icon name="git-branch" className="w-3 h-3" />
+                      <span className="inline-flex items-center gap-1 h-5 px-2.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-surface-container-high text-ext-teal border border-ext-teal/30">
+                        <Icon name="git-branch" className="w-2.5 h-2.5" />
                         Forked
                       </span>
                     )}
@@ -460,14 +461,10 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                <button
                  type="button"
                  onClick={() => setIsInsightsOpen(true)}
-                 className="flex items-center gap-2 mr-2 rounded-full p-1 hover:bg-surface-container-high transition-colors"
+                 className="flex items-center gap-2 mr-2 rounded-full p-0.5 hover:bg-surface-container-high transition-colors"
                  title={`Quality ${detection.qualityScore}% — open detection health`}
                >
-                 <CircularProgress
-                   score={detection.qualityScore}
-                   size={36}
-                   strokeWidth={3}
-                  />
+                 <QualityScore score={detection.qualityScore || 0} size="sm" />
                </button>
 
                {/* Resolve MITRE - show when needed */}
@@ -556,7 +553,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                    className={`h-9 px-4 flex items-center gap-2 rounded-full text-sm font-medium transition-all active:scale-95 ${
                      isCopying
                        ? 'bg-surface-container-highest text-on-surface-variant cursor-wait'
-                       : 'bg-secondary text-on-secondary hover:shadow-lg hover:brightness-110'
+                       : 'bg-surface-container-highest text-on-surface border border-outline-variant/30 hover:bg-surface-container-high'
                    }`}
                    title="Fork this rule to the Lab for experimentation"
                  >
@@ -642,36 +639,19 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
         )}
         {activeTab === 'logic' && (
           <TabErrorBoundary tabName="Logic">
-            <div className="space-y-4">
-              {hasPermission(userRole, 'integrations:sync') && (
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-outline-variant/30 bg-surface-container-high/40 px-4 py-3">
-                  <div>
-                    <p className="text-sm font-medium text-on-surface">Test in SIEM</p>
-                    <p className="mt-0.5 text-xs text-on-surface-variant">
-                      Validate this query against Defender XDR and backtest it for false positives before deploying.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {latestPreflight && (
-                      <span className="rounded-md bg-surface-container-highest px-2 py-0.5 text-[11px] text-on-surface-variant">
-                        Last run:{' '}
-                        {latestPreflight.hit_count !== null
-                          ? `${latestPreflight.hit_count.toLocaleString()} hits`
-                          : (PREFLIGHT_STATUS_LABEL[latestPreflight.status] ?? latestPreflight.status)}
-                      </span>
-                    )}
-                    <button
-                      onClick={() => setShowPreflight(true)}
-                      className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-on-primary transition-colors hover:bg-primary/90"
-                    >
-                      <Icon name="play" className="h-3.5 w-3.5" />
-                      Run pre-flight
-                    </button>
-                  </div>
-                </div>
-              )}
-              <DetectionLogicTab detection={localDetection} />
-            </div>
+            <DetectionLogicTab
+              detection={localDetection}
+              preflight={
+                hasPermission(userRole, 'integrations:sync')
+                  ? {
+                      canRun: true,
+                      onRun: () => setShowPreflight(true),
+                      latest: latestPreflight,
+                      statusLabel: (s) => PREFLIGHT_STATUS_LABEL[s],
+                    }
+                  : undefined
+              }
+            />
           </TabErrorBoundary>
         )}
         {activeTab === 'investigation' && (

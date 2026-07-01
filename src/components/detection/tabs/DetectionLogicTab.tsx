@@ -2,16 +2,27 @@ import React, { useState, useMemo } from 'react';
 import { Detection, DetectionQuery } from '../../../types';
 import { Icon } from '../../Icon';
 import { MonacoCodeEditor } from '../../MonacoCodeEditor';
-import { QUERY_LANGUAGES } from '../../../constants';
 import { DetailCard } from '../DetailCard';
 import { FormattedText } from '../../optimus/FormattedText';
 
+interface PreflightSummary {
+  hit_count: number | null;
+  status: string;
+}
+
 interface DetectionLogicTabProps {
   detection: Detection;
+  preflight?: {
+    canRun: boolean;
+    onRun: () => void;
+    latest?: PreflightSummary | null;
+    targetLabel?: string;
+    statusLabel?: (status: string) => string | undefined;
+  };
 }
 
 
-export const DetectionLogicTab: React.FC<DetectionLogicTabProps> = ({ detection }) => {
+export const DetectionLogicTab: React.FC<DetectionLogicTabProps> = ({ detection, preflight }) => {
   const queries = useMemo((): DetectionQuery[] => {
     if (detection.queries && detection.queries.length > 0) {
       return detection.queries;
@@ -38,59 +49,92 @@ export const DetectionLogicTab: React.FC<DetectionLogicTabProps> = ({ detection 
   
   const activeQuery = queries.find(q => q.id === activeQueryId);
 
+  const preflightStatusText = preflight?.latest
+    ? preflight.latest.hit_count !== null
+      ? `${preflight.latest.hit_count.toLocaleString()} hits`
+      : (preflight.statusLabel?.(preflight.latest.status) ?? preflight.latest.status)
+    : null;
+
+  const headerRight = preflight?.canRun ? (
+    <div className="flex items-center gap-2">
+      {preflightStatusText && (
+        <span
+          className="rounded-md bg-surface-container-high px-2 py-0.5 text-[11px] text-on-surface-variant"
+          title={preflight?.targetLabel ? `Last pre-flight against ${preflight.targetLabel}` : 'Last pre-flight'}
+        >
+          Last run: {preflightStatusText}
+        </span>
+      )}
+      <button
+        onClick={preflight.onRun}
+        className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-on-primary transition-colors hover:bg-primary/90"
+        title={preflight?.targetLabel ? `Pre-flight against ${preflight.targetLabel}` : 'Run pre-flight test'}
+      >
+        <Icon name="play" className="h-3.5 w-3.5" />
+        Run pre-flight
+      </button>
+    </div>
+  ) : undefined;
+
+  const hasMultipleQueries = queries.length > 1;
+
   return (
     <div className="animate-fade-in space-y-6">
-      
+
       {/* Logic Card */}
-      <DetailCard title="Detection Logic">
-        
-        {/* Language Tabs */}
-        {queries.length > 0 ? (
-            <div className="flex items-center gap-2 mb-4 overflow-x-auto custom-scrollbar pb-2">
-                {queries.map(query => (
-                <button
-                    key={query.id}
-                    onClick={() => setActiveQueryId(query.id)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap border ${
-                    activeQueryId === query.id
-                        ? 'bg-primary-container text-primary border-primary/30 shadow-sm'
-                        : 'bg-surface-container text-on-surface-variant border-outline-variant/20 hover:text-on-surface hover:bg-surface-container-high'
-                    }`}
-                >
-                    {query.language}
-                    {query.isPrimary && (
-                    <span className="ml-2 w-2 h-2 rounded-full bg-yellow-500" title="Primary Query"></span>
-                    )}
-                </button>
-                ))}
-            </div>
-        ) : (
-            <div className="text-on-surface-variant text-sm italic mb-4">No queries defined.</div>
-        )}
+      <DetailCard title="Detection Logic" headerRight={headerRight}>
 
         {/* Editor */}
         {activeQuery ? (
-            <div className="flex flex-col gap-6">
-                <div className="bg-surface-container border border-outline-variant/30 rounded-xl overflow-hidden shadow-sm h-[500px] flex flex-col">
-                    <div className="flex items-center justify-between px-4 py-2 bg-surface-container-high border-b border-outline-variant/30">
-                        <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider font-mono">
-                            {activeQuery.language}
-                        </span>
-                        <button 
-                            className="p-1.5 hover:bg-surface-variant rounded text-on-surface-variant hover:text-on-surface transition-colors"
-                            onClick={() => navigator.clipboard.writeText(activeQuery.query)}
-                            title="Copy Query"
-                        >
-                            <Icon name="copy" className="w-4 h-4" />
-                        </button>
-                    </div>
-                    <div className="flex-1 relative">
-                        <MonacoCodeEditor
-                            value={activeQuery.query}
-                            language={activeQuery.language}
-                            readOnly
-                        />
-                    </div>
+            <div className="bg-surface-container border border-outline-variant/30 rounded-xl overflow-hidden shadow-sm h-[500px] flex flex-col">
+                <div className="flex items-center justify-between gap-3 px-3 py-2 bg-surface-container-high border-b border-outline-variant/30">
+                    {hasMultipleQueries ? (
+                        <div className="flex items-center gap-1 overflow-x-auto custom-scrollbar">
+                            {queries.map(query => {
+                                const isActive = activeQueryId === query.id;
+                                return (
+                                    <button
+                                        key={query.id}
+                                        onClick={() => setActiveQueryId(query.id)}
+                                        className={`inline-flex items-center gap-1.5 h-6 px-2 rounded text-[10.5px] font-semibold uppercase tracking-wider font-mono transition-colors whitespace-nowrap ${
+                                            isActive
+                                                ? 'bg-primary/12 text-primary'
+                                                : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest'
+                                        }`}
+                                        title={query.isPrimary ? `${query.language} · Primary` : query.language}
+                                    >
+                                        <span>{query.language}</span>
+                                        {query.isPrimary && (
+                                            <span className="w-1 h-1 rounded-full bg-yellow-500" />
+                                        )}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <div className="inline-flex items-center gap-1.5">
+                            <span className="text-[10.5px] font-semibold text-on-surface-variant uppercase tracking-wider font-mono">
+                                {activeQuery.language}
+                            </span>
+                            {activeQuery.isPrimary && (
+                                <span className="w-1 h-1 rounded-full bg-yellow-500" title="Primary Query" />
+                            )}
+                        </div>
+                    )}
+                    <button
+                        className="p-1.5 hover:bg-surface-variant rounded text-on-surface-variant hover:text-on-surface transition-colors flex-shrink-0"
+                        onClick={() => navigator.clipboard.writeText(activeQuery.query)}
+                        title="Copy Query"
+                    >
+                        <Icon name="copy" className="w-4 h-4" />
+                    </button>
+                </div>
+                <div className="flex-1 relative">
+                    <MonacoCodeEditor
+                        value={activeQuery.query}
+                        language={activeQuery.language}
+                        readOnly
+                    />
                 </div>
             </div>
         ) : (

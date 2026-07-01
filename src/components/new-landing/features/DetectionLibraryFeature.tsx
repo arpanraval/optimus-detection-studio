@@ -277,7 +277,7 @@ const CoverageBar: React.FC<{ percent: number }> = ({ percent }) => {
   );
 };
 
-const DetectionPacksMockup = () => (
+export const DetectionPacksMockup = () => (
   <MockupFrame title="DETECTION PACKS" accent={ACCENT}>
     {/* Header */}
     <div className="flex items-center justify-between mb-5">

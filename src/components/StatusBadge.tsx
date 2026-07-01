@@ -26,24 +26,25 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
   size = 'md',
   className = ''
 }) => {
-  // Size configurations
-  const sizeStyles: Record<BadgeSize, { padding: string; text: string; radius: string }> = {
-    xs: { padding: 'px-1.5 py-0.5', text: 'text-[8px]', radius: 'rounded' },
-    sm: { padding: 'px-2 py-0.5', text: 'text-[9px]', radius: 'rounded-md' },
-    md: { padding: 'px-2.5 py-1', text: 'text-[10px]', radius: 'rounded-lg' },
-    lg: { padding: 'px-3 py-1.5', text: 'text-[11px]', radius: 'rounded-lg' },
+  // Size configurations — uniform pill (rounded-full) regardless of size
+  const sizeStyles: Record<BadgeSize, { height: string; padding: string; text: string }> = {
+    xs: { height: 'h-4',   padding: 'px-2',    text: 'text-[9px]' },
+    sm: { height: 'h-5',   padding: 'px-2.5',  text: 'text-[10px]' },
+    md: { height: 'h-6',   padding: 'px-3',    text: 'text-[11px]' },
+    lg: { height: 'h-7',   padding: 'px-3.5',  text: 'text-[12px]' },
   };
 
-  // Status color configurations using DS colors
+  // Accent (text + border) only — bg/shape come from the shared pill recipe below.
+  // Uses M3 extended tokens which auto-adapt across light/dark themes.
   const statusStyles: Record<Status, string> = {
-    [Status.Production]: 'bg-[#4D7C6F]/15 text-[#4D7C6F]',
-    [Status.Testing]: 'bg-[#0284C7]/15 text-[#0284C7]',
-    [Status.Development]: 'bg-purple-500/15 text-purple-600 dark:text-purple-400',
-    [Status.Review]: 'bg-purple-500/15 text-purple-600 dark:text-purple-400',
-    [Status.Draft]: 'bg-surface-container-highest text-on-surface-variant',
-    [Status.Backlog]: 'bg-surface-container-highest text-on-surface-variant',
-    [Status.Deprecated]: 'bg-[#A63D40]/15 text-[#A63D40]',
-    [Status.Archived]: 'bg-surface-container-highest text-on-surface-variant/60',
+    [Status.Production]: 'text-ext-green border-ext-green/30',
+    [Status.Testing]: 'text-ext-cyan border-ext-cyan/30',
+    [Status.Development]: 'text-ext-violet border-ext-violet/30',
+    [Status.Review]: 'text-ext-violet border-ext-violet/30',
+    [Status.Draft]: 'text-on-surface-variant border-outline-variant/40',
+    [Status.Backlog]: 'text-on-surface-variant border-outline-variant/40',
+    [Status.Deprecated]: 'text-ext-coral border-ext-coral/30',
+    [Status.Archived]: 'text-on-surface-variant/70 border-outline-variant/40',
   };
 
   const currentSize = sizeStyles[size];
@@ -52,11 +53,11 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
   return (
     <span
       className={[
+        'inline-flex items-center rounded-full bg-surface-container-high border font-bold uppercase tracking-wider',
+        currentSize.height,
         currentSize.padding,
         currentSize.text,
-        currentSize.radius,
         currentStatus,
-        'font-bold uppercase tracking-wide inline-flex items-center',
         className,
       ].filter(Boolean).join(' ')}
     >

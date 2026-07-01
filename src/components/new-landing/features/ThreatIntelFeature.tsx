@@ -199,7 +199,7 @@ export const ReportListingMockup = () => (
 /*  Slide 2 — 8-Stage Pipeline with sequential animation              */
 /* ------------------------------------------------------------------ */
 
-const PipelineMockup = () => {
+export const PipelineMockup = () => {
   const [revealed, setRevealed] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
   const done = useRef(false);
@@ -307,7 +307,7 @@ const GAPS = [
   { tech: 'T1048', name: 'Exfiltration Over Alt Protocol', tactic: 'Exfiltration', impact: 'DNS / HTTPS tunneling' },
 ];
 
-const CoverageMockup = () => (
+export const CoverageMockup = () => (
   <MockupFrame title="COVERAGE ANALYSIS — Lynx Ransomware Report" accent={TEAL}>
     <div className="grid md:grid-cols-[1fr_1fr] gap-6">
       {/* Mini MITRE heatmap */}

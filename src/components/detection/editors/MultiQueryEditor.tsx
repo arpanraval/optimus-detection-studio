@@ -6,7 +6,7 @@ import { QUERY_LANGUAGES } from '../../../constants';
 import { generateAIJSON } from '../../../lib/aiService';
 import { useToast } from '../../../hooks/useToast';
 import { AISuggestDropdown, FieldGroup } from '../AISuggestDropdown';
-import { Select } from '../../ui/Select';
+import { FormattedText } from '../../optimus/FormattedText';
 
 interface MultiQueryEditorProps {
   queries: DetectionQuery[];
@@ -83,7 +83,8 @@ export const MultiQueryEditor: React.FC<MultiQueryEditorProps> = ({ queries, onC
   );
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [explanationHeight, setExplanationHeight] = useState(200);
+  const [explanationHeight, setExplanationHeight] = useState(220);
+  const [explanationMode, setExplanationMode] = useState<'preview' | 'edit'>('preview');
   const { showToast } = useToast();
 
   const activeQuery = queries.find(q => q.id === activeQueryId);
@@ -185,7 +186,11 @@ export const MultiQueryEditor: React.FC<MultiQueryEditorProps> = ({ queries, onC
     if (!sections || sections.has('syntaxValidation'))
       tasks.push('**Syntax Validation**: Check for any syntax errors or issues.');
     if (!sections || sections.has('explanation'))
-      tasks.push('**Explanation**: Provide a clear, step-by-step explanation of what this query does.');
+      tasks.push(`**Explanation**: Produce a structured markdown explanation. Use this exact shape:
+   - A one-sentence \`## Summary\` (under 25 words) describing what the query detects.
+   - A \`### How it works\` section with a bulleted list — one bullet per clause/operator (e.g. table name, where filter, joins, aggregations). Wrap field/operator names in backticks. Be concise.
+   - A \`### What it detects\` section with 1–3 bullets covering the attack behavior or analyst use case.
+   Rules: pure markdown only — no emoji, no decorative icons, no horizontal rules, no fenced code blocks. Each bullet on its own line.`);
 
     // Build dynamic JSON schema
     const schemaFields: string[] = [];
@@ -199,7 +204,7 @@ export const MultiQueryEditor: React.FC<MultiQueryEditorProps> = ({ queries, onC
       schemaFields.push('"syntaxErrors": ["error1", "error2"]');
     }
     if (!sections || sections.has('explanation'))
-      schemaFields.push('"explanation": "Detailed markdown explanation of what this query detects and how it works"');
+      schemaFields.push('"explanation": "Structured markdown with ## Summary, ### How it works (bulleted, one bullet per clause), ### What it detects (1-3 bullets). No emoji. No fenced code blocks. Use backticks for field/operator names."');
 
     setIsAnalyzing(true);
     try {
@@ -247,9 +252,7 @@ Output JSON only (no markdown code blocks):
             handleUpdateQuery('language', matchedLanguage);
             languageChanged = true;
 
-            const confidenceEmoji = result.confidence === 'high' ? '✅' : result.confidence === 'medium' ? '⚠️' : '❓';
-
-            finalExplanation = `## ${confidenceEmoji} Language Auto-Corrected
+            finalExplanation = `### Language auto-corrected
 
 | Field | Value |
 |-------|-------|
@@ -267,7 +270,7 @@ ${finalExplanation}`;
 
       // Add validation warnings if any
       if ((!sections || sections.has('syntaxValidation')) && result.syntaxErrors && result.syntaxErrors.length > 0) {
-        const errorsSection = `## ⚠️ Syntax Issues Found
+        const errorsSection = `### Syntax issues found
 
 ${result.syntaxErrors.map((e: string) => `- ${e}`).join('\n')}
 
@@ -277,11 +280,11 @@ ${result.syntaxErrors.map((e: string) => `- ${e}`).join('\n')}
         finalExplanation = errorsSection + finalExplanation;
       }
 
-      // Add validity status
+      // Add validity status (renders as a status pill via FormattedText)
       if ((!sections || sections.has('syntaxValidation')) && !languageChanged && result.isValid !== undefined) {
         const validityBadge = result.isValid
-          ? '✅ **Query syntax is valid**'
-          : '❌ **Query has syntax issues**';
+          ? '!status:success Query syntax is valid'
+          : '!status:error Query has syntax issues';
         finalExplanation = `${validityBadge}\n\n${finalExplanation}`;
       }
 
@@ -301,69 +304,71 @@ ${result.syntaxErrors.map((e: string) => `- ${e}`).join('\n')}
 
   return (
     <section className="rounded-2xl overflow-hidden mb-6 border border-outline-variant/30 bg-surface-container-low">
-        <div className="px-6 py-5 flex items-start justify-between border-b border-outline-variant/30 bg-surface-container-low">
-            <div>
-                <h3 className="text-base font-medium text-on-surface">Detection Logic</h3>
-                <p className="text-sm mt-0.5 text-on-surface-variant">Define detection queries in one or more languages</p>
-            </div>
-            <button
-                type="button"
-                onClick={() => setShowAddDialog(true)}
-                disabled={availableLanguages.length === 0}
-                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
-            >
-                <Icon name="plus" className="w-3 h-3" /> Add Query
-            </button>
-        </div>
         <div className="p-6">
-            {/* Query Tabs */}
             {queries.length > 0 ? (
                 <>
-                    <div className="flex items-center gap-2 pb-2 overflow-x-auto">
-                        {queries.map(query => (
-                            <button
-                                key={query.id}
-                                type="button"
-                                onClick={() => setActiveQueryId(query.id)}
-                                className={`inline-flex items-center gap-2 h-9 px-4 rounded-lg text-sm font-medium transition-colors whitespace-nowrap relative ${
-                                    activeQueryId === query.id 
-                                    ? 'bg-primary/10 text-primary' 
-                                    : 'bg-surface-container text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high'
-                                }`}
-                            >
-                                {query.language}
-                                {query.isPrimary && (
-                                    <span className="w-2 h-2 rounded-full bg-yellow-500 ml-1" title="Primary Query"></span>
-                                )}
-                            </button>
-                        ))}
-                    </div>
-
                     {activeQuery && (
                         <div className="rounded-xl overflow-hidden border border-outline-variant/30 flex flex-col h-[700px]">
-                            {/* Toolbar */}
-                            <div className="flex items-center justify-between px-4 py-3 bg-surface-container-high border-b border-outline-variant/30 flex-shrink-0">
-                                <div className="flex items-center gap-3">
-                                    <div className="min-w-[160px]">
-                                        <Select
-                                            size="sm"
-                                            fullWidth
-                                            value={activeQuery.language}
-                                            options={QUERY_LANGUAGES.map((lang) => ({ value: lang, label: lang }))}
-                                            onChange={(next) => handleUpdateQuery('language', next)}
-                                        />
-                                    </div>
-                                    
-                                    {!activeQuery.isPrimary && (
+                            {/* Toolbar — inline pill switcher on the left, actions on the right */}
+                            <div className="flex items-center justify-between gap-3 px-3 py-2 bg-surface-container-high border-b border-outline-variant/30 flex-shrink-0">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    {queries.length > 1 ? (
+                                        <div className="flex items-center gap-1 overflow-x-auto custom-scrollbar">
+                                            {queries.map(query => {
+                                                const isActive = activeQueryId === query.id;
+                                                return (
+                                                    <button
+                                                        key={query.id}
+                                                        type="button"
+                                                        onClick={() => setActiveQueryId(query.id)}
+                                                        className={`inline-flex items-center gap-1.5 h-6 px-2 rounded text-[10.5px] font-semibold uppercase tracking-wider font-mono transition-colors whitespace-nowrap ${
+                                                            isActive
+                                                                ? 'bg-primary/12 text-primary'
+                                                                : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest'
+                                                        }`}
+                                                        title={query.isPrimary ? `${query.language} · Primary` : query.language}
+                                                    >
+                                                        <span>{query.language}</span>
+                                                        {query.isPrimary && (
+                                                            <span className="w-1 h-1 rounded-full bg-yellow-500" />
+                                                        )}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : (
+                                        <div className="inline-flex items-center gap-1.5">
+                                            <span className="text-[10.5px] font-semibold text-on-surface-variant uppercase tracking-wider font-mono">
+                                                {activeQuery.language}
+                                            </span>
+                                            {activeQuery.isPrimary && (
+                                                <span className="w-1 h-1 rounded-full bg-yellow-500" title="Primary Query" />
+                                            )}
+                                        </div>
+                                    )}
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowAddDialog(true)}
+                                        disabled={availableLanguages.length === 0}
+                                        title="Add another query language"
+                                        className="inline-flex items-center justify-center h-6 w-6 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >
+                                        <Icon name="plus" className="w-3.5 h-3.5" />
+                                    </button>
+
+                                    {!activeQuery.isPrimary && queries.length > 1 && (
                                         <button
+                                            type="button"
                                             onClick={() => handleSetPrimary(activeQuery.id)}
-                                            className="text-xs text-on-surface-variant hover:text-yellow-500 transition-colors"
+                                            className="text-[11px] text-on-surface-variant hover:text-on-surface transition-colors"
                                         >
-                                            Set Primary
+                                            Set primary
                                         </button>
                                     )}
                                 </div>
-                                <div className="flex items-center gap-3">
+
+                                <div className="flex items-center gap-2 flex-shrink-0">
                                     <AISuggestDropdown
                                         label="Validate & Explain"
                                         fieldGroups={QUERY_FIELD_GROUPS}
@@ -375,25 +380,27 @@ ${result.syntaxErrors.map((e: string) => `- ${e}`).join('\n')}
                                     />
                                     <div className="h-4 w-px bg-outline-variant/30"></div>
                                     <button
+                                        type="button"
                                         onClick={() => {
                                             navigator.clipboard.writeText(activeQuery.query);
                                             showToast('success', 'Copied to Clipboard', 'Query copied successfully.');
                                         }}
-                                        className="p-1.5 rounded text-on-surface-variant hover:text-on-surface transition-colors"
+                                        className="p-1.5 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest transition-colors"
                                         title="Copy"
                                     >
                                         <Icon name="copy" className="w-4 h-4" />
                                     </button>
                                     <button
+                                        type="button"
                                         onClick={() => handleDeleteQuery(activeQuery.id)}
-                                        className="p-1.5 rounded text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors"
-                                        title="Delete"
+                                        className="p-1.5 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest transition-colors"
+                                        title="Delete query"
                                     >
                                         <Icon name="trash" className="w-4 h-4" />
                                     </button>
                                 </div>
                             </div>
-                            
+
                             {/* Editor - Flexible Height */}
                             <div className="flex-grow bg-surface-container-lowest min-h-0 relative">
                                 <MonacoCodeEditor
@@ -404,27 +411,63 @@ ${result.syntaxErrors.map((e: string) => `- ${e}`).join('\n')}
                             </div>
 
                             {/* Drag Handle */}
-                            <div 
+                            <div
                                 className="h-2 bg-surface-container-high hover:bg-primary/20 cursor-row-resize flex items-center justify-center z-10 flex-shrink-0 transition-colors border-t border-outline-variant/30"
                                 onMouseDown={handleMouseDown}
                             >
                                 <div className="w-10 h-1 rounded-full bg-outline-variant"></div>
                             </div>
 
-                            {/* Resizable Explanation Panel */}
-                            <div 
+                            {/* Resizable Explanation Panel — Edit / Preview toggle */}
+                            <div
                                 className="border-t border-outline-variant/30 bg-surface-container-low flex-shrink-0 flex flex-col"
                                 style={{ height: explanationHeight }}
                             >
-                                <div className="px-4 py-2 text-xs font-medium text-on-surface-variant border-b border-outline-variant/30">
-                                    Query Explanation
+                                <div className="flex items-center justify-between px-4 py-2 border-b border-outline-variant/30">
+                                    <span className="text-xs font-medium text-on-surface-variant">Query Explanation</span>
+                                    <div className="inline-flex items-center rounded-md bg-surface-container border border-outline-variant/30 p-0.5">
+                                        <button
+                                            type="button"
+                                            onClick={() => setExplanationMode('preview')}
+                                            className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                                                explanationMode === 'preview'
+                                                    ? 'bg-surface-container-highest text-on-surface'
+                                                    : 'text-on-surface-variant hover:text-on-surface'
+                                            }`}
+                                        >
+                                            Preview
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setExplanationMode('edit')}
+                                            className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                                                explanationMode === 'edit'
+                                                    ? 'bg-surface-container-highest text-on-surface'
+                                                    : 'text-on-surface-variant hover:text-on-surface'
+                                            }`}
+                                        >
+                                            Edit
+                                        </button>
+                                    </div>
                                 </div>
-                                <textarea
-                                    value={activeQuery.explanation || ''}
-                                    onChange={(e) => handleUpdateQuery('explanation', e.target.value)}
-                                    placeholder="Explain what this query detects and how it works..."
-                                    className="w-full h-full px-4 py-3 text-sm resize-none focus:outline-none bg-surface-container-low text-on-surface placeholder-on-surface-variant/60"
-                                />
+                                {explanationMode === 'edit' ? (
+                                    <textarea
+                                        value={activeQuery.explanation || ''}
+                                        onChange={(e) => handleUpdateQuery('explanation', e.target.value)}
+                                        placeholder="Explain what this query detects and how it works… (markdown supported)"
+                                        className="w-full h-full px-4 py-3 text-sm resize-none focus:outline-none bg-surface-container-low text-on-surface placeholder-on-surface-variant/60 font-mono"
+                                    />
+                                ) : activeQuery.explanation ? (
+                                    <div className="flex-1 overflow-y-auto px-4 py-3">
+                                        <FormattedText text={activeQuery.explanation} className="text-on-surface" />
+                                    </div>
+                                ) : (
+                                    <div className="flex-1 flex items-center justify-center px-4 py-3">
+                                        <p className="text-sm text-on-surface-variant/70 italic">
+                                            No explanation yet. Use “Validate & Explain” or switch to Edit to write one.
+                                        </p>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}

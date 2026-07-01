@@ -37,22 +37,17 @@ export const MockupFrame: React.FC<{
   className?: string;
   accent?: string;
 }> = ({ title, children, className = '', accent }) => (
-  <div className={`dark-frame rounded-2xl overflow-hidden border border-white/[0.07] bg-[#0c0c12]/60 backdrop-blur-xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] h-full ${className}`}>
-    <div className="flex items-center gap-3 px-5 py-3.5 border-b border-white/[0.06] bg-black/25">
+  <div className={`rounded-2xl overflow-hidden border border-outline-variant bg-surface-container-highest shadow-lg h-full ${className}`}>
+    <div className="flex items-center gap-3 px-5 py-3 border-b border-outline-variant">
       <div className="flex gap-1.5">
-        <div className="w-2.5 h-2.5 rounded-full bg-red-500/40 hover:bg-red-500/80 transition-colors duration-200" />
-        <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/40 hover:bg-yellow-500/80 transition-colors duration-200" />
-        <div className="w-2.5 h-2.5 rounded-full bg-green-500/40 hover:bg-green-500/80 transition-colors duration-200" />
+        <div className="w-2.5 h-2.5 rounded-full bg-outline-variant" />
+        <div className="w-2.5 h-2.5 rounded-full bg-outline-variant" />
+        <div className="w-2.5 h-2.5 rounded-full bg-outline-variant" />
       </div>
-      <span className="mono text-[10px] tracking-[0.2em] text-on-surface-variant/80 ml-2 uppercase font-medium">{title}</span>
-      {accent && (
-        <div 
-          className="ml-auto w-2 h-2 rounded-full animate-pulse" 
-          style={{ backgroundColor: accent, boxShadow: `0 0 10px ${accent}` }} 
-        />
-      )}
+      <span className="mono text-[11px] tracking-[0.15em] text-outline ml-2">{title}</span>
+      {accent && <div className="ml-auto w-2 h-2 rounded-full" style={{ backgroundColor: accent, boxShadow: `0 0 8px ${accent}60` }} />}
     </div>
-    <div className="p-5 sm:p-7 bg-[#08080c]/30">{children}</div>
+    <div className="p-5 sm:p-8">{children}</div>
   </div>
 );
 
