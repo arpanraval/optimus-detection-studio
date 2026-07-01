@@ -2,7 +2,29 @@
   "name": "optimus-detection-studio",
   "private": true,
   "version": "1.0.0",
+  "description": "AI-powered detection engineering & detection-intelligence platform — choose, build, quality-check, and operationalize SIEM/XDR detections with MITRE ATT&CK mapping, Sigma conversion, and threat-intel-driven gap analysis.",
+  "license": "Apache-2.0",
   "type": "module",
+  "homepage": "https://github.com/arpanraval/optimus-detection-studio#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arpanraval/optimus-detection-studio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/arpanraval/optimus-detection-studio/issues"
+  },
+  "keywords": [
+    "detection-engineering",
+    "detection-as-code",
+    "siem",
+    "xdr",
+    "mitre-attack",
+    "sigma",
+    "threat-intelligence",
+    "security",
+    "soc",
+    "supabase"
+  ],
   "scripts": {
     "dev": "bunx --bun vite",
     "build": "bunx --bun vite build",
@@ -12,7 +34,9 @@
     "format": "bunx prettier --write \"**/*.{ts,tsx,json,md}\"",
     "type-check": "bunx tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "setup": "bun run scripts/setup.ts",
+    "setup:check": "bun run scripts/setup-check.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
