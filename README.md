@@ -4,9 +4,9 @@
 
 # Optimus Detection Studio
 
-**The open-source command center for detection engineering & detection intelligence.**
+**The open-source detection intelligence platform — a dedicated home for detection engineering.**
 
-Turn a scattered pile of detection rules into **measured, deployed, threat-informed coverage** — with an AI agent that knows your library, MITRE ATT&CK as the map, and a guided deploy pipeline to your SIEM.
+Thousands of open-source detection rules exist. A platform to *engineer* them doesn't. Optimus unifies every detection across your SIEM, XDR, and EDR into one library, shows your true MITRE ATT&CK coverage, writes the documentation, and runs the full lifecycle end to end — with an AI agent that answers *"are we covered against ransomware?"* in minutes, not weeks.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-2563eb?style=flat-square)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](#tech-stack)
@@ -14,7 +14,7 @@ Turn a scattered pile of detection rules into **measured, deployed, threat-infor
 [![Self-hosted](https://img.shields.io/badge/deploy-self--hosted-16a34a?style=flat-square)](#setup)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-8b5cf6?style=flat-square)](CONTRIBUTING.md)
 
-[**Quickstart**](#quickstart) &nbsp;•&nbsp; [**Features**](#features) &nbsp;•&nbsp; [**Setup**](#setup) &nbsp;•&nbsp; [**Architecture**](#architecture) &nbsp;•&nbsp; [**Roadmap**](#roadmap) &nbsp;•&nbsp; [**Contributing**](#contributing)
+[**Quickstart**](#quickstart) &nbsp;•&nbsp; [**Features**](#what-it-does-end-to-end) &nbsp;•&nbsp; [**Setup**](#setup) &nbsp;•&nbsp; [**Architecture**](#architecture) &nbsp;•&nbsp; [**Roadmap**](#roadmap) &nbsp;•&nbsp; [**Contributing**](#contributing)
 
 <br/>
 
@@ -24,30 +24,32 @@ Turn a scattered pile of detection rules into **measured, deployed, threat-infor
 
 ---
 
-## Why Optimus
+## The problem isn't content anymore
 
-Every SOC has access to 10,000+ detection rules — and still can't answer the questions that actually matter:
+Detection *content* is a solved problem. SigmaHQ, Splunk ESCU, Elastic, vendor libraries — thousands of high-quality rules, free, one download away. What was never solved is the **engineering discipline around the content**:
 
-- **Are we covered?** Which MITRE ATT&CK techniques do our detections actually catch, and where are the holes?
-- **Are we ready for _this_ threat?** How well do we detect Scattered Spider — or ransomware — *right now?*
-- **Does it even work?** Is this rule tuned, tested, and live in the SIEM — or rotting in a backlog?
+- **Your detections live in five consoles.** SIEM, XDR, EDR, cloud — each with its own query language, its own rule format, its own idea of what "enabled" means. There is no single source of truth.
+- **Coverage is a guess.** Ask any SOC *"which ATT&CK techniques can we actually detect, in production, today?"* and the honest answer is a shrug — or a spreadsheet that was accurate one quarter ago.
+- **Readiness is unanswerable.** *"How well would we see Scattered Spider? Are we prepared for the campaign in this morning's advisory?"* should take minutes to answer, not a two-week internal audit.
+- **The lifecycle is invisible.** Which rules are tuned? Tested? Deployed but drifting? Deprecated but still firing? Documented well enough that the night-shift analyst knows what to do when one triggers?
+- **Documentation is a tax paid by hand.** SOPs, investigation steps, false-positive guidance, MITRE mappings — written manually, perpetually stale, first thing dropped under pressure.
 
-The rules are abundant. The engineering *around* them — choosing, building, proving, deploying, and measuring — is manual, scattered across spreadsheets and SIEM consoles, and painfully slow.
+Software engineers got IDEs, git, and CI/CD. Detection engineers got a query console and a spreadsheet.
 
-**Optimus is that missing layer.** One place to build detections, measure coverage against ATT&CK, ask an AI agent that actually knows your library, and ship to your SIEM. Built for SOC and detection-engineering teams — and the MSSPs who run them.
+**Optimus is the dedicated platform detection engineering never had** — a system of record for every detection you own and an intelligence layer that tells you what it all adds up to. Built for SOC and detection-engineering teams, and the MSSPs who run them.
 
-## Features
+## What it does, end to end
 
-| Capability | What you get |
+| Stage | What Optimus does |
 |---|---|
-| **AI detection engineering** | A RAG agent that knows *your* library — hybrid semantic + keyword search, coverage-gap analysis, threat-actor readiness, natural-language → query generation, autofill, and logic validation. |
-| **MITRE ATT&CK intelligence** | Interactive coverage matrix (Enterprise v18.1), tactic and platform breakdowns, gap analysis against threat profiles, and Navigator layer export. |
-| **Detection library** | Two-tier (personal + universal) with rich metadata, a full lifecycle pipeline, multi-language queries, and curated packs. |
-| **In-browser Sigma conversion** | pySigma on WebAssembly to 12+ SIEM/EDR targets, with zero server-side Python. |
-| **Bulk vendor import** | SigmaHQ, Splunk ESCU, Elastic, and Chronicle — parse, normalize, deduplicate, validate, roll back. |
-| **Threat-intel digest** | An AI pipeline that turns reports (URL or pasted) into TTPs, IoCs, and detection rules mapped against your coverage. |
-| **SIEM / XDR deployment** | Push detections to six platforms (Splunk, Sentinel, Elastic, Chronicle, CrowdStrike, Defender XDR) with drift tracking. |
-| **Collaboration & RBAC** | Peer review, threaded comments, assignments, a publishing approval queue, and a five-tier role system. |
+| **Unify your estate** | Bulk-import vendor content (SigmaHQ, Splunk ESCU, Elastic, Chronicle) *and* pull the rules already deployed in your SIEM/XDR — parsed, normalized, deduplicated into one library spanning 12 query languages. |
+| **See real coverage** | A live MITRE ATT&CK heatmap of what you can and can't detect — by tactic, platform, and production status — with gap analysis against threat profiles and Navigator layer export. |
+| **Ask, don't audit** | Natural-language questions answered from *your* library: coverage against ransomware, readiness for a specific actor, where the gaps are. A RAG agent with hybrid semantic + keyword search over everything you own. |
+| **Kill documentation debt** | One-click AI autofill for the whole detection record — descriptions, MITRE mappings, severity, investigation SOPs, response actions, false-positive guidance, test cases. |
+| **Engineer with AI** | Generate production-ready queries in chat across SPL, KQL, EQL, Sigma and more; AI-assisted tuning and logic validation; in-browser Sigma conversion to 12+ targets. |
+| **Stay threat-informed** | A daily threat-intel digest that turns reports into TTPs, IoCs, and rules — checked against your existing coverage. Autonomous threat research that goes from a topic to draft detections while you sleep. |
+| **Run the lifecycle** | An eight-stage pipeline from backlog to production: peer review, threaded comments, assignments, publishing approvals, five-tier RBAC — all audit-logged. |
+| **Ship and stay in sync** | Guided deployment to six SIEM/XDR platforms (Splunk, Sentinel, Elastic, Chronicle, CrowdStrike, Defender XDR) with drift tracking after the push. |
 
 ## Screenshots
 
@@ -55,12 +57,12 @@ The rules are abundant. The engineering *around* them — choosing, building, pr
 <tr>
 <td width="50%" valign="top">
 
-**Detection library** — one searchable catalog for every rule, across languages, SIEMs, and lifecycle stages.
+**Detection library** — every rule you own, from every source and every SIEM, in one searchable system of record.
 
 </td>
 <td width="50%" valign="top">
 
-**MITRE ATT&CK coverage** — a live heatmap of exactly what you can and can't detect.
+**MITRE ATT&CK coverage** — your real detection coverage, live: what you catch, what you miss, and where to invest next.
 
 </td>
 </tr>
@@ -290,9 +292,11 @@ Interactive heatmap (coverage density per technique, sub-technique expansion, pl
 </details>
 
 <details>
-<summary><b>Threat intelligence &amp; bulk import</b></summary>
+<summary><b>Threat intelligence, autonomous research &amp; bulk import</b></summary>
 
-**Threat-intel digest (v2):** multi-stage AI pipeline — summary, attack-type classification, MITRE TTP extraction (with evidence quotes), and IoC + detection-rule extraction (30+ IoC categories, defang reversal, false-positive flagging) — mapped against your existing coverage.
+**Threat-intel digest (v2):** multi-stage AI pipeline — summary, attack-type classification, MITRE TTP extraction (with evidence quotes), and IoC + detection-rule extraction (30+ IoC categories, defang reversal, false-positive flagging) — mapped against your existing coverage. Runs on demand or as a scheduled auto-digest, so emerging threats are checked against your library every day.
+
+**Autonomous threat research:** give it a topic — a CVE, an actor, a campaign, a technique — and a multi-agent pipeline runs end to end: cited web research, ATT&CK behaviour mapping, a check against what your library already covers, then drafted detections that pass a QA agent before you ever see them — with a full transcript of every step.
 
 **Bulk import:** SigmaHQ (YAML), Splunk ESCU (YAML), Elastic (TOML), Chronicle (YARA-L) from ZIP / files / GitHub repos → detect format → parse → normalize → validate → deduplicate (SHA-256) → persist → audit, with skip/update/create-new strategies and per-import rollback.
 </details>
@@ -311,7 +315,7 @@ Interactive heatmap (coverage density per technique, sub-technique expansion, pl
 
 ## Roadmap
 
-**Shipped** — detection library (12 query languages), MITRE matrix + coverage analytics, Optimus Prime agent, AI query generation + autofill + validation, threat-intel digest, bulk import, browser-based Sigma conversion, peer review + comments + assignments, five-tier RBAC, publishing workflow, vector search, dashboards, exports, Navigator layers, threat-actor enrichment, detection packs + 3-step deploy wizard across six SIEM/XDR providers, realtime notifications, auto-digest pipeline, environment profile, SIEM/XDR home.
+**Shipped** — detection library (12 query languages), MITRE matrix + coverage analytics, Optimus Prime agent, AI query generation + autofill + validation, threat-intel digest, autonomous threat research, bulk import, browser-based Sigma conversion, peer review + comments + assignments, five-tier RBAC, publishing workflow, vector search, dashboards, exports, Navigator layers, threat-actor enrichment, detection packs + 3-step deploy wizard across six SIEM/XDR providers, realtime notifications, auto-digest pipeline, environment profile, SIEM/XDR home.
 
 **In progress** — detection-as-code (git-backed workflows) · library UX and data-quality refinements.
 
