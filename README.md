@@ -6,7 +6,7 @@
 
 **The open-source command center for detection engineering & detection intelligence.**
 
-Turn a scattered pile of detection rules into **measured, deployed, threat-informed coverage** — with an AI agent that knows your library, MITRE ATT&CK as the map, and one-click deployment to your SIEM.
+Turn a scattered pile of detection rules into **measured, deployed, threat-informed coverage** — with an AI agent that knows your library, MITRE ATT&CK as the map, and a guided deploy pipeline to your SIEM.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-2563eb?style=flat-square)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](#tech-stack)
@@ -159,7 +159,7 @@ Detection saved → generate-embedding → Gemini embedding (1536-dim)
 | **Frontend** | React 19 · TypeScript · Vite · Tailwind CSS · Monaco · Recharts |
 | **Backend** | Supabase — PostgreSQL · pgvector · Realtime · Edge Functions (Deno) |
 | **AI** | Gemini (default) · OpenAI · Anthropic · Tavily (web search) — all server-side |
-| **Detection engine** | pySigma on Pyodide (WebAssembly) |
+| **Sigma conversion** | pySigma on Pyodide — runs fully in the browser (no server-side Python) |
 | **Tooling** | Bun · Vitest · ESLint · GitHub Actions CI |
 
 ---
