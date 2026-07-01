@@ -1,22 +1,24 @@
 <div align="center">
 
+<img src=".github/assets/logo.png" alt="Optimus Detection Studio" width="116" />
+
 # Optimus Detection Studio
 
-**Detection content is abundant. Everything around it is broken.**
+**The open-source command center for detection engineering & detection intelligence.**
 
-The open-source platform for **detection engineering** and **detection intelligence** — one catalog for every rule you run, AI-driven coverage analysis against emerging threats, and a conversational agent that actually knows your library.
+Turn a scattered pile of detection rules into **measured, deployed, threat-informed coverage** — with an AI agent that knows your library, MITRE ATT&CK as the map, and one-click deployment to your SIEM.
 
-[![License](https://img.shields.io/badge/license-Apache_2.0-blue?style=flat-square)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/arpanraval/optimus-detection-studio/ci.yml?branch=master&style=flat-square&label=ci)](https://github.com/arpanraval/optimus-detection-studio/actions/workflows/ci.yml)
-[![schema-check](https://img.shields.io/github/actions/workflow/status/arpanraval/optimus-detection-studio/schema-check.yml?branch=master&style=flat-square&label=schema-check)](https://github.com/arpanraval/optimus-detection-studio/actions/workflows/schema-check.yml)
-[![Backend: Supabase](https://img.shields.io/badge/backend-Supabase-3ECF8E?style=flat-square)](https://supabase.com)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](CONTRIBUTING.md)
+[![License](https://img.shields.io/badge/License-Apache_2.0-2563eb?style=flat-square)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](#tech-stack)
+[![Supabase](https://img.shields.io/badge/Supabase-3FCF8E?style=flat-square&logo=supabase&logoColor=white)](#architecture)
+[![Self-hosted](https://img.shields.io/badge/deploy-self--hosted-16a34a?style=flat-square)](#setup)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-8b5cf6?style=flat-square)](CONTRIBUTING.md)
 
-[Quickstart](#quickstart) &nbsp;•&nbsp; [Features](#features) &nbsp;•&nbsp; [Setup](#setup) &nbsp;•&nbsp; [Architecture](#architecture) &nbsp;•&nbsp; [Roadmap](#roadmap) &nbsp;•&nbsp; [Contributing](#contributing)
+[**Quickstart**](#quickstart) &nbsp;•&nbsp; [**Features**](#features) &nbsp;•&nbsp; [**Setup**](#setup) &nbsp;•&nbsp; [**Architecture**](#architecture) &nbsp;•&nbsp; [**Roadmap**](#roadmap) &nbsp;•&nbsp; [**Contributing**](#contributing)
 
 <br/>
 
-<img src=".github/assets/hero.png" alt="Optimus Detection Studio" width="860" />
+<img src=".github/assets/hero.png" alt="Optimus Detection Studio — detection library" width="880" />
 
 </div>
 
@@ -24,34 +26,51 @@ The open-source platform for **detection engineering** and **detection intellige
 
 ## Why Optimus
 
-There are 10,000+ public detection rules. Being *protected* isn't about **having** rules — it's about choosing the right ones, building new ones for emerging threats, proving they work, and getting them live in your SIEM. That gap — between a rule library and deployed, tuned, measured coverage — is where teams lose.
+Every SOC has access to 10,000+ detection rules — and still can't answer the questions that actually matter:
 
-**Optimus closes it end-to-end.** It's built for SOC and detection-engineering teams — and the MSSPs who run them — who need to turn a pile of rules into measurable, operational defense.
+- **Are we covered?** Which MITRE ATT&CK techniques do our detections actually catch, and where are the holes?
+- **Are we ready for _this_ threat?** How well do we detect Scattered Spider — or ransomware — *right now?*
+- **Does it even work?** Is this rule tuned, tested, and live in the SIEM — or rotting in a backlog?
+
+The rules are abundant. The engineering *around* them — choosing, building, proving, deploying, and measuring — is manual, scattered across spreadsheets and SIEM consoles, and painfully slow.
+
+**Optimus is that missing layer.** One place to build detections, measure coverage against ATT&CK, ask an AI agent that actually knows your library, and ship to your SIEM. Built for SOC and detection-engineering teams — and the MSSPs who run them.
 
 ## Features
 
 | Capability | What you get |
 |---|---|
-| **AI detection engineering** | A RAG agent that knows *your* library — hybrid semantic + keyword search, coverage-gap analysis, threat-actor readiness, natural-language → query generation, smart autofill, and logic validation. |
+| **AI detection engineering** | A RAG agent that knows *your* library — hybrid semantic + keyword search, coverage-gap analysis, threat-actor readiness, natural-language → query generation, autofill, and logic validation. |
 | **MITRE ATT&CK intelligence** | Interactive coverage matrix (Enterprise v18.1), tactic and platform breakdowns, gap analysis against threat profiles, and Navigator layer export. |
 | **Detection library** | Two-tier (personal + universal) with rich metadata, a full lifecycle pipeline, multi-language queries, and curated packs. |
 | **In-browser Sigma conversion** | pySigma on WebAssembly to 12+ SIEM/EDR targets, with zero server-side Python. |
-| **Bulk vendor import** | SigmaHQ, Splunk ESCU, Elastic, and Chronicle — parse, normalize, deduplicate, validate, and roll back. |
+| **Bulk vendor import** | SigmaHQ, Splunk ESCU, Elastic, and Chronicle — parse, normalize, deduplicate, validate, roll back. |
 | **Threat-intel digest** | An AI pipeline that turns reports (URL or pasted) into TTPs, IoCs, and detection rules mapped against your coverage. |
 | **SIEM / XDR deployment** | Push detections to six platforms (Splunk, Sentinel, Elastic, Chronicle, CrowdStrike, Defender XDR) with drift tracking. |
 | **Collaboration & RBAC** | Peer review, threaded comments, assignments, a publishing approval queue, and a five-tier role system. |
 
 ## Screenshots
 
-**Detection library** — one searchable catalog for every rule you run, across languages, SIEMs, and lifecycle stages.
+<table>
+<tr>
+<td width="50%" valign="top">
 
-![Detection library](.github/assets/screenshot-library.png)
+**Detection library** — one searchable catalog for every rule, across languages, SIEMs, and lifecycle stages.
 
-**MITRE ATT&CK coverage** — a live heatmap of exactly what you can and can't detect, by tactic and technique.
+</td>
+<td width="50%" valign="top">
 
-![MITRE ATT&CK coverage matrix](.github/assets/screenshot-mitre.png)
+**MITRE ATT&CK coverage** — a live heatmap of exactly what you can and can't detect.
 
-**Onboarding** — import thousands of rules from Sigma, Splunk, Elastic, Chronicle, Sentinel, and Defender through a fetch → parse → validate → normalize → store pipeline.
+</td>
+</tr>
+<tr>
+<td><img src=".github/assets/screenshot-library.png" alt="Detection library" /></td>
+<td><img src=".github/assets/screenshot-mitre.png" alt="MITRE ATT&CK coverage matrix" /></td>
+</tr>
+</table>
+
+**Onboarding** — import thousands of rules from official vendor sources through a `fetch → parse → validate → normalize → store` pipeline.
 
 ![Detection onboarding pipeline](.github/assets/demo-onboarding.gif)
 
@@ -68,13 +87,80 @@ bun run setup                  # links project, applies schema.sql, deploys 19 e
 bun run dev
 ```
 
-`bun run setup` applies the **entire database** in one shot — [`supabase/schema.sql`](supabase/schema.sql) is a single, self-contained schema (62 tables, functions, RLS, triggers, realtime, seed data), [CI-verified to apply on an empty database](.github/workflows/schema-check.yml). The full walkthrough (secrets, first owner, MITRE import) is in **[Setup](#setup)**.
+`bun run setup` applies the **entire database** in one shot — [`supabase/schema.sql`](supabase/schema.sql) is a single, self-contained schema (62 tables, functions, RLS, triggers, realtime, seed data), CI-verified to apply on an empty database. The full walkthrough (secrets, first owner, MITRE import) is in **[Setup](#setup)**.
 
 > **Prerequisites** — [Bun](https://bun.sh) • [Supabase CLI](https://supabase.com/docs/guides/cli) • `psql` • a Supabase project (free tier is fine) • at least one AI key (Gemini / OpenAI / Anthropic).
 
+---
+
+## Architecture
+
+Optimus is a React single-page app talking to **your own** Supabase project. All AI keys and privileged logic live server-side in edge functions — the browser never holds a provider key.
+
+```mermaid
+flowchart LR
+    subgraph Browser["Browser — React SPA"]
+        UI["Detection library · MITRE coverage<br/>Optimus agent · dashboards"]
+        SG["Sigma converter<br/>pySigma on WebAssembly"]
+    end
+    subgraph Supabase["Your Supabase project"]
+        DB[("PostgreSQL<br/>62 tables · RLS · pgvector")]
+        RT["Realtime"]
+        EF["19 Edge Functions · Deno<br/>AI · tools · TI digest · deploy"]
+    end
+    AI["AI providers<br/>Gemini · OpenAI · Anthropic · Tavily"]
+
+    UI --> DB
+    UI --> RT
+    UI --> EF
+    EF --> DB
+    EF --> AI
+```
+
+<details>
+<summary><b>AI agent flow &amp; semantic search</b></summary>
+
+```
+User query → ai-generate edge function (system prompt + tools)
+           → LLM may invoke tools → optimus-tools executes against the DB
+           → results synthesised → structured response rendered (≤5 tool iterations)
+
+Detection saved → generate-embedding → Gemini embedding (1536-dim)
+               → stored in detection_embeddings (pgvector)
+               → hybrid search (semantic + keyword) powers the agent's search_library tool
+```
+</details>
+
+<details>
+<summary><b>Project structure</b></summary>
+
+```
+├── src/
+│   ├── components/          # React UI (detection, library, mitre, optimus, dashboard, ui, rbac, …)
+│   ├── context/ · hooks/ · router/
+│   ├── lib/                 # ai/ (agent tools, prompts), aiService, supabaseClient, …
+│   ├── services/            # sigma/ (browser conversion), bulk-import/
+│   ├── types.ts · constants.ts · mitre.ts
+├── supabase/
+│   ├── schema.sql               # ← full database schema (single source of truth)
+│   ├── config.toml              # project config (link / functions / db)
+│   ├── optional-scheduled-jobs.sql
+│   ├── functions/               # Edge Functions (19)
+│   └── migrations/              # historical migration chain (reference only)
+├── scripts/                 # setup.ts (`bun run setup`) · setup-check.ts (`bun run setup:check`)
+└── .github/workflows/       # CI — schema-check applies schema.sql on empty Postgres
+```
+</details>
+
 ## Tech stack
 
-**React 19** • **TypeScript** • **Vite** • **Bun** • **Tailwind CSS** • **Supabase** (PostgreSQL + Edge Functions + pgvector + Realtime) • **pySigma / Pyodide** (WebAssembly) • multi-model AI (**Gemini** default, **OpenAI**, **Anthropic**) • Monaco editor • Recharts.
+| Layer | Technologies |
+|---|---|
+| **Frontend** | React 19 · TypeScript · Vite · Tailwind CSS · Monaco · Recharts |
+| **Backend** | Supabase — PostgreSQL · pgvector · Realtime · Edge Functions (Deno) |
+| **AI** | Gemini (default) · OpenAI · Anthropic · Tavily (web search) — all server-side |
+| **Detection engine** | pySigma on Pyodide (WebAssembly) |
+| **Tooling** | Bun · Vitest · ESLint · GitHub Actions CI |
 
 ---
 
@@ -160,56 +246,6 @@ bun run setup:check  # verify your install is healthy (env, schema, functions, M
 ```
 
 > **Optional — background automation:** to enable scheduled processing (AI-usage rollups, threat-research dispatch, auto-digest), apply [`supabase/optional-scheduled-jobs.sql`](supabase/optional-scheduled-jobs.sql) after filling in your own project ref and service-role key.
-
----
-
-## Architecture
-
-```
-Frontend (React SPA, Vite)                 Backend (your Supabase project)
-  ├─ AI agent + tools                        ├─ PostgreSQL (62 tables, RLS)
-  ├─ MITRE coverage & analytics              ├─ pgvector (semantic search)
-  ├─ Sigma converter (Pyodide/WASM)          ├─ Realtime (live pipeline/notifications)
-  ├─ Bulk-import orchestrator                └─ 19 Edge Functions (Deno)
-  └─ Supabase client (auth/data/realtime)         AI, tools, TI digest, embeddings,
-                                                   user mgmt, integrations, deploy, …
-External: Gemini · OpenAI · Anthropic · Tavily (all server-side, in edge functions)
-```
-
-<details>
-<summary><b>AI agent flow &amp; semantic search</b></summary>
-
-```
-User query → ai-generate edge function (system prompt + tools)
-           → LLM may invoke tools → optimus-tools executes against the DB
-           → results synthesised → structured response rendered (≤5 tool iterations)
-
-Detection saved → generate-embedding → Gemini embedding (1536-dim)
-               → stored in detection_embeddings (pgvector)
-               → hybrid search (semantic + keyword) powers the agent's search_library tool
-```
-</details>
-
-<details>
-<summary><b>Project structure</b></summary>
-
-```
-├── src/
-│   ├── components/          # React UI (detection, library, mitre, optimus, dashboard, ui, rbac, …)
-│   ├── context/ · hooks/ · router/
-│   ├── lib/                 # ai/ (agent tools, prompts), aiService, supabaseClient, …
-│   ├── services/            # sigma/ (browser conversion), bulk-import/
-│   ├── types.ts · constants.ts · mitre.ts
-├── supabase/
-│   ├── schema.sql               # ← full database schema (single source of truth)
-│   ├── config.toml              # project config (link / functions / db)
-│   ├── optional-scheduled-jobs.sql
-│   ├── functions/               # Edge Functions (19)
-│   └── migrations/              # historical migration chain (reference only)
-├── scripts/                 # setup.ts (`bun run setup`) · setup-check.ts (`bun run setup:check`)
-└── .github/workflows/       # CI — schema-check applies schema.sql on empty Postgres
-```
-</details>
 
 ---
 
