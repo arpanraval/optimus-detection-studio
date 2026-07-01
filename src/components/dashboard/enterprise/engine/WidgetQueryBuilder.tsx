@@ -253,7 +253,7 @@ function isVisualizationDisabled(type: VisualizationType, hasGroupBy: boolean): 
 /** Build a human-readable query sentence */
 function buildQuerySummary(config: EngineWidgetConfig): string {
   const agg = config.metric.aggregation;
-  let metric = '';
+  let metric: string;
   if (agg === 'count') {
     metric = 'Count';
   } else if (agg === 'distinct_count') {

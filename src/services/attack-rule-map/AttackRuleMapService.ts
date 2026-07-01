@@ -88,7 +88,7 @@ function parseAtIndexCsv(csvText: string): AtomicTest[] {
 // surrounding quotes — in that order so quoted-with-trailing-space values
 // (e.g. `title: 'My rule '`) get fully cleaned up before lookup.
 function extractSigmaTitle(yamlText: string): string | null {
-  const stripped = yamlText.replace(/^﻿/, '');
+  const stripped = yamlText.replace(/^\uFEFF/, '');
   const match = stripped.match(/^title[ \t]*:[ \t]*(.*)$/m);
   if (!match) return null;
   let raw = match[1].trim();

@@ -80,7 +80,7 @@ export interface DriftSourceWithStats extends DriftSource {
 // rendering each as a peer top-level row created visual noise.
 // ---------------------------------------------------------------------------
 
-export interface DriftSubdirEntry extends DriftSourceWithStats {}
+export type DriftSubdirEntry = DriftSourceWithStats;
 
 export interface DriftVendorCard {
   kind: 'vendor';

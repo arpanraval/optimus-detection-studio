@@ -110,7 +110,7 @@ export async function generateReportPdf(report: StateSponsoredReport): Promise<v
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 15;
   const contentWidth = pageWidth - margin * 2;
-  let yPos = margin;
+  let yPos: number;
 
   const dateLabel = new Date().toLocaleDateString('en-US', {
     year: 'numeric', month: 'long', day: 'numeric',

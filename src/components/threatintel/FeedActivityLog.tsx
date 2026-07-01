@@ -302,14 +302,14 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
   const toggleJob = (jobId: string) =>
     setExpandedJobs((prev) => {
       const next = new Set(prev);
-      next.has(jobId) ? next.delete(jobId) : next.add(jobId);
+      if (next.has(jobId)) next.delete(jobId); else next.add(jobId);
       return next;
     });
 
   const toggleDay = (key: string) =>
     setCollapsedDays((prev) => {
       const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
+      if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
 

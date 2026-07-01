@@ -510,7 +510,7 @@ const OptionB: React.FC = () => (
         <B_Card accentColor="bg-error">
             <B_Header icon="lock" title="Ransomware Readiness"
                 subtitle="47 techniques in profile"
-                badge={<B_MetricBadge value="60%" label="Covered" variant={60 >= 75 ? 'secondary' : 60 >= 50 ? 'primary' : 'error'} />}
+                badge={<B_MetricBadge value="60%" label="Covered" variant={MOCK_GAPS.coveragePercent >= 75 ? 'secondary' : MOCK_GAPS.coveragePercent >= 50 ? 'primary' : 'error'} />}
             />
             <div className="px-5 pb-4">
                 <div className="h-2 rounded-full bg-surface-container-highest overflow-hidden">

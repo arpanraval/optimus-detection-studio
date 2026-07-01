@@ -30,8 +30,7 @@ jobs:
       - name: Build
         run: bun run build
 
-      # Lint currently has pre-existing findings in src/; report them but don't
-      # fail the build until they're cleaned up.
+      # Lint gates the build on errors. ESLint exits 0 on warnings-only, so the
+      # remaining advisory warnings don't fail CI; any new error does.
       - name: Lint
         run: bun run lint
-        continue-on-error: true

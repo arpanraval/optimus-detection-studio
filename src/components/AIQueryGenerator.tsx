@@ -227,7 +227,8 @@ const highlightCode = (code: string, languageId: string, isDark: boolean): React
         tokens.sort((a, b) => a.start - b.start);
         const filtered = tokens.filter((t, i) => !tokens.slice(0, i).some(p => t.start < p.end));
 
-        let result: React.ReactNode[] = [], lastIdx = 0;
+        const result: React.ReactNode[] = [];
+        let lastIdx = 0;
         for (const t of filtered) {
             if (t.start > lastIdx) result.push(<span key={`${lineIdx}-${lastIdx}`}>{line.slice(lastIdx, t.start)}</span>);
             const clr = t.type === 'keyword' ? colors.keyword : t.type === 'string' ? colors.string : colors.special;

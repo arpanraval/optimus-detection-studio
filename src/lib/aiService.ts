@@ -296,7 +296,7 @@ export async function generateAIJSON<T>(options: Omit<AIGenerateOptions, 'respon
   } catch (e) {
     if (e instanceof AIJsonParseError) {
       logger.error('Failed to parse AI JSON response:', { raw: response.text });
-      throw new Error('Failed to parse AI response as JSON');
+      throw new Error('Failed to parse AI response as JSON', { cause: e });
     }
     throw e;
   }

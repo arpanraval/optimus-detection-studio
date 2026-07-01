@@ -175,11 +175,12 @@ export function useGroups() {
         case 'software_count':
           comparison = (a.software_count || 0) - (b.software_count || 0);
           break;
-        case 'modified':
+        case 'modified': {
           const aTime = new Date(a.data.modified || 0).getTime();
           const bTime = new Date(b.data.modified || 0).getTime();
           comparison = aTime - bTime;
           break;
+        }
       }
 
       return filters.sortOrder === 'asc' ? comparison : -comparison;

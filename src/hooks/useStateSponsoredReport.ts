@@ -441,7 +441,7 @@ export function useStateSponsoredReport(filters: ReportFilters) {
       // ================================================================
       // 10. ATTRIBUTION CLASSIFICATION & RELEVANCE SCORING
       // ================================================================
-      let relatedDetections: ReportDetection[] = mergedDetections.map(det => {
+      const relatedDetections: ReportDetection[] = mergedDetections.map(det => {
         const detTags: string[] = (det.tags || []) as string[];
         const detName: string = det.name || '';
         const detNameLower = detName.toLowerCase();

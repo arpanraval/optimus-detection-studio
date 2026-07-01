@@ -281,7 +281,7 @@ export const MitreDashboard: React.FC<MitreDashboardProps> = ({
           if (!techData) return { color: 'bg-surface-container-lowest text-on-surface-variant/50', count: 0, detections: [] };
 
           const score = techData.score || 0;
-          let color = 'bg-[#004D40] text-white';
+          let color: string;
           if (score <= 0) color = 'bg-surface-container-lowest text-on-surface-variant';
           else if (score < 2) color = 'bg-blue-900/40 text-blue-200 border-blue-500/30';
           else if (score < 4) color = 'bg-blue-700/60 text-white border-blue-500/50';

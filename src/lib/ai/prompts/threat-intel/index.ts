@@ -74,22 +74,27 @@ export type {
 export const threatIntelPromptTemplates = {
   systemInstruction: () => {
     // Lazy import to avoid circular dependencies
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- intentional lazy load to avoid circular dependency at module init
     const { THREAT_INTEL_SYSTEM_INSTRUCTION } = require('./system-instruction.prompt');
     return THREAT_INTEL_SYSTEM_INSTRUCTION;
   },
   summary: () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- intentional lazy load to avoid circular dependency at module init
     const { THREAT_INTEL_SUMMARY_TEMPLATE } = require('./summary.prompt');
     return THREAT_INTEL_SUMMARY_TEMPLATE;
   },
   classification: () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- intentional lazy load to avoid circular dependency at module init
     const { THREAT_INTEL_CLASSIFICATION_TEMPLATE } = require('./classification.prompt');
     return THREAT_INTEL_CLASSIFICATION_TEMPLATE;
   },
   ttps: () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- intentional lazy load to avoid circular dependency at module init
     const { THREAT_INTEL_TTPS_TEMPLATE } = require('./ttps.prompt');
     return THREAT_INTEL_TTPS_TEMPLATE;
   },
   iocsAndRules: () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- intentional lazy load to avoid circular dependency at module init
     const { THREAT_INTEL_IOCS_AND_RULES_TEMPLATE } = require('./iocs-and-rules.prompt');
     return THREAT_INTEL_IOCS_AND_RULES_TEMPLATE;
   }

@@ -52,17 +52,17 @@ async function main() {
   else pass('.env.local present');
   const url = env.VITE_SUPABASE_URL || '';
   const anon = env.VITE_SUPABASE_ANON_KEY || '';
-  url.match(/^https:\/\/[a-z0-9]+\.supabase\.co/i) ? pass('VITE_SUPABASE_URL', url) : fail('VITE_SUPABASE_URL missing/invalid');
-  anon.startsWith('eyJ') ? pass('VITE_SUPABASE_ANON_KEY', 'looks like a JWT') : fail('VITE_SUPABASE_ANON_KEY missing/invalid');
+  if (url.match(/^https:\/\/[a-z0-9]+\.supabase\.co/i)) pass('VITE_SUPABASE_URL', url); else fail('VITE_SUPABASE_URL missing/invalid');
+  if (anon.startsWith('eyJ')) pass('VITE_SUPABASE_ANON_KEY', 'looks like a JWT'); else fail('VITE_SUPABASE_ANON_KEY missing/invalid');
 
   // ── Reachability ──
   head('Supabase reachability');
   if (url && anon) {
     try {
       const res = await fetch(`${url}/rest/v1/`, { headers: { apikey: anon } });
-      res.status < 500 ? pass('REST API reachable', `HTTP ${res.status}`) : fail('REST API error', `HTTP ${res.status}`);
+      if (res.status < 500) pass('REST API reachable', `HTTP ${res.status}`); else fail('REST API error', `HTTP ${res.status}`);
       const auth = await fetch(`${url}/auth/v1/health`, { headers: { apikey: anon } });
-      auth.status < 500 ? pass('Auth service reachable', `HTTP ${auth.status}`) : warn('Auth health unexpected', `HTTP ${auth.status}`);
+      if (auth.status < 500) pass('Auth service reachable', `HTTP ${auth.status}`); else warn('Auth health unexpected', `HTTP ${auth.status}`);
     } catch (e) {
       fail('could not reach Supabase', String((e as Error).message));
     }
@@ -75,26 +75,27 @@ async function main() {
   else if (!dbUrl) warn('SUPABASE_DB_URL not set — skipping deep checks', 'SUPABASE_DB_URL="postgresql://..." bun run setup:check');
   else {
     const tables = psqlScalar(dbUrl, "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'");
-    tables === null ? fail('could not connect with SUPABASE_DB_URL')
-      : Number(tables) === 62 ? pass('public tables', `${tables}/62`)
-      : fail('unexpected table count', `${tables}, expected 62`);
+    if (tables === null) fail('could not connect with SUPABASE_DB_URL');
+    else if (Number(tables) === 62) pass('public tables', `${tables}/62`);
+    else fail('unexpected table count', `${tables}, expected 62`);
 
     const ext = psqlScalar(dbUrl, "select string_agg(extname,',' order by extname) from pg_extension where extname in ('vector','pg_trgm','pgcrypto','uuid-ossp')");
-    ext && ['vector', 'pg_trgm', 'pgcrypto'].every((e) => ext.includes(e))
-      ? pass('required extensions', ext) : fail('missing required extensions', ext || 'none');
+    if (ext && ['vector', 'pg_trgm', 'pgcrypto'].every((e) => ext.includes(e)))
+      pass('required extensions', ext);
+    else fail('missing required extensions', ext || 'none');
 
     const trig = psqlScalar(dbUrl, "select count(*) from pg_trigger where tgname='on_auth_user_created'");
-    Number(trig) === 1 ? pass('signup trigger (on_auth_user_created)') : fail('signup trigger missing', 'new users will get no profile');
+    if (Number(trig) === 1) pass('signup trigger (on_auth_user_created)'); else fail('signup trigger missing', 'new users will get no profile');
 
     const seed = psqlScalar(dbUrl, "select count(*) from public.mitre_tactic_weights");
-    Number(seed) >= 42 ? pass('scoring seed (mitre_tactic_weights)', `${seed} rows`) : warn('scoring seed low/missing', `${seed} rows`);
+    if (Number(seed) >= 42) pass('scoring seed (mitre_tactic_weights)', `${seed} rows`); else warn('scoring seed low/missing', `${seed} rows`);
 
     const mitre = psqlScalar(dbUrl, "select count(*) from public.mitre_objects");
-    Number(mitre) > 0 ? pass('MITRE knowledge base imported', `${mitre} objects`)
-      : warn('MITRE data not imported yet', 'in-app: Settings → MITRE Data Sync → Import MITRE Data');
+    if (Number(mitre) > 0) pass('MITRE knowledge base imported', `${mitre} objects`);
+    else warn('MITRE data not imported yet', 'in-app: Settings → MITRE Data Sync → Import MITRE Data');
 
     const rt = psqlScalar(dbUrl, "select count(*) from pg_publication_tables where pubname='supabase_realtime'");
-    Number(rt) >= 7 ? pass('realtime publication', `${rt} tables`) : warn('realtime tables missing', `${rt}/7`);
+    if (Number(rt) >= 7) pass('realtime publication', `${rt} tables`); else warn('realtime tables missing', `${rt}/7`);
   }
 
   // ── Edge functions ──
@@ -106,7 +107,7 @@ async function main() {
     if (r.status !== 0) warn('could not list functions', 'run `supabase link` first');
     else {
       const deployed = (r.stdout || '').split('\n').filter((l) => /\S/.test(l)).length - 1; // minus header
-      deployed >= 19 ? pass('edge functions deployed', `${deployed}`) : warn('some edge functions not deployed', `${deployed}/19 — run \`supabase functions deploy\``);
+      if (deployed >= 19) pass('edge functions deployed', `${deployed}`); else warn('some edge functions not deployed', `${deployed}/19 — run \`supabase functions deploy\``);
     }
   }
 

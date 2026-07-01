@@ -62,26 +62,15 @@ export function ResultsStep() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result?.importedDetectionIds]);
 
-  if (!result) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-on-surface-variant">No import results available</p>
-      </div>
-    );
-  }
-
-  const isSuccess = result.failureCount === 0;
-  const duration = formatDurationMs(result.duration);
-
   // Categorize failed rules
   const categorizedFailedRules = useMemo(() => {
-    return result.failedRules.map((rule) => ({
+    return (result?.failedRules ?? []).map((rule) => ({
       ...rule,
       categorizedError: rule.categorizedError || categorizeError(rule.error, {
         ruleTitle: rule.title,
       }),
     }));
-  }, [result.failedRules]);
+  }, [result?.failedRules]);
 
   // Group by category
   const groupedErrors = useMemo(() => {
@@ -93,6 +82,26 @@ export function ResultsStep() {
     }
     return groups;
   }, [categorizedFailedRules]);
+
+  // Build pipeline summary
+  const pipelineSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (progress?.totalFiles) parts.push(`fetched ${progress.totalFiles.toLocaleString()} files`);
+    if (progress?.totalRules) parts.push(`parsed ${progress.totalRules.toLocaleString()} rules`);
+    parts.push(`imported ${(result?.successCount ?? 0).toLocaleString()}`);
+    return parts.join(' -> ');
+  }, [progress, result]);
+
+  if (!result) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-on-surface-variant">No import results available</p>
+      </div>
+    );
+  }
+
+  const isSuccess = result.failureCount === 0;
+  const duration = formatDurationMs(result.duration);
 
   const toggleCategory = (category: string) => {
     setExpandedCategories((prev) => {
@@ -132,15 +141,6 @@ export function ResultsStep() {
   const handleImportMore = () => {
     reset();
   };
-
-  // Build pipeline summary
-  const pipelineSummary = useMemo(() => {
-    const parts: string[] = [];
-    if (progress?.totalFiles) parts.push(`fetched ${progress.totalFiles.toLocaleString()} files`);
-    if (progress?.totalRules) parts.push(`parsed ${progress.totalRules.toLocaleString()} rules`);
-    parts.push(`imported ${result.successCount.toLocaleString()}`);
-    return parts.join(' -> ');
-  }, [progress, result]);
 
   return (
     <div className="space-y-8">

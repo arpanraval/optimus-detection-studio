@@ -106,11 +106,12 @@ export function useSoftware() {
         case 'group_count':
           comparison = (a.group_count || 0) - (b.group_count || 0);
           break;
-        case 'modified':
+        case 'modified': {
           const aTime = new Date(a.data.modified || 0).getTime();
           const bTime = new Date(b.data.modified || 0).getTime();
           comparison = aTime - bTime;
           break;
+        }
       }
 
       return filters.sortOrder === 'asc' ? comparison : -comparison;

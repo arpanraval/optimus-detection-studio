@@ -113,11 +113,12 @@ export function useMitigations() {
         case 'impact_score':
           comparison = (a.impact_score || 0) - (b.impact_score || 0);
           break;
-        case 'modified':
+        case 'modified': {
           const aTime = new Date(a.modified || 0).getTime();
           const bTime = new Date(b.modified || 0).getTime();
           comparison = aTime - bTime;
           break;
+        }
       }
 
       return filters.sortOrder === 'asc' ? comparison : -comparison;

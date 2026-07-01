@@ -35,6 +35,7 @@ function sanitizeFilename(name: string): string {
 function sanitizeForYaml(value: string | null | undefined): string {
   if (value == null) return '';
   // Escape double quotes, remove control chars
+  // eslint-disable-next-line no-control-regex -- intentional: strip control characters
   return value.replace(/\x00-\x1F\x7F/g, '').replace(/"/g, '\\"');
 }
 
@@ -196,7 +197,7 @@ export async function exportAsSigmaZip(pack: PackWithDetections): Promise<Export
 // ============================================================================
 
 function sanitizeSplunkStanza(name: string): string {
-  return name.replace(/[\[\]]/g, '').replace(/\n/g, ' ').trim();
+  return name.replace(/[[\]]/g, '').replace(/\n/g, ' ').trim();
 }
 
 function detectionToSplunkStanza(detection: Detection): string {

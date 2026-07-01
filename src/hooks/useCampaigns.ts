@@ -165,21 +165,24 @@ export function useCampaigns() {
         case 'name':
           comparison = a.name.localeCompare(b.name);
           break;
-        case 'first_seen':
+        case 'first_seen': {
           const aFirst = a.first_seen ? new Date(a.first_seen).getTime() : 0;
           const bFirst = b.first_seen ? new Date(b.first_seen).getTime() : 0;
           comparison = aFirst - bFirst;
           break;
-        case 'last_seen':
+        }
+        case 'last_seen': {
           const aLast = a.last_seen ? new Date(a.last_seen).getTime() : 0;
           const bLast = b.last_seen ? new Date(b.last_seen).getTime() : 0;
           comparison = aLast - bLast;
           break;
-        case 'modified':
+        }
+        case 'modified': {
           const aTime = new Date(a.data.modified || 0).getTime();
           const bTime = new Date(b.data.modified || 0).getTime();
           comparison = aTime - bTime;
           break;
+        }
       }
 
       return filters.sortOrder === 'asc' ? comparison : -comparison;

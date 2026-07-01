@@ -107,7 +107,7 @@ export const UserManagementPage: React.FC = () => {
     const handleInviteUser = async (email: string, role: Role) => {
         setIsInviting(true);
         try { await inviteUser(email, role); setIsInviteModalOpen(false); await Promise.all([refreshAllUsers(), refreshInvitations()]); }
-        catch (err) { throw err; } finally { setIsInviting(false); }
+        finally { setIsInviting(false); }
     };
     const handleRoleChange = async (userId: string, newRole: Role) => {
         setChangingRoleFor(userId);
@@ -116,10 +116,10 @@ export const UserManagementPage: React.FC = () => {
     };
     const handleDeactivate = async (userId: string, userName: string) => {
         if (!window.confirm(`Deactivate ${userName}?`)) return;
-        try { await deactivateUser(userId); if (selectedUser?.id === userId) setSelectedUser(p => p ? { ...p, status: 'deactivated' } : null); } catch {}
+        try { await deactivateUser(userId); if (selectedUser?.id === userId) setSelectedUser(p => p ? { ...p, status: 'deactivated' } : null); } catch { /* best-effort; ignore */ }
     };
     const handleReactivate = async (userId: string) => {
-        try { await reactivateUser(userId); if (selectedUser?.id === userId) setSelectedUser(p => p ? { ...p, status: 'active' } : null); } catch {}
+        try { await reactivateUser(userId); if (selectedUser?.id === userId) setSelectedUser(p => p ? { ...p, status: 'active' } : null); } catch { /* best-effort; ignore */ }
     };
     const handleDeleteUser = async () => {
         if (!deleteModal) return;
@@ -299,7 +299,7 @@ export const UserManagementPage: React.FC = () => {
                                 getDisplayName={getDisplayName} fmtDate={fmtDate} getLastActive={getLastActive}
                                 canManageUsers={canManageUsers} currentUserId={currentUserId}
                                 selectedIds={selectedIds}
-                                onToggleSelect={(id) => setSelectedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; })}
+                                onToggleSelect={(id) => setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; })}
                                 onToggleAll={(ids) => setSelectedIds(prev => { const allSelected = ids.every(id => prev.has(id)); return allSelected ? new Set() : new Set(ids); })}
                             />
                         )}

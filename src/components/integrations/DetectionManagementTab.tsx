@@ -404,7 +404,7 @@ export const DetectionManagementTab: React.FC<DetectionManagementTabProps> = ({ 
         .filter(r => r.isFromOptimus && r.optimusDetectionId)
         .map(r => r.optimusDetectionId!);
 
-      let detectionDateMap = new Map<string, string>();
+      const detectionDateMap = new Map<string, string>();
       if (optimusIds.length > 0) {
         const { data: detections } = await supabase
           .from('detections')

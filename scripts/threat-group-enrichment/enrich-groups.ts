@@ -21,7 +21,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { fileURLToPath } from 'url';
-// @ts-ignore - dotenv types not installed for script
+// @ts-expect-error - dotenv types not installed for script
 import { config } from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 

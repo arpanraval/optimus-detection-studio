@@ -40,7 +40,7 @@ interface SiemHomeHistoryTabProps {
   integration: Integration;
 }
 
-interface HistoryRow extends DeploymentRecord {}
+type HistoryRow = DeploymentRecord;
 
 export function SiemHomeHistoryTab({ integration }: SiemHomeHistoryTabProps) {
   const [rows, setRows] = useState<HistoryRow[]>([]);

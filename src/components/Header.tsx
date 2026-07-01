@@ -27,7 +27,7 @@ export const Header: React.FC<HeaderProps> = ({
   rightSlot,
 }) => {
   const handleNotificationDetectionClick = (detectionId: string) => {
-    onNavigateToDetection ? onNavigateToDetection(detectionId) : onNavigate('detection', detectionId);
+    if (onNavigateToDetection) onNavigateToDetection(detectionId); else onNavigate('detection', detectionId);
   };
 
   return (

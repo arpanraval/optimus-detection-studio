@@ -335,7 +335,7 @@ export class SigmaConverterService {
     private worker: Worker | null = null;
     private workerUrl: string | null = null;
     private ready: boolean = false;
-    private pendingRequests: Map<string, { resolve: Function; reject: Function }> = new Map();
+    private pendingRequests: Map<string, { resolve: (...args: unknown[]) => unknown; reject: (...args: unknown[]) => unknown }> = new Map();
     private readinessListeners: ((ready: boolean) => void)[] = [];
     private statusListeners: ((status: WorkerStatus) => void)[] = [];
     private currentStatus: WorkerStatus = {

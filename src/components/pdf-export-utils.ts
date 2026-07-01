@@ -218,7 +218,7 @@ export async function generateDetectionPDF(
   let currentPage = 1;
 
   // Load logo as data URL for jsPDF compatibility
-  let logoDataUrl: string | null = null;
+  let logoDataUrl: string | null;
   try {
     logoDataUrl = await loadImageAsDataUrl(LOGO_PATH);
   } catch (err) {

@@ -429,7 +429,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     if (isSaving) return; // re-entrancy guard — Save button shouldn't fire twice
     setIsSaving(true);
     const failedToggleIds: string[] = [];
-    let configCommitted = false;
+    let configCommitted: boolean;
     try {
       if (configDirty) {
         await saveSettings(localConfig);

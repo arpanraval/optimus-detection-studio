@@ -155,7 +155,7 @@ export class BatchInserter {
    * Rollback a bulk import by deleting all detections from that job
    */
   async rollbackImport(jobId: string, userId: string): Promise<RollbackResult> {
-    let rpcError: string | null = null;
+    let rpcError: string | null;
 
     try {
       // Try using the database function first

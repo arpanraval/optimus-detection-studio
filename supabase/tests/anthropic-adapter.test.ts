@@ -59,7 +59,7 @@ function handler(req: IncomingMessage, res: ServerResponse) {
   req.on("data", (c) => chunks.push(c));
   req.on("end", () => {
     let body: Record<string, unknown> = {};
-    try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch {}
+    try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { /* malformed body; leave as {} */ }
     state.capturedBodies.push(body);
     const next = state.responses[state.callIndex++] ?? { kind: "ok" };
     if (next.kind === "ok") {

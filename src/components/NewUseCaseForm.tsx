@@ -461,7 +461,7 @@ export const NewUseCaseForm: React.FC<NewDetectionFormProps> = ({
           case 'technique':
             techniqueIds.push(parsed.id);
             break;
-          case 'tactic':
+          case 'tactic': {
             // Tactic ID - resolve to name
             const tacticInfo = TACTIC_MAP[parsed.id];
             if (tacticInfo) {
@@ -480,6 +480,7 @@ export const NewUseCaseForm: React.FC<NewDetectionFormProps> = ({
               });
             }
             break;
+          }
           case 'software':
             softwareToResolve.push(parsed.id);
             break;

@@ -9,7 +9,7 @@ export const useLocalStorage = <T,>(key: string, defaultValue: T): [T, (value: T
   });
   const setValue = useCallback((value: T) => {
     setState(value);
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* best-effort; ignore */ }
   }, [key]);
   return [state, setValue];
 };

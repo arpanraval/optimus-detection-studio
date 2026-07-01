@@ -40,7 +40,7 @@ const tavilyPayload = {
 };
 
 const server = createServer((req, res) => {
-  let chunks: Buffer[] = [];
+  const chunks: Buffer[] = [];
   req.on("data", (c) => chunks.push(c));
   req.on("end", () => {
     res.setHeader("content-type", "application/json");

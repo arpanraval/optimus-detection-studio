@@ -374,7 +374,7 @@ export async function savePacks(
 ): Promise<{ saved: number; errors: string[]; skipped: number }> {
   const errors: string[] = [];
   let saved = 0;
-  let skipped = 0;
+  const skipped = 0;
 
   // Pre-fetch existing pack names for this user to detect collisions
   const { data: existingPacks } = await supabase

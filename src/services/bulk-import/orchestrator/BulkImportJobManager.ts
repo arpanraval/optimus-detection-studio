@@ -339,7 +339,7 @@ export class BulkImportJobManager {
     this.updateStatus('fetching');
 
     const config = this.job!.config;
-    let files: FetchedFile[] = [];
+    let files: FetchedFile[];
 
     if (config.sourceType === 'zip' && config.sourceZip) {
       const result = await zipFetcher.fetch(config.sourceZip, {

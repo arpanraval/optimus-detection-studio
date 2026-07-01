@@ -130,8 +130,8 @@ const highlightCode = (line: string, ruleType: string): React.ReactNode => {
     const builtins = ['uint8', 'uint16', 'uint32', 'uint64', 'int8', 'int16', 'int32', 'int64', 'pe', 'elf', 'math', 'hash', 'cuckoo', 'magic', 'console'];
 
     result = result.replace(/(["'])(?:(?=(\\?))\2.)*?\1/g, `<span class="${colors.string}">$&</span>`);
-    result = result.replace(/(\{[0-9a-fA-F\s\?\[\]\-\|]+\})/g, `<span class="${colors.hex}">$1</span>`);
-    result = result.replace(/(\/[^\/]+\/[ismx]*)/g, `<span class="${colors.regex}">$1</span>`);
+    result = result.replace(/(\{[0-9a-fA-F\s?[\]\-|]+\})/g, `<span class="${colors.hex}">$1</span>`);
+    result = result.replace(/(\/[^/]+\/[ismx]*)/g, `<span class="${colors.regex}">$1</span>`);
     for (const kw of keywords) {
       const regex = new RegExp(`\\b(${kw})\\b`, 'gi');
       result = result.replace(regex, `<span class="${colors.keyword}">$1</span>`);

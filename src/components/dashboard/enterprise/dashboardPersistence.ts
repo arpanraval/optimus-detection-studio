@@ -57,7 +57,7 @@ function needsReseed(): boolean {
 }
 
 function markSeeded() {
-  try { localStorage.setItem(PREBUILT_VERSION_KEY, String(PREBUILT_VERSION)); } catch {}
+  try { localStorage.setItem(PREBUILT_VERSION_KEY, String(PREBUILT_VERSION)); } catch { /* best-effort; ignore */ }
 }
 
 /** Names of all current prebuilt dashboards */
@@ -291,7 +291,7 @@ export function getLastActiveDashboardId(): string | null {
 }
 
 export function setLastActiveDashboardId(id: string): void {
-  try { localStorage.setItem(LAST_ACTIVE_KEY, id); } catch {}
+  try { localStorage.setItem(LAST_ACTIVE_KEY, id); } catch { /* best-effort; ignore */ }
 }
 
 /**

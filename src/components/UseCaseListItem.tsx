@@ -168,7 +168,7 @@ export const UseCaseListItem: React.FC<UseCaseListItemProps> = ({
 
       // ========== LIBRARY-AWARE COLUMNS ==========
 
-      case 'library':
+      case 'library': {
         const isUniversal = detection.library_type === LIBRARY_DEVELOPMENT;
         return (
           <div
@@ -178,8 +178,9 @@ export const UseCaseListItem: React.FC<UseCaseListItemProps> = ({
             <Icon name={isUniversal ? 'globe' : 'user'} className="w-4 h-4" />
           </div>
         );
+      }
 
-      case 'source':
+      case 'source': {
         if (!detection.source) {
           return <span className="text-sm text-on-surface-variant">-</span>;
         }
@@ -189,8 +190,9 @@ export const UseCaseListItem: React.FC<UseCaseListItemProps> = ({
             {srcConfig.label}
           </span>
         );
+      }
 
-      case 'publish_status':
+      case 'publish_status': {
         if (!detection.promotion_status) {
           return <span className="text-sm text-on-surface-variant">-</span>;
         }
@@ -203,6 +205,7 @@ export const UseCaseListItem: React.FC<UseCaseListItemProps> = ({
             {pubConfig.label}
           </span>
         );
+      }
 
       case 'forked':
         if (!isForked) {

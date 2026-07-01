@@ -258,8 +258,8 @@ export function useProfileIntelligence(
         // ── 1. Threat groups matching profile (sectors + country filters) ──
         let threatGroups: ThreatGroupSummary[] = [];
         const groupTechMap = new Map<string, Set<string>>(); // stixId → Set<mitre_id>
-        let groupTechniqueIds = new Set<string>();
-        let mitreToName = new Map<string, string>();
+        const groupTechniqueIds = new Set<string>();
+        const mitreToName = new Map<string, string>();
         let mitreIdToTactics = new Map<string, string[]>(); // mitre_id → phase_name[]
 
         const hasSectorFilter = sectors.length > 0;
@@ -373,7 +373,7 @@ export function useProfileIntelligence(
         }
 
         // ── 2. Recommended detections from MatchResult ──
-        let allMatchingDetections: RecommendedDetection[] = [];
+        const allMatchingDetections: RecommendedDetection[] = [];
 
         if (matchResult && matchResult.matchedDetections.length > 0) {
           // Build crown jewel patterns once for the entire scoring loop

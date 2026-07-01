@@ -131,8 +131,8 @@ export class GitHubFetcher {
   parseUrl(url: string): { owner: string; repo: string; path?: string; branch?: string } | null {
     try {
       const patterns = [
-        /github\.com\/([^\/]+)\/([^\/]+?)(?:\.git)?(?:\/tree\/([^\/]+)(?:\/(.+))?)?$/,
-        /github\.com\/([^\/]+)\/([^\/]+?)(?:\.git)?$/,
+        /github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/tree\/([^/]+)(?:\/(.+))?)?$/,
+        /github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/,
       ];
 
       for (const pattern of patterns) {

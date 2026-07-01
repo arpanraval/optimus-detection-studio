@@ -115,7 +115,7 @@ export const PackIcon: React.FC<PackIconProps> = ({
         }
         break;
         
-      case 1: // Hexagonal grid pattern
+      case 1: { // Hexagonal grid pattern
         const hexSize = config.size * 0.15;
         const positions = [
           [0, 0], [-1, 0], [1, 0], [0, -1], [0, 1], [-0.5, -0.866], [0.5, -0.866], [-0.5, 0.866], [0.5, 0.866]
@@ -144,7 +144,8 @@ export const PackIcon: React.FC<PackIconProps> = ({
         });
         break;
         
-      case 2: // Circuit board / node pattern
+      }
+      case 2: { // Circuit board / node pattern
         const nodeCount = 5 + (values[0] % 4);
         const nodes: { x: number; y: number }[] = [];
         
@@ -226,7 +227,8 @@ export const PackIcon: React.FC<PackIconProps> = ({
         );
         break;
         
-      case 3: // Abstract geometric layers
+      }
+      case 3: { // Abstract geometric layers
         const layerCount = 3;
         for (let i = 0; i < layerCount; i++) {
           const layerRadius = maxRadius * (0.5 + i * 0.25);
@@ -277,8 +279,9 @@ export const PackIcon: React.FC<PackIconProps> = ({
           />
         );
         break;
+      }
     }
-    
+
     return shapes;
   }, [packId, config.size, config.strokeWidth, palette, animate]);
 

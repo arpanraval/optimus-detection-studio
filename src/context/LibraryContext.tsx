@@ -1105,7 +1105,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     // Save preference to localStorage
     try {
       localStorage.setItem('lib-page-size', String(size));
-    } catch {}
+    } catch { /* best-effort; ignore */ }
 
     // Reset to page 1 when changing page size
     if (currentLibrary === LIBRARY_DEVELOPMENT) {

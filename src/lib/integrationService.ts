@@ -111,7 +111,7 @@ export class DeployError extends Error {
 /** Parse a Splunk JSON error body into a user-friendly DeployError. */
 function parseSplunkError(status: number, body: string): DeployError {
   // Try to extract the message text from Splunk JSON response
-  let text = '';
+  let text: string;
   try {
     const data = JSON.parse(body);
     const messages: Array<{ type?: string; text?: string }> = data?.messages || [];
@@ -904,7 +904,7 @@ async function devChronicleGetToken(
 
 /** Parse Chronicle API errors into user-friendly DeployError. */
 function parseChronicleError(status: number, body: string): DeployError {
-  let text = '';
+  let text: string;
   let errorCode = '';
   try {
     const data = JSON.parse(body);
@@ -1701,7 +1701,7 @@ async function devDeploySentinel(
   const res = await devProxy(`${baseUrl}/${ruleId}?api-version=2025-06-01`, 'PUT', headers, body);
 
   if (!res.ok) {
-    let detail = '';
+    let detail: string;
     try { detail = JSON.parse(res.body)?.error?.message || res.body.slice(0, 300); } catch { detail = res.body.slice(0, 300); }
     throw new DeployError('VENDOR_ERROR', `Sentinel deploy failed (${res.status}): ${detail}`, 'Check Azure Portal for details.', true);
   }

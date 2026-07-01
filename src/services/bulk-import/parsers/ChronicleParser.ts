@@ -374,7 +374,7 @@ export class ChronicleParser extends BaseParser {
     }
 
     // Clean up the body - remove trailing brace
-    let body = bodyMatch[1].replace(/\n\s*\}\s*$/, '').trim();
+    const body = bodyMatch[1].replace(/\n\s*\}\s*$/, '').trim();
     return body;
   }
 

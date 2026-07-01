@@ -168,7 +168,7 @@ export const InvestigationTab: React.FC<InvestigationTabProps> = ({ detection })
  * Uses the same visual style as Investigation Runbook steps.
  */
 const ItemizedContent: React.FC<{ text: string; label: string }> = ({ text, label }) => {
-  const items = text.split(/(?:^|\n)\s*\d+[\)\.]\s*/g).filter(s => s.trim());
+  const items = text.split(/(?:^|\n)\s*\d+[).]\s*/g).filter(s => s.trim());
   const cards = items.length > 1 ? items.map(s => s.trim()) : [text];
 
   return (

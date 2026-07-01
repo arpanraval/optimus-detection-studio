@@ -149,7 +149,7 @@ export const CampaignDetailPage: React.FC = () => {
       // render per-source executive summaries, key findings, and MITRE
       // mappings inline.
       const reportIds = (articleData || []).map((a: any) => a.report_id);
-      let reportMap = new Map<string, any>();
+      const reportMap = new Map<string, any>();
       if (reportIds.length > 0) {
         const { data: reports } = await supabase
           .from('threat_intel_reports')

@@ -10,10 +10,10 @@ export const PackDeploymentStatusBadge: React.FC<Props> = ({ status }) => {
   const { deployed_count, total_detections, failed_count, integration_name } = status;
   const pct = total_detections > 0 ? Math.round((deployed_count / total_detections) * 100) : 0;
 
-  let color = 'text-on-surface-variant';
-  let bg = 'bg-surface-container';
-  let label = 'Not Deployed';
-  let iconName: 'circle' | 'check-circle' | 'alert-circle' | 'clock' = 'circle';
+  let color: string;
+  let bg: string;
+  let label: string;
+  let iconName: 'circle' | 'check-circle' | 'alert-circle' | 'clock';
 
   if (deployed_count === 0) {
     color = 'text-on-surface-variant/70';

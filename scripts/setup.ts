@@ -75,7 +75,7 @@ async function main() {
 
   // 1) Prerequisites
   step(1, 'Checking prerequisites');
-  has('bun') ? ok('bun') : warn('bun not detected');
+  if (has('bun')) ok('bun'); else warn('bun not detected');
   // Prefer a global `supabase`, else fall back to `npx supabase`.
   let supaBin = 'supabase', supaPre: string[] = [];
   if (!has('supabase')) {
@@ -84,7 +84,7 @@ async function main() {
   }
   ok(`supabase CLI (${supaBin} ${supaPre.join(' ')}`.trim() + ')');
   const havePsql = has('psql');
-  havePsql ? ok('psql') : warn('psql not found — needed to apply schema.sql. Install PostgreSQL client tools.');
+  if (havePsql) ok('psql'); else warn('psql not found — needed to apply schema.sql. Install PostgreSQL client tools.');
 
   // 2) Environment
   step(2, 'Reading .env.local');
