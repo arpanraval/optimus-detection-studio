@@ -1,806 +1,286 @@
+<div align="center">
+
 # Optimus Detection Studio
 
-**The AI-Powered Detection Engineering Platform.**
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![schema-check](https://github.com/arpanraval/optimus-detection-studio/actions/workflows/schema-check.yml/badge.svg)](https://github.com/arpanraval/optimus-detection-studio/actions/workflows/schema-check.yml)
+[![Made with Supabase](https://img.shields.io/badge/backend-Supabase-3ECF8E.svg)](https://supabase.com)
 
-Optimus Detection Studio is a comprehensive, AI-augmented platform purpose-built for security detection engineering. It addresses the core industry challenge: detection content is abundant (10,000+ public rules exist), but choosing the right detections, building new ones for emerging threats, ensuring quality, and operationalizing the entire lifecycle remains broken across the industry. Optimus solves this end-to-end.
+### Detection content is abundant. Everything around it is broken.
 
-The platform combines intelligent library management, deep MITRE ATT&CK integration, multi-model AI capabilities, collaborative workflows, and bulk vendor import into a single detection engineering platform that actually works on the ground.
+The open-source, AI-powered platform for **detection engineering** and **detection intelligence** — one catalog for every rule you run, continuous coverage checks against emerging threats, and a conversational agent that actually knows your library.
 
----
+<img src=".github/assets/hero.png" alt="Optimus Detection Studio" width="900" />
 
-## Table of Contents
-
-- [Core Capabilities](#core-capabilities)
-- [AI & Intelligence Layer](#ai--intelligence-layer)
-- [Detection Library Management](#detection-library-management)
-- [MITRE ATT&CK Integration](#mitre-attck-integration)
-- [Threat Intelligence](#threat-intelligence)
-- [Bulk Import System](#bulk-import-system)
-- [Sigma Rule Converter](#sigma-rule-converter)
-- [Collaborative Workflows](#collaborative-workflows)
-- [Analytics & Reporting](#analytics--reporting)
-- [Role-Based Access Control](#role-based-access-control)
-- [Architecture](#architecture)
-- [Tech Stack](#tech-stack)
-- [Getting Started](#getting-started)
-- [Project Structure](#project-structure)
-- [Design System](#design-system)
-- [Roadmap](#roadmap)
-- [License](#license)
+</div>
 
 ---
 
-## Core Capabilities
+## The problem
 
-| Capability | Description |
-|---|---|
-| **AI-Powered Detection Engineering** | Multi-model AI agent with RAG-enabled library search, natural language query generation, smart autofill, and threat report digestion |
-| **Multi-SIEM Query Support** | Write and manage detections in 12 query languages across all major SIEM and EDR platforms |
-| **MITRE ATT&CK Coverage Analytics** | Interactive matrix visualization, tactic-level coverage breakdown, threat profile gap analysis, and entity correlation |
-| **Vendor Detection Import** | Bulk import from Sigma, Splunk ESCU, Elastic, and Chronicle with deduplication, validation, and rollback |
-| **Browser-Based Sigma Conversion** | Convert Sigma rules to 14 target platforms entirely in-browser using pySigma on WebAssembly |
-| **Collaborative Workflows** | Peer review with checklists, threaded comments, detection assignments, and publishing approval queue |
-| **Threat Intelligence Digest** | AI-powered extraction of TTPs, IoCs, and detection rules from threat reports with MITRE mapping |
-| **RBAC & Team Management** | Five-tier role system (Owner, Admin, Lead, Analyst, Viewer) with 47 granular permissions |
-| **Analytics & Reporting** | Dashboard with KPIs, pipeline visualization, coverage reports, PDF export, and Excel export |
+There are 10,000+ public detection rules. Being *protected* isn't about **having** rules — it's about choosing the right ones, building new ones for emerging threats, proving they work, and getting them live in your SIEM. That gap — between a library and a deployed, tuned, measured detection — is where teams lose. Optimus closes it end-to-end.
 
----
+## What it does
 
-## AI & Intelligence Layer
+- **AI detection engineering** — a RAG agent that knows *your* library: hybrid semantic + keyword search, coverage-gap analysis, threat-actor readiness, natural-language → query generation, smart autofill, and logic validation.
+- **MITRE ATT&CK intelligence** — interactive coverage matrix (Enterprise v18.1), tactic/platform breakdowns, gap analysis against threat profiles, and Navigator layer export.
+- **Detection library** — two-tier (personal + universal) with rich metadata, a full lifecycle pipeline, multi-language queries, and curated packs.
+- **Sigma conversion in the browser** — pySigma on WebAssembly → 12+ SIEM/EDR targets, with zero server-side Python.
+- **Bulk vendor import** — SigmaHQ, Splunk ESCU, Elastic, and Chronicle, with parsing, normalization, dedup, validation, and rollback.
+- **Threat-intel digest** — an AI pipeline that turns reports (URL or pasted) into TTPs, IoCs, and detection rules mapped against your coverage.
+- **SIEM/XDR deployment** — push detections to 6 platforms (Splunk, Sentinel, Elastic, Chronicle, CrowdStrike, Defender XDR) with drift tracking.
+- **Collaboration & RBAC** — peer review, threaded comments, assignments, a publishing approval queue, and a five-tier role system.
 
-Optimus integrates AI throughout the detection engineering workflow, not as an add-on but as a core capability that augments every step.
+## Screenshots
 
-### Optimus Prime Agent
+**Detection library** — one searchable catalog for every rule you run, across languages, SIEMs, and lifecycle stages.
 
-A RAG-enabled (Retrieval-Augmented Generation) conversational AI assistant that understands your specific detection library.
+![Detection library](.github/assets/screenshot-library.png)
 
-**What it can do:**
-- Search your detection library using hybrid semantic + keyword search
-- Analyze overall detection coverage and identify gaps
-- Assess coverage against specific threat actors (APT29, Scattered Spider, Lazarus Group, etc.)
-- Identify gaps against threat profiles (ransomware, APT, persistence, credential access, etc.)
-- Query the MITRE ATT&CK knowledge base for techniques, groups, software, and campaigns
-- Generate MITRE ATT&CK Navigator layers showing your coverage
-- Search the web for current threat intelligence
+**MITRE ATT&CK coverage** — a live heatmap of exactly what you can and can't detect, by tactic and technique.
 
-**Agent Tools (8):**
+![MITRE ATT&CK coverage matrix](.github/assets/screenshot-mitre.png)
 
-| Tool | Purpose |
-|---|---|
-| `search_library` | Semantic + keyword hybrid search across the detection library with status/severity filters |
-| `get_coverage_summary` | Aggregated coverage metrics by tactic, platform, or production-only scope |
-| `find_threat_actor` | Look up threat actors by name, alias, or MITRE Group ID with fuzzy matching |
-| `get_threat_actor_coverage` | Coverage analysis against a specific threat actor's known TTPs |
-| `identify_coverage_gaps` | Gap analysis against 9 predefined threat profiles or custom technique sets |
-| `query_mitre` | Query MITRE ATT&CK for techniques, groups, software, campaigns with relationships |
-| `generate_navigator_layer` | Generate downloadable ATT&CK Navigator layer JSON for your coverage |
-| `web_search` | Search current threat intelligence, CVEs, advisories, and security research |
+**Onboarding — import from official sources** — pull thousands of rules from Sigma, Splunk, Elastic, Chronicle, Sentinel, and Defender through a fetch → parse → validate → normalize → store pipeline.
 
-**Multi-Model Support:**
-- **Google Gemini** (default): gemini-3-pro-preview, gemini-3-flash-preview
-- **OpenAI**: gpt-5.2, gpt-5-mini, gpt-5-nano
-- **Anthropic**: claude-opus-4-5, claude-sonnet-4-5, claude-haiku-4-5
+![Detection onboarding pipeline](.github/assets/demo-onboarding.gif)
 
-Session history is persisted locally with support for up to 50 saved sessions.
+## Quickstart
 
-### AI Query Generator
+Optimus is **self-hostable** — it runs against **your own** Supabase project and **your own** AI keys. Nothing depends on any hosted instance.
 
-A dedicated conversational interface for generating detection queries from natural language descriptions of attack behaviors.
+```bash
+git clone https://github.com/arpanraval/optimus-detection-studio.git
+cd optimus-detection-studio
+bun install
+cp .env.example .env.local     # add your Supabase URL + anon key
+bun run setup                  # links project, applies schema.sql, deploys 19 edge functions
+bun run dev
+```
 
-**Approach:** The AI researches the attack in depth, identifies detection opportunities based on observable artifacts, builds detection logic that catches behavior patterns (not just tool signatures), then generates production-ready queries with inline comments.
+`bun run setup` applies the **entire database** in one shot — [`supabase/schema.sql`](supabase/schema.sql) is a single, self-contained schema (62 tables, functions, RLS, triggers, realtime, seed data) that's [CI-verified to apply on an empty database](.github/workflows/schema-check.yml). Full walkthrough (secrets, first-owner, MITRE import) is in **[Setup](#setup)** below.
 
-**Supported target languages:** Splunk SPL, Microsoft Sentinel KQL, Microsoft Defender XDR KQL, Elastic EQL, Sigma, YARA, Chronicle YARA-L, CrowdStrike LogScale
+> **Prerequisites:** [Bun](https://bun.sh) · [Supabase CLI](https://supabase.com/docs/guides/cli) · `psql` · a Supabase project (free tier is fine) · at least one AI key (Gemini / OpenAI / Anthropic).
 
-**Features:**
-- Automatic language detection from conversational context ("give me the same in Sentinel KQL")
-- Iterative refinement within a session (context is maintained)
-- One-click draft creation to import generated queries into the detection library
-- Syntax highlighting for all supported languages
+## Tech stack
 
-### Smart Autofill
-
-Automatically generate detection metadata from query code:
-- MITRE technique suggestions inferred from query content
-- Severity classification based on TTP mapping
-- Description generation from detection logic
-- Confidence estimation
-
-### Logic Validation
-
-Syntax and semantic analysis of detection queries:
-- Language-specific syntax checking
-- Detection logic analysis
-- Performance impact estimation
-- False positive risk assessment
+**React 19** · **TypeScript** · **Vite** · **Bun** · **Tailwind CSS** · **Supabase** (PostgreSQL + Edge Functions + pgvector + Realtime) · **pySigma / Pyodide** (WASM) · multi-model AI (**Gemini** default, **OpenAI**, **Anthropic**) · Monaco editor · Recharts.
 
 ---
 
-## Detection Library Management
+## Setup
 
-The detection library is the core of Optimus. It supports a two-tier model: **Personal** (user's own detections, drafts, and work in progress) and **Universal** (shared, approved detections available to the entire organization).
+### 1. Clone & install
 
-### Detection Data Model
+```bash
+git clone https://github.com/arpanraval/optimus-detection-studio.git
+cd optimus-detection-studio
+bun install
+```
 
-Each detection rule carries rich metadata across multiple dimensions:
+### 2. Configure your environment
 
-**Identity & Lifecycle:**
-- UUID, version tracking, creation/update timestamps with user attribution
-- Status pipeline: `Backlog` → `Draft` → `Development` → `Review` → `Testing` → `Production` → `Deprecated` → `Archived`
-- Maturity levels: Experimental, Beta, Production, Stable
-- Detection types: Detection, Threat Hunting, Correlation, Anomaly
+```bash
+cp .env.example .env.local
+```
 
-**Detection Logic:**
-- Multi-query system: multiple queries in different languages per detection
-- Each query tracks its own language, primary flag, and timestamps
-- Legacy single-query fields auto-synced for backward compatibility
+Set your project URL + anon key (Supabase Dashboard → Settings → API):
 
-**Classification:**
-- Severity: Critical, High, Medium, Low, Informational
-- Confidence: High, Medium, Low
-- Quality score (calculated from completeness metrics)
+```env
+VITE_SUPABASE_URL=https://YOUR_REF.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_APP_ENV=development
+```
 
-**MITRE ATT&CK Mapping:**
-- Technique IDs (e.g., T1059.001, T1566.002)
-- Tactic names (auto-derived from techniques)
-- Technique names (auto-derived from techniques)
+### 3. Run setup
 
-**Threat Intelligence Linking:**
-- Linked MITRE Groups (threat actors with STIX IDs)
-- Linked MITRE Software (malware and tools)
-- Linked MITRE Campaigns
-- Associated CVEs
+```bash
+bun run setup
+```
 
-**Data Sources:**
-- Log sources (29 options: Windows Security Event Log, Sysmon, EDR Telemetry, CloudTrail, etc.)
-- MITRE Data Sources and Data Components
-- Supported platforms (14: Windows, Linux, macOS, AWS, Azure, GCP, SaaS, etc.)
-- Technologies (22: Active Directory, Kubernetes, CrowdStrike Falcon, etc.)
+This links your project, applies `supabase/schema.sql`, deploys all **19 edge functions**, and prints the exact secrets command. Prefer to do it by hand?
 
-**Investigation & Response:**
-- Structured investigation steps (with commands and expected outcomes)
-- Response actions
-- False positive guidance (required for Production status)
-- Prerequisites and caveats
+```bash
+supabase link --project-ref YOUR_REF
+psql "YOUR_DB_CONNECTION_STRING" -v ON_ERROR_STOP=1 -f supabase/schema.sql
+supabase functions deploy
+```
 
-**Quality & Validation:**
-- Test cases for validation
-- Tested/validated flag with date and environment
-- Fine-tuning notes
-- References (URLs)
-- Tags
+### 4. Set edge-function secrets
 
-**Library & Publishing:**
-- Library type (personal or universal)
-- Source tracking (custom, sigmahq, splunk_escu, elastic, chronicle, community)
-- Publishing workflow: unpublished → pending → published/rejected
-- Source rule ID linking (tracks lineage when copying from Universal)
-- External ID (original vendor rule identifier)
+At minimum one AI key + the service role + an encryption key:
 
-### Supported Query Languages (12)
+```bash
+supabase secrets set \
+  GEMINI_API_KEY=... \
+  SUPABASE_SERVICE_ROLE_KEY=... \
+  INTEGRATION_ENCRYPTION_KEY=$(openssl rand -hex 32)
+```
 
-| Language | Platform |
-|---|---|
-| SPL | Splunk |
-| KQL | Microsoft Sentinel / Azure |
-| EQL | Elastic |
-| Sigma | Cross-platform (open standard) |
-| SQL | Generic SQL-based platforms |
-| YARA | File and malware scanning |
-| Lucene | Elasticsearch |
-| Chronicle YARA-L | Google Chronicle / SecOps |
-| Carbon Black | VMware Carbon Black |
-| CrowdStrike | CrowdStrike Falcon LogScale |
-| Datadog | Datadog Cloud SIEM |
-| Elasticsearch DSL | Elasticsearch Query DSL |
+<details>
+<summary><b>All edge-function secrets</b></summary>
 
-### Library Features
-
-- **Advanced Filtering:** Status, severity, maturity, detection type, MITRE tactic, log source, technology, platform, tags, query language, and free-text search
-- **Monaco Code Editor:** Professional editor with syntax highlighting for SPL, KQL, SQL, YAML, and more
-- **Bulk Actions:** Multi-select for batch status updates, deletion, and editing
-- **Virtual Scrolling:** Handles large libraries (10,000+ detections) without performance degradation
-- **Detection Packs:** Group related detections into curated collections with platform and technique filtering
-
----
-
-## MITRE ATT&CK Integration
-
-Deep integration with the MITRE ATT&CK Enterprise Matrix (v18.1) providing coverage intelligence across the full framework.
-
-### Interactive Matrix
-
-- Dynamic heatmap visualization showing detection density per technique
-- Color-coded by coverage level (none, low, medium, high)
-- Click-through to drill into specific techniques and view associated detections
-- Sub-technique expansion
-- Platform filtering (Windows, Linux, macOS, Cloud)
-
-### Coverage Analytics
-
-- **Overall coverage:** Total techniques covered vs. uncovered with percentage
-- **By tactic:** Breakdown across all 14 MITRE tactics (Reconnaissance through Impact)
-- **By platform:** Windows, Linux, macOS, and cloud platform coverage
-- **Production-only:** Filter to show only deployed detections (true operational coverage)
-- **Detection density:** How many detections per technique
-
-### Gap Analysis
-
-Pre-defined threat profiles for rapid gap identification:
-
-| Profile | Key Techniques |
-|---|---|
-| **Ransomware** | T1486 (Data Encrypted), T1490 (Inhibit Recovery), T1489 (Service Stop), and 9 more |
-| **APT** | T1003 (OS Credentials), T1021 (Remote Services), T1055 (Process Injection), and 8 more |
-| **Initial Access** | T1566 (Phishing), T1190 (Exploit Public-Facing), T1133 (External Remote Services), and 5 more |
-| **Persistence** | T1547 (Boot/Logon Autostart), T1543 (Create/Modify System Process), T1053 (Scheduled Task), and 5 more |
-| **Credential Access** | T1003 (OS Credential Dumping), T1555 (Credentials from Stores), T1552 (Unsecured Credentials), and 5 more |
-| **Defense Evasion** | T1027 (Obfuscated Files), T1070 (Indicator Removal), T1036 (Masquerading), and 6 more |
-| **Lateral Movement** | T1021 (Remote Services), T1080 (Taint Shared Content), T1534 (Internal Spearphishing), and 4 more |
-| **Exfiltration** | T1048 (Exfil Over Alternative Protocol), T1041 (Exfil Over C2), T1567 (Exfil to Cloud), and 3 more |
-| **Impact** | T1486 (Data Encrypted), T1485 (Data Destruction), T1529 (System Shutdown), and 5 more |
-
-Custom profiles with arbitrary technique sets are also supported.
-
-### Entity Linking
-
-Detections can be linked to MITRE-tracked entities for threat-informed coverage analysis:
-
-- **Groups (Threat Actors):** APT29, Scattered Spider, Lazarus Group, Volt Typhoon, etc.
-- **Software (Malware & Tools):** Mimikatz, Cobalt Strike, PsExec, etc.
-- **Campaigns:** Named campaigns tracked by MITRE
-- **Mitigations:** MITRE-defined countermeasures
-
-Each entity type has dedicated browse, search, and detail pages with technique correlation.
-
-### Defensive Posture
-
-Strategic assessment pages showing:
-- Detection strategies with gap identification
-- Threat actor coverage analysis (which actor TTPs are covered/uncovered)
-- Platform-specific posture assessment
-
-### Navigator Layer Export
-
-Generate MITRE ATT&CK Navigator layer JSON files (downloadable) showing your detection coverage, filterable by scope (all, threat actor, tactic, platform).
-
----
-
-## Threat Intelligence
-
-### Threat Intel Digest (v2)
-
-AI-powered extraction pipeline that processes threat reports (URLs or pasted content) through multiple analysis stages:
-
-**Stage 1 - Summary Extraction:**
-- Title, publish date, author, organization
-- Executive summary
-- Key findings (up to 5)
-- Threat level classification
-- Targeted industries and regions
-- Attack timeline
-
-**Stage 2 - Classification:**
-- Primary and secondary attack types (APT, Ransomware, Supply Chain, Phishing, Zero-Day, Wiper, Infostealer, RAT, etc.)
-- Confidence assessment with reasoning
-
-**Stage 3 - TTP Extraction:**
-- MITRE ATT&CK technique identification with tactic mapping
-- Source type distinction (explicit mention vs. contextual inference)
-- Confidence level per TTP (high/medium/low)
-- Evidence quotes from report text
-- Sub-technique identification with parent linking
-
-**Stage 4 - IoC & Detection Rule Extraction:**
-- 30+ IoC categories: IPv4/IPv6, domains, URLs, email addresses, file hashes (MD5, SHA-1, SHA-256, SHA-512), SSDEEP, Imphash, file paths, registry keys, mutexes, named pipes, service names, scheduled tasks, process names, command line patterns, CVEs, cryptocurrency addresses, and more
-- Automatic defanging reversal (hxxp → http, [.] → ., etc.)
-- False positive flagging for example/documentation IPs
-- Detection query extraction preserving exact formatting (KQL, SPL, YARA, Sigma, Snort, Suricata, EQL)
-- MITRE ATT&CK mapping for extracted TTPs against existing library coverage
-
-**Features:**
-- Section-level retry (re-extract only the failed stage)
-- Multi-model support (same providers as Optimus Prime agent)
-- Structured JSON output for all stages
-
-### Threat Group Enrichment
-
-Automated enrichment of threat actor data from external sources:
-- MISP threat-actor database integration
-- Alias and synonym resolution
-- Country attribution with ISO codes
-- Match confidence scoring (MITRE ID: 100, exact name: 95, alias: 80, synonym: 70)
-
----
-
-## Bulk Import System
-
-Import detection content from major vendor repositories with intelligent parsing, normalization, deduplication, and validation.
-
-### Supported Vendor Formats
-
-| Vendor | Format | Parser | File Types | Query Language |
-|---|---|---|---|---|
-| **Sigma (SigmaHQ)** | YAML | SigmaParser | `.yml`, `.yaml` | Sigma |
-| **Splunk ESCU** | YAML | SplunkESCUParser | `.yml`, `.yaml` | SPL |
-| **Elastic Detection Rules** | TOML | ElasticParser | `.toml` | KQL |
-| **Google Chronicle** | YARA-L | ChronicleParser | `.yaral`, `.yar` | YARA-L |
-
-### Import Sources
-
-- **ZIP archives** - Upload a ZIP file containing detection rules (recursive directory handling)
-- **Individual files** - Upload one or more detection files
-- **GitHub repositories** - Fetch and parse from Git URLs
-
-### Processing Pipeline
-
-1. **Source Fetching** - Extract from ZIP, read files, or clone from repository
-2. **Format Detection** - Automatic parser selection based on file extension and content
-3. **Parsing** - Format-specific extraction of all metadata, queries, and MITRE mappings
-4. **Normalization** - Map vendor-specific fields to the unified Optimus detection schema
-5. **Validation** - Schema validation, required field checks, and content verification
-6. **Deduplication** - Content-based hashing (SHA-256) to identify equivalent rules
-7. **Persistence** - Batch database insertion with user library assignment
-8. **Audit** - Activity log entries, import job tracking, success/failure summary
-
-### Duplicate Handling Strategies
-
-- **Skip** - Don't import rules that already exist
-- **Update** - Overwrite existing rules with imported versions
-- **Create New** - Import as separate entries for comparison
-
-### Import Job Management
-
-- Progress tracking with real-time status updates
-- Job history with per-import statistics
-- Rollback capability (delete all rules from a specific import)
-
----
-
-## Sigma Rule Converter
-
-A browser-based Sigma rule conversion engine powered by pySigma running on Pyodide (Python in WebAssembly). No server-side Python installation required.
-
-### Supported Target Platforms (14)
-
-**SIEM Platforms:**
-
-| Platform | Backend | Output Formats | Available Pipelines |
-|---|---|---|---|
-| Splunk | `splunk` | Plain SPL, savedsearches.conf, CIM Data Model | splunk_windows, splunk_sysmon, splunk_cim_dm |
-| Elasticsearch (Lucene) | `lucene` | Lucene queries, Kibana NDJSON | ecs_windows, ecs_zeek |
-| Elasticsearch (ES\|QL) | `esql` | ES\|QL queries | ecs_windows |
-| Elasticsearch (EQL) | `eql` | EQL queries | ecs_windows |
-| OpenSearch | `opensearch` | Lucene queries, Dashboards NDJSON | - |
-| QRadar | `qradar` | AQL queries | qradar_fields |
-| Loki | `loki` | LogQL queries, Ruler format | - |
-
-**EDR Platforms:**
-
-| Platform | Backend | Pipelines |
+| Secret | Required | Purpose |
 |---|---|---|
-| CrowdStrike LogScale | `logscale` | crowdstrike_falcon |
-| Carbon Black | `carbonblack` | - |
-| SentinelOne | `sentinelone` | - |
-| Cortex XDR | `cortexxdr` | - |
+| `GEMINI_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | at least one | AI providers (Gemini is primary) |
+| `SUPABASE_SERVICE_ROLE_KEY` | yes | privileged DB access for functions |
+| `INTEGRATION_ENCRYPTION_KEY` | yes (for SIEM integrations) | AES-GCM key for stored credentials — `openssl rand -hex 32` |
+| `TAVILY_API_KEY` | optional | threat-intel web search |
+| `RESEND_API_KEY` / `DEMO_NOTIFY_EMAIL` | optional | demo-request notification emails |
+| `ALLOWED_ORIGINS` / `SITE_URL` | optional | CORS allowlist + email links |
 
-**Cloud Platforms:**
+`SUPABASE_URL` and `SUPABASE_ANON_KEY` are auto-injected into edge functions.
+</details>
 
-| Platform | Backend | Pipelines |
-|---|---|---|
-| Microsoft Sentinel | `kusto` | sentinel_asim, azure_monitor |
-| Microsoft Defender XDR | `kusto` | microsoft_365_defender |
-| Google Chronicle | `chronicle` | - |
-| Datadog | `datadog` | - |
+### 5. Become owner & load MITRE data
 
-### Features
+1. Start the app and **sign up** — the `on_auth_user_created` trigger creates your profile.
+2. Promote yourself in the Supabase SQL editor:
+   ```sql
+   update public.profiles set role = 'owner' where email = 'you@example.com';
+   ```
+3. In-app: **Settings → MITRE Data Sync → "Import MITRE Data"**, then **"Refresh Scores"**. This pulls the ATT&CK STIX bundle from MITRE's public GitHub — no MITRE data ships in the repo.
 
-- Custom processing pipeline support during conversion
-- Error reporting with line-level detail
-- Batch conversion of multiple rules
-- Pre and post-conversion validation
+### 6. Run & verify
 
----
+```bash
+bun run dev          # dev server            bun run test         # tests (vitest)
+bun run build        # production build       bun run type-check   # TypeScript
+bun run setup:check  # verify your install is healthy (env, schema, functions, MITRE data)
+```
 
-## Collaborative Workflows
-
-### Peer Review
-
-A structured review process for detection quality assurance:
-
-1. **Request Review** - Detection author requests review (status → Review, review_status → requested)
-2. **Reviewer Assignment** - A Lead, Admin, or Owner picks up the review
-3. **Review Checklist** - Reviewer evaluates against standardized criteria:
-   - Detection logic correctness
-   - Query syntax validity
-   - MITRE mapping accuracy
-   - False positive guidance provided
-   - Investigation steps clarity
-   - Lab testing completed
-4. **Decision** - Approve (→ Testing/Production) or Reject (→ Development with feedback)
-
-Safeguards: Users cannot review their own detections. Only Lead role and above can perform reviews. All review actions are audit-logged.
-
-### Comments & Threads
-
-- Inline comments on any detection
-- Threaded replies (parent/child)
-- User mentions (@username)
-- Resolution status tracking (open/resolved)
-- System-generated comments for status changes
-- Comment types: comment, review_note, status_change, system
-
-### Assignment System
-
-- Assign detections to specific team members
-- Self-assignment capability
-- Assignment history with timestamps
-- Unassignment with tracking
-- Bulk reassignment support
-
-### Publishing Workflow
-
-Moving detections from personal library to universal (shared) library:
-
-1. **Submit for Publishing** - Author submits detection from personal library
-2. **Approval Queue** - Admins/Owners review submissions
-3. **Approve or Reject** - With review notes
-4. **Published** - Detection appears in Universal library, linked back to source
-
-### Activity Logging
-
-Comprehensive audit trail tracking all significant actions:
-- Detection creation, updates, deletion
-- Status transitions
-- Review actions
-- Assignment changes
-- Import operations
-- User and team management events
-
----
-
-## Analytics & Reporting
-
-### Dashboard
-
-- **KPI Cards:** Total detections, coverage percentage, quality metrics, pipeline health
-- **Pipeline Visualization:** Detection distribution across lifecycle statuses
-- **Data Distribution Charts:** By log source, severity, platform, detection type
-- **Coverage Trend:** How coverage evolves over time
-
-### Export Capabilities
-
-- **PDF Reports:** Professional detection documentation with metadata, queries, and MITRE mappings
-- **Excel Export:** Full detection library with all metadata fields
-- **JSON Export:** Raw detection data for integration
-- **Navigator Layers:** MITRE ATT&CK Navigator-compatible JSON
-
----
-
-## Role-Based Access Control
-
-### Role Hierarchy
-
-| Role | Level | Description |
-|---|---|---|
-| **Owner** | 5 | Full system control. All permissions. |
-| **Admin** | 4 | User management, publishing approval, all detection operations |
-| **Lead** | 3 | Team management, perform reviews, publish detections, full contributor |
-| **Analyst** | 2 | Create and edit own detections, request reviews, contribute to team |
-| **Viewer** | 1 | Read-only access to detections and coverage data |
-
-### Permission Categories (47 permissions)
-
-| Category | Examples |
-|---|---|
-| **Detection Management** | Create, edit own/any, delete own/any, export, import |
-| **Review & Workflow** | Request review, perform review, approve, assign self/others |
-| **Library Access** | View personal/team/universal, copy from universal, publish, approve publish |
-| **AI & Tools** | AI Query Generator, Sigma Converter, Optimus Agent, export reports |
-| **MITRE & Threat Intel** | View coverage, view groups/software/campaigns, link entities |
-| **Team Management** | View members, invite users, change roles, deactivate/delete users |
-| **Integrations** | View, configure, sync |
-| **Settings** | Profile, password, MFA, team settings |
+> **Optional — background automation:** to enable scheduled processing (AI-usage rollups, threat-research dispatch, auto-digest), apply [`supabase/optional-scheduled-jobs.sql`](supabase/optional-scheduled-jobs.sql) after filling in your own project ref + service-role key.
 
 ---
 
 ## Architecture
 
-### High-Level Overview
-
 ```
-Frontend (React SPA)
-├── UI Components (30+ feature modules)
-├── Context Providers (8: Library, Permissions, Team, Workspace, Theme, ThreatIntel, Toast, BulkImport)
-├── Custom Hooks (28 hooks)
-└── Service Layer
-    ├── Supabase Client (auth, database, realtime)
-    ├── AI Service (multi-provider abstraction)
-    ├── Optimus Tools Service (agent tool execution)
-    ├── Embedding Service (vector search)
-    ├── Sigma Converter Service (Pyodide/WebAssembly)
-    └── Bulk Import Orchestrator (parse, validate, persist)
-
-Backend (Supabase)
-├── PostgreSQL Database (20+ tables)
-├── Authentication (JWT-based)
-├── Realtime Subscriptions (WebSocket)
-├── pgvector Extension (semantic search)
-└── Edge Functions (Deno runtime)
-    ├── ai-generate (multi-provider AI with tool support)
-    ├── optimus-tools (agent tool execution against database)
-    ├── threat-intel-digest-v2 (threat report analysis pipeline)
-    ├── generate-embedding (vector embedding generation)
-    ├── manage-users (user CRUD with role enforcement)
-    ├── review-ops (review workflow with authorization)
-    └── enrich-threat-groups (MISP-based enrichment)
-
-External Services
-├── Google Gemini API (AI generation + embeddings)
-├── OpenAI API (alternative AI provider)
-├── Anthropic API (alternative AI provider)
-└── Tavily API (web search for threat intelligence)
+Frontend (React SPA, Vite)                 Backend (your Supabase project)
+  ├─ AI agent + tools                        ├─ PostgreSQL (62 tables, RLS)
+  ├─ MITRE coverage & analytics              ├─ pgvector (semantic search)
+  ├─ Sigma converter (Pyodide/WASM)          ├─ Realtime (live pipeline/notifications)
+  ├─ Bulk-import orchestrator                └─ 19 Edge Functions (Deno)
+  └─ Supabase client (auth/data/realtime)         AI, tools, TI digest, embeddings,
+                                                   user mgmt, integrations, deploy, …
+External: Gemini · OpenAI · Anthropic · Tavily (all server-side, in edge functions)
 ```
 
-### AI Agent Flow
+<details>
+<summary><b>AI agent flow &amp; semantic search</b></summary>
 
 ```
-User query in Optimus Prime chat
-    → ai-generate edge function (with system prompt + tools)
-    → LLM processes and may invoke tools
-    → optimus-tools edge function executes tool against database
-    → Results returned to LLM for synthesis
-    → Structured response parsed and rendered in UI
-    → Up to 5 tool iterations per query
-```
+User query → ai-generate edge function (system prompt + tools)
+           → LLM may invoke tools → optimus-tools executes against the DB
+           → results synthesised → structured response rendered (≤5 tool iterations)
 
-### Embedding & Semantic Search
+Detection saved → generate-embedding → Gemini embedding (1536-dim)
+               → stored in detection_embeddings (pgvector)
+               → hybrid search (semantic + keyword) powers the agent's search_library tool
+```
+</details>
+
+<details>
+<summary><b>Project structure</b></summary>
 
 ```
-Detection created/updated
-    → generate-embedding edge function
-    → Gemini embedding model (gemini-embedding-001, 1536 dimensions)
-    → Vector stored in detection_embeddings table (pgvector)
-    → Hybrid search: semantic similarity + keyword matching
-    → Used by search_library tool for agent queries
+├── src/
+│   ├── components/          # React UI (detection, library, mitre, optimus, dashboard, ui, rbac, …)
+│   ├── context/ · hooks/ · router/
+│   ├── lib/                 # ai/ (agent tools, prompts), aiService, supabaseClient, …
+│   ├── services/            # sigma/ (browser conversion), bulk-import/
+│   ├── types.ts · constants.ts · mitre.ts
+├── supabase/
+│   ├── schema.sql               # ← full database schema (single source of truth)
+│   ├── config.toml              # project config (link / functions / db)
+│   ├── optional-scheduled-jobs.sql
+│   ├── functions/               # Edge Functions (19)
+│   └── migrations/              # historical migration chain (reference only)
+├── scripts/                 # setup.ts (`bun run setup`) · setup-check.ts (`bun run setup:check`)
+└── .github/workflows/       # CI — schema-check applies schema.sql on empty Postgres
 ```
+</details>
 
 ---
 
-## Tech Stack
+## Capabilities in depth
 
-| Layer | Technology | Version |
-|---|---|---|
-| **Language** | TypeScript | 5.3 |
-| **UI Framework** | React | 19.2 |
-| **Build Tool** | Vite | 7.3 |
-| **Package Manager** | Bun | Latest |
-| **Routing** | React Router | 7.12 |
-| **Styling** | Tailwind CSS | 3.4 |
-| **Code Editor** | Monaco Editor | 0.55 |
-| **Data Visualization** | Recharts | 3.4 |
-| **Virtual Scrolling** | react-window | 2.2 |
-| **Backend** | Supabase (PostgreSQL + Edge Functions) | 2.45 |
-| **AI (Primary)** | Google Gemini API | @google/genai 1.29 |
-| **Python Runtime** | Pyodide (WebAssembly) | 0.26 |
-| **YAML Parsing** | js-yaml | 4.1 |
-| **TOML Parsing** | smol-toml | 1.6 |
-| **PDF Generation** | jsPDF + jspdf-autotable | 4.0 / 5.0 |
-| **Excel Export** | ExcelJS + xlsx | 4.4 / 0.18 |
-| **ZIP Handling** | JSZip | 3.10 |
+<details>
+<summary><b>AI &amp; intelligence layer</b> — Optimus Prime agent, query generator, autofill, validation</summary>
 
----
+**Optimus Prime agent** — a RAG assistant that searches your library, analyzes coverage, assesses readiness against specific threat actors (APT29, Scattered Spider, Lazarus, Volt Typhoon…), queries the MITRE knowledge base, generates Navigator layers, and searches the web. Eight tools: `search_library`, `get_coverage_summary`, `find_threat_actor`, `get_threat_actor_coverage`, `identify_coverage_gaps`, `query_mitre`, `generate_navigator_layer`, `web_search`. Multi-model (Gemini default, OpenAI, Anthropic); sessions persisted locally.
 
-## Getting Started
+**AI query generator** — natural-language → production-ready queries across Splunk SPL, Sentinel KQL, Defender XDR KQL, Elastic EQL, Sigma, YARA, Chronicle YARA-L, and CrowdStrike LogScale, with automatic language detection and iterative refinement.
 
-### Prerequisites
+**Smart autofill** — infers MITRE techniques, severity, and descriptions from query code. **Logic validation** — syntax + semantic checks, performance and false-positive risk estimates.
+</details>
 
-- **Bun** (v1.0+) - Package manager and runtime
-- **Supabase Project** - For database, auth, realtime, and edge functions
-- **Google AI Studio API Key** - For Gemini AI features (stored server-side in edge functions)
+<details>
+<summary><b>Detection library &amp; data model</b> — lifecycle, multi-query, rich metadata</summary>
 
-### Installation
+Two-tier model: **Personal** (drafts, WIP) and **Universal** (shared, approved). Each detection carries: lifecycle status (`Backlog → Draft → Development → Review → Testing → Production → Deprecated → Archived`), severity/confidence, quality score, multi-language queries, MITRE technique/tactic mapping, linked Groups/Software/Campaigns/CVEs, log sources & platforms, investigation steps, response actions, false-positive guidance, test cases, and publishing lineage. Monaco editor, advanced filtering, bulk actions, virtual scrolling for 10k+ rules, and detection packs.
+</details>
 
-```bash
-git clone <repository-url>
-cd optimus-detection-studio
-bun install
-```
+<details>
+<summary><b>Supported query languages (12)</b></summary>
 
-### Environment Variables
+SPL (Splunk) · KQL (Sentinel/Azure) · EQL (Elastic) · Sigma · SQL · YARA · Lucene · Chronicle YARA-L · Carbon Black · CrowdStrike LogScale · Datadog · Elasticsearch DSL.
+</details>
 
-Create a `.env.local` file:
+<details>
+<summary><b>Sigma converter — target platforms</b></summary>
 
-```env
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-VITE_APP_ENV=development
-```
+**SIEM:** Splunk, Elasticsearch (Lucene / ES\|QL / EQL), OpenSearch, QRadar, Loki.
+**EDR:** CrowdStrike LogScale, Carbon Black, SentinelOne, Cortex XDR.
+**Cloud:** Microsoft Sentinel, Microsoft Defender XDR, Google Chronicle, Datadog.
 
-AI provider API keys are configured as Supabase Edge Function secrets (server-side only):
+Runs entirely in-browser via pySigma on Pyodide (WebAssembly), with custom pipeline support, batch conversion, and line-level error reporting.
+</details>
 
-```bash
-supabase secrets set GEMINI_API_KEY=your_key
-supabase secrets set OPENAI_API_KEY=your_key      # Optional
-supabase secrets set ANTHROPIC_API_KEY=your_key    # Optional
-supabase secrets set TAVILY_API_KEY=your_key       # Optional, for web search
-```
+<details>
+<summary><b>MITRE ATT&amp;CK integration</b> — matrix, coverage, gap analysis</summary>
 
-### Database Setup
+Interactive heatmap (coverage density per technique, sub-technique expansion, platform filtering); coverage analytics by tactic/platform/production-only; gap analysis against pre-defined threat profiles (Ransomware, APT, Initial Access, Persistence, Credential Access, Defense Evasion, Lateral Movement, Exfiltration, Impact) plus custom sets; entity linking to Groups/Software/Campaigns/Mitigations; defensive-posture assessment; downloadable Navigator layers.
+</details>
 
-The application uses Supabase migrations. Apply them to your project:
+<details>
+<summary><b>Threat intelligence &amp; bulk import</b></summary>
 
-```bash
-supabase db push
-```
+**Threat-intel digest (v2):** multi-stage AI pipeline — summary, attack-type classification, MITRE TTP extraction (with evidence quotes), and IoC + detection-rule extraction (30+ IoC categories, defang reversal, FP flagging) — mapped against your existing coverage.
 
-### Development
+**Bulk import:** SigmaHQ (YAML), Splunk ESCU (YAML), Elastic (TOML), Chronicle (YARA-L) from ZIP / files / GitHub repos → detect format → parse → normalize → validate → dedupe (SHA-256) → persist → audit, with skip/update/create-new strategies and per-import rollback.
+</details>
 
-```bash
-bun run dev          # Start development server
-bun run build        # Production build
-bun run preview      # Preview production build
-bun run lint         # Run ESLint
-bun run type-check   # TypeScript type checking
-bun test             # Run tests
-```
+<details>
+<summary><b>Collaboration, RBAC &amp; reporting</b></summary>
 
-### Edge Function Deployment
+**Workflows:** peer review with checklists (authors can't review their own; Lead+ only), threaded comments with mentions, assignments, and a personal→universal publishing approval queue — all audit-logged.
 
-```bash
-supabase functions deploy ai-generate
-supabase functions deploy optimus-tools
-supabase functions deploy threat-intel-digest-v2
-supabase functions deploy generate-embedding
-supabase functions deploy manage-users
-supabase functions deploy review-ops
-supabase functions deploy enrich-threat-groups
-```
+**RBAC:** five tiers — Owner, Admin, Lead, Analyst, Viewer — with granular permissions across detection management, review/workflow, library access, AI tools, MITRE/TI, team management, integrations, and settings.
 
----
-
-## Project Structure
-
-```
-optimus-detection-studio/
-├── components/                     # React UI components
-│   ├── detection/                 # Detection editing, detail, tabs
-│   ├── library/                   # Library switching, publishing, notifications
-│   ├── mitre/                     # MITRE matrix, navigator, coverage
-│   ├── optimus/                   # AI agent response renderers
-│   ├── dashboard/                 # KPI cards, charts, analytics
-│   ├── ui/                        # Design system primitives
-│   ├── rbac/                      # Role-based access control UI
-│   ├── pickers/                   # Entity pickers (MITRE, threat intel)
-│   ├── bulk-import/               # Import interface and status
-│   ├── groups/                    # MITRE Groups (threat actors)
-│   ├── software/                  # MITRE Software
-│   ├── campaigns/                 # MITRE Campaigns
-│   ├── mitigations/               # MITRE Mitigations
-│   ├── packs/                     # Detection packs
-│   ├── strategies/                # Detection strategies
-├── context/                       # React Context providers (8)
-├── hooks/                         # Custom React hooks (28)
-├── router/                        # Routing and page components
-│   ├── pages/                     # 40+ page components
-│   ├── AppRouter.tsx              # Route definitions
-│   ├── AppLayout.tsx              # Application shell
-│   └── AppDataContext.tsx         # Global data loading
-├── lib/                           # Core services
-│   ├── ai/                        # AI-related code
-│   │   ├── optimus-tools.ts       # Agent tool definitions
-│   │   ├── response-parser.ts     # Structured response parsing
-│   │   └── prompts/               # System prompts and templates
-│   ├── aiService.ts               # Multi-provider AI service
-│   ├── optimusToolsService.ts     # Agent tool invocation
-│   ├── embeddingService.ts        # Vector embedding management
-│   └── supabaseClient.ts         # Supabase client config
-├── services/                      # Domain services
-│   ├── sigma/                     # Sigma conversion engine
-│   │   ├── SigmaConverterService.ts
-│   │   └── backends.ts           # 14 target platform configs
-│   └── bulk-import/               # Bulk import orchestration
-│       ├── orchestrator/          # Import job management
-│       ├── parsers/               # Format parsers (Sigma, Splunk, Elastic, Chronicle)
-│       ├── validators/            # Validation pipeline
-│       ├── normalizers/           # Schema normalization
-│       ├── fetchers/              # Source fetching (ZIP, files, GitHub)
-│       └── persistence/           # Database persistence
-├── supabase/                      # Supabase configuration
-│   ├── functions/                 # Edge Functions (8)
-│   └── migrations/                # Database migrations
-├── types.ts                       # TypeScript type definitions
-├── constants.ts                   # Application constants
-└── mitre.ts                       # MITRE ATT&CK data management
-```
-
-### Application Routes
-
-**Dashboard:** `/`
-
-**Detection Library:**
-- `/library` - Browse detections
-- `/library/detections/new` - Create detection
-- `/library/detections/:id` - Detection detail
-- `/library/detections/:id/edit` - Edit detection
-
-**Intelligence:**
-- `/intelligence/mitre` - Interactive MITRE Matrix
-- `/intelligence/coverage` - Coverage analytics
-- `/intelligence/posture` - Defensive posture assessment
-- `/intelligence/strategies` - Detection strategies
-- `/intelligence/groups` - Threat actor groups
-- `/intelligence/software` - Malware and tools
-- `/intelligence/campaigns` - Tracked campaigns
-- `/intelligence/mitigations` - MITRE mitigations
-- `/intelligence/threat-digest` - Threat intelligence reports
-
-**Arsenal (Tools):**
-- `/arsenal/optimus` - Optimus Prime AI Agent
-- `/arsenal/ai-query` - AI Query Generator
-- `/arsenal/sigma` - Sigma Rule Converter
-- `/arsenal/bulk-import` - Bulk Import
-- `/arsenal/import-history` - Import History
-
-**Collaboration:**
-- `/submissions` - My publishing submissions
-- `/approval-queue` - Approval queue (Admin+)
-
-**Settings:**
-- `/settings/users` - User management
-- `/settings/integrations` - Integration configuration
-- `/settings/scoring` - Quality scoring configuration
-- `/settings/data-sync` - MITRE ATT&CK and vector embedding synchronization
-
----
-
-## Design System
-
-Optimus follows **Material Design 3 (Expressive)** guidelines, optimized for SOC (Security Operations Center) environments.
-
-**Theme:** Dark mode first, with full light mode support.
-
-**Color System:**
-- **Primary (Blue):** Core actions and navigation
-- **Tertiary (Pink/Purple):** AI-powered features and "magic" interactions
-- **Semantic Accents:**
-  - Rose - Sigma-related features
-  - Teal - MITRE ATT&CK integration
-  - Amber - Draft and backlog status
-  - Green - Production and success states
-  - Red - Critical severity, errors, and deprecated
-
-**Typography:**
-- **UI:** Roboto (system font fallback)
-- **Branding:** Orbitron
-- **Code:** JetBrains Mono, Monaco (monospace fallback)
-
-A built-in design system showcase is available at `/design-system` for development reference.
+**Reporting:** dashboard KPIs, pipeline & distribution charts, coverage trends, and PDF / Excel / JSON / Navigator-layer export.
+</details>
 
 ---
 
 ## Roadmap
 
-### Shipped
+**Shipped:** detection library (12 query languages), MITRE matrix + coverage analytics, Optimus Prime agent, AI query generation + autofill + validation, threat-intel digest, bulk import, browser-based Sigma conversion, peer review + comments + assignments, five-tier RBAC, publishing workflow, vector search, dashboards, exports, Navigator layers, threat-actor enrichment, detection packs + 3-step deploy wizard across 6 SIEM/XDR providers, realtime notifications, auto-digest pipeline, environment profile, SIEM/XDR home.
 
-Detection library (12 query languages), MITRE ATT&CK matrix + coverage analytics, Optimus Prime AI agent, AI query gen + autofill + validation, threat intel digest, bulk import, browser-based Sigma conversion, peer review + comments + assignments, five-tier RBAC, publishing workflow, vector search, dashboards, exports, MITRE Navigator layers, threat actor enrichment, activity audit, **detection packs with 3-step deploy wizard + versioning + SIEM integration across 5 providers** (Q2 2026), Realtime notifications, auto-digest intelligence pipeline, ransomware readiness redesign, environment profile, SIEM/XDR Home.
+**In progress:** detection-as-code (git-backed workflows) · library UX & data-quality refinements.
 
-### In flight
-
-- **Detection-as-Code (contextual)** — design + rollout plan approved (2026-04-21), Phase 1 pending
-- **Library detail audit** — 12/30 fixes shipped; 18 confirmed + 9 partial remain
-
-### Planned (next up)
-
-- Enterprise auth: SSO (SAML + OIDC), SCIM provisioning
-- Intelligence loop: detection pattern learning, improvement engine, cross-SIEM intelligence
-- Cross-SIEM drift & sync
-- Public REST API + webhooks
-- Observability: Sentry, health checks, job monitoring
-- Billing + multi-tenancy (MSSP mode)
-- Compliance: retention policies, GDPR deletion, SOC 2 documentation
+**Planned:** SSO (SAML/OIDC) + SCIM · detection pattern-learning & improvement engine · cross-SIEM drift & sync · public REST API + webhooks · observability · multi-tenancy (MSSP mode).
 
 ---
 
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) and our [Code of Conduct](CODE_OF_CONDUCT.md). Before opening a PR, run `bun run lint`, `bun run type-check`, and `bun run test`.
+
+## Security
+
+Please report vulnerabilities privately — see [SECURITY.md](SECURITY.md). Do **not** open a public issue for security problems.
+
 ## License
 
-Proprietary. All rights reserved.
+Licensed under the **Apache License 2.0** — see [LICENSE](LICENSE). This project bundles and builds on third-party content whose attribution is required — **MITRE ATT&CK®** and **SigmaHQ / pySigma**; see [NOTICE](NOTICE).
