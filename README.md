@@ -235,7 +235,7 @@ supabase secrets set \
    ```sql
    update public.profiles set role = 'owner' where email = 'you@example.com';
    ```
-3. In-app: **Settings → MITRE Data Sync → "Import MITRE Data"**, then **"Refresh Scores"**. This pulls the ATT&CK STIX bundle from MITRE's public GitHub — no MITRE data ships in the repo.
+3. In-app: **Settings → MITRE Data Sync → "Import MITRE Data"**, then **"Refresh Scores"**. This pulls the full ATT&CK STIX bundle (techniques, groups, software, campaigns, mitigations, data sources) from MITRE's public GitHub into your database. A lightweight tactic/technique reference (`public/enterprise-attack-data.json`) ships in the repo for the coverage UI — reproduced under MITRE's terms; see [NOTICE](NOTICE).
 
 ### 6. Run and verify
 
