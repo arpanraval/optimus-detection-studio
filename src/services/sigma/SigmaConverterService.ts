@@ -251,9 +251,13 @@ if not hasattr(yaml, 'CSafeDumper'):
 print('[Python] PyYAML shim applied - CSafeLoader:', hasattr(yaml, 'CSafeLoader'))
 \`);
 
-        // Install latest pySigma (now compatible with PyYAML 6.0.3+)
-        console.log('[Worker] Installing latest pySigma...');
-        await micropip.install('pysigma');
+        // Install pySigma pinned below 1.4.0. pySigma 1.4.0 added a hard
+        // dependency on jq (a C-extension package with no pure-Python / WASM
+        // wheel), which micropip cannot install in Pyodide -- it fails engine
+        // init with "Can't find a pure Python 3 wheel for jq". 1.3.x is the
+        // last jq-free 1.x line and still targets PyYAML 6.0.3+.
+        console.log('[Worker] Installing pySigma (<1.4, jq-free for Pyodide)...');
+        await micropip.install('pysigma<1.4');
 
         // Install common pipelines
         console.log('[Worker] Installing pySigma pipelines...');
