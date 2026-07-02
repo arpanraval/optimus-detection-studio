@@ -91,7 +91,7 @@ bun run dev
 
 `bun run setup` applies the **entire database** in one shot — [`supabase/schema.sql`](supabase/schema.sql) is a single, self-contained schema (62 tables, functions, RLS, triggers, realtime, seed data), CI-verified to apply on an empty database. The full walkthrough (secrets, first owner, MITRE import) is in **[Setup](#setup)**.
 
-> **Prerequisites** — [Bun](https://bun.sh) • [Supabase CLI](https://supabase.com/docs/guides/cli) • `psql` • a Supabase project (free tier is fine) • at least one AI key (Gemini / OpenAI / Anthropic).
+> **Prerequisites** — [Bun](https://bun.sh) • [Supabase CLI](https://supabase.com/docs/guides/cli) • `psql` • a Supabase project (free tier is fine) • a Gemini API key for the full AI experience.
 
 ---
 
@@ -168,6 +168,8 @@ Detection saved → generate-embedding → Gemini embedding (1536-dim)
 
 ## Setup
 
+> New to the stack? **[SETUP.md](SETUP.md)** is the full from-scratch walkthrough — prerequisites with install commands, `supabase login`, the database connection string, and troubleshooting.
+
 ### 1. Clone and install
 
 ```bash
@@ -206,13 +208,15 @@ supabase functions deploy
 
 ### 4. Set edge-function secrets
 
-At minimum, one AI key plus the service role and an encryption key:
+At minimum for the full core experience, set Gemini plus the service role and an encryption key:
 
 ```bash
+ENCRYPTION_KEY="$(bun -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))')"
+
 supabase secrets set \
   GEMINI_API_KEY=... \
   SUPABASE_SERVICE_ROLE_KEY=... \
-  INTEGRATION_ENCRYPTION_KEY=$(openssl rand -hex 32)
+  INTEGRATION_ENCRYPTION_KEY="$ENCRYPTION_KEY"
 ```
 
 <details>
@@ -220,10 +224,12 @@ supabase secrets set \
 
 | Secret | Required | Purpose |
 |---|---|---|
-| `GEMINI_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | at least one | AI providers (Gemini is primary) |
+| `GEMINI_API_KEY` | yes | Gemini generation plus embeddings / semantic search |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | optional | alternate generation providers |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | privileged DB access for functions |
-| `INTEGRATION_ENCRYPTION_KEY` | yes (for SIEM integrations) | AES-GCM key for stored credentials — `openssl rand -hex 32` |
+| `INTEGRATION_ENCRYPTION_KEY` | yes (for SIEM integrations) | AES-GCM key for stored credentials — generate with `bun -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` |
 | `TAVILY_API_KEY` | optional | threat-intel web search |
+| `FINETUNE_AGENT_ID` / `FINETUNE_ENVIRONMENT_ID` | optional | managed-agent detection finetuning; create them with `ANTHROPIC_API_KEY=... bun scripts/setup-finetune-agent.ts` |
 | `RESEND_API_KEY` / `DEMO_NOTIFY_EMAIL` | optional | demo-request notification emails |
 | `ALLOWED_ORIGINS` / `SITE_URL` | optional | CORS allowlist + email links |
 
@@ -237,7 +243,7 @@ supabase secrets set \
    ```sql
    update public.profiles set role = 'owner' where email = 'you@example.com';
    ```
-3. In-app: **Settings → MITRE Data Sync → "Import MITRE Data"**, then **"Refresh Scores"**. This pulls the full ATT&CK STIX bundle (techniques, groups, software, campaigns, mitigations, data sources) from MITRE's public GitHub into your database. A lightweight tactic/technique reference (`public/enterprise-attack-data.json`) ships in the repo for the coverage UI — reproduced under MITRE's terms; see [NOTICE](NOTICE).
+3. In-app: **Settings → Data Sync → "Import MITRE Data"**, then **"Refresh Scores"**. This pulls the full ATT&CK STIX bundle (techniques, groups, software, campaigns, mitigations, data sources) from MITRE's public GitHub into your database. A lightweight tactic/technique reference (`public/enterprise-attack-data.json`) ships in the repo for the coverage UI — reproduced under MITRE's terms; see [NOTICE](NOTICE).
 
 ### 6. Run and verify
 

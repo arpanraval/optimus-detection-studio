@@ -53,14 +53,17 @@ function parseEnv(path: string): Record<string, string> {
   return out;
 }
 
-const REQUIRED_SECRETS: [string, string][] = [
-  ['GEMINI_API_KEY', 'Google Gemini API key (primary AI provider — at least one AI key required)'],
-  ['OPENAI_API_KEY', 'OpenAI API key (embeddings / alternative provider)'],
-  ['ANTHROPIC_API_KEY', 'Anthropic Claude API key (optional alternative provider)'],
-  ['SUPABASE_URL', 'https://YOUR_REF.supabase.co (auto-available to functions; set for safety)'],
-  ['SUPABASE_ANON_KEY', 'your anon key'],
+const MINIMUM_SECRETS: [string, string][] = [
+  ['GEMINI_API_KEY', 'Google Gemini API key (required for embeddings, semantic search, playbooks, and the full AI experience)'],
   ['SUPABASE_SERVICE_ROLE_KEY', 'your service-role key (Settings → API)'],
-  ['INTEGRATION_ENCRYPTION_KEY', '32-byte hex for AES-GCM SIEM credential encryption: openssl rand -hex 32'],
+  ['INTEGRATION_ENCRYPTION_KEY', '32-byte hex for AES-GCM SIEM credential encryption: bun -e "console.log(require(\'node:crypto\').randomBytes(32).toString(\'hex\'))"'],
+];
+
+const OPTIONAL_SECRETS: [string, string][] = [
+  ['OPENAI_API_KEY', 'OpenAI API key (optional generation provider)'],
+  ['ANTHROPIC_API_KEY', 'Anthropic Claude API key (optional generation provider; required for managed-agent finetuning)'],
+  ['FINETUNE_AGENT_ID', 'managed-agent ID printed by scripts/setup-finetune-agent.ts (optional)'],
+  ['FINETUNE_ENVIRONMENT_ID', 'managed-agent environment ID printed by scripts/setup-finetune-agent.ts (optional)'],
   ['RESEND_API_KEY', 'Resend API key — only if you use the demo-request email (optional)'],
   ['DEMO_NOTIFY_EMAIL', 'email to receive demo requests (optional)'],
   ['TAVILY_API_KEY', 'Tavily key for threat-intel web search (optional)'],
@@ -120,17 +123,21 @@ async function main() {
   // 6) Secrets + next steps
   step(6, 'Set your edge-function secrets');
   const supaStr = [supaBin, ...supaPre].join(' ');
-  log(`  Run this (fill in your own values — at least one AI key + service role + encryption key):\n`);
+  log(`  Run this minimum command (fill in your own values):\n`);
   log(`  ${C.dim}${supaStr} secrets set \\`);
-  log(REQUIRED_SECRETS.map(([k]) => `    ${k}=...`).join(' \\\n') + `${C.reset}\n`);
-  for (const [k, d] of REQUIRED_SECRETS) log(`    ${C.cyan}${k}${C.reset}  ${C.dim}${d}${C.reset}`);
+  log(MINIMUM_SECRETS.map(([k]) => `    ${k}=...`).join(' \\\n') + `${C.reset}\n`);
+  for (const [k, d] of MINIMUM_SECRETS) log(`    ${C.cyan}${k}${C.reset}  ${C.dim}${d}${C.reset}`);
+
+  log(`\n  Optional feature secrets:`);
+  for (const [k, d] of OPTIONAL_SECRETS) log(`    ${C.cyan}${k}${C.reset}  ${C.dim}${d}${C.reset}`);
+  log(`\n  ${C.dim}SUPABASE_URL and SUPABASE_ANON_KEY are injected by Supabase Edge Functions.${C.reset}`);
 
   log(`\n${C.green}Setup steps run. Finish with:${C.reset}`);
   log(`  1. Set the secrets above.`);
   log(`  2. Sign up in the app, then promote yourself to owner in the SQL editor:`);
   log(`     ${C.dim}update public.profiles set role = 'owner' where email = 'you@example.com';${C.reset}`);
   log(`  3. Start the app:  ${C.cyan}bun run dev${C.reset}`);
-  log(`  4. In-app: Settings → MITRE Data Sync → "Import MITRE Data", then "Refresh Scores".`);
+  log(`  4. In-app: Settings → Data Sync → "Import MITRE Data", then "Refresh Scores".`);
   log(`  5. (Optional) Background automation: apply ${C.cyan}supabase/optional-scheduled-jobs.sql${C.reset}.`);
   log(`\n  Verify everything with:  ${C.cyan}bun run setup:check${C.reset}\n`);
 }

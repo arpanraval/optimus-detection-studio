@@ -33,11 +33,12 @@ function parseEnv(path: string): Record<string, string> {
   return out;
 }
 function has(bin: string, pre: string[] = []): boolean {
-  return spawnSync(bin, [...pre, '--version'], { stdio: 'ignore' }).status === 0;
+  const r = spawnSync(bin, [...pre, '--version'], { stdio: 'ignore', timeout: 10_000 });
+  return r.status === 0;
 }
 /** Run a fixed SQL query via psql; returns trimmed scalar or null. dbUrl + query are our own, no shell. */
 function psqlScalar(dbUrl: string, query: string): string | null {
-  const r = spawnSync('psql', [dbUrl, '-tAc', query], { encoding: 'utf8' });
+  const r = spawnSync('psql', [dbUrl, '-tAc', query], { encoding: 'utf8', timeout: 20_000 });
   if (r.status !== 0) return null;
   return (r.stdout || '').trim();
 }
@@ -92,7 +93,7 @@ async function main() {
 
     const mitre = psqlScalar(dbUrl, "select count(*) from public.mitre_objects");
     if (Number(mitre) > 0) pass('MITRE knowledge base imported', `${mitre} objects`);
-    else warn('MITRE data not imported yet', 'in-app: Settings → MITRE Data Sync → Import MITRE Data');
+    else warn('MITRE data not imported yet', 'in-app: Settings → Data Sync → Import MITRE Data');
 
     const rt = psqlScalar(dbUrl, "select count(*) from pg_publication_tables where pubname='supabase_realtime'");
     if (Number(rt) >= 7) pass('realtime publication', `${rt} tables`); else warn('realtime tables missing', `${rt}/7`);
@@ -103,8 +104,10 @@ async function main() {
   const supa = has('supabase') ? ['supabase', []] as const : has('npx', ['supabase']) ? ['npx', ['supabase']] as const : null;
   if (!supa) warn('supabase CLI not found — skipping function check');
   else {
-    const r = spawnSync(supa[0], [...supa[1], 'functions', 'list'], { encoding: 'utf8' });
-    if (r.status !== 0) warn('could not list functions', 'run `supabase link` first');
+    const r = spawnSync(supa[0], [...supa[1], 'functions', 'list'], { encoding: 'utf8', timeout: 15_000 });
+    if (r.error && (r.error as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
+      warn('function check timed out', 'run `supabase functions list` after `supabase link`');
+    } else if (r.status !== 0) warn('could not list functions', 'run `supabase link` first');
     else {
       const deployed = (r.stdout || '').split('\n').filter((l) => /\S/.test(l)).length - 1; // minus header
       if (deployed >= 19) pass('edge functions deployed', `${deployed}`); else warn('some edge functions not deployed', `${deployed}/19 — run \`supabase functions deploy\``);
