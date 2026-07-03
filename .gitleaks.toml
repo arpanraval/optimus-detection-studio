@@ -1,0 +1,30 @@
+# gitleaks configuration for optimus-detection-studio
+#
+# Extends the built-in gitleaks ruleset (does NOT replace it) and allowlists a
+# small set of VERIFIED-benign matches so the secret-scan CI stays green without
+# masking real credentials.
+#
+# Context: a full git-history audit (all 613 commits, every branch, all blobs)
+# found NO real secrets ever committed. The only pattern hits were UI
+# placeholders and a throwaway CI-local database URL — documented below. See the
+# `gitleaks` GitHub Actions workflow that consumes this file.
+
+title = "optimus-detection-studio gitleaks config"
+
+[extend]
+# Keep every default rule (API keys, JWTs, private keys, cloud creds, …).
+useDefault = true
+
+# --- Allowlists -------------------------------------------------------------
+# Each block is scoped as tightly as possible so it suppresses ONLY the known
+# false positive and nothing else.
+
+[[allowlists]]
+  description = "PEM placeholder + help text shown in the integrations UI. This file is a static form-field config; real integration credentials are encrypted and stored in the database, never in source. Scoped to the private-key rule only, so a hardcoded API key in this file would still be caught."
+  targetRules = ["private-key"]
+  paths = ['''src/lib/integrationFormConfig\.ts''']
+
+[[allowlists]]
+  description = "Throwaway localhost Postgres (user 'postgres', password 'postgres') spun up and destroyed per-run by the schema-check CI job. Not a real credential."
+  regexTarget = "line"
+  regexes = ['''postgres://postgres:postgres@localhost''']
