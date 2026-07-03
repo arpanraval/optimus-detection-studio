@@ -636,6 +636,9 @@ CREATE TABLE IF NOT EXISTS public.mitre_metadata (
   total_campaigns integer DEFAULT 0,
   total_mitigations integer DEFAULT 0,
   total_relationships integer DEFAULT 0,
+  total_detection_strategies integer DEFAULT 0,
+  total_analytics integer DEFAULT 0,
+  total_data_components integer DEFAULT 0,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now()
 );
@@ -5585,10 +5588,25 @@ CREATE POLICY "Users can view own integrations" ON public.integrations AS PERMIS
 CREATE POLICY mitre_embeddings_admin_select ON public.mitre_embeddings AS PERMISSIVE FOR SELECT TO authenticated USING (is_global_admin(auth.uid()));
 CREATE POLICY "Authenticated users can read mitre_metadata" ON public.mitre_metadata AS PERMISSIVE FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Service role can manage mitre_metadata" ON public.mitre_metadata AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Admins can manage mitre_metadata" ON public.mitre_metadata AS PERMISSIVE FOR ALL TO authenticated USING ((EXISTS ( SELECT 1
+   FROM profiles
+  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text])))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM profiles
+  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text]))))));
 CREATE POLICY "Authenticated users can read mitre_objects" ON public.mitre_objects AS PERMISSIVE FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Service role can manage mitre_objects" ON public.mitre_objects AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Admins can manage mitre_objects" ON public.mitre_objects AS PERMISSIVE FOR ALL TO authenticated USING ((EXISTS ( SELECT 1
+   FROM profiles
+  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text])))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM profiles
+  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text]))))));
 CREATE POLICY "Authenticated users can read mitre_relationships" ON public.mitre_relationships AS PERMISSIVE FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Service role can manage mitre_relationships" ON public.mitre_relationships AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Admins can manage mitre_relationships" ON public.mitre_relationships AS PERMISSIVE FOR ALL TO authenticated USING ((EXISTS ( SELECT 1
+   FROM profiles
+  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text])))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM profiles
+  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text]))))));
 CREATE POLICY "Authenticated users can read mitre_scoring_snapshot" ON public.mitre_scoring_snapshot AS PERMISSIVE FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Service role can manage mitre_scoring_snapshot" ON public.mitre_scoring_snapshot AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
 CREATE POLICY "Admins can manage mitre_tactic_weights" ON public.mitre_tactic_weights AS PERMISSIVE FOR ALL TO authenticated USING ((EXISTS ( SELECT 1
@@ -5599,14 +5617,29 @@ CREATE POLICY "Admins can manage mitre_tactic_weights" ON public.mitre_tactic_we
 CREATE POLICY "Authenticated users can read mitre_tactic_weights" ON public.mitre_tactic_weights AS PERMISSIVE FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Authenticated users can read mitre_technique_data_sources" ON public.mitre_technique_data_sources AS PERMISSIVE FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Service role can manage mitre_technique_data_sources" ON public.mitre_technique_data_sources AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Admins can manage mitre_technique_data_sources" ON public.mitre_technique_data_sources AS PERMISSIVE FOR ALL TO authenticated USING ((EXISTS ( SELECT 1
+   FROM profiles
+  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text])))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM profiles
+  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text]))))));
 CREATE POLICY "Admins manage MITRE technique groups" ON public.mitre_technique_groups AS PERMISSIVE FOR ALL TO authenticated USING ((EXISTS ( SELECT 1
    FROM profiles
   WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text]))))));
 CREATE POLICY "MITRE technique groups readable by authenticated" ON public.mitre_technique_groups AS PERMISSIVE FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Authenticated users can read mitre_technique_platforms" ON public.mitre_technique_platforms AS PERMISSIVE FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Service role can manage mitre_technique_platforms" ON public.mitre_technique_platforms AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Admins can manage mitre_technique_platforms" ON public.mitre_technique_platforms AS PERMISSIVE FOR ALL TO authenticated USING ((EXISTS ( SELECT 1
+   FROM profiles
+  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text])))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM profiles
+  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text]))))));
 CREATE POLICY "Authenticated users can read mitre_technique_tactics" ON public.mitre_technique_tactics AS PERMISSIVE FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Service role can manage mitre_technique_tactics" ON public.mitre_technique_tactics AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Admins can manage mitre_technique_tactics" ON public.mitre_technique_tactics AS PERMISSIVE FOR ALL TO authenticated USING ((EXISTS ( SELECT 1
+   FROM profiles
+  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text])))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM profiles
+  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text]))))));
 CREATE POLICY "Users can insert their own deploy job items" ON public.pack_deploy_job_items AS PERMISSIVE FOR INSERT TO public WITH CHECK ((EXISTS ( SELECT 1
    FROM pack_deploy_jobs j
   WHERE ((j.id = pack_deploy_job_items.job_id) AND (j.created_by = ( SELECT auth.uid() AS uid))))));

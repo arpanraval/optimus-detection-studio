@@ -827,6 +827,14 @@ export const SyncPage: React.FC = () => {
         const allTechniques = await fetchAllWithPagination<{ stix_id: string; data: any }>(
             'mitre_objects', 'stix_id, data', [{ column: 'type', value: 'attack-pattern' }]
         );
+        // kill_chain_phases carries the tactic *shortname*; the junction FK needs the
+        // tactic's real STIX id, so resolve via the x-mitre-tactic objects.
+        const allTactics = await fetchAllWithPagination<{ stix_id: string; data: any }>(
+            'mitre_objects', 'stix_id, data', [{ column: 'type', value: 'x-mitre-tactic' }]
+        );
+        const tacticStixByShortname = new Map<string, string>(
+            allTactics.map((t) => [t.data?.x_mitre_shortname as string, t.stix_id])
+        );
 
         const tacticJunctions: any[] = [];
         const platformJunctions: any[] = [];
@@ -837,9 +845,11 @@ export const SyncPage: React.FC = () => {
             if (data.kill_chain_phases) {
                 data.kill_chain_phases.forEach((phase: any) => {
                     if (phase.kill_chain_name === 'mitre-attack') {
+                        const tacticStixId = tacticStixByShortname.get(phase.phase_name);
+                        if (!tacticStixId) return;
                         tacticJunctions.push({
                             technique_stix_id: tech.stix_id,
-                            tactic_stix_id: `x-mitre-tactic--${phase.phase_name}`,
+                            tactic_stix_id: tacticStixId,
                             tactic_shortname: phase.phase_name,
                         });
                     }
