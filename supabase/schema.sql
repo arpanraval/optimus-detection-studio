@@ -5756,7 +5756,7 @@ END $$;
 DO $$
 DECLARE t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['detections','pack_deploy_job_items','pack_deploy_jobs','threat_research_events','threat_research_jobs','threat_research_sessions','user_notifications']
+  FOREACH t IN ARRAY ARRAY['detection_drift','detections','pack_deploy_job_items','pack_deploy_jobs','threat_research_events','threat_research_jobs','threat_research_sessions','user_notifications']
   LOOP
     BEGIN
       EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I', t);

@@ -96,7 +96,7 @@ async function main() {
     else warn('MITRE data not imported yet', 'in-app: Settings → Data Sync → Import MITRE Data');
 
     const rt = psqlScalar(dbUrl, "select count(*) from pg_publication_tables where pubname='supabase_realtime'");
-    if (Number(rt) >= 7) pass('realtime publication', `${rt} tables`); else warn('realtime tables missing', `${rt}/7`);
+    if (Number(rt) >= 8) pass('realtime publication', `${rt} tables`); else warn('realtime tables missing', `${rt}/8`);
   }
 
   // ── Edge functions ──
