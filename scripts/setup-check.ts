@@ -101,7 +101,7 @@ async function main() {
 
   // ── Edge functions ──
   head('Edge functions');
-  const supa = has('supabase') ? ['supabase', []] as const : has('npx', ['supabase']) ? ['npx', ['supabase']] as const : null;
+  const supa = has('supabase') ? ['supabase', []] as const : has('npx', ['supabase']) ? ['npx', ['supabase']] as const : has('bunx', ['supabase']) ? ['bunx', ['supabase']] as const : null;
   if (!supa) warn('supabase CLI not found — skipping function check');
   else {
     const r = spawnSync(supa[0], [...supa[1], 'functions', 'list'], { encoding: 'utf8', timeout: 15_000 });

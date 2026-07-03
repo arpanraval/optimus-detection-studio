@@ -208,14 +208,13 @@ supabase functions deploy
 
 ### 4. Set edge-function secrets
 
-At minimum for the full core experience, set Gemini plus the service role and an encryption key:
+At minimum for the full core experience, set Gemini plus an encryption key:
 
 ```bash
 ENCRYPTION_KEY="$(bun -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))')"
 
 supabase secrets set \
   GEMINI_API_KEY=... \
-  SUPABASE_SERVICE_ROLE_KEY=... \
   INTEGRATION_ENCRYPTION_KEY="$ENCRYPTION_KEY"
 ```
 
@@ -226,23 +225,25 @@ supabase secrets set \
 |---|---|---|
 | `GEMINI_API_KEY` | yes | Gemini generation plus embeddings / semantic search |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | optional | alternate generation providers |
-| `SUPABASE_SERVICE_ROLE_KEY` | yes | privileged DB access for functions |
 | `INTEGRATION_ENCRYPTION_KEY` | yes (for SIEM integrations) | AES-GCM key for stored credentials — generate with `bun -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` |
 | `TAVILY_API_KEY` | optional | threat-intel web search |
 | `FINETUNE_AGENT_ID` / `FINETUNE_ENVIRONMENT_ID` | optional | managed-agent detection finetuning; create them with `ANTHROPIC_API_KEY=... bun scripts/setup-finetune-agent.ts` |
 | `RESEND_API_KEY` / `DEMO_NOTIFY_EMAIL` | optional | demo-request notification emails |
 | `ALLOWED_ORIGINS` / `SITE_URL` | optional | CORS allowlist + email links |
 
-`SUPABASE_URL` and `SUPABASE_ANON_KEY` are auto-injected into edge functions.
+`SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are auto-injected
+into edge functions by Supabase — do **not** set them yourself (the CLI rejects any
+secret name starting with `SUPABASE_`).
 </details>
 
 ### 5. Become owner and load MITRE data
 
-1. Start the app and **sign up** — the `on_auth_user_created` trigger creates your profile.
+1. Create your first user in the Supabase dashboard — **Authentication → Users → Add user → Create new user** (tick *Auto Confirm User*). There is no in-app sign-up form (access is invite-only by design); the `on_auth_user_created` trigger creates your profile.
 2. Promote yourself in the Supabase SQL editor:
    ```sql
    update public.profiles set role = 'owner' where email = 'you@example.com';
    ```
+   Then start the app (`bun run dev`), sign in with that user, and follow the first-login prompt to set your display name and a **new** password (it must differ from the one you just created). You'll land in the vendor-rule import wizard — use it or **Skip for now**.
 3. In-app: **Settings → Data Sync → "Import MITRE Data"**, then **"Refresh Scores"**. This pulls the full ATT&CK STIX bundle (techniques, groups, software, campaigns, mitigations, data sources) from MITRE's public GitHub into your database. A lightweight tactic/technique reference (`public/enterprise-attack-data.json`) ships in the repo for the coverage UI — reproduced under MITRE's terms; see [NOTICE](NOTICE).
 
 ### 6. Run and verify

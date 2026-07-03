@@ -55,7 +55,6 @@ function parseEnv(path: string): Record<string, string> {
 
 const MINIMUM_SECRETS: [string, string][] = [
   ['GEMINI_API_KEY', 'Google Gemini API key (required for embeddings, semantic search, playbooks, and the full AI experience)'],
-  ['SUPABASE_SERVICE_ROLE_KEY', 'your service-role key (Settings → API)'],
   ['INTEGRATION_ENCRYPTION_KEY', '32-byte hex for AES-GCM SIEM credential encryption: bun -e "console.log(require(\'node:crypto\').randomBytes(32).toString(\'hex\'))"'],
 ];
 
@@ -79,10 +78,11 @@ async function main() {
   // 1) Prerequisites
   step(1, 'Checking prerequisites');
   if (has('bun')) ok('bun'); else warn('bun not detected');
-  // Prefer a global `supabase`, else fall back to `npx supabase`.
+  // Prefer a global `supabase`, else fall back to `npx supabase`, then `bunx supabase`.
   let supaBin = 'supabase', supaPre: string[] = [];
   if (!has('supabase')) {
     if (has('npx', ['supabase'])) { supaBin = 'npx'; supaPre = ['supabase']; }
+    else if (has('bunx', ['supabase'])) { supaBin = 'bunx'; supaPre = ['supabase']; }
     else die('Supabase CLI not found. Install: https://supabase.com/docs/guides/cli');
   }
   ok(`supabase CLI (${supaBin} ${supaPre.join(' ')}`.trim() + ')');
@@ -130,11 +130,12 @@ async function main() {
 
   log(`\n  Optional feature secrets:`);
   for (const [k, d] of OPTIONAL_SECRETS) log(`    ${C.cyan}${k}${C.reset}  ${C.dim}${d}${C.reset}`);
-  log(`\n  ${C.dim}SUPABASE_URL and SUPABASE_ANON_KEY are injected by Supabase Edge Functions.${C.reset}`);
+  log(`\n  ${C.dim}SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY are injected by Supabase Edge Functions — don't set them.${C.reset}`);
 
   log(`\n${C.green}Setup steps run. Finish with:${C.reset}`);
   log(`  1. Set the secrets above.`);
-  log(`  2. Sign up in the app, then promote yourself to owner in the SQL editor:`);
+  log(`  2. Create your first user in the Supabase dashboard (Authentication → Users → Add user,`);
+  log(`     tick "Auto Confirm User" — there is no in-app sign-up), then promote yourself to owner:`);
   log(`     ${C.dim}update public.profiles set role = 'owner' where email = 'you@example.com';${C.reset}`);
   log(`  3. Start the app:  ${C.cyan}bun run dev${C.reset}`);
   log(`  4. In-app: Settings → Data Sync → "Import MITRE Data", then "Refresh Scores".`);
