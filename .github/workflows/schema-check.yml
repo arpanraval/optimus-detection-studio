@@ -72,12 +72,12 @@ jobs:
           A=$(psql "$PGURL" -tA -c "select count(*) from pg_trigger where tgname='on_auth_user_created';")
           echo "public tables:        $T (expect 62)"
           echo "public functions:     $F (expect >= 80)"
-          echo "public RLS policies:  $P (expect 164)"
-          echo "realtime tables:      $R (expect 7)"
+          echo "public RLS policies:  $P (expect 170)"
+          echo "realtime tables:      $R (expect 8)"
           echo "auth signup trigger:  $A (expect 1)"
           [ "$T" -eq 62 ] || { echo "::error::expected 62 tables, got $T"; fail=1; }
-          [ "$P" -eq 164 ] || { echo "::error::expected 164 policies, got $P"; fail=1; }
-          [ "$R" -eq 7 ]  || { echo "::error::expected 7 realtime tables, got $R"; fail=1; }
+          [ "$P" -eq 170 ] || { echo "::error::expected 170 policies, got $P"; fail=1; }
+          [ "$R" -eq 8 ]  || { echo "::error::expected 8 realtime tables, got $R"; fail=1; }
           [ "$A" -eq 1 ]  || { echo "::error::expected on_auth_user_created trigger, got $A"; fail=1; }
           [ "$fail" -eq 0 ] && echo "✅ supabase/schema.sql applies cleanly on an empty database"
           exit $fail
