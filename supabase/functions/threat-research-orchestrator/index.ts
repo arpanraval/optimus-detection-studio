@@ -20,6 +20,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 import { handleCorsPreflight, corsErrorResponse, corsJsonResponse } from "../_shared/cors.ts";
 import { checkRateLimit } from "../_shared/rate-limiter.ts";
 import { runJob } from "./lib/orchestrator.ts";
+import { isSupportedSiem, SUPPORTED_SIEM_PLATFORMS } from "./lib/query-language.ts";
 
 const MAX_INPUT_LEN = 1000;
 
@@ -136,6 +137,46 @@ serve(async (req: Request) => {
         return corsErrorResponse(`input_text exceeds ${MAX_INPUT_LEN} characters`, req, 400);
       }
 
+      // Optional caller-chosen SIEM. Without it, resolveQueryLanguage falls
+      // back to Sigma whenever the user has no environment profile — silently,
+      // with no prompt — so a first-time user asking for ClickFix detections
+      // got Sigma instead of the KQL they can actually run. The New Research
+      // modal now asks; this validates the answer.
+      const siemPlatform = typeof body?.siem_platform === 'string' ? body.siem_platform.trim() : '';
+      if (siemPlatform && !isSupportedSiem(siemPlatform)) {
+        return corsErrorResponse(
+          `Unsupported siem_platform "${siemPlatform}". Expected one of: ${SUPPORTED_SIEM_PLATFORMS.join(', ')}.`,
+          req,
+          400,
+        );
+      }
+
+      // Build the environment snapshot up front when a SIEM was chosen, with
+      // that platform FIRST in siem_platforms — resolveQueryLanguage takes the
+      // first entry that maps to a language, and ResearchHeader's
+      // "X only · N uncovered" badge reads the same slot, so ordering here
+      // makes both correct for free.
+      //
+      // handlePreflight only calls primeEnvironmentSnapshot when
+      // environment_snapshot is still null, so writing it at insert time
+      // preserves the choice with no orchestrator change.
+      let environmentSnapshot: Record<string, unknown> | null = null;
+      if (siemPlatform) {
+        // Same column set primeEnvironmentSnapshot selects, so the snapshot
+        // shape is identical whichever path populated it. RLS ("Users can read
+        // own environment profile") scopes this to the caller.
+        const { data: envProfile } = await userClient
+          .from('environment_profiles')
+          .select('siem_platforms, log_sources, edr_tools, custom_log_sources, cloud_platforms, industry, crown_jewels')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        const existing: string[] = Array.isArray(envProfile?.siem_platforms) ? envProfile.siem_platforms : [];
+        environmentSnapshot = {
+          ...(envProfile ?? {}),
+          siem_platforms: [siemPlatform, ...existing.filter((s: string) => s !== siemPlatform)],
+        };
+      }
+
       // Initial tree shape so the detail page can render between row insert
       // and the preflight worker's first persistTree() call. Includes
       // tactic_summary:[] to match the server-side ThreatResearchTree type
@@ -155,6 +196,9 @@ serve(async (req: Request) => {
           input_text: inputText,
           status: 'pending',
           tree: initialTree,
+          // null when no SIEM was chosen — preflight then primes it from the
+          // profile exactly as before.
+          environment_snapshot: environmentSnapshot,
         })
         .select('id')
         .single();
@@ -197,6 +241,22 @@ serve(async (req: Request) => {
       const sessionId = typeof body?.session_id === 'string' ? body.session_id : '';
       const behaviourId = typeof body?.behaviour_id === 'string' ? body.behaviour_id : '';
       if (!sessionId || !behaviourId) return corsErrorResponse('session_id and behaviour_id are required', req, 400);
+
+      // retry_leaf enqueues a `detection` job, and handleDetection requires a
+      // composite "{behaviour}/{opportunity}" id — it throws on a bare one.
+      // A behaviour with NO opportunities cannot be fixed here in any case:
+      // the missing artefact is an opportunity, and only the Opportunity
+      // Planner produces those. Reject explicitly instead of enqueuing a job
+      // that is guaranteed to throw, and name the action that does work.
+      if (!behaviourId.includes('/')) {
+        return corsErrorResponse(
+          `behaviour_id must be a composite "{behaviour}/{opportunity}" leaf id, got "${behaviourId}". ` +
+          `A behaviour with no opportunities needs the Opportunity Planner to run again — ` +
+          `use action=resume_session for that session instead.`,
+          req,
+          400,
+        );
+      }
 
       // Verify ownership via the user-scoped client (RLS).
       const { data: ownedSession } = await userClient

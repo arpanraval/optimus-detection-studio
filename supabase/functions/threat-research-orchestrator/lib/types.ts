@@ -124,6 +124,12 @@ export interface LibraryMatch {
   existing_detection_id: string;
   name: string;
   query_language: string;
+  /** Lifecycle status of the matched library detection ('Production', 'Draft',
+   *  'Deprecated', ...). A match only counts as COVERAGE when it is actually
+   *  deployed — a Draft rule sitting in someone's library detects nothing, so
+   *  suppressing generation on it would hand the user a coverage claim they
+   *  cannot substantiate. See COVERAGE_STATUSES in agents/detection-engineer.ts. */
+  status: string;
   combined_score: number;
   semantic_score: number;
   keyword_score: number;
@@ -199,8 +205,40 @@ export interface GeneratedDetection {
    *  This is a pipeline state, not a detection-quality verdict. Don't conflate
    *  with qa.verdict='fail'. */
   qa_error: string | null;
+  /** Set by the finalise cross-opportunity dedup pass when this detection is a
+   *  semantic duplicate of another AND has no `qa` block to annotate. The
+   *  duplicate signal has to live somewhere that is not `qa`, because
+   *  synthesising a qa block here would mean inventing a verdict the QA agent
+   *  never gave — which the UI then renders as if QA had passed the detection.
+   *  When `qa` IS present, the duplicate is recorded on `qa.duplicate_of`
+   *  instead. Readers should check both. */
+  duplicate_of?: string | null;
+  /** A library detection that scored above the match threshold but did NOT
+   *  count as coverage, so generation went ahead anyway. Persisted on the leaf
+   *  (rather than left in the event log) so the detail card can explain why the
+   *  user is looking at a freshly-written query when their library already has
+   *  something adjacent. Null/absent when there was no near-match. */
+  library_near_match?: LibraryNearMatch | null;
   saved_detection_id: string | null;
   archived: boolean;
+}
+
+/** Why a scoring library match was not treated as coverage.
+ *   - `not_deployed`      the rule exists but isn't in a COVERAGE_STATUSES
+ *                         status (a Draft rule detects nothing)
+ *   - `language_mismatch` the rule is written for a different SIEM than the
+ *                         one this session targets */
+export type LibraryNearMatchReason = 'not_deployed' | 'language_mismatch';
+
+export interface LibraryNearMatch {
+  existing_detection_id: string;
+  name: string;
+  status: string;
+  query_language: string;
+  combined_score: number;
+  skipped_reason: LibraryNearMatchReason;
+  /** The session's target query language, for rendering "yours is KQL". */
+  target_language: string;
 }
 
 export interface DetectionOpportunity {

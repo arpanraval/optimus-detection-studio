@@ -4,7 +4,10 @@ import { Button } from '../ui/Button';
 import { useToast } from '../../hooks/useToast';
 import { saveDetectionFromLeaf, archiveLeaf, unarchiveLeaf, completeQa } from '../../lib/threatResearchService';
 import { routeHelpers } from '../../router/routes';
-import type { ThreatResearchSession, AttackBehaviour, DetectionOpportunity } from '../../types/threatResearch';
+import { Section, CitationList } from './shared';
+import type {
+  ThreatResearchSession, AttackBehaviour, DetectionOpportunity, LibraryNearMatch,
+} from '../../types/threatResearch';
 
 interface Props {
   session: ThreatResearchSession;
@@ -239,6 +242,18 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
                 QA: didn&apos;t run
               </span>
             )}
+            {/* Duplicate recorded at detection level rather than on `qa`. This
+                is the no-verdict case: finalise found a semantic duplicate but
+                there was no qa block to annotate, and inventing one would show
+                a verdict QA never gave. */}
+            {!det.qa && det.duplicate_of && (
+              <span
+                className="inline-flex items-center rounded-full bg-tertiary-container px-2 py-0.5 font-medium text-on-tertiary-container"
+                title={`Semantic duplicate of detection ${det.duplicate_of} (fingerprint match across MITRE / telemetry / query tokens), found by the finalise dedup pass. QA never ran on this leaf.`}
+              >
+                Duplicate of {det.duplicate_of}
+              </span>
+            )}
             <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${FEASIBILITY_STYLE[det.feasibility]}`}>
               Feasibility: {det.feasibility}
             </span>
@@ -252,6 +267,7 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
           {det.feasibility_notes && (
             <div className="mt-2 text-xs text-on-surface-variant">{det.feasibility_notes}</div>
           )}
+          {det.library_near_match && <LibraryNearMatchNote match={det.library_near_match} />}
           {det.qa && det.qa.concerns.length > 0 && (
             <div className="mt-3">
               <div className="mb-1 text-xs font-semibold text-on-surface">Concerns</div>
@@ -325,16 +341,7 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
         </Section>
 
         <Section title="Citations">
-          <ul className="space-y-1.5">
-            {det.citations.length === 0
-              ? <li className="text-xs italic text-on-surface-variant">No citations.</li>
-              : det.citations.map((c, i) => (
-                <li key={i} className="text-xs">
-                  <a href={c.url} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">{c.source}</a>
-                  <span className="text-on-surface"> — {c.claim}</span>
-                </li>
-              ))}
-          </ul>
+          <CitationList citations={det.citations} />
         </Section>
 
         {det.covers_behaviour_ids.length > 1 && (
@@ -433,11 +440,29 @@ function Footer({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+/** Explains why a new query exists next to an adjacent library rule. The
+ *  library search deliberately matches across every status so near-matches
+ *  stay visible; only deployed rules in the session's language suppress
+ *  generation. Without this note the decision lived solely in the event log,
+ *  and the user just saw a duplicate-looking detection with no explanation. */
+function LibraryNearMatchNote({ match }: { match: LibraryNearMatch }) {
+  const isLanguage = match.skipped_reason === 'language_mismatch';
+  const reason = isLanguage
+    ? `it targets ${match.query_language || 'another SIEM'} and this session targets ${match.target_language}`
+    : `it is ${match.status || 'not deployed'}, so it isn't detecting anything yet`;
   return (
-    <div>
-      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">{title}</div>
-      {children}
+    <div className="mt-2 rounded-md border border-outline-variant bg-surface-container px-3 py-2 text-xs text-on-surface-variant">
+      <span className="font-medium text-on-surface">Not counted as coverage.</span>{' '}
+      Your library has{' '}
+      <a
+        href={`/library/detections/${match.existing_detection_id}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-medium text-primary hover:underline"
+      >
+        {match.name}
+      </a>{' '}
+      (similarity {match.combined_score.toFixed(2)}), but {reason}. A new detection was written instead.
     </div>
   );
 }

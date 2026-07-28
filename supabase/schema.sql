@@ -3926,12 +3926,15 @@ CREATE OR REPLACE FUNCTION public.threat_research_dispatcher()
  RETURNS void
  LANGUAGE plpgsql
  SECURITY DEFINER
+ SET search_path = public, extensions
 AS $function$
 DECLARE
   v_now timestamptz := now();
   v_grp RECORD;
   v_dispatched uuid;
 BEGIN
+  -- 1. Hard-kill exhausted-retry running jobs. The Supabase edge worker is
+  --    killed at 400 s, so nothing legitimate is still alive at 480 s.
   UPDATE public.threat_research_jobs
      SET status         = 'failed',
          failure_reason = COALESCE(failure_reason, 'reaper: worker exceeded edge-function lifetime'),
@@ -3939,23 +3942,28 @@ BEGIN
    WHERE status     = 'running'
      AND attempt_count >= 3
      AND (
-       (phase IN ('preflight','finalise')                                  AND started_at < v_now - interval '6 minutes')
-       OR (phase IN ('research','attack_research','opportunity_planning','detection') AND started_at < v_now - interval '15 minutes')
-       OR (phase = 'qa'                                                     AND started_at < v_now - interval '35 minutes')
+       (phase IN ('preflight','finalise')                                  AND started_at < v_now - interval '240 seconds')
+       OR (phase IN ('research','attack_research','opportunity_planning','detection') AND started_at < v_now - interval '480 seconds')
+       OR (phase = 'qa'                                                     AND started_at < v_now - interval '480 seconds')
      );
 
+  -- 2. Reset still-retryable stuck running jobs. 450 s = the 400 s platform
+  --    ceiling plus headroom for clock skew and cron granularity. Kept below
+  --    the hard-kill threshold so a job always gets its retries first.
   UPDATE public.threat_research_jobs
      SET status     = 'pending',
          started_at = NULL
    WHERE status     = 'running'
      AND attempt_count < 3
      AND (
-       (phase IN ('preflight','finalise')                                  AND started_at < v_now - interval '4 minutes')
-       OR (phase IN ('research','attack_research')                         AND started_at < v_now - interval '10 minutes')
-       OR (phase IN ('opportunity_planning','detection')                   AND started_at < v_now - interval '12 minutes')
-       OR (phase = 'qa'                                                    AND started_at < v_now - interval '25 minutes')
+       (phase IN ('preflight','finalise')                                  AND started_at < v_now - interval '240 seconds')
+       OR (phase IN ('research','attack_research')                         AND started_at < v_now - interval '450 seconds')
+       OR (phase IN ('opportunity_planning','detection')                   AND started_at < v_now - interval '450 seconds')
+       OR (phase = 'qa'                                                    AND started_at < v_now - interval '450 seconds')
      );
 
+  -- 3. Mark sessions failed when all their jobs have terminated AND at
+  --    least one failed.
   UPDATE public.threat_research_sessions s
      SET status         = 'failed',
          failure_reason = COALESCE(
@@ -3978,6 +3986,7 @@ BEGIN
         WHERE j.session_id = s.id AND j.status IN ('pending','running')
      );
 
+  -- 4. Dispatch stranded pending jobs.
   FOR v_grp IN
       SELECT DISTINCT session_id, phase
         FROM public.threat_research_jobs
@@ -4222,12 +4231,25 @@ CREATE OR REPLACE FUNCTION public.tr_patch_detection(p_session_id uuid, p_behavi
  RETURNS boolean
  LANGUAGE plpgsql
  SECURITY DEFINER
+ SET search_path = public, extensions
 AS $function$
 DECLARE
   v_b_idx int;
   v_o_idx int;
   v_existing_det_id text;
 BEGIN
+  -- HARDENING: end-user callers must own the session. Service-role
+  -- (orchestrator) calls carry no JWT subject, so auth.uid() is NULL and the
+  -- check is skipped. SECURITY DEFINER bypasses RLS, so this is the only
+  -- thing standing between an authenticated caller and another user's tree.
+  IF (SELECT auth.uid()) IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM public.threat_research_sessions s
+        WHERE s.id = p_session_id AND s.user_id = (SELECT auth.uid())
+     ) THEN
+    RETURN false;
+  END IF;
+
   SELECT (idx - 1)::int INTO v_b_idx
     FROM public.threat_research_sessions s,
          jsonb_array_elements(s.tree->'behaviours') WITH ORDINALITY AS arr(item, idx)
@@ -4259,6 +4281,14 @@ BEGIN
   RETURN true;
 END;
 $function$;
+-- tr_patch_detection's in-body ownership guard skips when auth.uid() IS NULL,
+-- which is how the service-role worker calls it. anon also presents no JWT
+-- subject, so anon MUST NOT hold EXECUTE or the guard is trivially bypassed.
+-- tr_patch_behaviour has no in-body guard at all and is worker-only.
+REVOKE EXECUTE ON FUNCTION public.tr_patch_detection(uuid, text, text, text, jsonb) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.tr_patch_detection(uuid, text, text, text, jsonb) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.tr_patch_behaviour(uuid, text, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT  EXECUTE ON FUNCTION public.tr_patch_behaviour(uuid, text, jsonb) TO service_role;
 CREATE OR REPLACE FUNCTION public.tr_promote_finalise_if_ready(p_session_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -5739,17 +5769,17 @@ CREATE POLICY tre_self_select ON public.threat_research_events AS PERMISSIVE FOR
 CREATE POLICY "service role only" ON public.threat_research_jobs AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
 CREATE POLICY trj_admin_select ON public.threat_research_jobs AS PERMISSIVE FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
    FROM profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text]))))));
+  WHERE ((profiles.id = ( SELECT auth.uid() AS uid)) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text]))))));
 CREATE POLICY trj_self_select ON public.threat_research_jobs AS PERMISSIVE FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
    FROM threat_research_sessions s
-  WHERE ((s.id = threat_research_jobs.session_id) AND (s.user_id = auth.uid())))));
+  WHERE ((s.id = threat_research_jobs.session_id) AND (s.user_id = ( SELECT auth.uid() AS uid))))));
 CREATE POLICY trs_admin_select ON public.threat_research_sessions AS PERMISSIVE FOR SELECT TO public USING ((EXISTS ( SELECT 1
    FROM profiles
   WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text]))))));
-CREATE POLICY trs_self_delete ON public.threat_research_sessions AS PERMISSIVE FOR DELETE TO public USING ((user_id = auth.uid()));
-CREATE POLICY trs_self_insert ON public.threat_research_sessions AS PERMISSIVE FOR INSERT TO public WITH CHECK ((user_id = auth.uid()));
-CREATE POLICY trs_self_select ON public.threat_research_sessions AS PERMISSIVE FOR SELECT TO public USING ((user_id = auth.uid()));
-CREATE POLICY trs_self_update ON public.threat_research_sessions AS PERMISSIVE FOR UPDATE TO public USING ((user_id = auth.uid()));
+CREATE POLICY trs_self_delete ON public.threat_research_sessions AS PERMISSIVE FOR DELETE TO authenticated USING ((user_id = ( SELECT auth.uid() AS uid)));
+CREATE POLICY trs_self_insert ON public.threat_research_sessions AS PERMISSIVE FOR INSERT TO authenticated WITH CHECK ((user_id = ( SELECT auth.uid() AS uid)));
+CREATE POLICY trs_self_select ON public.threat_research_sessions AS PERMISSIVE FOR SELECT TO authenticated USING ((user_id = ( SELECT auth.uid() AS uid)));
+CREATE POLICY trs_self_update ON public.threat_research_sessions AS PERMISSIVE FOR UPDATE TO authenticated USING ((user_id = ( SELECT auth.uid() AS uid))) WITH CHECK ((user_id = ( SELECT auth.uid() AS uid)));
 CREATE POLICY "Users can create their own dashboards" ON public.user_dashboards AS PERMISSIVE FOR INSERT TO public WITH CHECK ((auth.uid() = user_id));
 CREATE POLICY "Users can delete their own dashboards" ON public.user_dashboards AS PERMISSIVE FOR DELETE TO public USING ((auth.uid() = user_id));
 CREATE POLICY "Users can update their own dashboards" ON public.user_dashboards AS PERMISSIVE FOR UPDATE TO public USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));

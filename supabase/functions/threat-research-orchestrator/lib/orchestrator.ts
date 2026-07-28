@@ -36,7 +36,9 @@ import {
   generateDetectionForOpportunity,
   refineDetectionViaActorCritic,
 } from "./agents/detection-engineer.ts";
+import { COVERAGE_STATUSES, isDeployedCoverage, isLanguageRunnable } from "./coverage.ts";
 import { resolveQueryLanguage } from "./query-language.ts";
+import { flagCrossBehaviourDuplicates } from "./dedup.ts";
 import { loadKnowledgePack } from "./skills-loader.ts";
 import { buildActorCoverageSeed } from "./actor-coverage.ts";
 import {
@@ -48,6 +50,8 @@ import { validateKqlAgainstDefenderSchema } from "./tools/defender-schema-lookup
 import type {
   DetectionOpportunity,
   GeneratedDetection,
+  LibraryNearMatch,
+  LibraryNearMatchReason,
   ResearchQueryLanguage,
   ThreatResearchTree,
 } from "./types.ts";
@@ -753,22 +757,22 @@ async function handleDetection(
   // match exists AND it's runnable in the user's current SIEM language,
   // skip generation entirely.
   const libMatch = await checkLibraryCoverage(toolCtx, behaviour, opp);
-  const matchedLanguageRunnable = (() => {
-    if (!libMatch) return false;
-    // Empty query_language means we couldn't determine the matched
-    // detection's language — be conservative and fall through to
-    // generation rather than veto with low confidence.
-    if (!libMatch.query_language) return false;
-    // Compare case-insensitively against the resolved env language. If
-    // the user's env doesn't resolve a SIEM language we still accept
-    // the match (better than failing closed).
-    return !queryLanguage || libMatch.query_language.toLowerCase() === queryLanguage.toLowerCase();
-  })();
-  if (libMatch && matchedLanguageRunnable) {
+  // Both gates live in lib/coverage.ts so they can be unit-tested. Semantics
+  // are unchanged from the previous inline check: an unknown match language
+  // falls through to generation, an unresolved session language accepts.
+  const matchedLanguageRunnable = isLanguageRunnable(libMatch, queryLanguage);
+  // A match only counts as COVERAGE if the rule is actually deployed. Before
+  // this gate, a Draft or Deprecated library rule could suppress generation
+  // entirely and the opportunity was marked feasibility:'covered' — a coverage
+  // claim the system could not substantiate, since a Draft rule detects
+  // nothing. Non-deployed matches stay advisory (event below) and generation
+  // proceeds.
+  const matchedStatusDeployed = isDeployedCoverage(libMatch);
+  if (libMatch && matchedLanguageRunnable && matchedStatusDeployed) {
     await emit(runCtx, {
       agent: 'detection-engineer',
       event_type: 'library_match_found',
-      message: `${opp.title} → already covered by "${libMatch.name}"`,
+      message: `${opp.title} → already covered by "${libMatch.name}" (${libMatch.status}, ${libMatch.query_language})`,
       payload: { behaviour_id: behaviour.id, opportunity_id: opp.id, match: libMatch },
     });
     // Mark this OPPORTUNITY as covered (not the whole behaviour — other
@@ -781,7 +785,7 @@ async function handleDetection(
     opp.detection.query_language = libMatch.query_language as ResearchQueryLanguage;
     opp.detection.description = `Already covered by library detection "${libMatch.name}".`;
     opp.detection.feasibility = 'covered';
-    opp.detection.feasibility_notes = `Library match (combined_score=${libMatch.combined_score.toFixed(2)})`;
+    opp.detection.feasibility_notes = `Library match: ${libMatch.status} rule in ${libMatch.query_language} (combined_score=${libMatch.combined_score.toFixed(2)})`;
     await patchDetection(supabase, session.id, behaviour.id, opp.id, opp.detection.id, {
       saved_detection_id: opp.detection.saved_detection_id,
       name: opp.detection.name,
@@ -792,21 +796,41 @@ async function handleDetection(
     });
     return;
   }
-  // libMatch existed but couldn't run in the user's SIEM — emit the
-  // signal so the engineer knows there's a near-match worth referencing
-  // via covers_behaviour_ids, but proceed to generation in the user's
-  // actual language.
-  if (libMatch && !matchedLanguageRunnable) {
+  // A match existed but didn't qualify as coverage — either it can't run in
+  // the user's SIEM, or it isn't deployed. Emit the signal so the engineer
+  // knows there's a near-match worth referencing via covers_behaviour_ids, and
+  // so the UI can show WHY generation went ahead anyway; then proceed.
+  //
+  // When both gates fail, language_mismatch wins: it's the more actionable of
+  // the two (the user would have to author a new rule either way, whereas a
+  // Draft in the right language just needs promoting).
+  let nearMatch: LibraryNearMatch | null = null;
+  if (libMatch && !(matchedLanguageRunnable && matchedStatusDeployed)) {
+    const skippedReason: LibraryNearMatchReason =
+      !matchedLanguageRunnable ? 'language_mismatch' : 'not_deployed';
+    nearMatch = {
+      existing_detection_id: libMatch.existing_detection_id,
+      name: libMatch.name,
+      status: libMatch.status,
+      query_language: libMatch.query_language,
+      combined_score: libMatch.combined_score,
+      skipped_reason: skippedReason,
+      target_language: queryLanguage,
+    };
+    const message = skippedReason === 'language_mismatch'
+      ? `${opp.title} → near-match "${libMatch.name}" in ${libMatch.query_language || 'unknown SIEM'} (skipped: user's SIEM is ${queryLanguage})`
+      : `${opp.title} → near-match "${libMatch.name}" is ${libMatch.status || 'not deployed'}, not counted as coverage (skipped: only ${[...COVERAGE_STATUSES].join('/')} rules count)`;
     await emit(runCtx, {
       agent: 'detection-engineer',
       event_type: 'library_match_found',
-      message: `${opp.title} → near-match "${libMatch.name}" in ${libMatch.query_language || 'unknown SIEM'} (skipped: user's SIEM is ${queryLanguage})`,
+      message,
       payload: {
         behaviour_id: behaviour.id,
         opportunity_id: opp.id,
         match: libMatch,
-        skipped_reason: 'language_mismatch',
+        skipped_reason: skippedReason,
         target_language: queryLanguage,
+        match_status: libMatch.status ?? null,
       },
     });
   }
@@ -927,8 +951,12 @@ async function handleDetection(
   }
 
   // ── 3. Persist the detection. ───────────────────────────────────────────
+  // Carry the advisory near-match (if any) onto the leaf so the detail card
+  // can explain why a fresh query exists next to an adjacent library rule.
+  generated.library_near_match = nearMatch;
   opp.detection = generated;
   await patchDetection(supabase, session.id, behaviour.id, opp.id, opp.detection.id, {
+    library_near_match: generated.library_near_match,
     name: generated.name,
     description: generated.description,
     query: generated.query,
@@ -1215,7 +1243,9 @@ async function handleFinalise(
       if (det.qa?.verdict === 'pass') qaPass++;
       else if (det.qa?.verdict === 'pass_with_concerns') qaPassWithConcerns++;
       else if (det.qa?.verdict === 'fail') qaFail++;
-      if (det.qa?.duplicate_of) duplicateFlagged++;
+      // Both shapes count: qa.duplicate_of when the leaf had a real verdict to
+      // annotate, det.duplicate_of when it never reached QA.
+      if (det.qa?.duplicate_of || det.duplicate_of) duplicateFlagged++;
     }
   }
 
@@ -1296,124 +1326,6 @@ async function persistTree(
     .from('threat_research_sessions')
     .update({ tree, updated_at: new Date().toISOString() })
     .eq('id', sessionId);
-}
-
-/** Cross-opportunity duplicate detection finder. Runs at finalise time after
- *  all detection workers have committed their per-leaf patches. Catches
- *  anything the Opportunity Planner missed.
- *
- *  Pre-PR2 used exact-string name+query match. PR3-lite upgrades to a
- *  SEMANTIC FINGERPRINT that combines:
- *    1. normalized MITRE technique set (sorted, deduped) — catches "same
- *       T1003.001 different wording" duplicates
- *    2. canonical telemetry source set — catches "same Sysmon EID 10
- *       different field projections" duplicates
- *    3. extracted query tokens: table name, key field references,
- *       operator class — catches "same DeviceProcessEvents | where
- *       FileName contains 'mimikatz'" semantic duplicates that differ
- *       in formatting / aliasing
- *
- *  Two detections matching on (2 of 3) buckets are flagged as duplicates.
- *  The first occurrence wins canonicity; later ones get qa.duplicate_of set.
- *
- *  Mutates `tree` in place. Returns the number of duplicates flagged. */
-function flagCrossBehaviourDuplicates(tree: ThreatResearchTree): number {
-  type Fingerprint = {
-    mitre: string;       // sorted, joined technique ids
-    telemetry: string;   // sorted, normalized data source set
-    queryTokens: string; // sorted, normalized query token set
-  };
-  const seen = new Array<{ fp: Fingerprint; detectionId: string }>();
-  let flagged = 0;
-
-  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
-  const fingerprintQuery = (q: string): string => {
-    if (!q) return '';
-    // Strip inline comments and string literals — they're variable across
-    // detections that are otherwise semantically identical (e.g. different
-    // case styles, paraphrased rationales). Keep the structural tokens.
-    const stripped = q
-      .replace(/\/\/.*?$/gm, '')           // // line comments
-      .replace(/\/\*[\s\S]*?\*\//g, '')    // /* block comments */
-      .replace(/"[^"\n]*"/g, '"S"')        // double-quoted strings → placeholder
-      .replace(/'[^'\n]*'/g, "'S'")        // single-quoted strings → placeholder
-      .toLowerCase();
-    // Extract identifier-like tokens (table names, fields, operators).
-    // Sort+dedupe so reordering doesn't change the fingerprint.
-    const tokens = stripped.match(/[a-z_][a-z0-9_.]{2,}/g) ?? [];
-    return Array.from(new Set(tokens)).sort().join('|');
-  };
-  const fingerprintTelemetry = (det: GeneratedDetection, opp: DetectionOpportunity): string => {
-    const src = new Set<string>();
-    for (const t of opp.telemetry ?? []) src.add(norm(t));
-    // Pull common data-source hints from the query body too (e.g. "Sysmon
-    // EID 1", "DeviceProcessEvents", "process_creation").
-    const hints = (det.query || '').match(/\b(sysmon|deviceprocessevents|deviceloginevents|securityalert|signinlogs|networktraffic|auditd|powershell|wineventlog)[a-z0-9_.]*/gi) ?? [];
-    for (const h of hints) src.add(norm(h));
-    return Array.from(src).sort().join('|');
-  };
-  const fingerprintMitre = (det: GeneratedDetection): string => {
-    return Array.from(new Set(det.mitre_technique_ids.map(s => s.toUpperCase().trim()))).sort().join(',');
-  };
-
-  for (const b of tree.behaviours) {
-    for (const opp of b.opportunities) {
-      const det = opp.detection;
-      if (det.archived) continue;
-      if (!det.query) continue; // empty detection — skip (engineer_failed / library_match path)
-
-      const fp: Fingerprint = {
-        mitre: fingerprintMitre(det),
-        telemetry: fingerprintTelemetry(det, opp),
-        queryTokens: fingerprintQuery(det.query),
-      };
-      // Don't dedup against a fingerprint that's entirely empty.
-      if (!fp.mitre && !fp.telemetry && !fp.queryTokens) continue;
-
-      // Match against any prior fingerprint with at least 2 of 3 buckets
-      // identical. 2-of-3 catches semantic duplicates while tolerating
-      // legitimate variation (e.g. one might cite different MITRE if the
-      // engineer dropped a sub-technique tag).
-      const match = seen.find(({ fp: other }) => {
-        let hits = 0;
-        if (fp.mitre && fp.mitre === other.mitre) hits++;
-        if (fp.telemetry && fp.telemetry === other.telemetry) hits++;
-        if (fp.queryTokens && fp.queryTokens === other.queryTokens) hits++;
-        return hits >= 2;
-      });
-
-      if (!match) {
-        seen.push({ fp, detectionId: det.id });
-        continue;
-      }
-
-      // Flag the duplicate. Preserve any existing qa verdict — we're
-      // adding a concern, not overwriting the model's judgement.
-      const dupNote = `Semantic duplicate of detection ${match.detectionId} (fingerprint match across MITRE/telemetry/query tokens).`;
-      if (det.qa) {
-        det.qa.duplicate_of = match.detectionId;
-        if (!det.qa.concerns.some(c => c.startsWith('Semantic duplicate'))) {
-          det.qa.concerns = [...det.qa.concerns, dupNote];
-        }
-      } else {
-        // No qa block (the detection may have shipped with qa_error or
-        // never reached QA). Don't fabricate a verdict — just attach
-        // duplicate metadata via a sentinel block that the UI can
-        // surface separately from a real verdict.
-        det.qa = {
-          verdict: 'pass_with_concerns',
-          coverage_quality: 'acceptable',
-          concerns: [dupNote],
-          suggested_changes: [],
-          duplicate_of: match.detectionId,
-          iteration_history: [],
-          iteration_count: 0,
-        };
-      }
-      flagged++;
-    }
-  }
-  return flagged;
 }
 
 /** Atomic merge of a JSONB patch into one behaviour. Concurrent-safe — use

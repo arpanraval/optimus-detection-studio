@@ -7,6 +7,7 @@ import type { LeafJobState } from '../../hooks/useThreatResearchJobs';
 import type {
   ThreatResearchSession, ThreatResearchTree, AttackBehaviour, DetectionOpportunity,
 } from '../../types/threatResearch';
+import { TrustFlags } from './shared';
 
 interface Props {
   session: ThreatResearchSession;
@@ -23,11 +24,15 @@ interface Props {
    *  button. Used in the failed-session view. */
   sessionFailed?: boolean;
   onLeafClick: (b: AttackBehaviour, o: DetectionOpportunity) => void;
-  /** Retry handler. The id is bare behaviour id ("b1") for empty-behaviour
-   *  rows where the engineer never produced opportunities; composite
-   *  "{behaviour}/{opportunity}" for per-leaf retry. The orchestrator's
-   *  retry_leaf endpoint accepts both shapes. */
-  onRetryLeaf?: (behaviourOrCompositeId: string) => void;
+  /** Per-leaf retry. The id is ALWAYS composite "{behaviour}/{opportunity}" —
+   *  that is what the orchestrator's retry_leaf endpoint accepts, because the
+   *  detection job it enqueues is scoped to one opportunity. A behaviour with
+   *  no opportunities has nothing to retry (see onResumeSession). */
+  onRetryLeaf?: (compositeId: string) => void;
+  /** Recovery for a behaviour that produced NO opportunities. retry_leaf
+   *  cannot help there: the missing artefact is an opportunity, and only the
+   *  Opportunity Planner makes those — which means re-running the session. */
+  onResumeSession?: () => void;
   /** Called after a bulk save/discard so the parent refetches the session. */
   onMutated?: () => void;
 }
@@ -46,7 +51,8 @@ const FEASIBILITY_LABEL: Record<string, string> = {
 };
 
 export function ResearchList({
-  session, tree, activeBehaviourIds, jobsByLeaf, sessionFailed, onLeafClick, onRetryLeaf, onMutated,
+  session, tree, activeBehaviourIds, jobsByLeaf, sessionFailed, onLeafClick, onRetryLeaf,
+  onResumeSession, onMutated,
 }: Props) {
   const { showToast } = useToast();
   const activeIds = activeBehaviourIds ?? EMPTY_ACTIVE_SET;
@@ -323,8 +329,8 @@ export function ResearchList({
                   key={b.id}
                   behaviour={b}
                   active={activeIds.has(b.id)}
-                  showRetry={!!sessionFailed && !activeIds.has(b.id)}
-                  onRetry={onRetryLeaf ? () => onRetryLeaf(b.id) : undefined}
+                  showResume={!!sessionFailed && !activeIds.has(b.id)}
+                  onResumeSession={onResumeSession}
                 />,
               ]
               : b.opportunities.map(o => {
@@ -371,6 +377,7 @@ type RowState =
   | 'qa_iteration'    // qa_error='iteration_cap' — KQL escape/JSON parse — retry
   | 'qa_budget'       // qa_error='model_budget_exhausted' — retry after cap bump
   | 'qa_timeout'      // qa_job_failed via reaper — retry
+  | 'dup_no_qa'       // qa_error='duplicate_no_qa' — semantic duplicate, QA never ran
   | 'qa_other_error'  // any other qa_error string — retry
   | 'lost_silent'     // job completed yet qa is null and qa_error is null — retry
   | 'qa_pending'      // qa job exists, status=pending, not picked up yet
@@ -391,6 +398,11 @@ function resolveRowState(
   if (det.qa_error === 'iteration_cap') return 'qa_iteration';
   if (det.qa_error === 'model_budget_exhausted') return 'qa_budget';
   if (det.qa_error && det.qa_error.startsWith('qa_job_failed')) return 'qa_timeout';
+  // Before the generic qa_error arm: this leaf is a semantic duplicate that
+  // never got a verdict. It used to arrive here carrying a synthesised
+  // qa.verdict='pass_with_concerns' and was caught by the 'pass_concerns'
+  // branch above — i.e. it rendered as QA-approved without QA ever running.
+  if (det.qa_error === 'duplicate_no_qa') return 'dup_no_qa';
   if (det.qa_error) return 'qa_other_error';
   // qa is null and qa_error is null. If the qa job's terminal, the verdict
   // was silently dropped (the historical id='d1' bug, or another path that
@@ -424,6 +436,7 @@ const STATE_RENDER: Record<RowState, StateRenderConfig> = {
   qa_iteration:   { label: 'QA stuck (JSON/escape)', icon: 'alert-triangle', textCls: 'text-ext-amber font-medium',     borderCls: 'border-l-ext-amber',       actionLabel: 'Retry' },
   qa_budget:      { label: 'QA budget exhausted', icon: 'alert-triangle', textCls: 'text-ext-amber font-medium',       borderCls: 'border-l-ext-amber',       actionLabel: 'Retry' },
   qa_timeout:     { label: 'QA worker timeout', icon: 'alert-triangle', textCls: 'text-ext-amber font-medium',         borderCls: 'border-l-ext-amber',       actionLabel: 'Retry' },
+  dup_no_qa:      { label: "Duplicate — QA didn't run", icon: 'copy',     textCls: 'text-on-surface-variant font-medium', borderCls: 'border-l-outline-variant', actionLabel: null   },
   qa_other_error: { label: 'QA error',           icon: 'alert-triangle', textCls: 'text-ext-amber font-medium',        borderCls: 'border-l-ext-amber',       actionLabel: 'Retry' },
   lost_silent:    { label: 'Lost — needs retry', icon: 'help-circle',   textCls: 'text-ext-amber font-medium',         borderCls: 'border-l-ext-amber',       actionLabel: 'Retry' },
   qa_pending:     { label: 'QA queued',          icon: 'clock',         textCls: 'text-on-surface-variant italic',     borderCls: 'border-l-transparent',     actionLabel: null   },
@@ -449,6 +462,10 @@ function Row({
   const render = STATE_RENDER[state];
 
   const isEngineerFailed = state === 'eng_failed';
+  // A semantic duplicate that never reached QA has nothing worth saving — the
+  // detection it duplicates is the one to keep. Suppress the checkbox rather
+  // than let it into a bulk save.
+  const isDuplicateNoQa = state === 'dup_no_qa';
 
   // Severity / feasibility cells: only show real values when the engineer
   // actually emitted them. engineer_failed and lost_silent stash defaults
@@ -469,6 +486,7 @@ function Row({
     state === 'qa_iteration'   ? 'QA agent loop hit iteration cap — typically a JSON parse failure on the candidate KQL (escape chars). Retry usually succeeds.' :
     state === 'eng_failed'     ? 'Detection engineer agent loop failed (budget/timeout/validation). Retry regenerates the detection from scratch.' :
     state === 'lost_silent'    ? 'QA verdict was lost mid-pipeline (historical id-mismatch bug). Retry re-runs QA against the existing detection body.' :
+    state === 'dup_no_qa'      ? `Semantic duplicate of detection ${det.duplicate_of ?? 'another leaf'}; QA never ran on this one. Nothing to save — use the detection it duplicates.` :
     state === 'fail'           ? (det.qa?.concerns?.[0] ?? 'QA judged the detection inadequate.') :
     null;
 
@@ -478,7 +496,7 @@ function Row({
       className={`cursor-pointer hover:bg-surface-container-high border-l-4 ${render.borderCls} ${det.archived ? 'opacity-50' : ''}`}
     >
       <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
-        {eligible && !isEngineerFailed ? (
+        {eligible && !isEngineerFailed && !isDuplicateNoQa ? (
           <input
             type="checkbox"
             checked={selected}
@@ -564,37 +582,45 @@ function Row({
 function EmptyBehaviourRow({
   behaviour,
   active,
-  showRetry,
-  onRetry,
+  showResume,
+  onResumeSession,
 }: {
   behaviour: AttackBehaviour;
   active: boolean;
-  showRetry: boolean;
-  onRetry?: () => void;
+  showResume: boolean;
+  onResumeSession?: () => void;
 }) {
   // Four mutually-exclusive states for a behaviour with zero opportunities:
   //   1. active            — agent is currently working on it
   //   2. engineer_failed   — agent loop crashed (budget/timeout/validation).
-  //                          Recoverable via retry; this is NOT a model
-  //                          verdict that the behaviour is undetectable.
+  //                          Recoverable, but NOT via retry_leaf; this is NOT
+  //                          a model verdict that the behaviour is undetectable.
   //   3. not_detectable    — engineer ran successfully and concluded no
   //                          reliable signal exists.
   //   4. otherwise         — genuinely waiting for engineer to claim the job.
+  //
+  // The recovery here is Resume session, not Retry. This row previously
+  // offered Retry wired to onRetryLeaf(behaviour.id) — a bare "b1". retry_leaf
+  // enqueues a detection job, and handleDetection requires a composite
+  // "{behaviour}/{opportunity}" id, so it threw every time. Even with a valid
+  // id it could not have helped: the missing artefact is an opportunity, and
+  // only the Opportunity Planner produces those.
   const isFailed = !active && behaviour.detectability === 'engineer_failed';
   const isNotDetectable = !active && behaviour.detectability === 'not_detectable';
 
   const message = active
     ? 'Agent working on this behaviour…'
     : isFailed
-      ? 'Engineer agent failed (budget / timeout / validation). Retry available.'
+      ? 'Engineer agent failed (budget / timeout / validation). Resume the session to re-run the planner for this behaviour.'
       : isNotDetectable
         ? (behaviour.detectability_rationale
             || 'Engineer ran but found no reliable signal to detect this behaviour with current telemetry.')
         : 'Waiting for the Detection Engineer…';
 
-  // Always offer Retry on engineer_failed regardless of session-level
-  // showRetry flag — the recovery is per-leaf and harmless.
-  const offerRetry = (showRetry || isFailed) && !!onRetry;
+  // Always offer the recovery on engineer_failed regardless of the
+  // session-level showResume flag — a failed engineer is worth resuming even
+  // if the session as a whole hasn't been marked failed yet.
+  const offerResume = (showResume || isFailed) && !!onResumeSession;
 
   // Pending rows still deserve a left-edge indicator so the row visually
   // aligns with status rows. Active = primary pulse, failed = error, not
@@ -625,63 +651,22 @@ function EmptyBehaviourRow({
         {message}
       </td>
       <td className="px-4 py-2">
-        {offerRetry ? (
+        {offerResume ? (
           <button
             type="button"
-            onClick={onRetry}
-            className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium ${
+            onClick={onResumeSession}
+            title="Re-runs the session's failed jobs, including the Opportunity Planner that would produce this behaviour's opportunities."
+            className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-medium ${
               isFailed
                 ? 'border border-primary bg-primary text-on-primary hover:opacity-90'
                 : 'border border-outline-variant text-on-surface hover:bg-surface-container'
             }`}
           >
-            Retry
+            Resume session
           </button>
         ) : null}
       </td>
     </tr>
-  );
-}
-
-/** Compact trust-signal cluster shown next to a behaviour title in the
- *  list view. Mirrors the per-detection chips on DetectionLeafCard so
- *  hallucination flags and unsourced-behaviour signals are visible while
- *  browsing the table — without these, a user would only see the flags
- *  by clicking into each leaf, defeating the whole point of the flags. */
-function TrustFlags({ behaviour }: { behaviour: AttackBehaviour }) {
-  const unverifiedCount = (behaviour.unverified_mitre_ids ?? []).length;
-  const inconsistentCount = (behaviour.tactic_inconsistent_mitre_ids ?? []).length;
-  const unsourced = behaviour.unsourced === true;
-  if (!unverifiedCount && !inconsistentCount && !unsourced) return null;
-  return (
-    <span className="inline-flex items-center gap-1">
-      {unverifiedCount > 0 && (
-        <span
-          className="inline-flex items-center gap-0.5 rounded bg-error-container px-1 py-0.5 text-[10px] font-medium text-on-error-container"
-          title={`${unverifiedCount} MITRE id${unverifiedCount === 1 ? '' : 's'} not in canonical table — possible hallucination`}
-        >
-          <Icon name="alert-triangle" size={9} />
-          {unverifiedCount}
-        </span>
-      )}
-      {inconsistentCount > 0 && (
-        <span
-          className="inline-flex items-center gap-0.5 rounded bg-secondary-container px-1 py-0.5 text-[10px] font-medium text-on-secondary-container"
-          title={`${inconsistentCount} MITRE id${inconsistentCount === 1 ? '' : 's'} canonically belong to a different tactic than this behaviour's tagged tactic`}
-        >
-          <Icon name="alert-circle" size={9} />
-          {inconsistentCount}
-        </span>
-      )}
-      {unsourced && (
-        <span
-          className="inline-flex items-center rounded bg-secondary-container px-1 py-0.5 text-[10px] font-medium text-on-secondary-container"
-          title="Behaviour is from training knowledge, no specific source citation"
-        >
-          training
-        </span>
-      )}
-    </span>
   );
 }
 

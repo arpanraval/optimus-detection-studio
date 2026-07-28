@@ -7,7 +7,7 @@
 
 import type { ResearchQueryLanguage } from "./types.ts";
 
-const SIEM_TO_QUERY_LANGUAGES: Record<string, ResearchQueryLanguage[]> = {
+export const SIEM_TO_QUERY_LANGUAGES: Record<string, ResearchQueryLanguage[]> = {
   'Splunk':                   ['SPL'],
   'Microsoft Sentinel':       ['KQL'],
   'Microsoft Defender XDR':   ['KQL'],
@@ -15,6 +15,18 @@ const SIEM_TO_QUERY_LANGUAGES: Record<string, ResearchQueryLanguage[]> = {
   'CrowdStrike Falcon':       ['CQL'],
   'Google Chronicle':         ['YARA-L'],
 };
+
+/** The SIEM platforms a session can target. Same keys as
+ *  SIEM_TO_QUERY_LANGUAGES — exported so the HTTP entry point can validate a
+ *  caller-supplied siem_platform against one source of truth rather than
+ *  keeping a second copy of the list. */
+export const SUPPORTED_SIEM_PLATFORMS: readonly string[] = Object.keys(SIEM_TO_QUERY_LANGUAGES);
+
+/** Case-sensitive on purpose: these strings are also what environment_profiles
+ *  .siem_platforms stores, and the UI picks them from the same list. */
+export function isSupportedSiem(platform: string): boolean {
+  return Object.prototype.hasOwnProperty.call(SIEM_TO_QUERY_LANGUAGES, platform);
+}
 
 export function resolveQueryLanguage(envProfile: { siem_platforms?: string[] } | null | undefined): ResearchQueryLanguage {
   const siems = envProfile?.siem_platforms ?? [];

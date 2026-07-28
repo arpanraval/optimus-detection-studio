@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '../ui/Button';
 import { Icon } from '../Icon';
 import { useToast } from '../../hooks/useToast';
+import { useEnvironmentProfile } from '../../hooks/useEnvironmentProfile';
+import { SIEM_TO_QUERY_LANGUAGES } from '../../hooks/useProfileIntelligence';
 import { startThreatResearch } from '../../lib/threatResearchService';
 import { routeHelpers } from '../../router/routes';
 
@@ -28,6 +30,16 @@ const AGENTS = [
   { name: 'QA',                icon: 'check-circle', color: 'text-ext-coral', desc: 'Verdict + revisions' },
 ];
 
+/** SIEM options, keyed off the same map the orchestrator uses to resolve a
+ *  query language (lib/query-language.ts is the server twin). Rendering the
+ *  resulting language next to each option is the point of the control: the
+ *  user is really choosing what the detections will be WRITTEN IN. */
+const SIEM_OPTIONS: { platform: string; language: string }[] =
+  Object.entries(SIEM_TO_QUERY_LANGUAGES).map(([platform, langs]) => ({
+    platform,
+    language: langs[0],
+  }));
+
 /** Lightweight client-side classifier mirroring the orchestrator's input
  *  routing. Pure heuristics — the agent re-classifies on the server, this is
  *  only for the live preview chip. */
@@ -46,11 +58,24 @@ export function NewResearchModal({ open, onClose }: NewResearchModalProps) {
   const { showToast } = useToast();
   const [input, setInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const { profile, isLoading: profileLoading } = useEnvironmentProfile();
+
+  // The SIEM the profile already implies, if any. resolveQueryLanguage server-
+  // side takes the first configured platform that maps to a language, so we
+  // mirror that here rather than just taking siem_platforms[0].
+  const profileSiem = (profile?.siem_platforms ?? [])
+    .find(s => SIEM_TO_QUERY_LANGUAGES[s]?.length) ?? '';
+  // Only force a choice when the profile can't answer it. Users who have
+  // configured their environment shouldn't be asked again on every session.
+  const siemRequired = !profileLoading && !profileSiem;
+  const [siem, setSiem] = useState('');
+  const effectiveSiem = siem || profileSiem;
 
   // Reset state on close so re-opening the modal doesn't show a stale draft.
   useEffect(() => {
     if (!open) {
       setInput('');
+      setSiem('');
       setSubmitting(false);
     }
   }, [open]);
@@ -65,9 +90,16 @@ export function NewResearchModal({ open, onClose }: NewResearchModalProps) {
       showToast('error', `Input must be ${MAX_INPUT} characters or fewer.`);
       return;
     }
+    if (siemRequired && !siem) {
+      showToast('error', 'Choose the SIEM these detections should be written for.');
+      return;
+    }
     setSubmitting(true);
     try {
-      const { session_id } = await startThreatResearch(trimmed);
+      // Send the explicit choice only. When it matches the profile the server
+      // reaches the same answer anyway, but sending it pins the ordering of
+      // environment_snapshot.siem_platforms to what the user actually picked.
+      const { session_id } = await startThreatResearch(trimmed, effectiveSiem || undefined);
       onClose();
       navigate(routeHelpers.researchDetail(session_id));
     } catch (err) {
@@ -135,6 +167,42 @@ export function NewResearchModal({ open, onClose }: NewResearchModalProps) {
             <div className="mt-2 flex items-center justify-between text-xs text-on-surface-variant">
               <span>CVE, threat actor, campaign, technique, or any detection idea</span>
               <span className="tabular-nums">{input.length} / {MAX_INPUT}</span>
+            </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor="tr-siem"
+              className="mb-2 block text-[11px] font-medium uppercase tracking-wide text-on-surface-variant"
+            >
+              Write detections for
+              {siemRequired && <span className="ml-1 text-error">*</span>}
+            </label>
+            <select
+              id="tr-siem"
+              value={siem || profileSiem}
+              onChange={e => setSiem(e.target.value)}
+              disabled={submitting || profileLoading}
+              required={siemRequired}
+              aria-describedby="tr-siem-help"
+              className="w-full rounded-2xl border border-outline-variant bg-surface px-4 py-2.5 text-sm text-on-surface transition-all focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/15 disabled:opacity-50"
+            >
+              {/* Empty option only when we genuinely don't know — an
+                  unselectable placeholder next to a real profile value would
+                  invite clearing a good default. */}
+              {!profileSiem && <option value="">Select your SIEM…</option>}
+              {SIEM_OPTIONS.map(o => (
+                <option key={o.platform} value={o.platform}>
+                  {o.platform} — {o.language}
+                </option>
+              ))}
+            </select>
+            <div id="tr-siem-help" className="mt-2 text-xs text-on-surface-variant">
+              {profileLoading
+                ? 'Checking your environment profile…'
+                : profileSiem
+                  ? <>From your environment profile. Change it to target a different SIEM for this session.</>
+                  : <>You have no environment profile yet, so there is nothing to infer this from. Without a choice every query would be written in Sigma, which your SIEM may not run.</>}
             </div>
           </div>
 
