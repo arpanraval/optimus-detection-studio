@@ -25,9 +25,15 @@ export async function cancelThreatResearch(session_id: string): Promise<void> {
   if (error) throw error;
 }
 
-/** Re-run the Detection Engineer for one behaviour. Used by the "Retry"
+/** Re-run the Detection Engineer for ONE opportunity. Used by the "Retry"
  *  button on a failed leaf. Inserts a fresh detection job; handleDetection
- *  is idempotent and overwrites prior partial state. */
+ *  is idempotent and overwrites prior partial state.
+ *
+ *  `behaviour_id` must be the composite "{behaviour}/{opportunity}" leaf id.
+ *  The orchestrator rejects a bare behaviour id with a 400: a behaviour with
+ *  no opportunities can't be fixed here at all, because the missing artefact
+ *  is an opportunity and only the Opportunity Planner produces those — that
+ *  case needs resumeFailedSession instead. */
 export async function retryDetectionLeaf(session_id: string, behaviour_id: string): Promise<void> {
   const { error } = await supabase.functions.invoke('threat-research-orchestrator?action=retry_leaf', {
     body: { session_id, behaviour_id },

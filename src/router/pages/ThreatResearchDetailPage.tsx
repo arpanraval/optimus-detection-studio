@@ -109,10 +109,14 @@ export function ThreatResearchDetailPage() {
     }
   }
 
-  async function handleRetryLeaf(behaviourId: string) {
+  /** Per-leaf retry. `compositeId` is always "{behaviour}/{opportunity}" — the
+   *  orchestrator rejects a bare behaviour id with a 400, because the detection
+   *  job it enqueues is scoped to one opportunity. Behaviours with no
+   *  opportunities use handleResume instead. */
+  async function handleRetryLeaf(compositeId: string) {
     if (!session) return;
     try {
-      await retryDetectionLeaf(session.id, behaviourId);
+      await retryDetectionLeaf(session.id, compositeId);
       showToast('info', 'Retry queued');
       await refetch();
     } catch (e) {
@@ -239,6 +243,7 @@ export function ThreatResearchDetailPage() {
             sessionFailed={session.status === 'failed'}
             onLeafClick={(b, o) => setSelected({ behaviour: b, opportunity: o })}
             onRetryLeaf={handleRetryLeaf}
+            onResumeSession={handleResume}
             onMutated={refetch}
           />
         )}

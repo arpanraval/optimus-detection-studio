@@ -23,11 +23,15 @@ interface Props {
    *  button. Used in the failed-session view. */
   sessionFailed?: boolean;
   onLeafClick: (b: AttackBehaviour, o: DetectionOpportunity) => void;
-  /** Retry handler. The id is bare behaviour id ("b1") for empty-behaviour
-   *  rows where the engineer never produced opportunities; composite
-   *  "{behaviour}/{opportunity}" for per-leaf retry. The orchestrator's
-   *  retry_leaf endpoint accepts both shapes. */
-  onRetryLeaf?: (behaviourOrCompositeId: string) => void;
+  /** Per-leaf retry. The id is ALWAYS composite "{behaviour}/{opportunity}" —
+   *  that is what the orchestrator's retry_leaf endpoint accepts, because the
+   *  detection job it enqueues is scoped to one opportunity. A behaviour with
+   *  no opportunities has nothing to retry (see onResumeSession). */
+  onRetryLeaf?: (compositeId: string) => void;
+  /** Recovery for a behaviour that produced NO opportunities. retry_leaf
+   *  cannot help there: the missing artefact is an opportunity, and only the
+   *  Opportunity Planner makes those — which means re-running the session. */
+  onResumeSession?: () => void;
   /** Called after a bulk save/discard so the parent refetches the session. */
   onMutated?: () => void;
 }
@@ -46,7 +50,8 @@ const FEASIBILITY_LABEL: Record<string, string> = {
 };
 
 export function ResearchList({
-  session, tree, activeBehaviourIds, jobsByLeaf, sessionFailed, onLeafClick, onRetryLeaf, onMutated,
+  session, tree, activeBehaviourIds, jobsByLeaf, sessionFailed, onLeafClick, onRetryLeaf,
+  onResumeSession, onMutated,
 }: Props) {
   const { showToast } = useToast();
   const activeIds = activeBehaviourIds ?? EMPTY_ACTIVE_SET;
@@ -323,8 +328,8 @@ export function ResearchList({
                   key={b.id}
                   behaviour={b}
                   active={activeIds.has(b.id)}
-                  showRetry={!!sessionFailed && !activeIds.has(b.id)}
-                  onRetry={onRetryLeaf ? () => onRetryLeaf(b.id) : undefined}
+                  showResume={!!sessionFailed && !activeIds.has(b.id)}
+                  onResumeSession={onResumeSession}
                 />,
               ]
               : b.opportunities.map(o => {
@@ -576,37 +581,45 @@ function Row({
 function EmptyBehaviourRow({
   behaviour,
   active,
-  showRetry,
-  onRetry,
+  showResume,
+  onResumeSession,
 }: {
   behaviour: AttackBehaviour;
   active: boolean;
-  showRetry: boolean;
-  onRetry?: () => void;
+  showResume: boolean;
+  onResumeSession?: () => void;
 }) {
   // Four mutually-exclusive states for a behaviour with zero opportunities:
   //   1. active            — agent is currently working on it
   //   2. engineer_failed   — agent loop crashed (budget/timeout/validation).
-  //                          Recoverable via retry; this is NOT a model
-  //                          verdict that the behaviour is undetectable.
+  //                          Recoverable, but NOT via retry_leaf; this is NOT
+  //                          a model verdict that the behaviour is undetectable.
   //   3. not_detectable    — engineer ran successfully and concluded no
   //                          reliable signal exists.
   //   4. otherwise         — genuinely waiting for engineer to claim the job.
+  //
+  // The recovery here is Resume session, not Retry. This row previously
+  // offered Retry wired to onRetryLeaf(behaviour.id) — a bare "b1". retry_leaf
+  // enqueues a detection job, and handleDetection requires a composite
+  // "{behaviour}/{opportunity}" id, so it threw every time. Even with a valid
+  // id it could not have helped: the missing artefact is an opportunity, and
+  // only the Opportunity Planner produces those.
   const isFailed = !active && behaviour.detectability === 'engineer_failed';
   const isNotDetectable = !active && behaviour.detectability === 'not_detectable';
 
   const message = active
     ? 'Agent working on this behaviour…'
     : isFailed
-      ? 'Engineer agent failed (budget / timeout / validation). Retry available.'
+      ? 'Engineer agent failed (budget / timeout / validation). Resume the session to re-run the planner for this behaviour.'
       : isNotDetectable
         ? (behaviour.detectability_rationale
             || 'Engineer ran but found no reliable signal to detect this behaviour with current telemetry.')
         : 'Waiting for the Detection Engineer…';
 
-  // Always offer Retry on engineer_failed regardless of session-level
-  // showRetry flag — the recovery is per-leaf and harmless.
-  const offerRetry = (showRetry || isFailed) && !!onRetry;
+  // Always offer the recovery on engineer_failed regardless of the
+  // session-level showResume flag — a failed engineer is worth resuming even
+  // if the session as a whole hasn't been marked failed yet.
+  const offerResume = (showResume || isFailed) && !!onResumeSession;
 
   // Pending rows still deserve a left-edge indicator so the row visually
   // aligns with status rows. Active = primary pulse, failed = error, not
@@ -637,17 +650,18 @@ function EmptyBehaviourRow({
         {message}
       </td>
       <td className="px-4 py-2">
-        {offerRetry ? (
+        {offerResume ? (
           <button
             type="button"
-            onClick={onRetry}
-            className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium ${
+            onClick={onResumeSession}
+            title="Re-runs the session's failed jobs, including the Opportunity Planner that would produce this behaviour's opportunities."
+            className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-medium ${
               isFailed
                 ? 'border border-primary bg-primary text-on-primary hover:opacity-90'
                 : 'border border-outline-variant text-on-surface hover:bg-surface-container'
             }`}
           >
-            Retry
+            Resume session
           </button>
         ) : null}
       </td>

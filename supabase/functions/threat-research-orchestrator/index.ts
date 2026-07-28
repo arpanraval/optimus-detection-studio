@@ -198,6 +198,22 @@ serve(async (req: Request) => {
       const behaviourId = typeof body?.behaviour_id === 'string' ? body.behaviour_id : '';
       if (!sessionId || !behaviourId) return corsErrorResponse('session_id and behaviour_id are required', req, 400);
 
+      // retry_leaf enqueues a `detection` job, and handleDetection requires a
+      // composite "{behaviour}/{opportunity}" id — it throws on a bare one.
+      // A behaviour with NO opportunities cannot be fixed here in any case:
+      // the missing artefact is an opportunity, and only the Opportunity
+      // Planner produces those. Reject explicitly instead of enqueuing a job
+      // that is guaranteed to throw, and name the action that does work.
+      if (!behaviourId.includes('/')) {
+        return corsErrorResponse(
+          `behaviour_id must be a composite "{behaviour}/{opportunity}" leaf id, got "${behaviourId}". ` +
+          `A behaviour with no opportunities needs the Opportunity Planner to run again — ` +
+          `use action=resume_session for that session instead.`,
+          req,
+          400,
+        );
+      }
+
       // Verify ownership via the user-scoped client (RLS).
       const { data: ownedSession } = await userClient
         .from('threat_research_sessions')
