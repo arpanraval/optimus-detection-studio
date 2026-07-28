@@ -101,11 +101,11 @@ git clone https://github.com/arpanraval/optimus-detection-studio.git
 cd optimus-detection-studio
 bun install
 cp .env.example .env.local     # add your Supabase URL + anon key
-bun run setup                  # links project, applies schema.sql, deploys 19 edge functions
+bun run setup                  # guided end-to-end install: schema, functions, secrets, automation
 bun run dev
 ```
 
-`bun run setup` applies the **entire database** in one shot: [`supabase/schema.sql`](supabase/schema.sql) is a single, self-contained schema (62 tables, functions, RLS, triggers, realtime, seed data), CI-verified to apply on an empty database. The full walkthrough (secrets, first owner, MITRE import) is in **[Setup](#setup)**.
+`bun run setup` is a guided end-to-end installer: it links your project, applies the **entire database** in one shot ([`supabase/schema.sql`](supabase/schema.sql) — a single, self-contained schema with 62 tables, functions, RLS, triggers, realtime, seed data, CI-verified to apply on an empty database), deploys all 19 edge functions, prompts for your AI keys, configures Threat Research background automation, verifies the install, and prints a per-step summary. **Safe to re-run** — completed steps are detected and skipped. The full walkthrough (secrets, first owner, MITRE import) is in **[Setup](#setup)**.
 
 > **Prerequisites:** [Bun](https://bun.sh) • [Supabase CLI](https://supabase.com/docs/guides/cli) • `psql` • a Supabase project (free tier is fine) • a Gemini API key for the full AI experience.
 
@@ -164,7 +164,7 @@ Detection saved → generate-embedding → Gemini embedding (1536-dim)
 │   ├── config.toml              # project config (link / functions / db)
 │   ├── optional-scheduled-jobs.sql
 │   ├── functions/               # Edge Functions (19)
-│   └── migrations/              # historical migration chain (reference only)
+│   └── migrations/              # historical chain plus forward migrations
 ├── scripts/                 # setup.ts (`bun run setup`) · setup-check.ts (`bun run setup:check`)
 └── .github/workflows/       # CI: schema-check applies schema.sql on empty Postgres
 ```
@@ -205,7 +205,6 @@ Set your project URL and anon key (Supabase Dashboard → Settings → API):
 ```env
 VITE_SUPABASE_URL=https://YOUR_REF.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
-VITE_APP_ENV=development
 ```
 
 ### 3. Run setup
@@ -214,7 +213,7 @@ VITE_APP_ENV=development
 bun run setup
 ```
 
-This links your project, applies `supabase/schema.sql`, deploys all **19 edge functions**, and prints the exact secrets command. Prefer to do it by hand?
+The guided installer runs end to end: links your project, applies `supabase/schema.sql`, deploys all **19 edge functions**, prompts for your AI keys (auto-generating the encryption key), configures Threat Research background automation (Vault + pg_cron), runs the install doctor, and prints a per-step summary of what completed, what was skipped, and what failed. Safe to re-run at any time — done steps are skipped. Prefer to do it by hand?
 
 ```bash
 supabase link --project-ref YOUR_REF
@@ -240,10 +239,11 @@ supabase secrets set \
 | Secret | Required | Purpose |
 |---|---|---|
 | `GEMINI_API_KEY` | yes | Gemini generation plus embeddings / semantic search |
-| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | optional | alternate generation providers |
-| `INTEGRATION_ENCRYPTION_KEY` | yes (for SIEM integrations) | AES-GCM key for stored credentials; generate with `bun -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` |
+| `ANTHROPIC_API_KEY` | yes, for Threat Research + Detection Finetuning | powers the Threat Research agents and the managed finetuning agent; also usable as a generation provider |
+| `INTEGRATION_ENCRYPTION_KEY` | yes (for SIEM integrations) | AES-GCM key for stored credentials; `bun run setup` generates it — never rotate it once integrations are stored |
+| `OPENAI_API_KEY` | optional | alternate generation provider |
 | `TAVILY_API_KEY` | optional | threat-intel web search |
-| `FINETUNE_AGENT_ID` / `FINETUNE_ENVIRONMENT_ID` | optional | managed-agent detection finetuning; create them with `ANTHROPIC_API_KEY=... bun scripts/setup-finetune-agent.ts` |
+| `FINETUNE_AGENT_ID` / `FINETUNE_ENVIRONMENT_ID` | optional | managed-agent detection finetuning (needs `ANTHROPIC_API_KEY` on the same account + a Defender XDR integration); provision once with `ANTHROPIC_API_KEY=... bun scripts/setup-finetune-agent.ts` — see [SETUP.md](SETUP.md) |
 | `RESEND_API_KEY` / `DEMO_NOTIFY_EMAIL` | optional | demo-request notification emails |
 | `ALLOWED_ORIGINS` / `SITE_URL` | optional | CORS allowlist + email links |
 
@@ -267,10 +267,10 @@ secret name starting with `SUPABASE_`).
 ```bash
 bun run dev          # dev server            bun run test         # tests (vitest)
 bun run build        # production build       bun run type-check   # TypeScript
-bun run setup:check  # verify your install is healthy (env, schema, functions, MITRE data)
+bun run setup:check  # verify your install is healthy (env, schema, functions, secrets, automation)
 ```
 
-> **Optional background automation:** to enable scheduled processing (AI-usage rollups, threat-research dispatch, auto-digest), apply [`supabase/optional-scheduled-jobs.sql`](supabase/optional-scheduled-jobs.sql) after filling in your own project ref and service-role key.
+> **Threat Research needs background automation** (Supabase Vault secrets + pg_cron/pg_net) — `bun run setup` configures it when you provide your service-role key. If you skipped that step, research sessions will sit at *pending*; re-run `bun run setup` or apply [`supabase/optional-scheduled-jobs.sql`](supabase/optional-scheduled-jobs.sql) by hand. The scheduled auto-digest / AI-usage rollups parts are genuinely optional. See [SETUP.md](SETUP.md) step 6a.
 
 ---
 
