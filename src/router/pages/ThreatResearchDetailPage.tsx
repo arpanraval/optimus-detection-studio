@@ -8,8 +8,10 @@ import { useThreatResearchEvents } from '../../hooks/useThreatResearchEvents';
 import { useThreatResearchJobs } from '../../hooks/useThreatResearchJobs';
 import { cancelThreatResearch, resumeFailedSession, retryDetectionLeaf } from '../../lib/threatResearchService';
 import { ResearchHeader } from '../../components/threat-research/ResearchHeader';
+import type { ResearchView } from '../../components/threat-research/ResearchHeader';
 import { ResearchCanvas } from '../../components/threat-research/ResearchCanvas';
 import { ResearchList } from '../../components/threat-research/ResearchList';
+import { ResearchDossier } from '../../components/threat-research/ResearchDossier';
 import { ResearchActivityConsole } from '../../components/threat-research/ResearchActivityConsole';
 import { DetectionLeafCard } from '../../components/threat-research/DetectionLeafCard';
 import { ROUTES } from '../routes';
@@ -56,7 +58,7 @@ export function ThreatResearchDetailPage() {
     () => deriveActiveBehaviourIds(jobs.byLeaf, jobs.attackResearchActive),
     [jobs.byLeaf, jobs.attackResearchActive],
   );
-  const [view, setView] = useState<'canvas' | 'list'>('canvas');
+  const [view, setView] = useState<ResearchView>('canvas');
   const [activityOpen, setActivityOpen] = useState(false);
   const [selected, setSelected] = useState<{ behaviour: AttackBehaviour; opportunity: DetectionOpportunity } | null>(null);
 
@@ -234,6 +236,8 @@ export function ThreatResearchDetailPage() {
               onToggle={() => setActivityOpen(o => !o)}
             />
           </>
+        ) : view === 'research' ? (
+          <ResearchDossier tree={tree} />
         ) : (
           <ResearchList
             session={session}

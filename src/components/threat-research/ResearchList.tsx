@@ -7,6 +7,7 @@ import type { LeafJobState } from '../../hooks/useThreatResearchJobs';
 import type {
   ThreatResearchSession, ThreatResearchTree, AttackBehaviour, DetectionOpportunity,
 } from '../../types/threatResearch';
+import { TrustFlags } from './shared';
 
 interface Props {
   session: ThreatResearchSession;
@@ -666,48 +667,6 @@ function EmptyBehaviourRow({
         ) : null}
       </td>
     </tr>
-  );
-}
-
-/** Compact trust-signal cluster shown next to a behaviour title in the
- *  list view. Mirrors the per-detection chips on DetectionLeafCard so
- *  hallucination flags and unsourced-behaviour signals are visible while
- *  browsing the table — without these, a user would only see the flags
- *  by clicking into each leaf, defeating the whole point of the flags. */
-function TrustFlags({ behaviour }: { behaviour: AttackBehaviour }) {
-  const unverifiedCount = (behaviour.unverified_mitre_ids ?? []).length;
-  const inconsistentCount = (behaviour.tactic_inconsistent_mitre_ids ?? []).length;
-  const unsourced = behaviour.unsourced === true;
-  if (!unverifiedCount && !inconsistentCount && !unsourced) return null;
-  return (
-    <span className="inline-flex items-center gap-1">
-      {unverifiedCount > 0 && (
-        <span
-          className="inline-flex items-center gap-0.5 rounded bg-error-container px-1 py-0.5 text-[10px] font-medium text-on-error-container"
-          title={`${unverifiedCount} MITRE id${unverifiedCount === 1 ? '' : 's'} not in canonical table — possible hallucination`}
-        >
-          <Icon name="alert-triangle" size={9} />
-          {unverifiedCount}
-        </span>
-      )}
-      {inconsistentCount > 0 && (
-        <span
-          className="inline-flex items-center gap-0.5 rounded bg-secondary-container px-1 py-0.5 text-[10px] font-medium text-on-secondary-container"
-          title={`${inconsistentCount} MITRE id${inconsistentCount === 1 ? '' : 's'} canonically belong to a different tactic than this behaviour's tagged tactic`}
-        >
-          <Icon name="alert-circle" size={9} />
-          {inconsistentCount}
-        </span>
-      )}
-      {unsourced && (
-        <span
-          className="inline-flex items-center rounded bg-secondary-container px-1 py-0.5 text-[10px] font-medium text-on-secondary-container"
-          title="Behaviour is from training knowledge, no specific source citation"
-        >
-          training
-        </span>
-      )}
-    </span>
   );
 }
 

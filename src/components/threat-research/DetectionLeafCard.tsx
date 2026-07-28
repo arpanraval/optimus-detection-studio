@@ -4,6 +4,7 @@ import { Button } from '../ui/Button';
 import { useToast } from '../../hooks/useToast';
 import { saveDetectionFromLeaf, archiveLeaf, unarchiveLeaf, completeQa } from '../../lib/threatResearchService';
 import { routeHelpers } from '../../router/routes';
+import { Section, CitationList } from './shared';
 import type {
   ThreatResearchSession, AttackBehaviour, DetectionOpportunity, LibraryNearMatch,
 } from '../../types/threatResearch';
@@ -340,16 +341,7 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
         </Section>
 
         <Section title="Citations">
-          <ul className="space-y-1.5">
-            {det.citations.length === 0
-              ? <li className="text-xs italic text-on-surface-variant">No citations.</li>
-              : det.citations.map((c, i) => (
-                <li key={i} className="text-xs">
-                  <a href={c.url} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">{c.source}</a>
-                  <span className="text-on-surface"> — {c.claim}</span>
-                </li>
-              ))}
-          </ul>
+          <CitationList citations={det.citations} />
         </Section>
 
         {det.covers_behaviour_ids.length > 1 && (
@@ -471,15 +463,6 @@ function LibraryNearMatchNote({ match }: { match: LibraryNearMatch }) {
         {match.name}
       </a>{' '}
       (similarity {match.combined_score.toFixed(2)}), but {reason}. A new detection was written instead.
-    </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">{title}</div>
-      {children}
     </div>
   );
 }

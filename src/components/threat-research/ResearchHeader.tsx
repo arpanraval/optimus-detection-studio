@@ -1,15 +1,22 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '../Icon';
-import { CoverageImpactBadge } from './coverage/CoverageImpactBadge';
 import { ROUTES } from '../../router/routes';
 import type { ThreatResearchSession } from '../../types/threatResearch';
 
+export type ResearchView = 'canvas' | 'list' | 'research';
+
 interface Props {
   session: ThreatResearchSession;
-  view: 'canvas' | 'list';
-  onViewChange: (v: 'canvas' | 'list') => void;
+  view: ResearchView;
+  onViewChange: (v: ResearchView) => void;
 }
+
+const VIEWS: { id: ResearchView; label: string; title: string }[] = [
+  { id: 'canvas',   label: 'Canvas',   title: 'Behaviour → opportunity → detection tree' },
+  { id: 'list',     label: 'List',     title: 'Every detection with its QA state' },
+  { id: 'research', label: 'Research', title: 'Threat profile, kill-chain walk and per-behaviour deep dives' },
+];
 
 const STATUS_STYLE: Record<string, string> = {
   pending:    'bg-on-surface/5 text-on-surface-variant ring-1 ring-inset ring-on-surface/10',
@@ -76,7 +83,13 @@ export function ResearchHeader({ session, view, onViewChange }: Props) {
                 {targetedSiem} only · {otherSiems.length} uncovered
               </span>
             )}
-            <CoverageImpactBadge impact={session.coverage_impact} />
+            {/* CoverageImpactBadge is hidden until coverage_impact is real.
+                finalise writes a hardcoded `coverage_impact: 0` (see
+                lib/orchestrator.ts, the session-completion update), so the
+                badge has only ever rendered a placeholder — presented with the
+                same authority as the budget badges next to it. Showing "0%
+                coverage impact" for every session is worse than showing
+                nothing. Restore this when finalise computes the number. */}
             <BudgetBadge
               used={session.model_calls_used}
               cap={session.model_call_cap}
@@ -91,18 +104,17 @@ export function ResearchHeader({ session, view, onViewChange }: Props) {
         </div>
 
         <div className="inline-flex rounded-full border border-outline-variant bg-surface p-1">
-          <button
-            onClick={() => onViewChange('canvas')}
-            className={`rounded-full px-4 py-1 text-sm font-medium transition-colors ${view === 'canvas' ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:text-on-surface'}`}
-          >
-            Canvas
-          </button>
-          <button
-            onClick={() => onViewChange('list')}
-            className={`rounded-full px-4 py-1 text-sm font-medium transition-colors ${view === 'list' ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:text-on-surface'}`}
-          >
-            List
-          </button>
+          {VIEWS.map(v => (
+            <button
+              key={v.id}
+              onClick={() => onViewChange(v.id)}
+              title={v.title}
+              aria-pressed={view === v.id}
+              className={`rounded-full px-4 py-1 text-sm font-medium transition-colors ${view === v.id ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:text-on-surface'}`}
+            >
+              {v.label}
+            </button>
+          ))}
         </div>
       </div>
     </header>
