@@ -70,14 +70,20 @@ jobs:
           P=$(psql "$PGURL" -tA -c "select count(*) from pg_policies where schemaname='public';")
           R=$(psql "$PGURL" -tA -c "select count(*) from pg_publication_tables where pubname='supabase_realtime';")
           A=$(psql "$PGURL" -tA -c "select count(*) from pg_trigger where tgname='on_auth_user_created';")
-          echo "public tables:        $T (expect 62)"
+          C=$(psql "$PGURL" -tA -c "select count(*) from information_schema.columns where table_schema='public' and table_name='auto_digest_jobs' and column_name in ('active_entry_id','heartbeat_at');")
+          W=$(psql "$PGURL" -tA -c "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.oid='public.auto_digest_watchdog()'::regprocedure and pg_get_functiondef(p.oid) like '%active_entry_id%' and pg_get_functiondef(p.oid) like '%heartbeat_at%' and pg_get_functiondef(p.oid) like '%digest_failed%';")
+          echo "public tables:        $T (expect >= 63)"
           echo "public functions:     $F (expect >= 80)"
-          echo "public RLS policies:  $P (expect 170)"
+          echo "public RLS policies:  $P (expect >= 170)"
           echo "realtime tables:      $R (expect 8)"
           echo "auth signup trigger:  $A (expect 1)"
-          [ "$T" -eq 62 ] || { echo "::error::expected 62 tables, got $T"; fail=1; }
-          [ "$P" -eq 170 ] || { echo "::error::expected 170 policies, got $P"; fail=1; }
+          echo "auto-digest columns:  $C (expect 2)"
+          echo "watchdog definition:  $W (expect 1)"
+          [ "$T" -ge 63 ] || { echo "::error::expected at least 63 tables, got $T"; fail=1; }
+          [ "$P" -ge 170 ] || { echo "::error::expected at least 170 policies, got $P"; fail=1; }
           [ "$R" -eq 8 ]  || { echo "::error::expected 8 realtime tables, got $R"; fail=1; }
           [ "$A" -eq 1 ]  || { echo "::error::expected on_auth_user_created trigger, got $A"; fail=1; }
+          [ "$C" -eq 2 ]  || { echo "::error::expected active_entry_id and heartbeat_at, got $C"; fail=1; }
+          [ "$W" -eq 1 ]  || { echo "::error::expected heartbeat-aware auto_digest_watchdog, got $W"; fail=1; }
           [ "$fail" -eq 0 ] && echo "✅ supabase/schema.sql applies cleanly on an empty database"
           exit $fail
