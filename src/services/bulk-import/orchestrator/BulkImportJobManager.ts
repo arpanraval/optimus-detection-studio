@@ -28,7 +28,7 @@ import { duplicateDetector } from '../validators/DuplicateDetector';
 import { detectionNormalizer, NormalizationOptions } from '../normalizers/DetectionNormalizer';
 import { zipFetcher } from '../fetchers/ZipFetcher';
 import { fileFetcher } from '../fetchers/FileFetcher';
-import { githubFetcher } from '../fetchers/GitHubFetcher';
+import { GitHubFetcher } from '../fetchers/GitHubFetcher';
 import { batchInserter } from '../persistence/BatchInserter';
 import { Detection } from '../../../types';
 import { batchResolveTechniques } from '../../../mitre';
@@ -46,6 +46,13 @@ export interface ImportJobCallbacks {
   onComplete?: (result: ImportJobResult) => void;
 }
 
+export class ImportCancelledError extends Error {
+  constructor(public readonly result: ImportJobResult) {
+    super('Import cancelled by user');
+    this.name = 'ImportCancelledError';
+  }
+}
+
 /**
  * Main orchestrator for bulk import operations
  */
@@ -54,6 +61,7 @@ export class BulkImportJobManager {
   private callbacks: ImportJobCallbacks = {};
   private aborted = false;
   private embeddingStrategy: EmbeddingStrategy = 'realtime';
+  private githubFetcher = new GitHubFetcher();
 
   /**
    * Set the embedding strategy for post-import embedding generation
@@ -93,6 +101,7 @@ export class BulkImportJobManager {
     };
 
     this.aborted = false;
+    this.githubFetcher.resetAbort();
     return this.job;
   }
 
@@ -108,7 +117,7 @@ export class BulkImportJobManager {
 
     if (config.sourceType === 'github' && config.sourceUrl) {
       // Use Trees API scan for GitHub
-      const report = await githubFetcher.scanRepository(config.sourceUrl, {
+      const report = await this.githubFetcher.scanRepository(config.sourceUrl, {
         token: config.githubToken,
       });
 
@@ -124,14 +133,16 @@ export class BulkImportJobManager {
     } else if (config.sourceType === 'files' && config.sourceFiles) {
       const supportedExts = ['.yml', '.yaml', '.json', '.toml', '.yaral', '.yar'];
       const matching = config.sourceFiles.filter((f) =>
-        supportedExts.some((ext) => f.name.toLowerCase().endsWith(ext))
+        supportedExts.some((ext) => f.name.toLowerCase().endsWith(ext)),
       );
 
       let existingCount = 0;
       try {
         const existingIds = await duplicateDetector.loadExistingExternalIds(config.targetLibrary);
         existingCount = existingIds.size;
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
 
       return {
         source: 'files',
@@ -148,7 +159,9 @@ export class BulkImportJobManager {
       try {
         const existingIds = await duplicateDetector.loadExistingExternalIds(config.targetLibrary);
         existingCount = existingIds.size;
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
 
       return {
         source: 'zip',
@@ -183,6 +196,7 @@ export class BulkImportJobManager {
    */
   abort(): void {
     this.aborted = true;
+    this.githubFetcher.abort();
     if (this.job) {
       this.updateStatus('cancelled');
     }
@@ -222,10 +236,7 @@ export class BulkImportJobManager {
   /**
    * Execute the import for selected rules
    */
-  async executeImport(
-    selectedRules: ValidatedRule[],
-    userId: string
-  ): Promise<ImportJobResult> {
+  async executeImport(selectedRules: ValidatedRule[], userId: string): Promise<ImportJobResult> {
     if (!this.job) {
       throw new Error('No job created. Call createJob() first.');
     }
@@ -243,10 +254,7 @@ export class BulkImportJobManager {
         generateNewIds: true,
       };
 
-      const normalizedRules = detectionNormalizer.normalizeAll(
-        selectedRules,
-        normalizationOptions
-      );
+      const normalizedRules = detectionNormalizer.normalizeAll(selectedRules, normalizationOptions);
 
       const detections = normalizedRules.map((r) => r.detection);
 
@@ -280,7 +288,12 @@ export class BulkImportJobManager {
         onError: (error) => {
           this.addError(error);
         },
+        shouldAbort: () => this.aborted,
       });
+
+      if (result.cancelled || this.aborted) {
+        throw new ImportCancelledError({ ...result, cancelled: true });
+      }
 
       // Post-insert embedding generation based on strategy
       if (result.importedDetectionIds.length > 0) {
@@ -297,6 +310,10 @@ export class BulkImportJobManager {
         }
       }
 
+      if (this.aborted) {
+        throw new ImportCancelledError({ ...result, cancelled: true });
+      }
+
       // Update job with result
       this.job.result = result;
       this.updateStatus('completed');
@@ -311,6 +328,15 @@ export class BulkImportJobManager {
 
       return result;
     } catch (error) {
+      if (error instanceof ImportCancelledError) {
+        if (this.job) {
+          this.job.result = error.result;
+          this.updateStatus('cancelled');
+          await this.updateCancelledJobInDatabase(error.result);
+        }
+        throw error;
+      }
+
       this.handleError('IMPORT_ERROR', error);
       // Try to update job as failed in database
       if (this.job) {
@@ -374,7 +400,7 @@ export class BulkImportJobManager {
 
       files = result.files;
     } else if (config.sourceType === 'github' && config.sourceUrl) {
-      const result = await githubFetcher.fetch(config.sourceUrl, {
+      const result = await this.githubFetcher.fetch(config.sourceUrl, {
         token: config.githubToken,
         path: config.githubPath,
         onProgress: (current, total, fileName) => {
@@ -417,9 +443,7 @@ export class BulkImportJobManager {
     const includePaths = this.job!.config.includePaths;
     if (includePaths && includePaths.length > 0) {
       const beforeCount = files.length;
-      files = files.filter((f) =>
-        includePaths.some((prefix) => f.path.startsWith(prefix + '/') || f.path === prefix)
-      );
+      files = files.filter((f) => includePaths.some((prefix) => f.path.startsWith(prefix + '/') || f.path === prefix));
       if (files.length < beforeCount) {
         warnings.push(`Filtered ${beforeCount - files.length} files outside selected folders`);
       }
@@ -427,9 +451,8 @@ export class BulkImportJobManager {
 
     // Vendor-locked parsing: if a single vendor filter is set, use that parser exclusively
     const vendorFilter = this.job!.config.vendorFilter;
-    const lockedParser = vendorFilter && vendorFilter.length === 1
-      ? parserFactory.getParserForFormat(vendorFilter[0])
-      : null;
+    const lockedParser =
+      vendorFilter && vendorFilter.length === 1 ? parserFactory.getParserForFormat(vendorFilter[0]) : null;
 
     for (let i = 0; i < files.length; i++) {
       if (this.aborted) break;
@@ -450,7 +473,7 @@ export class BulkImportJobManager {
         const autoDetectedParser = parserFactory.findParser(file.name, file.content);
         if (autoDetectedParser && autoDetectedParser.vendorFormat !== lockedParser.vendorFormat) {
           warnings.push(
-            `${file.name}: Parsed as ${lockedParser.vendorFormat} (user selected), but auto-detection suggests ${autoDetectedParser.vendorFormat}`
+            `${file.name}: Parsed as ${lockedParser.vendorFormat} (user selected), but auto-detection suggests ${autoDetectedParser.vendorFormat}`,
           );
         }
       } else {
@@ -501,9 +524,7 @@ export class BulkImportJobManager {
     const parsedRules: ParsedRule[] = (this.job as any)._parsedRules || [];
 
     // Load existing external IDs for duplicate detection
-    const existingExternalIds = await duplicateDetector.loadExistingExternalIds(
-      this.job!.config.targetLibrary
-    );
+    const existingExternalIds = await duplicateDetector.loadExistingExternalIds(this.job!.config.targetLibrary);
 
     // Build validation options
     const validationOptions: ValidationOptions = {
@@ -783,7 +804,7 @@ export class BulkImportJobManager {
 
       // Small delay between batches to avoid rate limiting
       if (i + BATCH_SIZE < detectionIds.length) {
-        await new Promise(resolve => setTimeout(resolve, 300));
+        await new Promise((resolve) => setTimeout(resolve, 300));
       }
     }
 
@@ -839,7 +860,7 @@ export class BulkImportJobManager {
     const allTechniqueIds = new Set<string>();
     for (const detection of detections) {
       if (detection.mitreAttackIds) {
-        detection.mitreAttackIds.forEach(id => allTechniqueIds.add(id));
+        detection.mitreAttackIds.forEach((id) => allTechniqueIds.add(id));
       }
     }
 
@@ -902,9 +923,7 @@ export class BulkImportJobManager {
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase
-        .from('bulk_import_jobs')
-        .insert(jobRecord);
+      const { error } = await supabase.from('bulk_import_jobs').insert(jobRecord);
 
       if (error) {
         console.error('Failed to save job to database:', error);
@@ -925,7 +944,7 @@ export class BulkImportJobManager {
       const { error } = await supabase
         .from('bulk_import_jobs')
         .update({
-          status: result.success ? 'completed' : 'failed',
+          status: result.successCount > 0 || result.failureCount === 0 ? 'completed' : 'failed',
           success_count: result.successCount,
           failure_count: result.failureCount,
           skip_count: result.skipCount,
@@ -943,6 +962,29 @@ export class BulkImportJobManager {
       }
     } catch (error) {
       console.error('Error updating job in database:', error);
+    }
+  }
+
+  /** Persist a user cancellation without losing rollback metadata for completed batches. */
+  private async updateCancelledJobInDatabase(result: ImportJobResult): Promise<void> {
+    if (!this.job) return;
+
+    const { error } = await supabase
+      .from('bulk_import_jobs')
+      .update({
+        status: 'cancelled',
+        success_count: result.successCount,
+        failure_count: result.failureCount,
+        skip_count: result.skipCount,
+        imported_detection_ids: result.importedDetectionIds,
+        errors: this.job.errors,
+        warnings: this.job.warnings,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', this.job.id);
+
+    if (error) {
+      console.error('Failed to mark import job as cancelled:', error);
     }
   }
 

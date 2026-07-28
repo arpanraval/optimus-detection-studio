@@ -20,13 +20,7 @@ import { useGlobalImport, type GlobalImportStatus } from '../../context/GlobalIm
 import { Icon } from '../Icon';
 
 /** Statuses that make this bar visible */
-const VISIBLE_STATUSES: GlobalImportStatus[] = [
-  'importing',
-  'paused',
-  'resumed',
-  'complete',
-  'rolling_back',
-];
+const VISIBLE_STATUSES: GlobalImportStatus[] = ['importing', 'paused', 'resumed', 'complete', 'rolling_back'];
 
 function formatCount(n: number): string {
   if (n >= 1000) {
@@ -75,15 +69,7 @@ interface Props {
 
 export function GlobalImportBar({ importRoute = '/arsenal/bulk-import' }: Props): React.JSX.Element | null {
   const navigate = useNavigate();
-  const {
-    status,
-    progress,
-    isMinimized,
-    importResult,
-    activeJob,
-    expand,
-    abortImport,
-  } = useGlobalImport();
+  const { status, progress, importResult, activeJob, expand, abortImport } = useGlobalImport();
 
   // No auto-dismiss on completion: users were missing confirmation
   // when not actively watching the bottom of the screen. The pill
@@ -95,29 +81,25 @@ export function GlobalImportBar({ importRoute = '/arsenal/bulk-import' }: Props)
   // of whether the user explicitly minimised.
   const location = useLocation();
   const onDedicatedRoute =
-    location.pathname.startsWith('/onboarding') ||
-    location.pathname.startsWith('/arsenal/bulk-import');
+    location.pathname.startsWith('/onboarding') || location.pathname.startsWith('/arsenal/bulk-import');
 
-  const isVisible =
-    VISIBLE_STATUSES.includes(status) &&
-    (status === 'complete' || !onDedicatedRoute || isMinimized);
+  const isVisible = VISIBLE_STATUSES.includes(status) && !onDedicatedRoute;
 
   if (!isVisible) return null;
 
   // Progress calculation
-  const totalRules = progress?.totalRules ?? 0;
-  const insertedRules = progress?.insertedRules ?? 0;
-  const percent =
-    totalRules > 0 ? Math.round((insertedRules / totalRules) * 100) : 0;
+  const isEmbedding = progress?.phase === 'embedding';
+  const totalRules = isEmbedding ? (progress?.embeddingTotal ?? 0) : (progress?.totalRules ?? 0);
+  const insertedRules = isEmbedding ? (progress?.embeddingGenerated ?? 0) : (progress?.insertedRules ?? 0);
+  const percent = totalRules > 0 ? Math.round((insertedRules / totalRules) * 100) : 0;
 
   // Source name from active job
-  const sourceName: string =
-    activeJob?.sourceUrl ?? activeJob?.sourceVendor ?? '';
+  const sourceName: string = activeJob?.config?.sourceUrl ?? activeJob?.config?.sourceVendor ?? '';
 
   // Handlers
   function handleExpand(): void {
     expand();
-    navigate(importRoute);
+    navigate(activeJob?.config?.returnRoute ?? importRoute);
   }
 
   function handleDismiss(): void {
@@ -141,10 +123,7 @@ export function GlobalImportBar({ importRoute = '/arsenal/bulk-import' }: Props)
 
           {/* Actions */}
           <div className="flex items-center gap-2 border-l border-outline-variant/30 pl-3">
-            <button
-              onClick={handleExpand}
-              className="text-xs font-medium text-on-primary-container hover:underline"
-            >
+            <button onClick={handleExpand} className="text-xs font-medium text-on-primary-container hover:underline">
               View Summary
             </button>
             <button
@@ -166,9 +145,13 @@ export function GlobalImportBar({ importRoute = '/arsenal/bulk-import' }: Props)
       <div className="bg-surface-container-high border border-outline-variant/30 rounded-full shadow-xl px-4 py-2 flex items-center gap-4 min-w-[400px]">
         {/* Pulse indicator */}
         <div className="relative">
-          <div className={`w-3 h-3 rounded-full ${getPulseDotClass(status)} ${status !== 'paused' ? 'animate-pulse' : ''}`} />
+          <div
+            className={`w-3 h-3 rounded-full ${getPulseDotClass(status)} ${status !== 'paused' ? 'animate-pulse' : ''}`}
+          />
           {status !== 'paused' && (
-            <div className={`absolute inset-0 w-3 h-3 rounded-full ${getPulseDotClass(status)} animate-ping opacity-50`} />
+            <div
+              className={`absolute inset-0 w-3 h-3 rounded-full ${getPulseDotClass(status)} animate-ping opacity-50`}
+            />
           )}
         </div>
 
@@ -176,13 +159,9 @@ export function GlobalImportBar({ importRoute = '/arsenal/bulk-import' }: Props)
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-on-surface">
-              {getStatusLabel(status)}
+              {isEmbedding ? 'Generating search embeddings...' : getStatusLabel(status)}
             </span>
-            {sourceName && (
-              <span className="text-xs text-on-surface-variant truncate max-w-[150px]">
-                {sourceName}
-              </span>
-            )}
+            {sourceName && <span className="text-xs text-on-surface-variant truncate max-w-[150px]">{sourceName}</span>}
           </div>
 
           {/* Progress bar */}

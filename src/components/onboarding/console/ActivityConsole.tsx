@@ -45,16 +45,9 @@ function ConsoleEntryRow({ entry }: { entry: ConsoleEntryType }) {
       <span className="text-[10px] font-mono w-14 shrink-0 text-on-surface-variant/50">
         {formatTimestamp(entry.timestamp)}
       </span>
-      <span
-        className="w-1.5 h-1.5 rounded-full shrink-0"
-        style={{ backgroundColor: getSourceColor(entry.sourceId) }}
-      />
-      <span className="text-[10px] font-medium w-20 shrink-0 truncate text-on-surface-variant">
-        {entry.sourceName}
-      </span>
-      <span className="text-[10px] flex-1 truncate text-on-surface">
-        {entry.message}
-      </span>
+      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: getSourceColor(entry.sourceId) }} />
+      <span className="text-[10px] font-medium w-20 shrink-0 truncate text-on-surface-variant">{entry.sourceName}</span>
+      <span className="text-[10px] flex-1 truncate text-on-surface">{entry.message}</span>
       <span
         className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded shrink-0 ${colors.textClass} ${colors.bgClass}`}
       >
@@ -85,14 +78,9 @@ export function ActivityConsole() {
   const hasAutoExpandedRef = useRef(false);
 
   const totalCount = consoleEntries.length;
-  const errorCount = useMemo(
-    () => consoleEntries.filter((e) => e.level === 'error').length,
-    [consoleEntries]
-  );
-  const warnCount = useMemo(
-    () => consoleEntries.filter((e) => e.level === 'warn').length,
-    [consoleEntries]
-  );
+  const latestEntry = consoleEntries[consoleEntries.length - 1];
+  const errorCount = useMemo(() => consoleEntries.filter((e) => e.level === 'error').length, [consoleEntries]);
+  const warnCount = useMemo(() => consoleEntries.filter((e) => e.level === 'warn').length, [consoleEntries]);
 
   const filteredEntries = useMemo(() => {
     if (filter === 'all') return consoleEntries;
@@ -119,8 +107,7 @@ export function ActivityConsole() {
   const handleScroll = useCallback(() => {
     const container = scrollRef.current;
     if (!container) return;
-    isAtBottomRef.current =
-      container.scrollHeight - container.scrollTop - container.clientHeight < 20;
+    isAtBottomRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 20;
   }, []);
 
   const toggleExpanded = useCallback(() => {
@@ -147,6 +134,16 @@ export function ActivityConsole() {
           className="flex items-center justify-between px-4 shrink-0 cursor-pointer transition-colors hover:bg-surface-container-high/50"
           style={{ height: 36 }}
           onClick={toggleExpanded}
+          role="button"
+          tabIndex={0}
+          aria-expanded={expanded}
+          aria-controls="onboarding-activity-log"
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              toggleExpanded();
+            }
+          }}
         >
           {/* Left */}
           <div className="flex items-center gap-2">
@@ -168,16 +165,14 @@ export function ActivityConsole() {
             <span className="text-[11px] font-medium text-on-surface-variant">
               Activity Log
               <span className="text-on-surface-variant/60">
-                {' '}&middot; {totalCount} event{totalCount !== 1 ? 's' : ''}
+                {' '}
+                &middot; {totalCount} event{totalCount !== 1 ? 's' : ''}
               </span>
-              {warnCount > 0 && (
-                <span className="text-[#f59e0b]">
-                  {' '}&middot; {warnCount}
-                </span>
-              )}
-              {errorCount > 0 && (
-                <span className="text-error">
-                  {' '}&middot; {errorCount}
+              {warnCount > 0 && <span className="text-[#f59e0b]"> &middot; {warnCount}</span>}
+              {errorCount > 0 && <span className="text-error"> &middot; {errorCount}</span>}
+              {!expanded && latestEntry && (
+                <span className="ml-2 hidden max-w-[18rem] truncate text-on-surface md:inline">
+                  {latestEntry.sourceName}: {latestEntry.message}
                 </span>
               )}
             </span>
@@ -189,13 +184,18 @@ export function ActivityConsole() {
               {(['all', 'error', 'warn'] as FilterMode[]).map((mode) => (
                 <button
                   key={mode}
+                  type="button"
+                  aria-pressed={filter === mode}
                   className={[
                     'text-[10px] px-2 py-0.5 rounded-full cursor-pointer transition-colors',
                     filter === mode
                       ? 'text-on-primary-container bg-primary/10'
                       : 'text-on-surface-variant bg-surface-container-high',
                   ].join(' ')}
-                  onClick={(e) => { e.stopPropagation(); setFilter(mode); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFilter(mode);
+                  }}
                 >
                   {mode === 'all' ? 'All' : mode === 'error' ? 'Errors' : 'Warnings'}
                 </button>
@@ -208,6 +208,10 @@ export function ActivityConsole() {
         {expanded && (
           <div
             ref={scrollRef}
+            id="onboarding-activity-log"
+            role="log"
+            aria-live="polite"
+            aria-relevant="additions"
             className="overflow-y-auto scrollbar-minimal"
             style={{ maxHeight: 200 }}
             onScroll={handleScroll}
@@ -217,9 +221,7 @@ export function ActivityConsole() {
             ))}
             {filteredEntries.length === 0 && (
               <div className="px-4 py-3 text-center">
-                <span className="text-[11px] text-on-surface-variant/50">
-                  No entries
-                </span>
+                <span className="text-[11px] text-on-surface-variant/50">No entries</span>
               </div>
             )}
           </div>

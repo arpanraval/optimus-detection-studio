@@ -15,7 +15,7 @@
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { OnboardingProvider, useOnboarding } from './OnboardingContext';
+import { ONBOARDING_TARGET_LIBRARY, OnboardingProvider, useOnboarding } from './OnboardingContext';
 import PipelineVisualization from './pipeline/PipelineVisualization';
 import { ActivityConsole } from './console/ActivityConsole';
 import { CompletionOverlay } from './completion/CompletionOverlay';
@@ -27,7 +27,8 @@ import { ImportPreCheck } from './ImportPreCheck';
 import { ImportReport } from './ImportReport';
 import { Button } from '../ui/Button';
 import { supabase } from '../../lib/supabaseClient';
-import type { PreCheckSummary } from '../../services/bulk-import/types';
+import type { ImportProgress, PreCheckSummary } from '../../services/bulk-import/types';
+import { useLibrary } from '../../context/LibraryContext';
 
 // ---------------------------------------------------------------------------
 // Initialize Button - Floating CTA
@@ -41,19 +42,22 @@ function InitializeButton({ onInitialize }: InitializeButtonProps) {
   const { phase, sources, abort } = useOnboarding();
 
   const selectedWithFolders = useMemo(() => {
-    return sources.filter(
-      (s) => s.selected && s.folders.some((f) => f.selected)
-    );
+    return sources.filter((s) => s.selected && s.folders.some((f) => f.selected));
   }, [sources]);
 
   const totalRules = useMemo(() => {
-    return selectedWithFolders.reduce((sum, s) => sum + s.source.estimatedRules, 0);
+    return selectedWithFolders.reduce(
+      (sum, sourceState) =>
+        sum +
+        sourceState.folders.filter((folder) => folder.selected).reduce((count, folder) => count + folder.fileCount, 0),
+      0,
+    );
   }, [selectedWithFolders]);
 
   const isReady = selectedWithFolders.length > 0 && phase === 'selection';
   const isProcessing = phase === 'processing';
 
-  if (phase === 'complete' || phase === 'confirming') return null;
+  if (phase !== 'selection' && phase !== 'processing') return null;
 
   return (
     <div className="absolute z-20 bottom-14 left-1/2 -translate-x-1/2">
@@ -78,15 +82,58 @@ function InitializeButton({ onInitialize }: InitializeButtonProps) {
           {isReady ? (
             <>
               Initialize {selectedWithFolders.length} Source{selectedWithFolders.length !== 1 ? 's' : ''}
-              <span className="ml-2 text-[11px] opacity-60">
-                ~{totalRules.toLocaleString()} rules
-              </span>
+              <span className="ml-2 text-[11px] opacity-60">~{totalRules.toLocaleString()} rules</span>
             </>
+          ) : sources.some((sourceState) => sourceState.selected) ? (
+            'Select at least one folder'
           ) : (
             'Select sources to begin'
           )}
         </button>
       )}
+    </div>
+  );
+}
+
+function ImportProgressCard({ progress, onStop }: { progress: ImportProgress; onStop: () => void }) {
+  const isEmbedding = progress.phase === 'embedding';
+  const current = isEmbedding ? progress.embeddingGenerated || 0 : progress.insertedRules;
+  const total = isEmbedding ? progress.embeddingTotal || 0 : progress.totalRules;
+  const percentage = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
+
+  return (
+    <div
+      className="absolute z-30 top-24 left-1/2 -translate-x-1/2 w-[calc(100%_-_2rem)] max-w-[26rem] rounded-2xl border border-primary/25 bg-surface-container/95 px-5 py-4 shadow-xl backdrop-blur-xl pointer-events-auto"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-[13px] font-medium text-on-surface">
+            {isEmbedding ? 'Generating search embeddings' : 'Storing detections'}
+          </p>
+          <p className="mt-1 truncate text-[11px] text-on-surface-variant">
+            {current.toLocaleString()} of {total.toLocaleString()} {isEmbedding ? 'embeddings' : 'rules'}
+          </p>
+        </div>
+        <span className="shrink-0 text-sm font-semibold tabular-nums text-primary">{percentage}%</span>
+      </div>
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-container-highest">
+        <div
+          className="h-full origin-left rounded-full bg-primary transition-transform duration-300"
+          style={{ transform: `scaleX(${percentage / 100})` }}
+        />
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <span className="text-[10px] text-on-surface-variant">Stopping waits for the current database batch.</span>
+        <button
+          type="button"
+          onClick={onStop}
+          className="shrink-0 rounded-lg px-3 py-1.5 text-[11px] text-error hover:bg-error/10"
+        >
+          Stop import
+        </button>
+      </div>
     </div>
   );
 }
@@ -97,13 +144,31 @@ function InitializeButton({ onInitialize }: InitializeButtonProps) {
 
 function OnboardingContent() {
   const navigate = useNavigate();
-  const { phase, sources, retrySource, initializeOnboarding, getParsedRulesForImport, getValidatedRulesForImport, resetPhase, syncImportProgress } = useOnboarding();
+  const { setCurrentLibrary } = useLibrary();
+  const {
+    phase,
+    sources,
+    retrySource,
+    initializeOnboarding,
+    getParsedRulesForImport,
+    getValidatedRulesForImport,
+    resetPhase,
+    syncImportProgress,
+    completeImportPipeline,
+  } = useOnboarding();
   const globalImport = useGlobalImport();
   const [completionPhase, setCompletionPhase] = useState<CompletionPhase | null>(null);
   const [showCTAs, setShowCTAs] = useState(false);
   const [showPreCheck, setShowPreCheck] = useState(false);
   const [preCheckLoading, setPreCheckLoading] = useState(false);
   const [preCheckError, setPreCheckError] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSelection, setImportSelection] = useState({
+    netNewImported: 0,
+    forcedDuplicates: 0,
+    unchangedSkipped: 0,
+    changedUpstreamSkipped: 0,
+  });
 
   // FIX: Store pre-check results locally so we don't depend on context state
   // for the render condition. This ensures showPreCheck and localPreCheckResults
@@ -123,12 +188,11 @@ function OnboardingContent() {
   // Sync global import progress to the visual pipeline
   useEffect(() => {
     if (globalImport.status === 'importing' && globalImport.progress) {
-      syncImportProgress(
-        globalImport.progress.insertedRules,
-        globalImport.progress.totalRules
-      );
+      syncImportProgress(globalImport.progress);
+    } else if (globalImport.status === 'complete') {
+      completeImportPipeline();
     }
-  }, [globalImport.status, globalImport.progress, syncImportProgress]);
+  }, [globalImport.status, globalImport.progress, syncImportProgress, completeImportPipeline]);
 
   // FIX: Safety net — if the async callback's setShowPreCheck(true) didn't trigger
   // the modal for any reason (React batching timing, stale closure), this effect
@@ -136,6 +200,7 @@ function OnboardingContent() {
   useEffect(() => {
     if (
       phase === 'confirming' &&
+      globalImport.status === 'confirming' &&
       globalImport.preCheckResults &&
       !showPreCheck &&
       !preCheckLoading &&
@@ -145,7 +210,7 @@ function OnboardingContent() {
       setLocalPreCheckResults(globalImport.preCheckResults);
       setShowPreCheck(true);
     }
-  }, [phase, globalImport.preCheckResults, showPreCheck, preCheckLoading, preCheckError]);
+  }, [phase, globalImport.status, globalImport.preCheckResults, showPreCheck, preCheckLoading, preCheckError]);
 
   const handleSkip = () => {
     localStorage.setItem('optimus:onboarding:skipped', 'true');
@@ -185,12 +250,14 @@ function OnboardingContent() {
     setPreCheckError(null);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
       console.log('[Onboarding] Starting pre-check for', parsedRules.length, 'rules, user:', user.id);
       // FIX: Use ref to access latest globalImport (avoids stale closure)
-      const summary = await globalImportRef.current.startPreCheck(parsedRules, user.id);
+      const summary = await globalImportRef.current.startPreCheck(parsedRules, user.id, ONBOARDING_TARGET_LIBRARY);
       console.log('[Onboarding] Pre-check complete:', {
         netNew: summary.netNew.length,
         updated: summary.updatedUpstream.length,
@@ -215,6 +282,7 @@ function OnboardingContent() {
   const handlePreCheckConfirm = useCallback(
     async (config: { importNetNew: boolean; updateExisting: boolean; forceUnchanged: boolean }) => {
       setShowPreCheck(false);
+      setImportError(null);
       // FIX: Use ref for getValidatedRulesForImport to get latest version
       const { rules, jobConfig } = getValidatedRulesRef.current();
 
@@ -225,25 +293,40 @@ function OnboardingContent() {
       if (preCheckResults) {
         // Build sets of external IDs to include
         const idsToInclude = new Set<string>();
+        const netNewIds = new Set(preCheckResults.netNew.map((result) => result.externalId));
+        const unchangedIds = new Set(preCheckResults.unchanged.map((result) => result.externalId));
 
         if (config.importNetNew) {
-          preCheckResults.netNew.forEach(r => idsToInclude.add(r.externalId));
+          preCheckResults.netNew.forEach((r) => idsToInclude.add(r.externalId));
         }
         if (config.updateExisting) {
-          preCheckResults.updatedUpstream.forEach(r => idsToInclude.add(r.externalId));
+          preCheckResults.updatedUpstream.forEach((r) => idsToInclude.add(r.externalId));
         }
         if (config.forceUnchanged) {
-          preCheckResults.unchanged.forEach(r => idsToInclude.add(r.externalId));
+          preCheckResults.unchanged.forEach((r) => idsToInclude.add(r.externalId));
         }
 
-        finalRulesToImport = rules.filter(r => idsToInclude.has(r.parsed.sourceId));
+        finalRulesToImport = rules.filter((r) => idsToInclude.has(r.parsed.sourceId));
+        setImportSelection({
+          netNewImported: finalRulesToImport.filter((rule) => netNewIds.has(rule.parsed.sourceId)).length,
+          forcedDuplicates: finalRulesToImport.filter((rule) => unchangedIds.has(rule.parsed.sourceId)).length,
+          unchangedSkipped: config.forceUnchanged ? 0 : preCheckResults.unchanged.length,
+          changedUpstreamSkipped: preCheckResults.updatedUpstream.length,
+        });
       }
 
       // FIX: Use ref to access latest globalImport
-      await globalImportRef.current.confirmAndImport(finalRulesToImport, jobConfig);
-      setLocalPreCheckResults(null);
+      try {
+        if (finalRulesToImport.length === 0) {
+          throw new Error('No selected rules passed validation. Review the rejected rules before retrying.');
+        }
+        await globalImportRef.current.confirmAndImport(finalRulesToImport, jobConfig);
+      } catch (err) {
+        console.error('[Onboarding] Import failed:', err);
+        setImportError(err instanceof Error ? err.message : 'Import failed');
+      }
     },
-    [localPreCheckResults]
+    [localPreCheckResults],
   );
 
   const handlePreCheckCancel = useCallback(() => {
@@ -264,7 +347,13 @@ function OnboardingContent() {
 
   // Determine if we're in a stuck state (confirming phase, no modal, no loading, no error)
   // FIX: Delay stuck-state detection by 1.5s to avoid flashing during normal flow
-  const isStuckCondition = phase === 'confirming' && !showPreCheck && !preCheckLoading && !preCheckError && globalImport.status !== 'importing' && globalImport.status !== 'complete';
+  const isStuckCondition =
+    phase === 'confirming' &&
+    globalImport.status === 'confirming' &&
+    !showPreCheck &&
+    !preCheckLoading &&
+    !preCheckError &&
+    !importError;
   const [isStuckState, setIsStuckState] = useState(false);
   useEffect(() => {
     if (isStuckCondition) {
@@ -315,6 +404,17 @@ function OnboardingContent() {
           <ActivityConsole />
         </div>
 
+        {globalImport.status === 'importing' && globalImport.progress && (
+          <ImportProgressCard
+            progress={globalImport.progress}
+            onStop={() => {
+              globalImport.abortImport();
+              resetPhase('selection');
+              setImportError(null);
+            }}
+          />
+        )}
+
         {/* Pre-check loading indicator */}
         {preCheckLoading && (
           <div className="absolute inset-0 z-[100] flex items-center justify-center bg-scrim/50 backdrop-blur-sm pointer-events-auto">
@@ -337,7 +437,10 @@ function OnboardingContent() {
                   color="surface"
                   variant="text"
                   size="sm"
-                  onClick={() => { setPreCheckError(null); resetPhase('selection'); }}
+                  onClick={() => {
+                    setPreCheckError(null);
+                    resetPhase('selection');
+                  }}
                 >
                   Back to selection
                 </Button>
@@ -345,18 +448,49 @@ function OnboardingContent() {
                   color="primary"
                   variant="filled"
                   size="sm"
-                  onClick={async () => {
+                  onClick={() => {
                     setPreCheckError(null);
-                    try {
-                      const { rules, jobConfig } = getValidatedRulesRef.current();
-                      await globalImportRef.current.confirmAndImport(rules, jobConfig);
-                    } catch (err) {
-                      console.error('[Onboarding] Import-anyway failed:', err);
-                      setPreCheckError(err instanceof Error ? err.message : 'Import failed');
-                    }
+                    resetPhase('selection');
+                    void handleInitialize();
                   }}
                 >
-                  Import anyway
+                  Retry pre-check
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {importError && (
+          <div className="absolute inset-0 z-[100] flex items-center justify-center bg-scrim/50 backdrop-blur-sm pointer-events-auto">
+            <div className="max-w-sm p-6 rounded-2xl bg-surface-container border border-error/30 shadow-2xl">
+              <p className="text-[13px] text-error font-medium mb-2">Import failed</p>
+              <p className="text-[12px] text-on-surface-variant mb-4">{importError}</p>
+              <div className="flex gap-2">
+                <Button
+                  color="surface"
+                  variant="text"
+                  size="sm"
+                  onClick={() => {
+                    globalImportRef.current.abortImport();
+                    setImportError(null);
+                    resetPhase('selection');
+                  }}
+                >
+                  Back to selection
+                </Button>
+                <Button
+                  color="primary"
+                  variant="filled"
+                  size="sm"
+                  onClick={() => {
+                    globalImportRef.current.abortImport();
+                    setImportError(null);
+                    resetPhase('confirming');
+                    setShowPreCheck(true);
+                  }}
+                >
+                  Review and retry
                 </Button>
               </div>
             </div>
@@ -366,9 +500,7 @@ function OnboardingContent() {
         {/* FIX: Stuck state recovery */}
         {isStuckState && (
           <div className="absolute z-20 bottom-14 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-auto">
-            <p className="text-[11px] text-on-surface-variant/70">
-              Processing complete — ready to review
-            </p>
+            <p className="text-[11px] text-on-surface-variant/70">Processing complete — ready to review</p>
             <button
               onClick={handleManualShowPreCheck}
               className="px-6 py-2.5 rounded-xl text-[13px] font-medium cursor-pointer transition-all duration-200 bg-primary/10 border border-primary/40 text-on-primary-container hover:bg-primary/20 backdrop-blur-sm shadow-[0_0_20px_rgb(var(--md-sys-color-primary)/0.1)]"
@@ -390,6 +522,7 @@ function OnboardingContent() {
             <ImportPreCheck
               summary={localPreCheckResults}
               sourceName="Detection Sources"
+              destinationLabel="Development Library"
               onConfirm={handlePreCheckConfirm}
               onCancel={handlePreCheckCancel}
             />
@@ -402,17 +535,27 @@ function OnboardingContent() {
             <div className="rounded-2xl bg-surface-container border border-outline-variant/20 backdrop-blur-xl">
               <ImportReport
                 result={globalImport.importResult}
+                progress={globalImport.progress}
                 preCheckSummary={localPreCheckResults ?? globalImport.preCheckResults}
+                selection={importSelection}
+                destinationLabel="Development Library"
                 jobId={globalImport.activeJob?.id ?? ''}
                 onRollback={async () => {
                   if (globalImport.activeJob?.id) {
-                    await globalImport.rollbackImport(globalImport.activeJob.id);
+                    const rollback = await globalImport.rollbackImport(globalImport.activeJob.id);
+                    if (!rollback.success) throw new Error(rollback.error || 'Rollback did not complete');
+                    setLocalPreCheckResults(null);
+                    resetPhase('selection');
                   }
                 }}
-                onDone={() => {
+                onDone={(destination) => {
                   localStorage.setItem('optimus:onboarding:completed', 'true');
                   setLocalPreCheckResults(null);
-                  navigate('/');
+                  globalImport.abortImport();
+                  if (destination?.startsWith('/library')) {
+                    setCurrentLibrary(ONBOARDING_TARGET_LIBRARY);
+                  }
+                  navigate(destination ?? '/');
                 }}
               />
             </div>
@@ -428,7 +571,7 @@ function OnboardingContent() {
               <div className="absolute z-30 inset-0 flex items-center justify-center bg-surface-container-lowest/85">
                 <div className="max-w-md w-full mx-4 p-6 rounded-2xl bg-surface-container border border-outline-variant/20 backdrop-blur-xl">
                   <SourceSummaryList
-                    sources={sources.filter(s => s.selected)}
+                    sources={sources.filter((s) => s.selected)}
                     onRetrySource={(id) => retrySource(id)}
                     onAddMoreSources={handleAddMoreSources}
                   />

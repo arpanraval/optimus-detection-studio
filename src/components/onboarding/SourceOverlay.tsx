@@ -14,7 +14,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useOnboarding } from './OnboardingContext';
-import type { SourceState, FolderInfo } from './types';
+import type { SourceState, FolderInfo, OnboardingPhase } from './types';
+import type { ImportProgress } from '../../services/bulk-import/types';
 
 /** Map source IDs to bundled logo paths */
 const SOURCE_LOGO_MAP: Record<string, string> = {
@@ -42,15 +43,21 @@ interface FolderTreeRowProps {
   folder: FolderInfo;
   isLast: boolean;
   onToggle: () => void;
+  disabled?: boolean;
 }
 
-function FolderTreeRow({ folder, isLast, onToggle }: FolderTreeRowProps): React.JSX.Element {
+function FolderTreeRow({ folder, isLast, onToggle, disabled }: FolderTreeRowProps): React.JSX.Element {
   const connector = isLast ? '\u2514\u2500' : '\u251C\u2500';
 
   return (
     <button
       type="button"
-      onClick={(e) => { e.stopPropagation(); onToggle(); }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      disabled={disabled}
+      aria-pressed={folder.selected}
       className="w-full flex items-center gap-1 py-[2px] px-0.5 rounded cursor-pointer transition-colors duration-150 hover:bg-on-surface/[0.04]"
     >
       {/* Tree connector */}
@@ -65,9 +72,7 @@ function FolderTreeRow({ folder, isLast, onToggle }: FolderTreeRowProps): React.
       <span
         className={[
           'shrink-0 w-3 h-3 rounded-[3px] flex items-center justify-center transition-all duration-200',
-          folder.selected
-            ? 'border-[1.5px] border-primary bg-primary/20'
-            : 'border-[1.5px] border-outline-variant',
+          folder.selected ? 'border-[1.5px] border-primary bg-primary/20' : 'border-[1.5px] border-outline-variant',
         ].join(' ')}
       >
         {folder.selected && (
@@ -95,9 +100,7 @@ function FolderTreeRow({ folder, isLast, onToggle }: FolderTreeRowProps): React.
       </span>
 
       {/* File count */}
-      <span className="text-[10px] shrink-0 tabular-nums text-on-surface-variant">
-        {folder.fileCount}
-      </span>
+      <span className="text-[10px] shrink-0 tabular-nums text-on-surface-variant">{folder.fileCount}</span>
     </button>
   );
 }
@@ -105,6 +108,30 @@ function FolderTreeRow({ folder, isLast, onToggle }: FolderTreeRowProps): React.
 // ---------------------------------------------------------------------------
 // Scanning indicator
 // ---------------------------------------------------------------------------
+
+function SourceProgress({ progress }: { progress: ImportProgress }): React.JSX.Element {
+  const usesRules = progress.phase === 'validating';
+  const current = usesRules ? progress.validRules : progress.processedFiles;
+  const total = usesRules ? progress.totalRules : progress.totalFiles;
+  const percent = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
+
+  return (
+    <div className="py-2 px-1" role="status" aria-live="polite">
+      <div className="flex items-center justify-between gap-2 text-[10px] text-on-surface-variant">
+        <span className="capitalize">{progress.phase}</span>
+        <span className="tabular-nums">
+          {current.toLocaleString()}/{total.toLocaleString()}
+        </span>
+      </div>
+      <div className="mt-1 h-1 overflow-hidden rounded-full bg-surface-container-highest">
+        <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${percent}%` }} />
+      </div>
+      {progress.currentFile && (
+        <p className="mt-1 truncate text-[9px] text-on-surface-variant">{progress.currentFile}</p>
+      )}
+    </div>
+  );
+}
 
 function ScanningIndicator(): React.JSX.Element {
   return (
@@ -131,9 +158,11 @@ interface SourceDetailProps {
   onSelectAll: () => void;
   onDeselectAll: () => void;
   onRetry: () => void;
+  controlsLocked: boolean;
+  activePhase: OnboardingPhase;
 }
 
-function SourceDetail({
+export function SourceDetail({
   state,
   expanded,
   onToggleExpand,
@@ -141,19 +170,25 @@ function SourceDetail({
   onSelectAll,
   onDeselectAll,
   onRetry,
+  controlsLocked,
+  activePhase,
 }: SourceDetailProps): React.JSX.Element {
-  const { source, status, folders, errorMessage } = state;
+  const { source, status, folders, errorMessage, progress } = state;
   const processing = isProcessing(status);
   const showFolders = status === 'ready' && folders.length > 0;
   const selectedFolderCount = folders.filter((f) => f.selected).length;
 
   // Status indicator dot color
   const statusDotClass =
-    status === 'complete' ? 'bg-[#10b981]'
-    : status === 'error' ? 'bg-error'
-    : processing ? 'bg-primary animate-pulse'
-    : status === 'ready' ? 'bg-[#10b981]'
-    : 'bg-outline-variant';
+    status === 'complete'
+      ? 'bg-[#10b981]'
+      : status === 'error'
+        ? 'bg-error'
+        : processing
+          ? 'bg-primary animate-pulse'
+          : status === 'ready'
+            ? 'bg-[#10b981]'
+            : 'bg-outline-variant';
 
   return (
     <div className="last:mb-0">
@@ -161,6 +196,7 @@ function SourceDetail({
       <button
         type="button"
         onClick={onToggleExpand}
+        aria-expanded={expanded}
         className="w-full flex items-center gap-1.5 py-1.5 px-1 rounded-lg cursor-pointer transition-colors duration-150 hover:bg-on-surface/[0.04]"
       >
         {/* Chevron */}
@@ -198,9 +234,7 @@ function SourceDetail({
         )}
 
         {/* Source name */}
-        <span className="text-[12px] font-medium text-on-surface truncate flex-1 text-left">
-          {source.shortName}
-        </span>
+        <span className="text-[12px] font-medium text-on-surface truncate flex-1 text-left">{source.shortName}</span>
 
         {/* Status dot */}
         <span className={`w-2 h-2 rounded-full shrink-0 ${statusDotClass}`} />
@@ -209,15 +243,27 @@ function SourceDetail({
       {/* Expanded content — folder tree + status */}
       {expanded && (
         <div className="pl-5 pr-1 pb-1.5">
+          {activePhase !== 'selection' && status === 'ready' && (
+            <p className="py-1 text-[10px] text-on-primary-container" role="status">
+              {activePhase === 'importing'
+                ? 'Storing selected rules'
+                : activePhase === 'embedding'
+                  ? 'Generating search embeddings'
+                  : activePhase === 'complete'
+                    ? 'Import complete'
+                    : 'Preparing selected rules'}
+            </p>
+          )}
           {/* Error with retry */}
           {status === 'error' && (
             <div className="flex items-center gap-2 py-1">
-              <span className="text-[10px] text-error truncate">
-                {errorMessage || 'Failed'}
-              </span>
+              <span className="text-[10px] text-error truncate">{errorMessage || 'Failed'}</span>
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); onRetry(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRetry();
+                }}
                 className="text-[9px] px-1.5 py-0.5 rounded cursor-pointer text-error border border-error/30 bg-error/10"
               >
                 Retry
@@ -228,14 +274,15 @@ function SourceDetail({
           {/* Scanning state */}
           {status === 'recon' && <ScanningIndicator />}
 
+          {progress && ['fetching', 'parsing', 'validating'].includes(progress.phase) && (
+            <SourceProgress progress={progress} />
+          )}
+
           {/* Folder tree */}
           {showFolders && (
             <div className="mt-0.5">
               {/* Tree header */}
-              <div
-                className="text-[10px] mb-0.5 text-on-surface-variant"
-                style={{ fontFamily: 'monospace' }}
-              >
+              <div className="text-[10px] mb-0.5 text-on-surface-variant" style={{ fontFamily: 'monospace' }}>
                 {source.basePath}/
               </div>
 
@@ -247,6 +294,7 @@ function SourceDetail({
                     folder={folder}
                     isLast={i === folders.length - 1}
                     onToggle={() => onToggleFolder(folder.path)}
+                    disabled={controlsLocked}
                   />
                 ))}
               </div>
@@ -255,7 +303,11 @@ function SourceDetail({
               <div className="flex items-center gap-2 mt-1 px-0.5 text-[10px]">
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); onSelectAll(); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectAll();
+                  }}
+                  disabled={controlsLocked}
                   className="cursor-pointer transition-colors text-on-primary-container hover:text-on-surface"
                 >
                   All
@@ -263,7 +315,11 @@ function SourceDetail({
                 <span className="text-outline-variant">|</span>
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); onDeselectAll(); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeselectAll();
+                  }}
+                  disabled={controlsLocked}
                   className="cursor-pointer transition-colors text-on-primary-container hover:text-on-surface"
                 >
                   None
@@ -293,14 +349,9 @@ interface SourcePanelContentProps {
 }
 
 export function SourcePanelContent({ onCollapse }: SourcePanelContentProps): React.JSX.Element | null {
-  const {
-    sources,
-    toggleSource,
-    toggleFolder,
-    selectAllFolders,
-    deselectAllFolders,
-    retrySource,
-  } = useOnboarding();
+  const { phase, sources, toggleSource, toggleFolder, selectAllFolders, deselectAllFolders, retrySource } =
+    useOnboarding();
+  const controlsLocked = phase !== 'selection';
 
   const selectedSources = sources.filter((s) => s.selected);
   const unselectedSources = sources.filter((s) => !s.selected);
@@ -366,16 +417,11 @@ export function SourcePanelContent({ onCollapse }: SourcePanelContentProps): Rea
               key={s.source.id}
               type="button"
               onClick={() => toggleSource(s.source.id)}
+              disabled={controlsLocked}
               className="text-[10px] px-1.5 py-0.5 rounded cursor-pointer transition-all duration-150 text-on-surface-variant border border-outline-variant/25 hover:border-primary/40 hover:text-on-surface flex items-center gap-1"
             >
               {SOURCE_LOGO_MAP[s.source.id] && (
-                <img
-                  src={SOURCE_LOGO_MAP[s.source.id]}
-                  alt=""
-                  width={10}
-                  height={10}
-                  className="object-contain"
-                />
+                <img src={SOURCE_LOGO_MAP[s.source.id]} alt="" width={10} height={10} className="object-contain" />
               )}
               + {s.source.shortName}
             </button>
@@ -384,9 +430,7 @@ export function SourcePanelContent({ onCollapse }: SourcePanelContentProps): Rea
       )}
 
       {/* Divider after quick-select */}
-      {unselectedSources.length > 0 && (
-        <div className="h-px mx-3 bg-outline-variant/10" />
-      )}
+      {unselectedSources.length > 0 && <div className="h-px mx-3 bg-outline-variant/10" />}
 
       {/* Selected source details (scrollable) */}
       <div className="flex-1 overflow-y-auto px-2 py-1 scrollbar-minimal">
@@ -395,15 +439,13 @@ export function SourcePanelContent({ onCollapse }: SourcePanelContentProps): Rea
             key={state.source.id}
             state={state}
             expanded={expandedSourceId === state.source.id}
-            onToggleExpand={() =>
-              setExpandedSourceId(
-                expandedSourceId === state.source.id ? null : state.source.id
-              )
-            }
+            onToggleExpand={() => setExpandedSourceId(expandedSourceId === state.source.id ? null : state.source.id)}
             onToggleFolder={(path) => toggleFolder(state.source.id, path)}
             onSelectAll={() => selectAllFolders(state.source.id)}
             onDeselectAll={() => deselectAllFolders(state.source.id)}
             onRetry={() => retrySource(state.source.id)}
+            controlsLocked={controlsLocked}
+            activePhase={phase}
           />
         ))}
       </div>

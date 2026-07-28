@@ -42,18 +42,18 @@ export interface SigmaLogsource {
 /** Parsed rule from any vendor - normalized intermediate format */
 export interface ParsedRule {
   // Source identification
-  sourceId: string;              // Original rule ID from vendor
-  sourceUrl?: string;            // URL to original rule
-  sourceFormat: VendorFormat;    // 'sigma' | 'splunk_escu' | 'elastic' | 'kql' | 'crowdstrike_cql' | 'chronicle'
-  sourceFileName: string;        // Original filename
-  sourceFilePath?: string;       // Full path within archive
+  sourceId: string; // Original rule ID from vendor
+  sourceUrl?: string; // URL to original rule
+  sourceFormat: VendorFormat; // 'sigma' | 'splunk_escu' | 'elastic' | 'kql' | 'crowdstrike_cql' | 'chronicle'
+  sourceFileName: string; // Original filename
+  sourceFilePath?: string; // Full path within archive
 
   // Core fields
   title: string;
   description: string;
   author: string;
-  status: string;                // Original status string
-  level: string;                 // Severity level (vendor-specific)
+  status: string; // Original status string
+  level: string; // Severity level (vendor-specific)
   date?: string;
   modified?: string;
 
@@ -62,8 +62,8 @@ export interface ParsedRule {
   queryLanguage: QueryLanguage;
 
   // MITRE ATT&CK
-  mitreAttackIds: string[];      // ['T1059.001', 'T1105']
-  mitreTactics: string[];        // ['execution', 'command-and-control']
+  mitreAttackIds: string[]; // ['T1059.001', 'T1105']
+  mitreTactics: string[]; // ['execution', 'command-and-control']
 
   // Data sources
   logsource?: SigmaLogsource;
@@ -77,7 +77,7 @@ export interface ParsedRule {
   cves: string[];
 
   // Sigma-specific
-  detection?: Record<string, unknown>;  // Raw detection block
+  detection?: Record<string, unknown>; // Raw detection block
 
   // Splunk ESCU-specific
   riskScore?: number;
@@ -117,7 +117,7 @@ export interface ParseResult {
   rule?: ParsedRule;
   error?: ParseError;
   warnings: string[];
-  parsingTime?: number;  // ms
+  parsingTime?: number; // ms
 }
 
 // ============================================
@@ -138,18 +138,18 @@ export interface ValidationIssue {
 /** Validation result for a parsed rule */
 export interface ValidationResult {
   isValid: boolean;
-  qualityScore: number;          // 0-100
+  qualityScore: number; // 0-100
   issues: ValidationIssue[];
   isDuplicate: boolean;
-  duplicateOf?: string;          // ID of existing detection if duplicate
+  duplicateOf?: string; // ID of existing detection if duplicate
 }
 
 /** Combined parsed + validated rule */
 export interface ValidatedRule {
   parsed: ParsedRule;
   validation: ValidationResult;
-  selected: boolean;             // User can select/deselect for import
-  normalized?: Partial<Detection>;  // Normalized to Detection schema
+  selected: boolean; // User can select/deselect for import
+  normalized?: Partial<Detection>; // Normalized to Detection schema
 }
 
 // ============================================
@@ -175,19 +175,21 @@ export type DuplicateStrategy = 'skip' | 'update' | 'create_new';
 /** Import job configuration */
 export interface ImportJobConfig {
   sourceType: ImportSourceType;
-  sourceUrl?: string;            // For GitHub
-  sourceFiles?: File[];          // For file upload
-  sourceZip?: File;              // For ZIP upload
+  sourceUrl?: string; // For GitHub
+  sourceFiles?: File[]; // For file upload
+  sourceZip?: File; // For ZIP upload
   vendorFilter?: VendorFormat[]; // Filter to specific vendors
   vendor?: VendorFormat | 'mixed'; // Detected/primary vendor format
   targetLibrary: LibraryType;
   duplicateStrategy: DuplicateStrategy;
-  batchSize?: number;            // Default: 50
-  validateMitre?: boolean;       // Validate MITRE IDs exist in DB
-  githubToken?: string;          // GitHub PAT for higher rate limits
-  githubPath?: string;           // Subdirectory within the repo to scan (e.g. 'rules')
-  includePaths?: string[];       // Only include files under these paths (e.g. ['rules/windows', 'rules/linux'])
-  embeddingStrategy?: EmbeddingStrategy;  // 'realtime' (default) | 'batch' (50% cost) | 'skip'
+  batchSize?: number; // Default: 50
+  validateMitre?: boolean; // Validate MITRE IDs exist in DB
+  githubToken?: string; // GitHub PAT for higher rate limits
+  githubPath?: string; // Subdirectory within the repo to scan (e.g. 'rules')
+  includePaths?: string[]; // Only include files under these paths (e.g. ['rules/windows', 'rules/linux'])
+  embeddingStrategy?: EmbeddingStrategy; // 'realtime' (default) | 'batch' (50% cost) | 'skip'
+  /** Route that owns the job's detailed progress and completion UI. */
+  returnRoute?: string;
 }
 
 /** Progress tracking */
@@ -206,7 +208,7 @@ export interface ImportProgress {
   currentFile?: string;
   currentBatch?: number;
   totalBatches?: number;
-  estimatedTimeRemaining?: number;  // seconds
+  estimatedTimeRemaining?: number; // seconds
   startedAt?: string;
   completedAt?: string;
   // Embedding generation (post-insert)
@@ -262,8 +264,10 @@ export interface ImportJobResult {
     title: string;
     reason: string;
   }>;
-  duration: number;              // Total time in ms
-  mitreCoverageAdded: number;    // New techniques covered
+  duration: number; // Total time in ms
+  mitreCoverageAdded: number; // New techniques covered
+  /** True when the user stopped the job after one or more batches may have completed. */
+  cancelled?: boolean;
 }
 
 // ============================================
@@ -310,7 +314,7 @@ export interface CheckpointData {
   /** IDs of detections successfully inserted before interruption */
   insertedIds: string[];
   /** Pending detection data to be inserted */
-  pendingDetections?: string[];  // JSON stringified to avoid storing full objects
+  pendingDetections?: string[]; // JSON stringified to avoid storing full objects
   /** Timestamp of last checkpoint */
   checkpointedAt: string;
 }
@@ -418,10 +422,10 @@ export interface FetchResult {
 
 /** Resolved MITRE technique */
 export interface ResolvedMitreTechnique {
-  id: string;                    // T1059.001
-  name: string;                  // PowerShell
-  tactic: string;                // Execution
-  exists: boolean;               // Verified in DB
+  id: string; // T1059.001
+  name: string; // PowerShell
+  tactic: string; // Execution
+  exists: boolean; // Verified in DB
 }
 
 // ============================================
@@ -601,27 +605,27 @@ export const extractMitreFromTags = (tags: string[]): { techniqueIds: string[]; 
   const tactics: string[] = [];
 
   const tacticMap: Record<string, string> = {
-    'reconnaissance': 'Reconnaissance',
+    reconnaissance: 'Reconnaissance',
     'resource-development': 'Resource Development',
-    'resource_development': 'Resource Development',
+    resource_development: 'Resource Development',
     'initial-access': 'Initial Access',
-    'initial_access': 'Initial Access',
-    'execution': 'Execution',
-    'persistence': 'Persistence',
+    initial_access: 'Initial Access',
+    execution: 'Execution',
+    persistence: 'Persistence',
     'privilege-escalation': 'Privilege Escalation',
-    'privilege_escalation': 'Privilege Escalation',
+    privilege_escalation: 'Privilege Escalation',
     'defense-evasion': 'Defense Evasion',
-    'defense_evasion': 'Defense Evasion',
+    defense_evasion: 'Defense Evasion',
     'credential-access': 'Credential Access',
-    'credential_access': 'Credential Access',
-    'discovery': 'Discovery',
+    credential_access: 'Credential Access',
+    discovery: 'Discovery',
     'lateral-movement': 'Lateral Movement',
-    'lateral_movement': 'Lateral Movement',
-    'collection': 'Collection',
+    lateral_movement: 'Lateral Movement',
+    collection: 'Collection',
     'command-and-control': 'Command and Control',
-    'command_and_control': 'Command and Control',
-    'exfiltration': 'Exfiltration',
-    'impact': 'Impact',
+    command_and_control: 'Command and Control',
+    exfiltration: 'Exfiltration',
+    impact: 'Impact',
   };
 
   for (const tag of tags) {

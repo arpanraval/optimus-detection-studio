@@ -219,7 +219,7 @@ export interface ConsoleEntry {
 // ============================================
 
 /** Top-level phase the onboarding UI is in */
-export type OnboardingPhase = 'selection' | 'processing' | 'confirming' | 'complete';
+export type OnboardingPhase = 'selection' | 'processing' | 'confirming' | 'importing' | 'embedding' | 'complete';
 
 /** Full context value exposed by the OnboardingProvider */
 export interface OnboardingContextValue {
@@ -244,5 +244,6 @@ export interface OnboardingContextValue {
   getParsedRulesForImport: () => ParsedRule[];
   getValidatedRulesForImport: () => { rules: ValidatedRule[]; jobConfig: ImportJobConfig };
   resetPhase: (phase: OnboardingPhase) => void;
-  syncImportProgress: (inserted: number, total: number) => void;
+  syncImportProgress: (progress: ImportProgress) => void;
+  completeImportPipeline: () => void;
 }

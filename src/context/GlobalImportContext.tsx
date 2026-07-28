@@ -9,28 +9,22 @@
  * - beforeunload handler for tab close protection
  */
 
-import React, {
-  createContext,
-  useContext,
-  useReducer,
-  useCallback,
-  useEffect,
-  useRef,
-  type ReactNode,
-} from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useRegisterNavigationBlocker, useNavigationBlocker } from './NavigationBlockerContext';
-import { bulkImportJobManager } from '../services/bulk-import/orchestrator/BulkImportJobManager';
+import { bulkImportJobManager, ImportCancelledError } from '../services/bulk-import/orchestrator/BulkImportJobManager';
 import { batchInserter } from '../services/bulk-import/persistence/BatchInserter';
 import type {
   ImportProgress,
   ImportJobConfig,
+  ImportJobResult,
   PreCheckSummary,
   RollbackResult,
   ParsedRule,
   ValidatedRule,
 } from '../services/bulk-import/types';
-import type { ConsoleEntry } from '../components/onboarding/types';
+import type { LibraryType } from '../constants/library';
+import type { ConsoleEntry, ConsoleLevel } from '../components/onboarding/types';
 
 // ============================================
 // TYPES
@@ -72,14 +66,19 @@ export interface GlobalImportContextValue {
   clearConsoleEntries: () => void;
 
   // Actions
-  startPreCheck: (parsedRules: ParsedRule[], userId: string) => Promise<PreCheckSummary>;
+  startPreCheck: (parsedRules: ParsedRule[], userId: string, targetLibrary: LibraryType) => Promise<PreCheckSummary>;
   confirmAndImport: (validatedRules: ValidatedRule[], jobConfig: ImportJobConfig) => Promise<void>;
   pauseImport: () => void;
   resumeImport: (jobId?: string) => Promise<void>;
   abortImport: () => void;
   rollbackImport: (jobId: string) => Promise<RollbackResult>;
   dismissInterruptedJob: (jobId: string) => Promise<void>;
-  syncExternalJob: (status: GlobalImportStatus, progress: ImportProgress | null, job: any | null, result?: any | null) => void;
+  syncExternalJob: (
+    status: GlobalImportStatus,
+    progress: ImportProgress | null,
+    job: any | null,
+    result?: any | null,
+  ) => void;
   takeOverJob: () => void;
 
   // UI
@@ -139,10 +138,7 @@ const INITIAL_STATE: GlobalImportState = {
   consoleEntries: [],
 };
 
-function globalImportReducer(
-  state: GlobalImportState,
-  action: GlobalImportAction
-): GlobalImportState {
+function globalImportReducer(state: GlobalImportState, action: GlobalImportAction): GlobalImportState {
   switch (action.type) {
     case 'SET_STATUS':
       return { ...state, status: action.payload };
@@ -190,19 +186,10 @@ function globalImportReducer(
 // ============================================
 
 /** Statuses that indicate an import is actively running */
-const ACTIVE_STATUSES: GlobalImportStatus[] = [
-  'pre_check',
-  'importing',
-  'resumed',
-  'rolling_back',
-];
+const ACTIVE_STATUSES: GlobalImportStatus[] = ['pre_check', 'importing', 'resumed', 'rolling_back'];
 
 /** Statuses that require heartbeat monitoring */
-const HEARTBEAT_STATUSES: GlobalImportStatus[] = [
-  'importing',
-  'paused',
-  'resumed',
-];
+const HEARTBEAT_STATUSES: GlobalImportStatus[] = ['importing', 'paused', 'resumed'];
 
 /** Retry delays in ms: immediate, 5s, 15s, 30s, then 60s repeating */
 const RETRY_DELAYS = [0, 5000, 15000, 30000, 60000];
@@ -244,6 +231,9 @@ export function GlobalImportProvider({ children, userId }: GlobalImportProviderP
   // Track whether this provider is still mounted
   const mountedRef = useRef(true);
   useEffect(() => {
+    // React Strict Mode intentionally runs effect setup -> cleanup -> setup in
+    // development. Restore this flag so async callbacks survive that probe.
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
     };
@@ -254,6 +244,22 @@ export function GlobalImportProvider({ children, userId }: GlobalImportProviderP
   const pausedAtRef = useRef<number | null>(null);
   const retryTimeoutRef = useRef<number | null>(null);
   const resumeImportRef = useRef<(jobId?: string) => Promise<void>>(async () => {});
+  const lastLoggedInsertedRef = useRef(-1);
+  const lastLoggedEmbeddingRef = useRef(-1);
+
+  const emitImportActivity = useCallback((message: string, level: ConsoleLevel = 'info'): void => {
+    dispatch({
+      type: 'ADD_CONSOLE_ENTRY',
+      payload: {
+        id: crypto.randomUUID(),
+        timestamp: new Date(),
+        sourceId: 'system',
+        sourceName: 'Import',
+        message,
+        level,
+      },
+    });
+  }, []);
 
   // ------------------------------------------
   // Navigation blocking
@@ -304,12 +310,6 @@ export function GlobalImportProvider({ children, userId }: GlobalImportProviderP
     function handleOffline(): void {
       if (!mountedRef.current) return;
       dispatch({ type: 'SET_NETWORK', payload: 'offline' });
-
-      // Auto-pause active imports when offline
-      if (state.status === 'importing' || state.status === 'resumed') {
-        bulkImportJobManager.abort();
-        dispatch({ type: 'SET_STATUS', payload: 'paused' });
-      }
     }
 
     window.addEventListener('online', handleOnline);
@@ -348,20 +348,13 @@ export function GlobalImportProvider({ children, userId }: GlobalImportProviderP
     async function runHeartbeat(): Promise<void> {
       if (!mountedRef.current) return;
 
-      const { error } = await supabase
-        .from('bulk_import_jobs')
-        .select('id')
-        .limit(1);
+      const { error } = await supabase.from('bulk_import_jobs').select('id').limit(1);
 
       if (!mountedRef.current) return;
 
       if (error) {
-        // Supabase unreachable - mark offline, auto-pause if importing
+        // Surface connectivity loss without pretending that a durable pause/resume exists.
         dispatch({ type: 'SET_NETWORK', payload: 'offline' });
-        if (state.status === 'importing' || state.status === 'resumed') {
-          bulkImportJobManager.abort();
-          dispatch({ type: 'SET_STATUS', payload: 'paused' });
-        }
       } else if (state.networkStatus === 'reconnecting' || state.networkStatus === 'offline') {
         // Supabase reachable again
         dispatch({ type: 'SET_NETWORK', payload: 'online' });
@@ -421,10 +414,7 @@ export function GlobalImportProvider({ children, userId }: GlobalImportProviderP
           return;
         }
 
-        const { error } = await supabase
-          .from('bulk_import_jobs')
-          .select('id')
-          .limit(1);
+        const { error } = await supabase.from('bulk_import_jobs').select('id').limit(1);
 
         if (!mountedRef.current) return;
 
@@ -445,17 +435,6 @@ export function GlobalImportProvider({ children, userId }: GlobalImportProviderP
       }
     };
   }, [state.status, state.retryCount]);
-
-  // ------------------------------------------
-  // Auto-resume on reconnect
-  // ------------------------------------------
-  useEffect(() => {
-    if (state.status === 'paused' && state.networkStatus === 'online') {
-      dispatch({ type: 'SET_RETRY', payload: 0 });
-      pausedAtRef.current = null;
-      resumeImportRef.current();
-    }
-  }, [state.status, state.networkStatus]);
 
   // ------------------------------------------
   // Auto-resume detection on mount
@@ -481,7 +460,8 @@ export function GlobalImportProvider({ children, userId }: GlobalImportProviderP
           jobId: job.id,
           sourceName: job.source_url || job.source_vendor || 'Unknown source',
           insertedCount: job.success_count || 0,
-          totalCount: (job.success_count || 0) + (job.failure_count || 0) + ((job.total_batches - job.last_successful_batch) * 50),
+          totalCount:
+            (job.success_count || 0) + (job.failure_count || 0) + (job.total_batches - job.last_successful_batch) * 50,
           pausedAt: job.updated_at,
           checkpointData: job.checkpoint_data,
         },
@@ -491,6 +471,84 @@ export function GlobalImportProvider({ children, userId }: GlobalImportProviderP
     checkInterruptedJobs();
   }, [userId]);
 
+  // Recover if the server completes a job while the client misses a callback.
+  useEffect(() => {
+    const jobId = state.activeJob?.id as string | undefined;
+    if (state.status !== 'importing' || !jobId) return;
+
+    let cancelled = false;
+
+    async function reconcilePersistedJob(): Promise<void> {
+      const { data, error } = await supabase
+        .from('bulk_import_jobs')
+        .select(
+          'id, status, success_count, failure_count, skip_count, warning_count, imported_detection_ids, started_at, completed_at',
+        )
+        .eq('id', jobId)
+        .limit(1);
+
+      if (cancelled || !mountedRef.current || error || !data || data.length === 0) return;
+
+      const persistedJob = data[0];
+      if (persistedJob.status === 'completed') {
+        const successCount = persistedJob.success_count || 0;
+        const failureCount = persistedJob.failure_count || 0;
+        const skipCount = persistedJob.skip_count || 0;
+        const result: ImportJobResult = {
+          success: failureCount === 0,
+          totalProcessed: successCount + failureCount + skipCount,
+          successCount,
+          failureCount,
+          skipCount,
+          warningCount: persistedJob.warning_count || 0,
+          importedDetectionIds: persistedJob.imported_detection_ids || [],
+          failedRules: [],
+          skippedRules: [],
+          duration:
+            persistedJob.started_at && persistedJob.completed_at
+              ? Math.max(0, new Date(persistedJob.completed_at).getTime() - new Date(persistedJob.started_at).getTime())
+              : 0,
+          mitreCoverageAdded: 0,
+        };
+
+        dispatch({
+          type: 'SET_PROGRESS',
+          payload: {
+            phase: 'completed',
+            totalFiles: 0,
+            processedFiles: 0,
+            totalRules: result.totalProcessed,
+            validRules: result.totalProcessed,
+            warningRules: result.warningCount,
+            errorRules: 0,
+            duplicateRules: 0,
+            insertedRules: result.successCount,
+            failedInserts: result.failureCount,
+            skippedRules: result.skipCount,
+            completedAt: persistedJob.completed_at || undefined,
+          },
+        });
+        dispatch({ type: 'SET_RESULT', payload: result });
+        dispatch({ type: 'SET_STATUS', payload: 'complete' });
+        emitImportActivity(
+          `Import completion recovered from the server: ${successCount.toLocaleString()} rules stored.`,
+          'ok',
+        );
+      } else if (persistedJob.status === 'failed') {
+        dispatch({ type: 'SET_STATUS', payload: 'paused' });
+        emitImportActivity('The server marked this import as failed. Review the job and retry.', 'error');
+      }
+    }
+
+    void reconcilePersistedJob();
+    const intervalId = window.setInterval(reconcilePersistedJob, 5000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [state.status, state.activeJob?.id, emitImportActivity]);
+
   // ------------------------------------------
   // Actions
   // ------------------------------------------
@@ -499,7 +557,7 @@ export function GlobalImportProvider({ children, userId }: GlobalImportProviderP
   const preCheckPromiseRef = useRef<Promise<PreCheckSummary> | null>(null);
 
   const startPreCheck = useCallback(
-    async (parsedRules: ParsedRule[], preCheckUserId: string): Promise<PreCheckSummary> => {
+    async (parsedRules: ParsedRule[], preCheckUserId: string, targetLibrary: LibraryType): Promise<PreCheckSummary> => {
       // FIX: If a pre-check is already running, return the in-flight promise
       if (preCheckPromiseRef.current) {
         console.warn('[GlobalImport] Pre-check already running, returning in-flight promise');
@@ -512,11 +570,9 @@ export function GlobalImportProvider({ children, userId }: GlobalImportProviderP
           dispatch({ type: 'SET_PRE_CHECK', payload: null });
           dispatch({ type: 'SET_STATUS', payload: 'pre_check' });
 
-          const { DuplicateDetector } = await import(
-            '../services/bulk-import/validators/DuplicateDetector'
-          );
+          const { DuplicateDetector } = await import('../services/bulk-import/validators/DuplicateDetector');
           const detector = new DuplicateDetector();
-          const summary = await detector.runPreCheck(parsedRules, preCheckUserId);
+          const summary = await detector.runPreCheck(parsedRules, preCheckUserId, targetLibrary);
 
           if (mountedRef.current) {
             dispatch({ type: 'SET_PRE_CHECK', payload: summary });
@@ -524,6 +580,15 @@ export function GlobalImportProvider({ children, userId }: GlobalImportProviderP
           }
 
           return summary;
+        } catch (error) {
+          if (mountedRef.current) {
+            dispatch({ type: 'SET_STATUS', payload: 'idle' });
+            emitImportActivity(
+              `Pre-check failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              'error',
+            );
+          }
+          throw error;
         } finally {
           preCheckPromiseRef.current = null;
         }
@@ -532,7 +597,7 @@ export function GlobalImportProvider({ children, userId }: GlobalImportProviderP
       preCheckPromiseRef.current = promise;
       return promise;
     },
-    []
+    [emitImportActivity],
   );
 
   const confirmAndImport = useCallback(
@@ -540,35 +605,83 @@ export function GlobalImportProvider({ children, userId }: GlobalImportProviderP
       // FIX: Guard against empty rules array
       const selectedRules = validatedRules.filter((r) => r.selected);
       if (selectedRules.length === 0) {
-        console.warn('[GlobalImport] No selected rules to import');
-        dispatch({ type: 'SET_STATUS', payload: 'idle' });
-        return;
+        throw new Error('No selected rules passed validation. Review the pre-check results and try again.');
       }
 
       dispatch({ type: 'SET_STATUS', payload: 'importing' });
+      lastLoggedInsertedRef.current = -1;
+      lastLoggedEmbeddingRef.current = -1;
+      emitImportActivity(`Preparing to store ${selectedRules.length.toLocaleString()} selected rules...`, 'info');
 
       // Create a job for tracking/persistence, but skip fetch/parse/validate —
       // rules are already validated by OnboardingContext's per-source managers
       const job = bulkImportJobManager.createJob(jobConfig);
+      job.progress.totalRules = selectedRules.length;
+      job.progress.validRules = selectedRules.length;
       dispatch({ type: 'SET_JOB', payload: job });
 
       bulkImportJobManager.setCallbacks({
         onStatusChange: (jobStatus) => {
           if (!mountedRef.current) return;
-          if (jobStatus === 'completed' || jobStatus === 'embedding') {
-            // embedding is post-insert; treat as complete for UI
+          const currentProgress = bulkImportJobManager.getJob()?.progress;
+          if (currentProgress) {
+            dispatch({ type: 'SET_PROGRESS', payload: { ...currentProgress } });
+          }
+          if (jobStatus === 'inserting') {
+            emitImportActivity('Storing detections in the library...', 'info');
+          } else if (jobStatus === 'embedding') {
+            emitImportActivity('Detections stored. Generating search embeddings...', 'info');
           } else if (jobStatus === 'failed') {
             dispatch({ type: 'SET_STATUS', payload: 'paused' });
+            emitImportActivity('Import failed before completion.', 'error');
+          } else if (jobStatus === 'cancelled') {
+            emitImportActivity('Import stopped. Completed batches remain available for rollback.', 'warn');
           }
         },
         onProgress: (jobProgress) => {
           if (!mountedRef.current) return;
           dispatch({ type: 'SET_PROGRESS', payload: { ...jobProgress } });
+
+          if (jobProgress.phase === 'inserting' && jobProgress.insertedRules !== lastLoggedInsertedRef.current) {
+            lastLoggedInsertedRef.current = jobProgress.insertedRules;
+            emitImportActivity(
+              `Stored ${jobProgress.insertedRules.toLocaleString()}/${jobProgress.totalRules.toLocaleString()} rules` +
+                (jobProgress.currentBatch && jobProgress.totalBatches
+                  ? ` (batch ${jobProgress.currentBatch}/${jobProgress.totalBatches}).`
+                  : '.'),
+              'info',
+            );
+          }
+
+          if (
+            jobProgress.phase === 'embedding' &&
+            jobProgress.embeddingGenerated !== undefined &&
+            jobProgress.embeddingGenerated !== lastLoggedEmbeddingRef.current
+          ) {
+            lastLoggedEmbeddingRef.current = jobProgress.embeddingGenerated;
+            emitImportActivity(
+              `Generated ${jobProgress.embeddingGenerated.toLocaleString()}/${(
+                jobProgress.embeddingTotal || 0
+              ).toLocaleString()} embeddings.`,
+              jobProgress.embeddingErrors ? 'warn' : 'info',
+            );
+          }
         },
         onComplete: (result) => {
           if (!mountedRef.current) return;
           dispatch({ type: 'SET_RESULT', payload: result });
           dispatch({ type: 'SET_STATUS', payload: 'complete' });
+          emitImportActivity(
+            `Import complete: ${result.successCount.toLocaleString()} rules stored, ${result.failureCount.toLocaleString()} failed.`,
+            result.failureCount > 0 ? 'warn' : 'ok',
+          );
+        },
+        onError: (error) => {
+          if (!mountedRef.current) return;
+          emitImportActivity(
+            `${error.phase === 'embedding' ? 'Embedding' : 'Import'} warning: ${error.message}`,
+            error.recoverable ? 'warn' : 'error',
+          );
         },
       });
 
@@ -599,12 +712,18 @@ export function GlobalImportProvider({ children, userId }: GlobalImportProviderP
           dispatch({ type: 'SET_STATUS', payload: 'complete' });
         }
       } catch (err) {
+        if (err instanceof ImportCancelledError) {
+          return;
+        }
+
         if (mountedRef.current) {
           dispatch({ type: 'SET_STATUS', payload: 'paused' });
+          emitImportActivity(`Import failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
         }
+        throw err;
       }
     },
-    []
+    [emitImportActivity],
   );
 
   const pauseImport = useCallback((): void => {
@@ -612,80 +731,85 @@ export function GlobalImportProvider({ children, userId }: GlobalImportProviderP
     dispatch({ type: 'SET_STATUS', payload: 'paused' });
   }, []);
 
-  const resumeImport = useCallback(
-    async (jobId?: string): Promise<void> => {
-      dispatch({ type: 'SET_STATUS', payload: 'resumed' });
-      dispatch({ type: 'SET_RETRY', payload: 0 });
+  const resumeImport = useCallback(async (jobId?: string): Promise<void> => {
+    dispatch({ type: 'SET_STATUS', payload: 'resumed' });
+    dispatch({ type: 'SET_RETRY', payload: 0 });
 
-      if (jobId) {
-        // Resume from an interrupted job stored in the database
-        const { data, error } = await supabase
-          .from('bulk_import_jobs')
-          .select('*')
-          .eq('id', jobId)
-          .single();
+    if (jobId) {
+      // Resume from an interrupted job stored in the database
+      const { data, error } = await supabase.from('bulk_import_jobs').select('*').eq('id', jobId).single();
 
-        if (error || !data) {
-          dispatch({ type: 'SET_STATUS', payload: 'idle' });
-          return;
-        }
-
-        // Update the job status in DB: back to inserting, clear pause metadata
-        await supabase
-          .from('bulk_import_jobs')
-          .update({
-            status: 'inserting',
-            paused_at: null,
-            pause_reason: null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', jobId);
-
-        dispatch({ type: 'SET_JOB', payload: data });
-        dispatch({ type: 'SET_INTERRUPTED', payload: null });
+      if (error || !data) {
+        dispatch({ type: 'SET_STATUS', payload: 'idle' });
+        return;
       }
 
-      // Transition to importing — the actual batch resume
-      // will be wired in Task 12 when BatchInserter resume is connected
-      dispatch({ type: 'SET_STATUS', payload: 'importing' });
-    },
-    []
-  );
+      // Update the job status in DB: back to inserting, clear pause metadata
+      await supabase
+        .from('bulk_import_jobs')
+        .update({
+          status: 'inserting',
+          paused_at: null,
+          pause_reason: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', jobId);
+
+      dispatch({ type: 'SET_JOB', payload: data });
+      dispatch({ type: 'SET_INTERRUPTED', payload: null });
+    }
+
+    // Transition to importing — the actual batch resume
+    // will be wired in Task 12 when BatchInserter resume is connected
+    dispatch({ type: 'SET_STATUS', payload: 'importing' });
+  }, []);
   resumeImportRef.current = resumeImport;
 
   const abortImport = useCallback((): void => {
+    if (state.status === 'complete') {
+      dispatch({ type: 'RESET' });
+      return;
+    }
+    emitImportActivity('Stop requested. Finishing the current database batch only.', 'warn');
     bulkImportJobManager.abort();
     dispatch({ type: 'RESET' });
-  }, []);
+  }, [emitImportActivity, state.status]);
 
   const rollbackImport = useCallback(
     async (jobId: string): Promise<RollbackResult> => {
       dispatch({ type: 'SET_STATUS', payload: 'rolling_back' });
+      emitImportActivity('Rolling back imported detections and embeddings...', 'info');
 
-      const result = await batchInserter.rollbackImport(jobId, userIdRef.current);
+      try {
+        const result = await batchInserter.rollbackImport(jobId, userIdRef.current);
 
-      if (mountedRef.current) {
-        dispatch({ type: 'SET_RESULT', payload: result });
-        dispatch({ type: 'SET_STATUS', payload: result.success ? 'idle' : 'complete' });
+        if (mountedRef.current) {
+          dispatch({ type: 'SET_RESULT', payload: result });
+          dispatch({ type: 'SET_STATUS', payload: result.success ? 'idle' : 'complete' });
+          emitImportActivity(
+            result.success
+              ? 'Rollback complete. Imported detections and embeddings were removed.'
+              : `Rollback incomplete: ${result.error || 'unknown error'}`,
+            result.success ? 'ok' : 'error',
+          );
+        }
+
+        return result;
+      } catch (err) {
+        if (mountedRef.current) {
+          dispatch({ type: 'SET_STATUS', payload: 'complete' });
+          emitImportActivity(`Rollback failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
+        }
+        throw err;
       }
-
-      return result;
     },
-    []
+    [emitImportActivity],
   );
-const dismissInterruptedJob = useCallback(
-  async (jobId: string): Promise<void> => {
-    await supabase
-      .from('bulk_import_jobs')
-      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-      .eq('id', jobId);
-
+  const dismissInterruptedJob = useCallback(async (_jobId: string): Promise<void> => {
     if (mountedRef.current) {
       dispatch({ type: 'SET_INTERRUPTED', payload: null });
     }
-  },
-  []
-);
+  }, []);
 
   const syncExternalJob = useCallback(
     (newStatus: GlobalImportStatus, newProgress: ImportProgress | null, newJob: any | null, newResult?: any | null) => {
@@ -694,7 +818,7 @@ const dismissInterruptedJob = useCallback(
       if (newJob) dispatch({ type: 'SET_JOB', payload: newJob });
       if (newResult) dispatch({ type: 'SET_RESULT', payload: newResult });
     },
-    []
+    [],
   );
 
   const takeOverJob = useCallback(() => {
@@ -781,21 +905,17 @@ const dismissInterruptedJob = useCallback(
     expand,
 
     navigationBlocker: {
-      isBlocked: centralBlocker.isBlocked && (
-        centralBlocker.activeBlockerId === 'global-import' ||
-        centralBlocker.activeBlockerId === 'onboarding-processing'
-      ),
+      isBlocked:
+        centralBlocker.isBlocked &&
+        (centralBlocker.activeBlockerId === 'global-import' ||
+          centralBlocker.activeBlockerId === 'onboarding-processing'),
       activeBlockerId: centralBlocker.activeBlockerId,
       proceed: centralBlocker.proceed,
       reset: centralBlocker.reset,
     },
   };
 
-  return (
-    <GlobalImportContext.Provider value={value}>
-      {children}
-    </GlobalImportContext.Provider>
-  );
+  return <GlobalImportContext.Provider value={value}>{children}</GlobalImportContext.Provider>;
 }
 
 // ============================================

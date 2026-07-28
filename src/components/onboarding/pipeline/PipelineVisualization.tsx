@@ -23,7 +23,7 @@ import BackgroundGrid from './BackgroundGrid';
 import StageNode from './StageNode';
 import StreamLine from './StreamLine';
 import ParticleSystem from './ParticleSystem';
-import type { PipelineStage, SourceState } from '../types';
+import type { OnboardingPhase, PipelineStage, SourceState } from '../types';
 
 // ---------------------------------------------------------------------------
 // Layout constants (1400x800 viewBox)
@@ -46,7 +46,11 @@ const DEFAULT_DEST_TEXT_X = 1205;
 
 // Stage node X positions (center of pipeline)
 const STAGE_X: Record<PipelineStage, number> = {
-  fetch: 400, parse: 540, validate: 680, normalize: 820, store: 960,
+  fetch: 400,
+  parse: 540,
+  validate: 680,
+  normalize: 820,
+  store: 960,
 };
 
 // ---------------------------------------------------------------------------
@@ -73,7 +77,7 @@ const THEME = {
 
 function getSourceY(index: number, total: number): number {
   if (total <= 1) return 400;
-  return 160 + (index * 480 / (total - 1));
+  return 160 + (index * 480) / (total - 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -174,15 +178,19 @@ const SOURCE_LOGO_MAP: Record<string, string> = {
 interface SourceLabelProps {
   state: SourceState;
   y: number;
+  phase: OnboardingPhase;
   onToggle: () => void;
 }
 
-function SourceLabel({ state, y, onToggle }: SourceLabelProps): React.JSX.Element {
+function SourceLabel({ state, y, phase, onToggle }: SourceLabelProps): React.JSX.Element {
   const { source, selected, status, importedCount } = state;
   const processing = isProcessing(status);
   const isComplete = status === 'complete';
 
   function getStatusText(): string {
+    if (state.selected && phase === 'importing') return 'Storing';
+    if (state.selected && phase === 'embedding') return 'Embedding';
+    if (state.selected && phase === 'complete') return 'Import complete';
     if (isComplete) return `${importedCount.toLocaleString()} imported`;
     if (processing) return STATUS_LABELS[status] ?? status;
     if (status === 'error') return 'Error';
@@ -205,7 +213,21 @@ function SourceLabel({ state, y, onToggle }: SourceLabelProps): React.JSX.Elemen
   const textX = logoPath ? logoX - 6 : DEFAULT_SOURCE_TEXT_X - 18;
 
   return (
-    <g style={{ cursor: 'pointer' }} onClick={onToggle}>
+    <g
+      role="button"
+      tabIndex={phase === 'selection' ? 0 : -1}
+      aria-label={`${selected ? 'Remove' : 'Add'} ${source.shortName} detection source`}
+      aria-pressed={selected}
+      aria-disabled={phase !== 'selection'}
+      style={{ cursor: phase === 'selection' ? 'pointer' : 'default' }}
+      onClick={onToggle}
+      onKeyDown={(event) => {
+        if (phase === 'selection' && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault();
+          onToggle();
+        }
+      }}
+    >
       {/* Product logo */}
       {logoPath ? (
         <image
@@ -218,13 +240,7 @@ function SourceLabel({ state, y, onToggle }: SourceLabelProps): React.JSX.Elemen
           style={{ transition: 'opacity 300ms' }}
         />
       ) : (
-        <circle
-          cx={DEFAULT_SOURCE_TEXT_X - 8}
-          cy={y - 2}
-          r={3}
-          fill={source.color}
-          opacity={selected ? 0.8 : 0.25}
-        />
+        <circle cx={DEFAULT_SOURCE_TEXT_X - 8} cy={y - 2} r={3} fill={source.color} opacity={selected ? 0.8 : 0.25} />
       )}
 
       {/* Source name */}
@@ -341,10 +357,7 @@ export default function PipelineVisualization(): React.JSX.Element {
     return () => observer.disconnect();
   }, []);
 
-  const selectedSources = useMemo(
-    () => sources.filter((s) => s.selected),
-    [sources],
-  );
+  const selectedSources = useMemo(() => sources.filter((s) => s.selected), [sources]);
 
   // Dynamic viewBox — expand to fill the canvas container with zero gaps.
   // The original 1400×800 content stays centered; extra viewBox space is
@@ -393,7 +406,7 @@ export default function PipelineVisualization(): React.JSX.Element {
 
   // Auto-open right panel when processing starts
   useEffect(() => {
-    if (phase === 'processing' || phase === 'complete') {
+    if (phase === 'processing' || phase === 'importing' || phase === 'embedding' || phase === 'complete') {
       setRightPanelOpen(true);
     }
   }, [phase]);
@@ -441,9 +454,7 @@ export default function PipelineVisualization(): React.JSX.Element {
     const paths: ParticlePath[] = [];
 
     for (const ip of inputPaths) {
-      const streamState = streams.find(
-        (s) => s.sourceId === ip.sourceId && s.from === 'source',
-      );
+      const streamState = streams.find((s) => s.sourceId === ip.sourceId && s.from === 'source');
       if (streamState?.status === 'active') {
         paths.push({
           id: ip.id,
@@ -455,9 +466,7 @@ export default function PipelineVisualization(): React.JSX.Element {
     }
 
     for (const sp of interStagePaths) {
-      const streamState = streams.find(
-        (s) => s.from === sp.from && s.to === sp.to,
-      );
+      const streamState = streams.find((s) => s.from === sp.from && s.to === sp.to);
       if (streamState?.status === 'active') {
         paths.push({
           id: sp.id,
@@ -468,7 +477,7 @@ export default function PipelineVisualization(): React.JSX.Element {
       }
     }
 
-    const isStoreActive = stages.find(s => s.stage === 'store')?.status === 'active';
+    const isStoreActive = stages.find((s) => s.stage === 'store')?.status === 'active';
 
     for (const op of outputPaths) {
       const hasData = (liveStats.byPlatform[op.platform] ?? 0) > 0;
@@ -493,7 +502,6 @@ export default function PipelineVisualization(): React.JSX.Element {
 
       {/* Content — flex row: left panel | canvas | right panel */}
       <div className="absolute inset-0 flex">
-
         {/* ── Left panel: source details ── */}
         {leftPanelOpen && selectedSources.length > 0 ? (
           <div className="relative z-[2] w-44 shrink-0 pt-20 pb-16 flex flex-col overflow-hidden border-r border-outline-variant/[0.06]">
@@ -505,7 +513,14 @@ export default function PipelineVisualization(): React.JSX.Element {
             onClick={() => setLeftPanelOpen(true)}
             className="relative z-[2] shrink-0 mt-20 mb-16 w-5 flex items-center justify-center cursor-pointer transition-colors text-on-surface-variant/25 hover:text-on-surface-variant/60 border-r border-outline-variant/[0.06]"
           >
-            <svg className="w-2.5 h-2.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <svg
+              className="w-2.5 h-2.5"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            >
               <path d="M6 4l4 4-4 4" />
             </svg>
           </button>
@@ -534,9 +549,7 @@ export default function PipelineVisualization(): React.JSX.Element {
 
             {/* 2. Active input streams (source -> fetch) */}
             {inputPaths.map((path) => {
-              const streamState = streams.find(
-                (s) => s.sourceId === path.sourceId && s.from === 'source',
-              );
+              const streamState = streams.find((s) => s.sourceId === path.sourceId && s.from === 'source');
               return (
                 <StreamLine
                   key={path.id}
@@ -550,9 +563,7 @@ export default function PipelineVisualization(): React.JSX.Element {
 
             {/* 2b. Inter-stage streams */}
             {interStagePaths.map((path) => {
-              const streamState = streams.find(
-                (s) => s.from === path.from && s.to === path.to,
-              );
+              const streamState = streams.find((s) => s.from === path.from && s.to === path.to);
               return (
                 <StreamLine
                   key={path.id}
@@ -567,7 +578,7 @@ export default function PipelineVisualization(): React.JSX.Element {
             {/* 2c. Output streams (store -> destinations) */}
             {outputPaths.map((path) => {
               const hasData = (liveStats.byPlatform[path.platform] ?? 0) > 0;
-              const storeActive = stages.find(s => s.stage === 'store')?.status === 'active';
+              const storeActive = stages.find((s) => s.stage === 'store')?.status === 'active';
               let status: 'idle' | 'active' | 'complete';
               if (!hasData || (!storeActive && phase !== 'complete')) {
                 status = 'idle';
@@ -576,15 +587,7 @@ export default function PipelineVisualization(): React.JSX.Element {
               } else {
                 status = 'active';
               }
-              return (
-                <StreamLine
-                  key={path.id}
-                  id={path.id}
-                  pathData={path.pathData}
-                  status={status}
-                  color="#10b981"
-                />
-              );
+              return <StreamLine key={path.id} id={path.id} pathData={path.pathData} status={status} color="#10b981" />;
             })}
 
             {/* 3. Source labels — always visible */}
@@ -593,7 +596,10 @@ export default function PipelineVisualization(): React.JSX.Element {
                 key={`label-${s.source.id}`}
                 state={s}
                 y={getSourceY(i, sources.length)}
-                onToggle={() => toggleSource(s.source.id)}
+                phase={phase}
+                onToggle={() => {
+                  if (phase === 'selection') toggleSource(s.source.id);
+                }}
               />
             ))}
 
@@ -616,12 +622,35 @@ export default function PipelineVisualization(): React.JSX.Element {
               const isComplete = s.status === 'complete';
               return (
                 <g key={`dot-src-${s.source.id}`}>
-                  <circle cx={DEFAULT_SOURCE_DOT_X} cy={y} r={dotR} fill={dotFill} style={{ transition: 'all 300ms' }} />
+                  <circle
+                    cx={DEFAULT_SOURCE_DOT_X}
+                    cy={y}
+                    r={dotR}
+                    fill={dotFill}
+                    style={{ transition: 'all 300ms' }}
+                  />
                   {processing && s.selected && (
-                    <circle cx={DEFAULT_SOURCE_DOT_X} cy={y} r={10} fill="none" stroke={THEME.primary} strokeWidth={1} opacity={0.4} className="animate-glow-pulse" />
+                    <circle
+                      cx={DEFAULT_SOURCE_DOT_X}
+                      cy={y}
+                      r={10}
+                      fill="none"
+                      stroke={THEME.primary}
+                      strokeWidth={1}
+                      opacity={0.4}
+                      className="animate-glow-pulse"
+                    />
                   )}
                   {isComplete && (
-                    <circle cx={DEFAULT_SOURCE_DOT_X} cy={y} r={8} fill="none" stroke="#10b981" strokeWidth={1.5} opacity={0.6} />
+                    <circle
+                      cx={DEFAULT_SOURCE_DOT_X}
+                      cy={y}
+                      r={8}
+                      fill="none"
+                      stroke="#10b981"
+                      strokeWidth={1.5}
+                      opacity={0.6}
+                    />
                   )}
                 </g>
               );
@@ -636,7 +665,15 @@ export default function PipelineVisualization(): React.JSX.Element {
                 <g key={`dot-dest-${platform}`}>
                   <circle cx={DEFAULT_DEST_DOT_X} cy={y} r={dotR} fill={dotFill} style={{ transition: 'all 300ms' }} />
                   {hasData && (
-                    <circle cx={DEFAULT_DEST_DOT_X} cy={y} r={8} fill="none" stroke="#10b981" strokeWidth={1} opacity={0.3} />
+                    <circle
+                      cx={DEFAULT_DEST_DOT_X}
+                      cy={y}
+                      r={8}
+                      fill="none"
+                      stroke="#10b981"
+                      strokeWidth={1}
+                      opacity={0.3}
+                    />
                   )}
                 </g>
               );
@@ -678,12 +715,18 @@ export default function PipelineVisualization(): React.JSX.Element {
             onClick={() => setRightPanelOpen(true)}
             className="relative z-[2] shrink-0 mt-20 mb-16 w-5 flex items-center justify-center cursor-pointer transition-colors text-on-surface-variant/25 hover:text-on-surface-variant/60 border-l border-outline-variant/[0.06]"
           >
-            <svg className="w-2.5 h-2.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <svg
+              className="w-2.5 h-2.5"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            >
               <path d="M10 4l-4 4 4 4" />
             </svg>
           </button>
         ) : null}
-
       </div>
     </div>
   );
