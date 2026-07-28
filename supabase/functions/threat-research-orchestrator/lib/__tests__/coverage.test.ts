@@ -65,23 +65,28 @@ describe('isLanguageRunnable', () => {
   });
 });
 
-describe('coverage gate composition (what handleDetection does)', () => {
-  const suppresses = (m: { status: string; query_language: string }, target: string) =>
-    isLanguageRunnable(m, target) && isDeployedCoverage(m);
+describe('feasibility labelling (what handleDetection does with these now)', () => {
+  // These helpers no longer GATE reuse. handleDetection reuses any library
+  // match; status and language only decide how the reused leaf is LABELLED:
+  //   feasibility = deployed && runnable ? 'covered' : 'partial'
+  // Reuse itself is unconditional — see Amendment 1 in
+  // docs/plans/2026-07-28-threat-research-remediation-plan.md.
+  const feasibility = (m: { status: string; query_language: string }, target: string) =>
+    isDeployedCoverage(m) && isLanguageRunnable(m, target) ? 'covered' : 'partial';
 
-  it('suppresses generation only when deployed AND runnable', () => {
-    expect(suppresses({ status: 'Production', query_language: 'KQL' }, 'KQL')).toBe(true);
+  it("labels a deployed, runnable rule 'covered'", () => {
+    expect(feasibility({ status: 'Production', query_language: 'KQL' }, 'KQL')).toBe('covered');
   });
 
-  it('generates anyway for a Production rule in the wrong language', () => {
-    expect(suppresses({ status: 'Production', query_language: 'SPL' }, 'KQL')).toBe(false);
+  it("labels a Production rule in another language 'partial' — still reused", () => {
+    expect(feasibility({ status: 'Production', query_language: 'SPL' }, 'KQL')).toBe('partial');
   });
 
-  it('generates anyway for a Draft rule in the right language', () => {
-    expect(suppresses({ status: 'Draft', query_language: 'KQL' }, 'KQL')).toBe(false);
+  it("labels a Draft rule in the right language 'partial' — still reused", () => {
+    expect(feasibility({ status: 'Draft', query_language: 'KQL' }, 'KQL')).toBe('partial');
   });
 
-  it('generates anyway when both gates fail', () => {
-    expect(suppresses({ status: 'Draft', query_language: 'SPL' }, 'KQL')).toBe(false);
+  it("labels an undeployed rule in another language 'partial' — still reused", () => {
+    expect(feasibility({ status: 'Draft', query_language: 'SPL' }, 'KQL')).toBe('partial');
   });
 });

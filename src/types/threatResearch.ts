@@ -85,10 +85,13 @@ export interface LibraryMatch {
   name: string;
   query_language: string;
   /** Lifecycle status of the matched library detection ('Production', 'Draft',
-   *  'Deprecated', ...). Only a deployed rule counts as coverage; a Draft match
-   *  is advisory and does not suppress generation. Optional for backward
+   *  'Deprecated', ...). Display only — it tells the user where the rule lives,
+   *  it does not decide whether the rule is reused. Optional for backward
    *  compatibility with sessions persisted before the field existed. */
   status?: string;
+  /** The existing rule's query body, so a reused leaf renders the actual rule.
+   *  Optional for back-compat with sessions persisted before the field. */
+  detection_query?: string;
   combined_score: number;
   semantic_score: number;
   keyword_score: number;

@@ -36,7 +36,9 @@ import {
   generateDetectionForOpportunity,
   refineDetectionViaActorCritic,
 } from "./agents/detection-engineer.ts";
-import { COVERAGE_STATUSES, isDeployedCoverage, isLanguageRunnable } from "./coverage.ts";
+// isDeployedCoverage / isLanguageRunnable are now DISPLAY helpers only — they
+// annotate the reused leaf, they no longer gate whether a rule is reused.
+import { isDeployedCoverage, isLanguageRunnable } from "./coverage.ts";
 import { resolveQueryLanguage } from "./query-language.ts";
 import { flagCrossBehaviourDuplicates } from "./dedup.ts";
 import { loadKnowledgePack } from "./skills-loader.ts";
@@ -51,7 +53,6 @@ import type {
   DetectionOpportunity,
   GeneratedDetection,
   LibraryNearMatch,
-  LibraryNearMatchReason,
   ResearchQueryLanguage,
   ThreatResearchTree,
 } from "./types.ts";
@@ -749,91 +750,76 @@ async function handleDetection(
     console.warn('[handleDetection] actor coverage seed refresh failed:', (e as Error).message);
   }
 
-  // ── 1. Library coverage shortcut, AT OPPORTUNITY LEVEL (PR2). ────────────
+  // ── 1. Library reuse check, AT OPPORTUNITY LEVEL (PR2). ──────────────────
   // Pre-PR2 this searched the library by behaviour TITLE+NARRATIVE — too
   // broad, often missed actual coverage of specific detection observables.
   // Now we search by the canonical opportunity's observable chain +
-  // telemetry, which is the actual detection target. If a high-similarity
-  // match exists AND it's runnable in the user's current SIEM language,
-  // skip generation entirely.
+  // telemetry, which is the actual detection target. Any high-similarity
+  // match is reused as-is; see the reuse-first note below.
   const libMatch = await checkLibraryCoverage(toolCtx, behaviour, opp);
-  // Both gates live in lib/coverage.ts so they can be unit-tested. Semantics
-  // are unchanged from the previous inline check: an unknown match language
-  // falls through to generation, an unresolved session language accepts.
-  const matchedLanguageRunnable = isLanguageRunnable(libMatch, queryLanguage);
-  // A match only counts as COVERAGE if the rule is actually deployed. Before
-  // this gate, a Draft or Deprecated library rule could suppress generation
-  // entirely and the opportunity was marked feasibility:'covered' — a coverage
-  // claim the system could not substantiate, since a Draft rule detects
-  // nothing. Non-deployed matches stay advisory (event below) and generation
-  // proceeds.
-  const matchedStatusDeployed = isDeployedCoverage(libMatch);
-  if (libMatch && matchedLanguageRunnable && matchedStatusDeployed) {
+  // REUSE-FIRST. If a rule already exists in the library, point this leaf at
+  // it and skip generation entirely — we do not rewrite what the user already
+  // has, especially when generation is the weakest stage in the pipeline.
+  //
+  // Status and query language are recorded for DISPLAY only. They describe
+  // where the rule lives and what it is written in; they do not decide whether
+  // it counts. The user reviews the complete set — existing and newly written —
+  // at the end of the research and chooses the action.
+  //
+  // This reverses the two gates added earlier (Production-only + language
+  // match). On a real run those excluded all 185 mshta rules in an 11,820-rule
+  // library, because no rule was simultaneously Production AND KQL — so the
+  // pipeline generated from scratch instead of reusing any of them.
+  // See Amendment 1 in docs/plans/2026-07-28-threat-research-remediation-plan.md.
+  if (libMatch) {
+    const deployed = isDeployedCoverage(libMatch);
+    const runnable = isLanguageRunnable(libMatch, queryLanguage);
     await emit(runCtx, {
       agent: 'detection-engineer',
       event_type: 'library_match_found',
-      message: `${opp.title} → already covered by "${libMatch.name}" (${libMatch.status}, ${libMatch.query_language})`,
-      payload: { behaviour_id: behaviour.id, opportunity_id: opp.id, match: libMatch },
+      message: `${opp.title} → reusing existing rule "${libMatch.name}" (${libMatch.status || 'unknown status'}, ${libMatch.query_language || 'unknown language'})`,
+      payload: {
+        behaviour_id: behaviour.id,
+        opportunity_id: opp.id,
+        match: libMatch,
+        deployed,
+        runnable_in_session_language: runnable,
+        target_language: queryLanguage,
+      },
     });
-    // Mark this OPPORTUNITY as covered (not the whole behaviour — other
-    // opportunities under the same behaviour may still need generation).
-    // The behaviour.library_match field stays null; UI surfaces per-opp
-    // coverage by reading detection.saved_detection_id + the
-    // library_match_found event log.
+    // Point this OPPORTUNITY's leaf at the existing rule. The leaf itself is
+    // unchanged in shape — saved_detection_id is what the UI already reads to
+    // render a reused leaf and link back to the library entry.
     opp.detection.saved_detection_id = libMatch.existing_detection_id;
     opp.detection.name = libMatch.name;
-    opp.detection.query_language = libMatch.query_language as ResearchQueryLanguage;
-    opp.detection.description = `Already covered by library detection "${libMatch.name}".`;
-    opp.detection.feasibility = 'covered';
-    opp.detection.feasibility_notes = `Library match: ${libMatch.status} rule in ${libMatch.query_language} (combined_score=${libMatch.combined_score.toFixed(2)})`;
+    opp.detection.query_language = (libMatch.query_language || queryLanguage) as ResearchQueryLanguage;
+    // Carry the rule body across so the leaf shows the actual query, not just
+    // a title. Without this a reused leaf renders an empty code block.
+    opp.detection.query = libMatch.detection_query ?? '';
+    opp.detection.description = `Existing library rule — no new detection was written for this opportunity.`;
+    // 'covered' only when the rule is both deployed and runnable here;
+    // otherwise 'partial'. Either way the rule is reused, never regenerated.
+    opp.detection.feasibility = deployed && runnable ? 'covered' : 'partial';
+    opp.detection.feasibility_notes = [
+      `Existing rule "${libMatch.name}"`,
+      `status ${libMatch.status || 'unknown'}`,
+      `language ${libMatch.query_language || 'unknown'}${runnable ? '' : ` (this session targets ${queryLanguage})`}`,
+      `match ${libMatch.combined_score.toFixed(2)}`,
+    ].join(' · ');
     await patchDetection(supabase, session.id, behaviour.id, opp.id, opp.detection.id, {
       saved_detection_id: opp.detection.saved_detection_id,
       name: opp.detection.name,
       query_language: opp.detection.query_language,
+      query: opp.detection.query,
       description: opp.detection.description,
       feasibility: opp.detection.feasibility,
       feasibility_notes: opp.detection.feasibility_notes,
     });
     return;
   }
-  // A match existed but didn't qualify as coverage — either it can't run in
-  // the user's SIEM, or it isn't deployed. Emit the signal so the engineer
-  // knows there's a near-match worth referencing via covers_behaviour_ids, and
-  // so the UI can show WHY generation went ahead anyway; then proceed.
-  //
-  // When both gates fail, language_mismatch wins: it's the more actionable of
-  // the two (the user would have to author a new rule either way, whereas a
-  // Draft in the right language just needs promoting).
-  let nearMatch: LibraryNearMatch | null = null;
-  if (libMatch && !(matchedLanguageRunnable && matchedStatusDeployed)) {
-    const skippedReason: LibraryNearMatchReason =
-      !matchedLanguageRunnable ? 'language_mismatch' : 'not_deployed';
-    nearMatch = {
-      existing_detection_id: libMatch.existing_detection_id,
-      name: libMatch.name,
-      status: libMatch.status,
-      query_language: libMatch.query_language,
-      combined_score: libMatch.combined_score,
-      skipped_reason: skippedReason,
-      target_language: queryLanguage,
-    };
-    const message = skippedReason === 'language_mismatch'
-      ? `${opp.title} → near-match "${libMatch.name}" in ${libMatch.query_language || 'unknown SIEM'} (skipped: user's SIEM is ${queryLanguage})`
-      : `${opp.title} → near-match "${libMatch.name}" is ${libMatch.status || 'not deployed'}, not counted as coverage (skipped: only ${[...COVERAGE_STATUSES].join('/')} rules count)`;
-    await emit(runCtx, {
-      agent: 'detection-engineer',
-      event_type: 'library_match_found',
-      message,
-      payload: {
-        behaviour_id: behaviour.id,
-        opportunity_id: opp.id,
-        match: libMatch,
-        skipped_reason: skippedReason,
-        target_language: queryLanguage,
-        match_status: libMatch.status ?? null,
-      },
-    });
-  }
+  // Nothing in the library matched, so generation proceeds below. There is no
+  // longer a "near match that didn't qualify" case — any match is reused.
+  const nearMatch: LibraryNearMatch | null = null;
 
   // Resolve the full set of source behaviours referenced by this
   // canonical opportunity. Pre-fix the orchestrator passed only the

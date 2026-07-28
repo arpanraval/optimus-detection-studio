@@ -116,20 +116,24 @@ export interface PreflightSummary {
 }
 
 /** When the Detection Engineer finds an existing detection in the user's
- *  library that already covers a behaviour (combined_score >= 0.6 by default;
- *  THREAT_RESEARCH_LIBRARY_MATCH_THRESHOLD overrides), it sets `library_match`
- *  on the behaviour and skips generation entirely. The UI renders the leaf
- *  with a sage-green glow and a link to the existing detection. */
+ *  library for an opportunity (combined_score >= 0.6 by default;
+ *  THREAT_RESEARCH_LIBRARY_MATCH_THRESHOLD overrides), the leaf is pointed at
+ *  that rule via `saved_detection_id` and generation is skipped — regardless
+ *  of the rule's status or query language. The UI renders the leaf with a
+ *  sage-green glow and a link to the existing detection. */
 export interface LibraryMatch {
   existing_detection_id: string;
   name: string;
   query_language: string;
   /** Lifecycle status of the matched library detection ('Production', 'Draft',
-   *  'Deprecated', ...). A match only counts as COVERAGE when it is actually
-   *  deployed — a Draft rule sitting in someone's library detects nothing, so
-   *  suppressing generation on it would hand the user a coverage claim they
-   *  cannot substantiate. See COVERAGE_STATUSES in agents/detection-engineer.ts. */
+   *  'Deprecated', ...). DISPLAY ONLY — it tells the user where the rule lives
+   *  and feeds the 'covered' vs 'partial' label, but it never decides whether
+   *  the rule is reused. Reuse is unconditional; see Amendment 1 in
+   *  docs/plans/2026-07-28-threat-research-remediation-plan.md. */
   status: string;
+  /** The existing rule's query body, so a reused leaf can render the actual
+   *  rule instead of an empty code block. Empty when the row has no query. */
+  detection_query: string;
   combined_score: number;
   semantic_score: number;
   keyword_score: number;
@@ -224,10 +228,11 @@ export interface GeneratedDetection {
 }
 
 /** Why a scoring library match was not treated as coverage.
- *   - `not_deployed`      the rule exists but isn't in a COVERAGE_STATUSES
- *                         status (a Draft rule detects nothing)
- *   - `language_mismatch` the rule is written for a different SIEM than the
- *                         one this session targets */
+ *
+ *  CURRENTLY UNREACHABLE. Under reuse-first (Amendment 1) every match above
+ *  the threshold is reused, so no near-match is ever constructed. The type is
+ *  retained because sessions persisted before that change still carry
+ *  `library_near_match` on their leaves and the UI must keep rendering them. */
 export type LibraryNearMatchReason = 'not_deployed' | 'language_mismatch';
 
 export interface LibraryNearMatch {

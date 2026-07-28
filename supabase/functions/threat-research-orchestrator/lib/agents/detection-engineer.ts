@@ -378,7 +378,13 @@ export async function checkLibraryCoverage(
   } else {
     query = `${behaviour.title}. ${behaviour.narrative_description}`;
   }
-  const { hits } = await handleLibrarySearch(toolCtx.supabase, { query, limit: 5, userId: toolCtx.userId });
+  // limit 25 (the handler's ceiling), not 5. The keyword half of
+  // hybrid_search_detections OR-tokenizes the query (migration 20260521150000),
+  // so generic terms like "execution" and "script" pull unrelated rules above
+  // exact ones. On a real mshta run the top keyword hit was an Invoke-Sqlcmd
+  // rule, and only one of 185 relevant rules reached the caller at limit 5.
+  // A wider window gives the threshold something real to select from.
+  const { hits } = await handleLibrarySearch(toolCtx.supabase, { query, limit: 25, userId: toolCtx.userId });
   if (!hits.length) return null;
   const top = hits[0];
   if (top.combined_score < LIBRARY_MATCH_THRESHOLD) return null;
@@ -387,6 +393,7 @@ export async function checkLibraryCoverage(
     name: top.name,
     query_language: top.query_language,
     status: top.status ?? '',
+    detection_query: top.detection_query ?? '',
     combined_score: top.combined_score,
     semantic_score: top.semantic_score,
     keyword_score: top.keyword_score,

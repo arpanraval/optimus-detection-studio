@@ -36,6 +36,10 @@ export interface LibrarySearchHit {
    *  doesn't return queryLanguage in its TABLE signature, so we fetch it
    *  via a small batched SELECT after the search completes. */
   query_language: string;
+  /** The rule body itself. Backfilled alongside query_language. Needed so a
+   *  reused leaf renders the existing rule rather than an empty code block.
+   *  Empty string when the row has no query or the lookup failed. */
+  detection_query: string;
   semantic_score: number;
   keyword_score: number;
   combined_score: number;
@@ -83,23 +87,26 @@ export async function handleLibrarySearch(
   const rows = (data ?? []) as any[];
   if (rows.length === 0) return { hits: [] };
 
-  // 3. Backfill queryLanguage. The hybrid RPC's TABLE signature doesn't
-  //    return it but the Detection Engineer needs it (the LibraryMatch
-  //    payload it emits ships query_language to the UI). One batched SELECT
-  //    on the matched ids — small, indexed, and only fires when there are
-  //    hits. Failure is non-fatal; missing language degrades to ''.
+  // 3. Backfill queryLanguage AND detectionQuery. The hybrid RPC's TABLE
+  //    signature returns neither, but both are needed: query_language for the
+  //    LibraryMatch payload, and detectionQuery so a REUSED leaf can show the
+  //    actual rule body instead of an empty code block. One batched SELECT on
+  //    the matched ids — small, indexed, and only fires when there are hits.
+  //    Failure is non-fatal; both degrade to ''.
   const ids = rows.map(r => r.detection_id).filter(Boolean);
   const langById = new Map<string, string>();
+  const queryById = new Map<string, string>();
   if (ids.length > 0) {
     const { data: langRows, error: langErr } = await supabase
       .from('detections')
-      .select('id, queryLanguage')
+      .select('id, queryLanguage, detectionQuery')
       .in('id', ids);
     if (langErr) {
-      console.warn('[library-search] queryLanguage backfill failed:', langErr.message);
+      console.warn('[library-search] queryLanguage/detectionQuery backfill failed:', langErr.message);
     } else {
-      for (const r of (langRows ?? []) as Array<{ id: string; queryLanguage: string | null }>) {
+      for (const r of (langRows ?? []) as Array<{ id: string; queryLanguage: string | null; detectionQuery: string | null }>) {
         if (r.queryLanguage) langById.set(r.id, r.queryLanguage);
+        if (r.detectionQuery) queryById.set(r.id, r.detectionQuery);
       }
     }
   }
@@ -113,6 +120,7 @@ export async function handleLibrarySearch(
       severity: d.severity,
       mitre_technique_ids: d.mitre_ids ?? [],
       query_language: langById.get(d.detection_id) ?? '',
+      detection_query: queryById.get(d.detection_id) ?? '',
       semantic_score: d.semantic_score ?? 0,
       keyword_score: d.keyword_score ?? 0,
       combined_score: d.combined_score ?? 0,
