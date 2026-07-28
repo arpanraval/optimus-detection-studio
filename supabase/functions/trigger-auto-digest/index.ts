@@ -86,75 +86,33 @@ serve(async (req: Request) => {
       }
     }
 
-    // If a job is already pending or processing, return it instead of creating
-    // a duplicate. But also: if the orchestrator was killed mid-run (deno
-    // sandbox eviction, function timeout, unhandled exception that escaped
-    // the per-job try/catch), the row stays in 'processing' forever and
-    // every subsequent Run Now click hits this branch — locking the user out
-    // of new runs until someone manually patches the row. Stale-job watchdog:
-    // anything older than the orchestrator's worst-case run time (4.5 min
-    // budget + harvest/classify slack) is presumed dead.
-    const STUCK_JOB_THRESHOLD_MS = 15 * 60 * 1000;
-    const { data: existingJob } = await adminClient
-      .from('auto_digest_jobs')
-      .select('id, status, started_at, created_at')
-      .eq('user_id', user.id)
-      .in('status', ['pending', 'processing'])
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (existingJob) {
-      const startedAt = existingJob.started_at || existingJob.created_at;
-      const ageMs = startedAt ? Date.now() - new Date(startedAt).getTime() : 0;
-      const isStuck = ageMs > STUCK_JOB_THRESHOLD_MS;
-
-      if (!isStuck) {
-        return corsJsonResponse(
-          { job_id: existingJob.id, status: existingJob.status, message: 'A digest job is already in progress' },
-          req,
-          200,
-        );
-      }
-
-      // Mark the stuck job as failed so it stops blocking new runs and so
-      // the user sees the failure on the activity log instead of an eternal
-      // "running" spinner. Then fall through and create a new pending job.
-      console.warn(`[trigger-auto-digest] Job ${existingJob.id} stuck for ${Math.round(ageMs / 1000)}s — marking failed`);
-      await adminClient
-        .from('auto_digest_jobs')
-        .update({
-          status: 'failed',
-          completed_at: new Date().toISOString(),
-          error: `Stuck in ${existingJob.status} for ${Math.round(ageMs / 60000)} min — orchestrator likely crashed; auto-recovered`,
-        })
-        .eq('id', existingJob.id);
-    }
-
-    // Insert a new pending job
-    const { data: newJob, error: insertError } = await adminClient
-      .from('auto_digest_jobs')
-      .insert({ user_id: user.id, status: 'pending' })
-      .select('id')
-      .single();
-
-    if (insertError || !newJob) {
-      return corsErrorResponse(`Failed to create job: ${insertError?.message}`, req, 500);
-    }
-
-    // Fire-and-forget: wake up the orchestrator so the job runs immediately
-    fetch(`${supabaseUrl}/functions/v1/auto-digest-orchestrator`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${serviceRoleKey}`,
-      },
-      body: '{}',
-    }).catch(() => {
-      // Orchestrator will pick up the pending job on its next scheduled invocation if this fails
+    const { data: requestedJob, error: requestError } = await adminClient.rpc('request_auto_digest_job', {
+      p_user_id: user.id,
+      p_reason: 'manual',
     });
 
-    return corsJsonResponse({ job_id: newJob.id, message: 'Digest pipeline started' }, req, 200);
+    if (requestError || !requestedJob?.[0]?.job_id) {
+      return corsErrorResponse('Failed to create job: ' + (requestError?.message || 'No job was returned'), req, 500);
+    }
+
+    const job = requestedJob[0];
+    fetch(`${supabaseUrl}/functions/v1/auto-digest-queue-consumer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${serviceRoleKey}`, apikey: serviceRoleKey },
+      body: '{}',
+    }).catch(() => {
+      // The scheduled watchdog will recover the durable job if the wake-up fails.
+    });
+    return corsJsonResponse(
+      {
+        job_id: job.job_id,
+        status: job.status,
+        created: job.created,
+        message: job.created ? 'Digest pipeline started' : 'A digest job is already in progress',
+      },
+      req,
+      200,
+    );
   } catch (err: any) {
     console.error('[trigger-auto-digest] Error:', err.message);
     return corsErrorResponse(err.message || 'Internal server error', req, 500);

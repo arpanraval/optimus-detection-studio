@@ -17,13 +17,17 @@ export interface DigestRequest {
   retrySection?: RetrySectionType;
   existingReport?: ThreatReport;
   promptTemplates?: PromptTemplates;
+  reportId?: string;
 }
 
 export interface DigestOptions {
   extractIoCs?: boolean;
   extractRules?: boolean;
   mapToMitre?: boolean;
+  extractionMethod?: 'direct' | 'jina_reader';
+  includeOwnedDevelopmentDetections?: boolean;
   findLibraryMatches?: boolean;
+  autoDigest?: boolean;
 }
 
 export interface PromptTemplates {
@@ -86,6 +90,8 @@ export enum ProcessingStage {
 }
 
 // =============================================================================
+export type ReportOutcome = 'complete' | 'partial' | 'failed' | 'cancelled';
+
 // REPORT DATA STRUCTURES
 // =============================================================================
 
@@ -93,6 +99,8 @@ export interface ThreatReport {
   id: string;
   createdAt: string;
   updatedAt: string;
+  outcome?: ReportOutcome;
+  sectionOutcomes?: Record<string, 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'retained_previous'>;
   sourceType: 'url' | 'paste';
   sourceUrl?: string;
   rawContentPreview?: string;
@@ -104,12 +112,23 @@ export interface ThreatReport {
   rules: ExtractedRule[];
   mitreMapping: MitreMapping;
   libraryMatches: LibraryMatch[];
+  coveragePercent?: number | null;
+  libraryOverlapPercent?: number | null;
+  validatedOverlapPercent?: number | null;
+  deploymentReadinessPercent?: number | null;
+  overlapCalculatedAt?: string;
   processingStage: ProcessingStage;
   processingError?: string;
   processingDurationMs?: number;
   sectionErrors?: Record<string, string>;
   lastRetrySection?: RetrySectionType;
   lastRetryTime?: string;
+  sourceQuality?: 'full_article' | 'partial_article' | 'feed_summary' | 'title_only' | 'unavailable' | 'legacy_unverified';
+  sourceContentLength?: number;
+  sourceContentHash?: string;
+  fetchedUrl?: string;
+  qualityWarnings?: string[];
+  possibleActorMentions?: string[];
 }
 
 export interface ReportSummary {
@@ -144,6 +163,8 @@ export interface ExtractedTTP {
   tacticId: string;
   sourceType: 'explicit' | 'contextual';
   confidence: 'high' | 'medium' | 'low';
+  provenance?: 'explicit' | 'inferred' | 'validated' | 'rejected' | 'analyst_verified';
+  validationState?: 'pending' | 'validated' | 'rejected' | 'analyst_verified';
   evidence: string;
   explanation: string;
   isSubTechnique: boolean;
@@ -151,6 +172,7 @@ export interface ExtractedTTP {
   hasExistingDetection?: boolean;
   existingDetectionCount?: number;
   existingDetectionIds?: string[];
+  evidenceSupported?: boolean;
 }
 
 export interface ExtractedIoC {
@@ -164,6 +186,7 @@ export interface ExtractedIoC {
   originalValue?: string;
   potentialFalsePositive?: boolean;
   falsePositiveReason?: string;
+  evidenceSupported?: boolean;
 }
 
 export interface ExtractedRule {
@@ -173,6 +196,10 @@ export interface ExtractedRule {
   content: string;
   description?: string;
   relatedTTPs?: string[];
+  provenance?: 'verbatim' | 'pattern_extracted' | 'reconstructed' | 'generated' | 'external_link';
+  isValidated?: boolean;
+  validationStatus?: 'candidate' | 'validated' | 'rejected';
+  evidenceSupported?: boolean;
 }
 
 // =============================================================================
@@ -251,6 +278,10 @@ export interface FetchResult {
     author?: string;
     publishDate?: string;
     organization?: string;
+    sourceQuality?: 'full_article' | 'partial_article' | 'feed_summary' | 'title_only' | 'unavailable' | 'legacy_unverified';
+    sourceContentLength?: number;
+    sourceContentHash?: string;
+    fetchedUrl?: string;
   };
 }
 

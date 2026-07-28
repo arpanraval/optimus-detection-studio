@@ -127,6 +127,7 @@ interface AiLinkResult {
   matches: number[];
   subject: string;
   rationale: string;
+  confidence?: 'high' | 'medium' | 'low';
 }
 
 // ---------------------------------------------------------------------------
@@ -321,6 +322,11 @@ export async function linkBySubject(
     ], newReport, unlinked);
 
     await updateCampaignMerge(supabase, targetCampaignId);
+    await supabase.from('auto_digest_campaigns').update({
+      ai_link_rationale: aiOut.rationale?.slice(0, 2000) ?? null,
+      ai_link_confidence: aiOut.confidence ?? 'medium',
+      story_decision_version: 'subject-linker-2026-07-17.1',
+    }).eq('id', targetCampaignId)
     result.campaigns_updated += 1;
     await emit(ctx, 'campaign_updated', {
       article_id: reportId,
@@ -345,6 +351,7 @@ export async function linkBySubject(
     unlinked,
     aiOut.subject || newReport.name || 'Threat Intel Campaign',
     aiOut.rationale,
+    aiOut.confidence ?? 'medium',
   ).then(async (campaignId) => {
     if (!campaignId) return;
     await updateCampaignMerge(supabase, campaignId);
@@ -417,6 +424,7 @@ async function createCampaignWithReports(
   unlinkedMatches: CandidateRow[],
   subjectLabel: string,
   rationale: string,
+  confidence: 'high' | 'medium' | 'low',
 ): Promise<string | null> {
   // Sanitize the AI-supplied subject label before persisting (untrusted text).
   // The original detectAndMergeCampaign used the same character class for
@@ -439,10 +447,9 @@ async function createCampaignWithReports(
       campaign_keywords: subjectLabel ? [subjectLabel.toLowerCase()] : [],
       attack_type: null,
       severity,
-      // Use review_note as a one-off place to capture the AI rationale so
-      // it surfaces in the UI without a new column. 2000-char limit per
-      // the existing CHECK; rationale is one short sentence.
-      review_note: rationale?.slice(0, 2000) ?? null,
+      // AI-link rationale is kept separate from analyst-authored review_note.
+      ai_link_rationale: rationale?.slice(0, 2000) ?? null,
+      ai_link_confidence: confidence,
     })
     .select('id')
     .single();
@@ -579,8 +586,7 @@ async function callGemini(model: string, userPrompt: string): Promise<{ result: 
     signal: AbortSignal.timeout(AI_TIMEOUT_MS),
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gemini ${res.status}: ${text.slice(0, 200)}`);
+    throw new Error(`Gemini ${res.status}`);
   }
   const json = await res.json();
   return {
@@ -612,8 +618,7 @@ async function callOpenAI(model: string, userPrompt: string): Promise<{ result: 
     signal: AbortSignal.timeout(AI_TIMEOUT_MS),
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OpenAI ${res.status}: ${text.slice(0, 200)}`);
+    throw new Error(`OpenAI ${res.status}`);
   }
   const json = await res.json();
   return {
@@ -643,8 +648,7 @@ async function callAnthropic(model: string, userPrompt: string): Promise<{ resul
     signal: AbortSignal.timeout(AI_TIMEOUT_MS),
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Anthropic ${res.status}: ${text.slice(0, 200)}`);
+    throw new Error(`Anthropic ${res.status}`);
   }
   const json = await res.json();
   return {
@@ -689,6 +693,7 @@ function parseLinkJSON(raw: string): AiLinkResult {
     : [];
   const subject = typeof parsed?.subject === 'string' ? parsed.subject : '';
   const rationale = typeof parsed?.rationale === 'string' ? parsed.rationale : '';
+  const confidence = ['high', 'medium', 'low'].includes(parsed?.confidence) ? parsed.confidence : (matches.length > 0 ? 'medium' : 'low');
 
-  return { matches, subject, rationale };
+  return { matches, subject, rationale, confidence };
 }

@@ -36,25 +36,27 @@ import { classifyEntries } from './lib/classifier.ts'
 import { rankAndSelect } from './lib/relevance-scorer.ts'
 import { linkBySubject } from './lib/subject-linker.ts'
 import { enrichFeasibility } from './lib/feasibility-enricher.ts'
-import { emptyJobResult } from './lib/types.ts'
+import {
+  assertPhaseBudget,
+  emptyJobResult,
+  normalizeJobResult,
+  PHASE_BUDGET_MS,
+  PhaseBudgetExceeded,
+} from './lib/types.ts'
 import type { JobResultSummary, EnvironmentProfileRow } from './lib/types.ts'
 import { emit, type RunContext } from './lib/events.ts'
+import { DEFAULT_PROMPT_TEMPLATES } from '../threat-intel-digest-v2/lib/default-prompts.ts'
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Per-phase wall-clock guard. Platform terminates ~150-250s; we bail at
- *  240s so a graceful timeout marker lands before kill. Most phases finish
- *  well under this — digest is the only one that can come close, and we
- *  process one article per phase invocation now anyway. */
-const PHASE_BUDGET_MS = 240_000;
-
 /** Per-article digest call timeout. The digest function runs 4 sequential AI
  *  calls (summary, classification, TTPs, IoCs+rules); on long technical
  *  articles the IoC pass alone can take 60-90s with Gemini, so 120s was too
- *  tight. 200s leaves ~40s headroom inside the 240s phase budget. */
-const DIGEST_TIMEOUT_MS = 200_000;
+ *  tight. 110s leaves ~40s headroom inside the 150s platform limit, allowing
+ *  graceful recovery. */
+const DIGEST_TIMEOUT_MS = 110_000;
 
 type Phase = 'harvesting' | 'classifying' | 'ranking' | 'digesting' | 'finalising';
 
@@ -83,57 +85,78 @@ function isSafeArticleUrl(url: string): boolean {
 /** Fire-and-forget self-call to ?action=run_phase for the next hop. The
  *  receiver returns 200 immediately and runs the actual work via
  *  EdgeRuntime.waitUntil, so this never blocks the caller. */
-async function dispatchPhase(
-  supabaseUrl: string,
-  serviceRoleKey: string,
+
+async function enqueuePhase(
+  supabase: any,
+  _supabaseUrl: string,
+  _serviceRoleKey: string,
   jobId: string,
+  phase: Phase,
+  entryId?: string,
 ): Promise<void> {
-  const url = `${supabaseUrl}/functions/v1/auto-digest-orchestrator?action=run_phase`;
-  try {
-    await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${serviceRoleKey}`,
-      },
-      body: JSON.stringify({ job_id: jobId }),
-    });
-  } catch (e: any) {
-    console.warn(`[orchestrator] dispatchPhase failed for ${jobId}:`, e?.message ?? e);
+  const { data: messageId, error } = await supabase.rpc('auto_digest_enqueue', {
+    p_kind: 'run_phase',
+    p_job_id: jobId,
+    p_entry_id: entryId ?? null,
+    p_payload: { phase },
+  });
+  if (error) throw new Error(`Queue enqueue for ${jobId}/${phase} failed: ${error.message}`);
+  if (messageId === null || messageId === undefined) {
+    throw new Error('Durable queue is unavailable; refusing legacy fire-and-forget dispatch');
   }
 }
 
 async function advancePhase(supabase: any, jobId: string, nextPhase: Phase): Promise<void> {
   const { error } = await supabase
     .from('auto_digest_jobs')
-    .update({ phase: nextPhase })
+    .update({ phase: nextPhase, phase_started_at: null, phase_lease_expires_at: null, phase_attempt_count: 0, heartbeat_at: new Date().toISOString() })
     .eq('id', jobId);
-  if (error) console.warn(`[orchestrator] advancePhase ${jobId} → ${nextPhase} failed:`, error.message);
+  if (error) throw new Error(`advancePhase ${jobId} → ${nextPhase} failed: ${error.message}`);
 }
 
 async function persistResult(supabase: any, jobId: string, result: JobResultSummary): Promise<void> {
   const { error } = await supabase
     .from('auto_digest_jobs')
-    .update({ result_summary: result })
+    .update({ result_summary: result, heartbeat_at: new Date().toISOString() })
     .eq('id', jobId);
-  if (error) console.warn(`[orchestrator] persistResult ${jobId} failed:`, error.message);
+  if (error) throw new Error(`persistResult ${jobId} failed: ${error.message}`);
 }
 
 async function markJobCompleted(
   supabase: any,
   jobId: string,
-  status: 'completed' | 'failed' | 'timeout_partial',
+  status: 'completed' | 'partial' | 'cancelled' | 'failed' | 'timeout_partial',
   result: JobResultSummary,
 ): Promise<void> {
-  await supabase
+  const { error } = await supabase
     .from('auto_digest_jobs')
     .update({
       status,
+      outcome: status === 'completed' ? 'complete' : status === 'timeout_partial' || status === 'partial' ? 'partial' : status === 'cancelled' ? 'cancelled' : 'failed',
       phase: null,
+      phase_started_at: null,
+      phase_lease_expires_at: null,
       completed_at: new Date().toISOString(),
       result_summary: result,
+      active_entry_id: null,
+      pending_entry_ids: [],
+      heartbeat_at: new Date().toISOString(),
     })
     .eq('id', jobId);
+  if (error) throw new Error(`markJobCompleted ${jobId} failed: ${error.message}`);
+}
+
+async function recoverPendingEntries(supabase: any, userId: string, pendingEntryIds: unknown): Promise<void> {
+  if (!Array.isArray(pendingEntryIds) || pendingEntryIds.length === 0) return;
+  const ids = pendingEntryIds.filter((id): id is string => typeof id === 'string');
+  if (ids.length === 0) return;
+  const { error } = await supabase
+    .from('threat_intel_feed_entries')
+    .update({ digest_status: 'classified' })
+    .eq('user_id', userId)
+    .in('id', ids)
+    .in('digest_status', ['queued', 'digesting']);
+  if (error) console.warn('[orchestrator] failed to recover pending entries:', error.message);
 }
 
 // ---------------------------------------------------------------------------
@@ -156,7 +179,7 @@ async function processOneDigestArticle(
   try {
     const { data: entry, error: entryErr } = await supabase
       .from('threat_intel_feed_entries')
-      .select('id, url, title, content, feed_id, relevance_score, threat_intel_feeds(id, name)')
+      .select('id, url, title, content, full_content, content_length, feed_id, relevance_score, auto_digest_report_id, canonical_url, content_hash, source_content_hash, source_quality, threat_intel_feeds(id, name, extraction_method)')
       .eq('id', entryId)
       .single();
 
@@ -173,6 +196,7 @@ async function processOneDigestArticle(
     const feedRel = (entry.threat_intel_feeds as any) || {};
     const feedName = feedRel.name || 'Unknown Feed';
     const feedId: string | null = feedRel.id ?? null;
+    const extractionMethod = feedRel.extraction_method === 'jina_reader' ? 'jina_reader' : 'direct';
 
     if (!entry.url || !isSafeArticleUrl(entry.url)) {
       result.articles_failed += 1;
@@ -192,15 +216,16 @@ async function processOneDigestArticle(
       return;
     }
 
-    await supabase
+    const { error: digestingError } = await supabase
       .from('threat_intel_feed_entries')
       .update({ digest_status: 'digesting' })
       .eq('id', entry.id);
+    if (digestingError) throw new Error(`Failed to mark entry digesting: ${digestingError.message}`);
 
     // Plan A: prompt templates cached on auto_digest_settings.prompt_templates
     // by trigger-auto-digest. threat-intel-digest-v2 strictly requires them
     // and will throw "Missing summary prompt template" without them.
-    const promptTemplates = (settings as any).prompt_templates ?? null;
+    const promptTemplates = { ...DEFAULT_PROMPT_TEMPLATES, ...(((settings as any).prompt_templates ?? {}) as Record<string, string>) };
     if (!promptTemplates || typeof promptTemplates !== 'object' || Object.keys(promptTemplates).length === 0) {
       result.errors.push(
         'No prompt templates cached for this user. Trigger a manual run from the Auto-Digest UI to seed them.',
@@ -231,18 +256,27 @@ async function processOneDigestArticle(
       return;
     }
 
+    const reportCorrelationId = entry.auto_digest_report_id || crypto.randomUUID();
     const digestUrl = `${supabaseUrl}/functions/v1/threat-intel-digest-v2`;
+    const digestModel = settings.digest_model || settings.ai_model || 'gemini-3-flash-preview';
+    const modelProvider = digestModel.startsWith('gpt') ? 'openai' : digestModel.startsWith('claude') ? 'anthropic' : 'google';
+    const promptVersion = typeof settings.prompt_templates?.version === 'string' ? settings.prompt_templates.version : 'threat-intel-digest-2026-07-17.1';
+    const pipelineVersion = 'auto-digest-queue-2026-07-17.1';
+    const extractionStartedAt = new Date(digestStart).toISOString();
     const digestBody = {
       sourceType: 'url',
       url: entry.url,
-      model: settings.digest_model || settings.ai_model || 'gemini-3-flash-preview',
+      model: digestModel,
       options: {
         extractIoCs: true,
         extractRules: true,
         mapToMitre: true,
         findLibraryMatches: true,
+        autoDigest: true,
+        extractionMethod,
       },
       userId: job.user_id,
+      reportId: reportCorrelationId,
       promptTemplates,
     };
 
@@ -257,8 +291,7 @@ async function processOneDigestArticle(
     });
 
     if (!digestRes.ok) {
-      const errText = await digestRes.text();
-      throw new Error(`Digest HTTP ${digestRes.status}: ${errText.slice(0, 300)}`);
+      throw new Error(`Digest HTTP ${digestRes.status}`);
     }
 
     const digestData = await digestRes.json();
@@ -291,14 +324,31 @@ async function processOneDigestArticle(
     const mitreMapping = report.mitreMapping || report.mitre_mapping || null;
     const libraryMatches = report.libraryMatches || report.library_matches || null;
     const sectionErrors = report.sectionErrors || report.section_errors || null;
+    const reportOutcome = digestData.outcome === 'cancelled' ? 'cancelled' : digestData.outcome === 'failed' ? 'failed' : sectionErrors && typeof sectionErrors === 'object' && Object.keys(sectionErrors).length > 0 ? 'partial' : 'complete';
+    if (reportOutcome === 'partial') result.errors.push(`Partial analysis for ${entryId}: ${Object.keys(sectionErrors || {}).join(', ') || 'one or more sections failed'}`);
+    const persistedSectionOutcomes = report.sectionOutcomes || report.section_outcomes;
+    const sectionOutcomes = persistedSectionOutcomes && typeof persistedSectionOutcomes === 'object'
+      ? persistedSectionOutcomes
+      : reportOutcome === 'partial' ? Object.fromEntries(Object.keys(sectionErrors as Record<string, unknown>).map(key => [key, 'failed'])) : {};
 
     const ttpCount = Array.isArray(ttps) ? ttps.length : 0;
     const iocCount = Array.isArray(iocs) ? iocs.length : 0;
     const ruleCount = Array.isArray(rules) ? rules.length : 0;
-    const coveredTTPs = Array.isArray(ttps)
-      ? ttps.filter((t: any) => t.hasExistingDetection === true || t.covered === true).length
-      : 0;
-    const coveragePercent = ttpCount > 0 ? Math.round((coveredTTPs / ttpCount) * 100) : 0;
+    const eligibleTtpIds = new Set(
+      (Array.isArray(ttps) ? ttps : [])
+        .filter((ttp: any) => ttp.validationState === 'validated' && ttp.evidenceSupported !== false)
+        .map((ttp: any) => ttp.mitreId)
+        .filter(Boolean),
+    );
+    const coveredTtpIds = new Set(
+      (Array.isArray(libraryMatches) ? libraryMatches : [])
+        .flatMap((match: any) => Array.isArray(match.matchedTTPs) ? match.matchedTTPs : [])
+        .filter((id: string) => eligibleTtpIds.has(id)),
+    );
+    const coveragePercent = eligibleTtpIds.size > 0 ? Math.round((coveredTtpIds.size / eligibleTtpIds.size) * 100) : null;
+    const libraryOverlapPercent = typeof report.libraryOverlapPercent === 'number' ? report.libraryOverlapPercent : coveragePercent;
+    const validatedOverlapPercent = typeof report.validatedOverlapPercent === 'number' ? report.validatedOverlapPercent : null;
+    const deploymentReadinessPercent = typeof report.deploymentReadinessPercent === 'number' ? report.deploymentReadinessPercent : null;
 
     // Read the entry's selection-time relevance_score so we can attach it
     // to the report row. Previously `relevance_score: 0` was hardcoded,
@@ -323,73 +373,56 @@ async function processOneDigestArticle(
       rules,
       mitre_mapping: mitreMapping,
       library_matches: libraryMatches,
-      processing_stage: 'complete',
+      processing_stage: reportOutcome === 'complete' ? 'complete' : 'error',
+      outcome: reportOutcome,
+      section_outcomes: sectionOutcomes,
       section_errors: sectionErrors,
       report_title: summary.title || entry.title || null,
       threat_level: summary.threatLevel || null,
       attack_type: classification.primaryType || null,
-      attribution: mitreMapping?.matchedGroups?.[0]?.name || null,
+      attribution: Array.isArray(report.possibleActorMentions) && report.possibleActorMentions.length > 0
+        ? report.possibleActorMentions[0]
+        : null,
+      possible_actor_mentions: Array.isArray(report.possibleActorMentions) ? report.possibleActorMentions : [],
       organization: feedName,
       ttp_count: ttpCount,
       ioc_count: iocCount,
       rule_count: ruleCount,
       coverage_percent: coveragePercent,
+      library_overlap_percent: libraryOverlapPercent,
+      validated_overlap_percent: validatedOverlapPercent,
+      deployment_readiness_percent: deploymentReadinessPercent,
       source: 'auto',
       source_feed_name: feedName,
       source_article_url: entry.url,
       relevance_score: entryRelevanceScore,
+      content_hash: (entry as any).content_hash || null,
+      source_content_hash: report.sourceContentHash || (entry as any).source_content_hash || null,
+      source_quality: report.sourceQuality || 'legacy_unverified',
+      source_content_length: Number(report.sourceContentLength || 0) || null,
+      quality_warnings: Array.isArray(report.qualityWarnings) ? report.qualityWarnings : [],
+      canonical_url: (entry as any).canonical_url || entry.url,
+      fetched_url: entry.url,
+      model_provider: modelProvider,
+      model_version: digestModel,
+      prompt_version: promptVersion,
+      pipeline_version: pipelineVersion,
+      attack_version: 'ATT&CK-current',
+      extraction_started_at: extractionStartedAt,
+      extraction_completed_at: new Date().toISOString(),
     };
 
     // Insert-only columns. Preserved across re-runs so a user who has
     // already triaged a report doesn't lose their work when the article
     // is re-digested. The previous version always wrote these on update,
-    // wiping review_status back to 'pending' on every re-run.
-    const insertOnlyFields: Record<string, unknown> = {
-      user_id: job.user_id,
-      review_status: 'pending',
-    };
-
-    let savedReport: { id: string } | null = null;
-    let upsertErr: any = null;
-
-    if (entry.url) {
-      const { data: existing } = await supabase
-        .from('threat_intel_reports')
-        .select('id')
-        .eq('user_id', job.user_id)
-        .eq('source_url', entry.url)
-        .limit(1)
-        .maybeSingle();
-
-      if (existing) {
-        // UPDATE only the server-derived fields, preserving the user's
-        // review_status and any other insert-only state.
-        const { data, error } = await supabase
-          .from('threat_intel_reports')
-          .update(serverDerivedFields)
-          .eq('id', existing.id)
-          .select('id')
-          .single();
-        savedReport = data;
-        upsertErr = error;
-      } else {
-        const { data, error } = await supabase
-          .from('threat_intel_reports')
-          .insert({ ...serverDerivedFields, ...insertOnlyFields })
-          .select('id')
-          .single();
-        savedReport = data;
-        upsertErr = error;
-      }
-    } else {
-      const { data, error } = await supabase
-        .from('threat_intel_reports')
-        .insert({ ...serverDerivedFields, ...insertOnlyFields })
-        .select('id')
-        .single();
-      savedReport = data;
-      upsertErr = error;
-    }
+    const { data: persistedReports, error: upsertErr } = await supabase.rpc('upsert_auto_digest_report', {
+      p_report_id: reportCorrelationId,
+      p_user_id: job.user_id,
+      p_source_url: entry.url,
+      p_payload: { ...serverDerivedFields, id: reportCorrelationId },
+    })
+    const persistedReport = Array.isArray(persistedReports) ? persistedReports[0] : persistedReports
+    const savedReport: { id: string } | null = persistedReport?.report_id ? { id: persistedReport.report_id } : null
 
     if (upsertErr || !savedReport) {
       await supabase
@@ -412,14 +445,19 @@ async function processOneDigestArticle(
 
     const reportId = savedReport.id;
 
-    await supabase
+    const { error: readyError } = await supabase
       .from('threat_intel_feed_entries')
       .update({
         digest_status: 'ready',
         auto_digest_report_id: reportId,
         is_processed: true,
+        source_quality: report.sourceQuality || 'legacy_unverified',
+        source_content_hash: report.sourceContentHash || (entry as any).source_content_hash || null,
+        content_length: Number(report.sourceContentLength || 0) || (entry as any).content_length || null,
+        extract_error: reportOutcome === 'partial' ? `Partial analysis: ${Object.keys(sectionErrors).join(', ')}` : null,
       })
       .eq('id', entry.id);
+    if (readyError) throw new Error(`Failed to mark entry ready: ${readyError.message}`);
 
     // The report has been saved to the library — that's the load-bearing
     // success. Count it as digested NOW so a downstream enrichment failure
@@ -491,6 +529,7 @@ async function runPhase(
   supabaseUrl: string,
   serviceRoleKey: string,
   jobId: string,
+  expectedPhase?: Phase,
 ): Promise<void> {
   const { data: job, error: loadErr } = await supabase
     .from('auto_digest_jobs')
@@ -507,14 +546,31 @@ async function runPhase(
     return;
   }
 
+  if (job.cancellation_requested) return;
   const phase = job.phase as Phase | null;
   if (!phase) {
     console.warn(`[runPhase] job ${jobId} has null phase while processing — bailing`);
     return;
   }
 
-  const result: JobResultSummary = (job.result_summary as JobResultSummary) ?? emptyJobResult();
+  const result: JobResultSummary = normalizeJobResult(job.result_summary);
+  if (expectedPhase && expectedPhase !== phase) {
+    console.log(`[runPhase] stale queue message for ${jobId}: expected ${expectedPhase}, current ${phase}`);
+    return;
+  }
+  const { data: phaseClaimed, error: phaseClaimError } = await supabase.rpc('claim_auto_digest_phase', {
+    p_job_id: jobId,
+    p_phase: phase,
+    p_lease_seconds: phase === 'digesting' ? 180 : 300,
+  });
+  if (phaseClaimError) throw new Error(`Failed to claim ${phase} phase: ${phaseClaimError.message}`);
+  if (!phaseClaimed) {
+    console.log(`[runPhase] phase ${phase} for ${jobId} is already leased; skipping duplicate delivery`);
+    return;
+  }
   const ctx: RunContext = { supabase, jobId: job.id, userId: job.user_id };
+  const phaseDeadline = Date.now() + PHASE_BUDGET_MS;
+  let recoverableEntryIds: unknown = job.pending_entry_ids;
 
   try {
     // Settings + env profile are needed by most phases. Load once per hop.
@@ -526,7 +582,7 @@ async function runPhase(
 
     if (settingsErr || !settings) {
       result.errors.push('No auto_digest_settings found — skipping');
-      await markJobCompleted(supabase, jobId, 'completed', result);
+      await markJobCompleted(supabase, jobId, 'failed', result);
       return;
     }
 
@@ -537,10 +593,12 @@ async function runPhase(
       .limit(1);
     const envProfile: EnvironmentProfileRow | null =
       envProfiles && envProfiles.length > 0 ? envProfiles[0] : null;
+    assertPhaseBudget(phaseDeadline, phase);
 
     switch (phase) {
       case 'harvesting': {
-        const entryIds = await harvestFeeds(ctx, result);
+        const entryIds = await harvestFeeds(ctx, result, phaseDeadline);
+        assertPhaseBudget(phaseDeadline, phase);
         await persistResult(supabase, jobId, result);
 
         if (entryIds.length === 0) {
@@ -548,7 +606,7 @@ async function runPhase(
           return;
         }
         await advancePhase(supabase, jobId, 'classifying');
-        await dispatchPhase(supabaseUrl, serviceRoleKey, jobId);
+        await enqueuePhase(supabase, supabaseUrl, serviceRoleKey, jobId, 'classifying');
         return;
       }
 
@@ -574,11 +632,13 @@ async function runPhase(
           harvIds,
           settings.classification_model || settings.ai_model || 'gemini-3-flash-preview',
           result,
+          phaseDeadline,
         );
+        assertPhaseBudget(phaseDeadline, phase);
         await persistResult(supabase, jobId, result);
 
         await advancePhase(supabase, jobId, 'ranking');
-        await dispatchPhase(supabaseUrl, serviceRoleKey, jobId);
+        await enqueuePhase(supabase, supabaseUrl, serviceRoleKey, jobId, 'ranking');
         return;
       }
 
@@ -587,7 +647,8 @@ async function runPhase(
           .from('threat_intel_feed_entries')
           .select('id')
           .eq('user_id', job.user_id)
-          .eq('digest_status', 'classified');
+          .eq('digest_status', 'classified')
+          .gte('fetched_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
         const classIds: string[] = (classifiedRows || []).map((r: any) => r.id);
 
         if (classIds.length === 0) {
@@ -595,50 +656,64 @@ async function runPhase(
           return;
         }
 
-        const selectedIds = await rankAndSelect(
+        let selectedIds = await rankAndSelect(
           ctx,
           classIds,
           settings.max_articles_per_day,
           envProfile,
+          phaseDeadline,
         );
+        // rankAndSelect marks selected rows queued before quota and durable
+        // job state are persisted. Keep the IDs locally so any later ranking
+        // failure can release them instead of stranding queued articles.
+        recoverableEntryIds = selectedIds;
         // Stash selected IDs as the digesting queue, advance phase, persist
+        if (selectedIds.length > 0) {
+          const { data: quotaGranted, error: quotaError } = await supabase.rpc(
+            'reserve_auto_digest_article_quota',
+            { p_user_id: job.user_id, p_requested: selectedIds.length, p_daily_limit: Number(settings.max_articles_per_day || 3) }
+          )
+          if (quotaError) throw new Error(`Daily article quota reservation failed: ${quotaError.message}`)
+          const granted = Math.max(0, Math.min(selectedIds.length, Number(quotaGranted || 0)))
+          if (granted < selectedIds.length) {
+            const releasedIds = selectedIds.slice(granted)
+            selectedIds = selectedIds.slice(0, granted)
+            const { error: releaseError } = await supabase.from('threat_intel_feed_entries').update({ digest_status: 'classified' }).in('id', releasedIds)
+            if (releaseError) throw new Error(`Failed to release quota-limited entries: ${releaseError.message}`)
+          }
+          recoverableEntryIds = selectedIds;
+        }
         // result — all in one UPDATE so the next hop sees a consistent view.
-        await supabase
+        const { error: rankUpdateError } = await supabase
           .from('auto_digest_jobs')
           .update({
             result_summary: result,
             phase: 'digesting',
             pending_entry_ids: selectedIds,
+            phase_started_at: null,
+            phase_lease_expires_at: null,
+            phase_attempt_count: 0,
+            heartbeat_at: new Date().toISOString(),
           })
           .eq('id', jobId);
-
-        if (selectedIds.length === 0) {
-          await markJobCompleted(supabase, jobId, 'completed', result);
-          return;
+        const { data: leasedEntries, error: leaseError } = await supabase.rpc('claim_auto_digest_entry', {
+          p_job_id: jobId,
+          p_entry_id: entryId,
+          p_lease_seconds: 300,
+        });
+        if (leaseError) throw new Error(`Failed to claim digest entry: ${leaseError.message}`);
+        if (!leasedEntries || leasedEntries.length === 0) {
+          await supabase.from('auto_digest_jobs').update({ active_entry_id: null }).eq('id', jobId);
+          throw new Error(`Durable digest entry ${entryId} could not be leased`);
         }
-        await dispatchPhase(supabaseUrl, serviceRoleKey, jobId);
-        return;
-      }
-
-      case 'digesting': {
-        const pending = (job.pending_entry_ids as string[]) ?? [];
-        if (pending.length === 0) {
-          await advancePhase(supabase, jobId, 'finalising');
-          await dispatchPhase(supabaseUrl, serviceRoleKey, jobId);
-          return;
+        if (Number(leasedEntries[0].attempt_count || 0) > 1) {
+          // A successful retry supersedes the prior attempt's transient
+          // failure. Remove its counter/message before recording this attempt
+          // so a recovered job is not finalized partial for a stale error.
+          result.articles_failed = Math.max(0, result.articles_failed - 1);
+          result.errors = result.errors.filter((message) =>
+            !message.startsWith(`Entry ${entryId}:`) && !message.startsWith(`Digest ${entryId}:`));
         }
-
-        // Pop one. Update DB FIRST to "claim" the article — minimizes the
-        // risk of duplicate processing if a stray run_phase dispatch races
-        // with this one. The downstream report upsert is also idempotent
-        // on (user_id, source_url) as a second line of defense.
-        const entryId = pending[0];
-        const remaining = pending.slice(1);
-        await supabase
-          .from('auto_digest_jobs')
-          .update({ pending_entry_ids: remaining })
-          .eq('id', jobId);
-
         await processOneDigestArticle(
           supabase,
           supabaseUrl,
@@ -651,20 +726,68 @@ async function runPhase(
           result,
         );
 
+        assertPhaseBudget(phaseDeadline, phase);
+
+        const { data: entryState, error: entryStateError } = await supabase
+          .from('threat_intel_feed_entries')
+          .select('digest_status, auto_digest_report_id, extract_error')
+          .eq('id', entryId)
+          .maybeSingle();
+        if (entryStateError) throw new Error(`Failed to read digest entry result: ${entryStateError.message}`);
+        const entryOutcome = entryState?.digest_status === 'ready' ? 'succeeded' : entryState?.digest_status === 'skipped' ? 'skipped' : 'failed';
+        const { error: completeEntryError } = await supabase.rpc('complete_auto_digest_entry', {
+          p_entry_id: leasedEntries[0].id,
+          p_status: entryOutcome,
+          p_report_id: entryState?.auto_digest_report_id ?? null,
+          p_error_code: entryOutcome === 'failed' ? 'DIGEST_FAILED' : null,
+          p_error: entryState?.extract_error ?? null,
+        });
+        // Clear active_entry_id now that it is resolved
+        if (completeEntryError) throw new Error(`Failed to complete digest entry: ${completeEntryError.message}`);
+        const { data: entryLeaseState, error: entryLeaseStateError } = await supabase
+          .from('auto_digest_job_entries')
+          .select('status')
+          .eq('id', leasedEntries[0].id)
+          .maybeSingle();
+        if (entryLeaseStateError) throw new Error(`Failed to read durable entry state: ${entryLeaseStateError.message}`);
+        const { error: clearActiveError } = await supabase
+          .from('auto_digest_jobs')
+          .update({
+            active_entry_id: null,
+            phase_started_at: null,
+            phase_lease_expires_at: null,
+            phase_attempt_count: 0,
+            heartbeat_at: new Date().toISOString(),
+          })
+          .eq('id', jobId);
+        if (clearActiveError) throw new Error(`Failed to clear active digest entry: ${clearActiveError.message}`);
+
         await persistResult(supabase, jobId, result);
 
+        const { data: currentJob } = await supabase
+          .from('auto_digest_jobs')
+          .select('status, cancellation_requested')
+          .eq('id', jobId)
+          .maybeSingle();
+        if (currentJob?.status === 'cancelled' || currentJob?.cancellation_requested) return;
+        if (entryLeaseState?.status === 'pending') {
+          // complete_auto_digest_entry already restored the feed-entry ID to
+          // pending_entry_ids and enqueued the bounded retry.
+          return;
+        }
         if (remaining.length > 0) {
           // Self-dispatch — fresh isolate, fresh budget, one more article.
-          await dispatchPhase(supabaseUrl, serviceRoleKey, jobId);
+          await enqueuePhase(supabase, supabaseUrl, serviceRoleKey, jobId, 'digesting');
         } else {
           await advancePhase(supabase, jobId, 'finalising');
-          await dispatchPhase(supabaseUrl, serviceRoleKey, jobId);
+          await enqueuePhase(supabase, supabaseUrl, serviceRoleKey, jobId, 'finalising');
         }
         return;
       }
 
       case 'finalising': {
-        await markJobCompleted(supabase, jobId, 'completed', result);
+        const { error: finalizeError } = await supabase.rpc('finalize_auto_digest_job', { p_job_id: jobId });
+        if (finalizeError) throw new Error(`Failed to finalize digest job: ${finalizeError.message}`);
         return;
       }
 
@@ -674,7 +797,13 @@ async function runPhase(
   } catch (err: any) {
     console.error(`[runPhase] job ${jobId} phase ${phase} failed:`, err?.message);
     result.errors.push(`Phase ${phase}: ${err?.message || 'Unknown error'}`);
-    await markJobCompleted(supabase, jobId, 'failed', result);
+    await recoverPendingEntries(supabase, job.user_id, recoverableEntryIds);
+    await markJobCompleted(
+      supabase,
+      jobId,
+      err instanceof PhaseBudgetExceeded ? 'timeout_partial' : 'failed',
+      result,
+    );
   }
 }
 
@@ -708,11 +837,19 @@ serve(async (req: Request) => {
       const jobId = typeof body?.job_id === 'string' ? body.job_id : '';
       if (!jobId) return corsErrorResponse('job_id is required', req, 400);
 
+      const expectedPhase = ['harvesting', 'classifying', 'ranking', 'digesting', 'finalising'].includes(body?.expected_phase)
+        ? body.expected_phase as Phase
+        : undefined;
+      const synchronous = url.searchParams.get('sync') === '1';
+      if (synchronous) {
+        await runPhase(supabase, supabaseUrl, serviceRoleKey, jobId, expectedPhase);
+        return corsJsonResponse({ ok: true, job_id: jobId, synchronous: true }, req);
+      }
       // Run the phase in the background; return 200 immediately.
       // EdgeRuntime.waitUntil keeps the isolate alive after the response
       // so the work has time to finish — same pattern as
       // threat-research-orchestrator.
-      const work = runPhase(supabase, supabaseUrl, serviceRoleKey, jobId).catch((e) => {
+      const work = runPhase(supabase, supabaseUrl, serviceRoleKey, jobId, expectedPhase).catch((e) => {
         console.error('[orchestrator] run_phase background error:', e);
       });
       // @ts-ignore — EdgeRuntime is provided by the Supabase Deno runtime.
@@ -721,6 +858,35 @@ serve(async (req: Request) => {
         EdgeRuntime.waitUntil(work);
       }
       return corsJsonResponse({ ok: true, job_id: jobId }, req);
+    }
+
+    if (req.method === 'POST' && action === 'start_job') {
+      let body: any;
+      try { body = await req.json(); } catch { return corsErrorResponse('Invalid JSON body', req, 400); }
+      const jobId = typeof body?.job_id === 'string' ? body.job_id : '';
+      if (!jobId) return corsErrorResponse('job_id is required', req, 400);
+      const now = new Date().toISOString();
+      const { data: claimedRows, error: claimError } = await supabase
+        .from('auto_digest_jobs')
+        .update({
+          status: 'processing',
+          phase: 'harvesting',
+          started_at: now,
+          phase_started_at: null,
+          phase_lease_expires_at: null,
+          phase_attempt_count: 0,
+          heartbeat_at: now,
+          active_entry_id: null,
+        })
+        .eq('id', jobId)
+        .eq('status', 'pending')
+        .select('id');
+      if (claimError) return corsErrorResponse('Job claim failed', req, 503);
+      if (!claimedRows || claimedRows.length === 0) {
+        return corsJsonResponse({ ok: true, job_id: jobId, claimed: false }, req);
+      }
+      await enqueuePhase(supabase, supabaseUrl, serviceRoleKey, jobId, 'harvesting');
+      return corsJsonResponse({ ok: true, job_id: jobId, claimed: true }, req);
     }
 
     // ─── Internal: run the subject-linker for a single existing report ─────
@@ -833,20 +999,27 @@ serve(async (req: Request) => {
     for (const job of pendingJobs) {
       // Atomic claim — only succeed if status is still pending. Stops two
       // concurrent dispatchers from double-running the same job.
-      const { error: claimErr } = await supabase
+      const { data: claimedRows, error: claimErr } = await supabase
         .from('auto_digest_jobs')
         .update({
           status: 'processing',
           phase: 'harvesting',
           started_at: new Date().toISOString(),
+          heartbeat_at: new Date().toISOString(),
+          active_entry_id: null,
         })
         .eq('id', job.id)
-        .eq('status', 'pending');
+        .eq('status', 'pending')
+        .select('id');
       if (claimErr) {
         console.warn(`[orchestrator] claim ${job.id} failed:`, claimErr.message);
         continue;
       }
-      await dispatchPhase(supabaseUrl, serviceRoleKey, job.id);
+      if (!claimedRows || claimedRows.length !== 1) {
+        console.log(`[orchestrator] claim ${job.id} lost to another dispatcher`);
+        continue;
+      }
+      await enqueuePhase(supabase, supabaseUrl, serviceRoleKey, job.id, 'harvesting');
       dispatched.push(job.id);
     }
 

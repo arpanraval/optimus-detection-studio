@@ -6,7 +6,12 @@
  * product announcements).  Supports Gemini, OpenAI, and Anthropic models.
  */
 
-import type { ClassificationResult, JobResultSummary } from './types.ts';
+import {
+  assertPhaseBudget,
+  PhaseBudgetExceeded,
+  type ClassificationResult,
+  type JobResultSummary,
+} from './types.ts';
 import { withAiTelemetry, type AiProvider } from '../../_shared/aiTelemetry.ts';
 import { emit, type RunContext } from './events.ts';
 import {
@@ -92,6 +97,7 @@ export async function classifyEntries(
   entryIds: string[],
   model: string,
   result: JobResultSummary,
+  deadlineMs?: number,
 ): Promise<string[]> {
   const { supabase, userId } = ctx;
   if (entryIds.length === 0) return [];
@@ -117,6 +123,7 @@ export async function classifyEntries(
     const vendorName = feedRel.name || 'Unknown Vendor';
     const feedId: string | null = feedRel.id ?? null;
     try {
+      assertPhaseBudget(deadlineMs, 'classifying');
       const snippet = (entry.content || '').slice(0, 1000);
       const userPrompt = buildUserPrompt(entry.title, snippet, vendorName);
 
@@ -203,6 +210,7 @@ export async function classifyEntries(
         });
       }
     } catch (err: any) {
+      if (err instanceof PhaseBudgetExceeded) throw err;
       const msg = `Classify ${entry.id}: ${err.message || 'Unknown error'}`;
       console.error(`[classifier] ${msg}`);
       result.errors.push(msg);
@@ -330,8 +338,7 @@ async function callGemini(model: string, userPrompt: string): Promise<{ result: 
   });
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gemini ${res.status}: ${text.slice(0, 200)}`);
+    throw new Error(`Gemini ${res.status}`);
   }
 
   const json = await res.json();
@@ -371,8 +378,7 @@ async function callOpenAI(model: string, userPrompt: string): Promise<{ result: 
   });
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OpenAI ${res.status}: ${text.slice(0, 200)}`);
+    throw new Error(`OpenAI ${res.status}`);
   }
 
   const json = await res.json();
@@ -410,8 +416,7 @@ async function callAnthropic(model: string, userPrompt: string): Promise<{ resul
   });
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Anthropic ${res.status}: ${text.slice(0, 200)}`);
+    throw new Error(`Anthropic ${res.status}`);
   }
 
   const json = await res.json();

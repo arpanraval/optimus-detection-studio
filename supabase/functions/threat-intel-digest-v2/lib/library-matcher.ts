@@ -21,21 +21,23 @@ import { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 export async function findLibraryMatches(
   ttps: ExtractedTTP[],
   mitreMapping: MitreMapping,
-  supabaseClient: SupabaseClient
+  supabaseClient: SupabaseClient,
+  userId: string,
+  includeOwnedDevelopment = false,
 ): Promise<LibraryMatch[]> {
   const matches: LibraryMatch[] = []
   const seenDetectionIds = new Set<string>()
 
   try {
     // Part 1: Find detections by TTP overlap
-    const techniqueIds = ttps.map(t => t.mitreId).filter(Boolean)
+    const techniqueIds = [...new Set(ttps.map(t => t.mitreId).filter(Boolean))]
 
     console.log(`findLibraryMatches: Searching for ${techniqueIds.length} techniques:`, techniqueIds.slice(0, 10))
 
     // Fetch all detections with mitreAttackIds and filter in JS
     const { data: detections, error } = await supabaseClient
       .from('detections')
-      .select('id, name, mitreAttackIds, linkedGroups, status, severity')
+      .select('id, name, mitreAttackIds, linkedGroups, status, severity, library_type, promotion_status, review_status, user_id, visibility')
       .neq('status', 'deprecated')
 
     if (error) {
@@ -43,16 +45,27 @@ export async function findLibraryMatches(
       return matches
     }
 
-    console.log(`findLibraryMatches: Fetched ${detections?.length || 0} detections`)
+    const eligibleDetections = (detections || []).filter((detection: any) => {
+      const active = detection.status !== 'deprecated' && detection.status !== 'inactive';
+      const production = detection.library_type === 'production'
+        && detection.promotion_status === 'promoted'
+        && detection.review_status === 'approved'
+        && detection.visibility !== 'private';
+      const ownedDevelopment = includeOwnedDevelopment
+        && detection.library_type === 'development'
+        && detection.user_id === userId;
+      return active && (production || ownedDevelopment);
+    });
+    console.log(`findLibraryMatches: Fetched ${eligibleDetections.length} eligible detections`)
 
-    if (detections && detections.length > 0) {
+    if (eligibleDetections.length > 0) {
       // Part 1a: Filter detections that have overlapping TTPs
       if (techniqueIds.length > 0) {
         const techniqueIdSet = new Set(techniqueIds)
 
-        for (const detection of detections) {
+        for (const detection of eligibleDetections) {
           const detectionTTPs = detection.mitreAttackIds || []
-          const matchedTTPs = detectionTTPs.filter((id: string) => techniqueIdSet.has(id))
+          const matchedTTPs = [...new Set(detectionTTPs.filter((id: string) => techniqueIdSet.has(id)))]
 
           if (matchedTTPs.length > 0) {
             matches.push({
@@ -80,7 +93,7 @@ export async function findLibraryMatches(
         console.log(`findLibraryMatches: Searching for detections linked to ${groupStixIds.length} groups:`, groupStixIds)
 
         let groupRelatedCount = 0
-        for (const detection of detections) {
+        for (const detection of eligibleDetections) {
           const linkedGroups = detection.linkedGroups || []
 
           // Check if any linkedGroup matches our matched groups

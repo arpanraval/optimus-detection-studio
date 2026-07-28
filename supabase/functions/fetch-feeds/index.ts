@@ -8,8 +8,60 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import { getCorsHeaders, handleCorsPreflight, corsJsonResponse, corsErrorResponse } from '../_shared/cors.ts'
+import { canonicalizeUrl, fetchRssOrAtom, fetchTaxii, sha256Hex, type FeedItem } from '../_shared/feed-ingestion.ts'
+import { decryptCredentials } from '../_shared/credential-crypto.ts'
 
 serve(async (req: Request) => {
+async function ingestFeedUnified(supabase: any, feed: any, userId: string): Promise<number> {
+  let items: FeedItem[];
+  let metadata: { notModified: boolean; etag: string | null; lastModified: string | null; httpStatus: number };
+  if (feed.feed_type === 'taxii') {
+    const config = feed.taxii_config || {};
+    let credentials: Record<string, string> = {};
+    if (feed.taxii_credential_id) {
+      const { data: credential, error } = await supabase.from('integration_credentials')
+        .select('encrypted_data').eq('id', feed.taxii_credential_id).single();
+      if (error || !credential) throw new Error('TAXII credentials are unavailable');
+      credentials = await decryptCredentials(credential.encrypted_data);
+    }
+    const result = await fetchTaxii({
+      apiRoot: feed.taxii_api_root || config.api_root || feed.url,
+      collectionId: feed.taxii_collection_id || config.collection_id || '',
+      username: credentials.username, password: credentials.password, bearerToken: credentials.token,
+      etag: feed.etag, lastModified: feed.last_modified,
+    });
+    items = result.items; metadata = result.metadata;
+  } else {
+    const result = await fetchRssOrAtom(feed.url, { etag: feed.etag, lastModified: feed.last_modified });
+    items = result.items; metadata = result.metadata;
+  }
+  const maxItems = Math.max(1, Math.min(200, Number(feed.max_items_per_fetch || 200)));
+  let created = 0;
+  for (const item of items.slice(0, maxItems)) {
+    const publishedAt = item.publishedAt && Number.isFinite(Date.parse(item.publishedAt))
+      ? new Date(item.publishedAt).toISOString() : null;
+    const content = (item.description || '').slice(0, 100_000) || null;
+    const canonicalUrl = canonicalizeUrl(item.url);
+    const contentHash = await sha256Hex([canonicalUrl || item.externalId, item.title, content || ''].join('\n'));
+    const { data, error } = await supabase.rpc('ingest_threat_intel_feed_entry', {
+      p_user_id: userId, p_feed_id: feed.id, p_external_id: item.externalId.slice(0, 1000),
+      p_title: item.title.slice(0, 1000), p_content: content, p_url: item.url,
+      p_published_at: publishedAt, p_canonical_url: canonicalUrl, p_content_hash: contentHash,
+    });
+    if (error) throw new Error(`Feed entry persistence failed: ${error.message}`);
+    const row = Array.isArray(data) ? data[0] : data;
+    if (row?.created) created += 1;
+  }
+  await supabase.from('threat_intel_feeds').update({
+    last_fetched_at: new Date().toISOString(), last_error: null, etag: metadata.etag,
+    last_modified: metadata.lastModified, fetch_attempts: Number(feed.fetch_attempts || 0) + 1,
+    consecutive_failures: 0, last_http_status: metadata.httpStatus,
+    last_discovered_count: items.length, last_duplicate_count: Math.max(0, items.length - created),
+    last_accepted_count: created, next_retry_at: null,
+  }).eq('id', feed.id);
+  return created;
+}
+
   const preflight = handleCorsPreflight(req);
   if (preflight) return preflight;
 
@@ -48,81 +100,7 @@ serve(async (req: Request) => {
       try {
         let newEntries = 0;
 
-        if (feed.feed_type === 'rss') {
-          // Fetch and parse RSS/Atom
-          const response = await fetch(feed.url, {
-            headers: { 'User-Agent': 'Optimus-Detection-Studio/1.0' },
-          });
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-          const xml = await response.text();
-          const items = parseRSS(xml);
-
-          for (const item of items) {
-            const externalId = item.guid || item.link;
-            if (!externalId) continue;
-
-            const { error: insertError } = await supabase
-              .from('threat_intel_feed_entries')
-              .upsert({
-                feed_id: feed.id,
-                user_id: user.id,
-                external_id: externalId,
-                title: item.title || 'Untitled',
-                content: item.description,
-                url: item.link,
-                published_at: item.pubDate ? new Date(item.pubDate).toISOString() : null,
-                staleness_score: calculateStaleness(item.pubDate),
-              }, { onConflict: 'feed_id,external_id', ignoreDuplicates: true });
-
-            if (!insertError) newEntries++;
-          }
-        } else if (feed.feed_type === 'taxii') {
-          // Basic TAXII 2.1 support
-          const config = feed.taxii_config || {};
-          const apiRoot = config.api_root || feed.url;
-          const collectionId = config.collection_id;
-
-          if (collectionId) {
-            const taxiiUrl = `${apiRoot.replace(/\/$/, '')}/collections/${collectionId}/objects/`;
-            const headers: Record<string, string> = {
-              'Accept': 'application/taxii+json;version=2.1',
-            };
-            if (config.username && config.password) {
-              headers['Authorization'] = 'Basic ' + btoa(`${config.username}:${config.password}`);
-            }
-
-            const response = await fetch(taxiiUrl, { headers });
-            if (!response.ok) {
-              throw new Error(`TAXII HTTP ${response.status}: ${response.statusText}`);
-            }
-            const data = await response.json();
-
-            for (const obj of (data.objects || [])) {
-              const { error: insertError } = await supabase
-                .from('threat_intel_feed_entries')
-                .upsert({
-                  feed_id: feed.id,
-                  user_id: user.id,
-                  external_id: obj.id,
-                  title: obj.name || obj.type || obj.id,
-                  content: obj.description || JSON.stringify(obj),
-                  published_at: obj.created || obj.modified || null,
-                  staleness_score: calculateStaleness(obj.created || obj.modified),
-                }, { onConflict: 'feed_id,external_id', ignoreDuplicates: true });
-
-              if (!insertError) newEntries++;
-            }
-          }
-        }
-
-        // Update feed last_fetched_at
-        await supabase.from('threat_intel_feeds').update({
-          last_fetched_at: new Date().toISOString(),
-          last_error: null,
-        }).eq('id', feed.id);
-
+        newEntries = await ingestFeedUnified(supabase, feed, user.id);
         totalNew += newEntries;
       } catch (err: any) {
         const errMsg = err.message || 'Unknown error';
@@ -141,48 +119,9 @@ serve(async (req: Request) => {
 });
 
 // =============================================================================
-// RSS/ATOM PARSER
-// =============================================================================
+// RSS/Atom and TAXII parsing is provided by _shared/feed-ingestion.ts.
 
-interface RSSItem {
-  title: string;
-  link: string;
-  guid: string;
-  description: string;
-  pubDate: string;
-}
-
-function parseRSS(xml: string): RSSItem[] {
-  const items: RSSItem[] = [];
-
-  // Try RSS 2.0 format
-  const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
-  let match;
-  while ((match = itemRegex.exec(xml)) !== null) {
-    items.push({
-      title: extractTag(match[1], 'title'),
-      link: extractTag(match[1], 'link'),
-      guid: extractTag(match[1], 'guid') || extractTag(match[1], 'link'),
-      description: extractTag(match[1], 'description'),
-      pubDate: extractTag(match[1], 'pubDate'),
-    });
-  }
-
-  // Try Atom format if no RSS items found
-  if (items.length === 0) {
-    const entryRegex = /<entry>([\s\S]*?)<\/entry>/gi;
-    while ((match = entryRegex.exec(xml)) !== null) {
-      const linkMatch = /<link[^>]*href=["']([^"']+)["']/i.exec(match[1]);
-      items.push({
-        title: extractTag(match[1], 'title'),
-        link: linkMatch?.[1] || '',
-        guid: extractTag(match[1], 'id') || linkMatch?.[1] || '',
-        description: extractTag(match[1], 'summary') || extractTag(match[1], 'content'),
-        pubDate: extractTag(match[1], 'published') || extractTag(match[1], 'updated'),
-      });
-    }
-  }
-
+/* Legacy parser block retained only as commented compatibility history.
   return items;
 }
 
@@ -204,3 +143,4 @@ function calculateStaleness(dateStr?: string | null): number {
   // Linear decay over 90 days: 1.0 (today) -> 0.0 (90+ days old)
   return Math.max(0, Math.min(1, 1 - (days / 90)));
 }
+*/

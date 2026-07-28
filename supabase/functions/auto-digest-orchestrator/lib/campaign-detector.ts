@@ -130,24 +130,10 @@ export async function updateCampaignMerge(
   ).length;
   const coveragePercent = totalTTPs > 0 ? Math.round((coveredTTPs / totalTTPs) * 100) : 0;
 
-  // Aggregate the per-report feasible/infeasible/unknown counts so the
-  // campaign rollup mirrors the per-report UI.
-  const { data: feasRows } = await supabase
-    .from('threat_intel_reports')
-    .select('feasible_gap_count, infeasible_gap_count, unknown_gap_count')
-    .in('id', reportIds);
-  let feasibleSum = 0;
-  let infeasibleSum = 0;
-  let unknownSum = 0;
-  for (const r of (feasRows || []) as Array<{
-    feasible_gap_count?: number | null;
-    infeasible_gap_count?: number | null;
-    unknown_gap_count?: number | null;
-  }>) {
-    feasibleSum   += r.feasible_gap_count   ?? 0;
-    infeasibleSum += r.infeasible_gap_count ?? 0;
-    unknownSum    += r.unknown_gap_count    ?? 0;
-  }
+  // Feasibility is deduplicated by canonical technique id after report merges.
+  const feasibleSum = mergedTTPs.filter((ttp: any) => ttp.feasibility === 'feasible').length;
+  const infeasibleSum = mergedTTPs.filter((ttp: any) => ttp.feasibility === 'infeasible').length;
+  const unknownSum = mergedTTPs.filter((ttp: any) => !['feasible', 'infeasible'].includes(ttp.feasibility)).length;
 
   await supabase
     .from('auto_digest_campaigns')

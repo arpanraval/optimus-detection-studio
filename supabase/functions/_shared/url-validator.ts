@@ -68,6 +68,11 @@ export interface UrlValidationResult {
   sanitizedUrl?: string;
 }
 
+/** HTTP status codes that instruct a client to follow a Location header. */
+export function isRedirectStatus(status: number): boolean {
+  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+}
+
 /**
  * Check if a hostname is an IP address
  */
@@ -192,7 +197,6 @@ export function validateUrl(urlString: string): UrlValidationResult {
     return {
       valid: false,
       error: `Port ${port} is not permitted`,
-      sanitizedUrl: null,
     };
   }
   const allowedPorts = [80, 443, 8080, 8443];
