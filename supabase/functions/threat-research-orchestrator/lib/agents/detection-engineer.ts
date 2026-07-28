@@ -24,6 +24,7 @@ import { RunContext, emit } from "../events.ts";
 import { loadKnowledgePack } from "../skills-loader.ts";
 import { ROLE_CONFIG } from "../llm/model-routing.ts";
 import { handleLibrarySearch } from "../tools/library-search.ts";
+import { mergeSourceCitations } from "../citations.ts";
 import { critiqueDetection, type CritiqueOutcome } from "./qa-agent.ts";
 import type {
   ActorCoverageSeedItem, AttackBehaviour,
@@ -327,9 +328,15 @@ async function reviseDetection(
   // Preserve identity/state fields from the previous detection so the tree
   // patch lands on the same opportunity slot. The new validator already
   // returns id='d1' as a placeholder; we overwrite with prev.id here.
+  //
+  // citations must be carried too: the validator always returns [], so a
+  // revision would otherwise silently empty the Citations panel for exactly
+  // the detections QA touched. A revision rewrites the query body, not the
+  // evidence the behaviour was built on.
   return {
     ...outcome.output,
     id: prev.id,
+    citations: prev.citations,
     saved_detection_id: prev.saved_detection_id,
     archived: prev.archived,
   };
@@ -507,6 +514,14 @@ export async function generateDetectionForOpportunity(
 
   // Stable id keyed off the opportunity so retries land on the same slot.
   detection.id = `d_${opportunity.id}`;
+
+  // Attach the sources this detection actually rests on. validateGeneratedDetection
+  // returns citations:[] by design — it is a pure parser over the model's fenced
+  // block and has no access to the tree — so the merge happens here, in the
+  // caller that knows which behaviours fed this opportunity. Without it the
+  // Citations panel on every leaf is empty even though the Research and Attack
+  // agents collected sources for all of them.
+  detection.citations = mergeSourceCitations(resolvedSources);
   // Inherit covers_behaviour_ids from the opportunity if the model didn't
   // emit any — the planner's source list is the authoritative scope.
   if (detection.covers_behaviour_ids.length === 0 && opportunity.source_behaviour_ids?.length) {
