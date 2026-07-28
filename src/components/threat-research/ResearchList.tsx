@@ -371,6 +371,7 @@ type RowState =
   | 'qa_iteration'    // qa_error='iteration_cap' — KQL escape/JSON parse — retry
   | 'qa_budget'       // qa_error='model_budget_exhausted' — retry after cap bump
   | 'qa_timeout'      // qa_job_failed via reaper — retry
+  | 'dup_no_qa'       // qa_error='duplicate_no_qa' — semantic duplicate, QA never ran
   | 'qa_other_error'  // any other qa_error string — retry
   | 'lost_silent'     // job completed yet qa is null and qa_error is null — retry
   | 'qa_pending'      // qa job exists, status=pending, not picked up yet
@@ -391,6 +392,11 @@ function resolveRowState(
   if (det.qa_error === 'iteration_cap') return 'qa_iteration';
   if (det.qa_error === 'model_budget_exhausted') return 'qa_budget';
   if (det.qa_error && det.qa_error.startsWith('qa_job_failed')) return 'qa_timeout';
+  // Before the generic qa_error arm: this leaf is a semantic duplicate that
+  // never got a verdict. It used to arrive here carrying a synthesised
+  // qa.verdict='pass_with_concerns' and was caught by the 'pass_concerns'
+  // branch above — i.e. it rendered as QA-approved without QA ever running.
+  if (det.qa_error === 'duplicate_no_qa') return 'dup_no_qa';
   if (det.qa_error) return 'qa_other_error';
   // qa is null and qa_error is null. If the qa job's terminal, the verdict
   // was silently dropped (the historical id='d1' bug, or another path that
@@ -424,6 +430,7 @@ const STATE_RENDER: Record<RowState, StateRenderConfig> = {
   qa_iteration:   { label: 'QA stuck (JSON/escape)', icon: 'alert-triangle', textCls: 'text-ext-amber font-medium',     borderCls: 'border-l-ext-amber',       actionLabel: 'Retry' },
   qa_budget:      { label: 'QA budget exhausted', icon: 'alert-triangle', textCls: 'text-ext-amber font-medium',       borderCls: 'border-l-ext-amber',       actionLabel: 'Retry' },
   qa_timeout:     { label: 'QA worker timeout', icon: 'alert-triangle', textCls: 'text-ext-amber font-medium',         borderCls: 'border-l-ext-amber',       actionLabel: 'Retry' },
+  dup_no_qa:      { label: "Duplicate — QA didn't run", icon: 'copy',     textCls: 'text-on-surface-variant font-medium', borderCls: 'border-l-outline-variant', actionLabel: null   },
   qa_other_error: { label: 'QA error',           icon: 'alert-triangle', textCls: 'text-ext-amber font-medium',        borderCls: 'border-l-ext-amber',       actionLabel: 'Retry' },
   lost_silent:    { label: 'Lost — needs retry', icon: 'help-circle',   textCls: 'text-ext-amber font-medium',         borderCls: 'border-l-ext-amber',       actionLabel: 'Retry' },
   qa_pending:     { label: 'QA queued',          icon: 'clock',         textCls: 'text-on-surface-variant italic',     borderCls: 'border-l-transparent',     actionLabel: null   },
@@ -449,6 +456,10 @@ function Row({
   const render = STATE_RENDER[state];
 
   const isEngineerFailed = state === 'eng_failed';
+  // A semantic duplicate that never reached QA has nothing worth saving — the
+  // detection it duplicates is the one to keep. Suppress the checkbox rather
+  // than let it into a bulk save.
+  const isDuplicateNoQa = state === 'dup_no_qa';
 
   // Severity / feasibility cells: only show real values when the engineer
   // actually emitted them. engineer_failed and lost_silent stash defaults
@@ -469,6 +480,7 @@ function Row({
     state === 'qa_iteration'   ? 'QA agent loop hit iteration cap — typically a JSON parse failure on the candidate KQL (escape chars). Retry usually succeeds.' :
     state === 'eng_failed'     ? 'Detection engineer agent loop failed (budget/timeout/validation). Retry regenerates the detection from scratch.' :
     state === 'lost_silent'    ? 'QA verdict was lost mid-pipeline (historical id-mismatch bug). Retry re-runs QA against the existing detection body.' :
+    state === 'dup_no_qa'      ? `Semantic duplicate of detection ${det.duplicate_of ?? 'another leaf'}; QA never ran on this one. Nothing to save — use the detection it duplicates.` :
     state === 'fail'           ? (det.qa?.concerns?.[0] ?? 'QA judged the detection inadequate.') :
     null;
 
@@ -478,7 +490,7 @@ function Row({
       className={`cursor-pointer hover:bg-surface-container-high border-l-4 ${render.borderCls} ${det.archived ? 'opacity-50' : ''}`}
     >
       <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
-        {eligible && !isEngineerFailed ? (
+        {eligible && !isEngineerFailed && !isDuplicateNoQa ? (
           <input
             type="checkbox"
             checked={selected}

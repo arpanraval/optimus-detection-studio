@@ -239,6 +239,18 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
                 QA: didn&apos;t run
               </span>
             )}
+            {/* Duplicate recorded at detection level rather than on `qa`. This
+                is the no-verdict case: finalise found a semantic duplicate but
+                there was no qa block to annotate, and inventing one would show
+                a verdict QA never gave. */}
+            {!det.qa && det.duplicate_of && (
+              <span
+                className="inline-flex items-center rounded-full bg-tertiary-container px-2 py-0.5 font-medium text-on-tertiary-container"
+                title={`Semantic duplicate of detection ${det.duplicate_of} (fingerprint match across MITRE / telemetry / query tokens), found by the finalise dedup pass. QA never ran on this leaf.`}
+              >
+                Duplicate of {det.duplicate_of}
+              </span>
+            )}
             <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${FEASIBILITY_STYLE[det.feasibility]}`}>
               Feasibility: {det.feasibility}
             </span>

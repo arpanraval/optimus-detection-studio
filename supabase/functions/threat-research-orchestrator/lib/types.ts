@@ -199,6 +199,14 @@ export interface GeneratedDetection {
    *  This is a pipeline state, not a detection-quality verdict. Don't conflate
    *  with qa.verdict='fail'. */
   qa_error: string | null;
+  /** Set by the finalise cross-opportunity dedup pass when this detection is a
+   *  semantic duplicate of another AND has no `qa` block to annotate. The
+   *  duplicate signal has to live somewhere that is not `qa`, because
+   *  synthesising a qa block here would mean inventing a verdict the QA agent
+   *  never gave — which the UI then renders as if QA had passed the detection.
+   *  When `qa` IS present, the duplicate is recorded on `qa.duplicate_of`
+   *  instead. Readers should check both. */
+  duplicate_of?: string | null;
   saved_detection_id: string | null;
   archived: boolean;
 }

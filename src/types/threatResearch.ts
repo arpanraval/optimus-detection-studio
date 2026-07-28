@@ -157,6 +157,15 @@ export interface GeneratedDetection {
    *  "QA judged this insufficient" badge the old code shipped. Optional for
    *  backward compatibility with sessions persisted before this field. */
   qa_error?: string | null;
+  /** Set by the finalise cross-opportunity dedup pass when this detection is a
+   *  semantic duplicate of another AND has no `qa` block to annotate. Kept off
+   *  `qa` deliberately: synthesising a qa block to carry the duplicate would
+   *  mean inventing a verdict the QA agent never gave, and resolveRowState
+   *  reads qa.verdict first — so the leaf would render as "Passed with
+   *  concerns" and become save-eligible without QA ever running. When `qa` IS
+   *  present the duplicate lives on `qa.duplicate_of` instead; check both.
+   *  Optional for backward compatibility with previously-persisted sessions. */
+  duplicate_of?: string | null;
   saved_detection_id: string | null;
   archived: boolean;
 }
