@@ -9,9 +9,20 @@ import type {
   GeneratedDetection,
 } from '../types/threatResearch';
 
-export async function startThreatResearch(input_text: string): Promise<{ session_id: string }> {
+/** Start a research session.
+ *
+ *  `siem_platform` pins the output query language. Without it the orchestrator
+ *  resolves the language from the user's environment profile and falls back to
+ *  Sigma when there isn't one — silently, which is how first-time users ended
+ *  up with Sigma rules for a SIEM that can't run them. The New Research modal
+ *  requires a choice whenever the profile doesn't already resolve a SIEM.
+ *  Must be one of SIEM_TO_QUERY_LANGUAGES' keys; the server re-validates. */
+export async function startThreatResearch(
+  input_text: string,
+  siem_platform?: string,
+): Promise<{ session_id: string }> {
   const { data, error } = await supabase.functions.invoke('threat-research-orchestrator', {
-    body: { input_text },
+    body: siem_platform ? { input_text, siem_platform } : { input_text },
   });
   if (error) throw error;
   if (!data?.session_id) throw new Error('Failed to start research session');
