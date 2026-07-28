@@ -17,6 +17,7 @@ import {
   vendorTone,
 } from './shared';
 import type { TTPLike, IoCLike, RuleLike, MitreMappingEntity } from './shared';
+import { createStixBundle } from '../../lib/threatIntel/stix';
 
 // =============================================================================
 // TYPES
@@ -202,7 +203,7 @@ export const CampaignDetailPage: React.FC = () => {
     try {
       const update: Record<string, any> = {
         review_status: status,
-        updated_at: new Date().toISOString(),
+        last_updated_at: new Date().toISOString(),
       };
       if (note !== undefined) update.review_note = note;
 
@@ -416,21 +417,7 @@ export const CampaignDetailPage: React.FC = () => {
   const handleExportSTIX = useCallback(() => {
     if (!campaign) return;
     const now = new Date().toISOString();
-    const stixBundle = {
-      type: 'bundle',
-      id: `bundle--story-${campaign.id}`,
-      objects: (campaign.merged_iocs || []).map((ioc, i) => ({
-        type: 'indicator',
-        id: `indicator--story-${campaign.id}-${i}`,
-        created: now,
-        modified: now,
-        name: `${ioc.type}: ${ioc.value}`,
-        pattern_type: 'stix',
-        pattern: getSTIXPattern(ioc),
-        valid_from: now,
-        labels: [ioc.severity, ioc.category].filter(Boolean),
-      })),
-    };
+    const stixBundle = createStixBundle(campaign.merged_iocs || [], now);
     const blob = new Blob([JSON.stringify(stixBundle, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

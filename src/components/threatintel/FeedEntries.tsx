@@ -89,12 +89,17 @@ export const FeedEntries: React.FC<FeedEntriesProps> = ({
         content: entry.content,
       });
 
-      // If the digest returns a report with an ID, update the entry
       const reportId = result?.report?.id;
-      await supabase.from('threat_intel_feed_entries').update({
-        is_processed: true,
-        ...(reportId && { auto_digest_report_id: reportId }),
-      }).eq('id', entry.id);
+      if (!reportId || result.outcome === 'failed' || result.outcome === 'cancelled') {
+        throw new Error(result.error || 'Digest did not persist a usable report');
+      }
+      const { error: completionError } = await supabase.rpc('complete_feed_entry_processing', {
+        p_entry_id: entry.id,
+        p_report_id: reportId,
+      });
+      if (completionError) {
+        throw new Error(`Report saved, but feed entry completion failed: ${completionError.message}`);
+      }
 
       showToast('success', 'Entry processed', 'AI digest report created');
       refreshEntries();

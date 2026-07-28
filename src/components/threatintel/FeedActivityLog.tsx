@@ -11,6 +11,9 @@ import { JobTranscript } from './JobTranscript';
 
 interface FeedActivityLogProps {
   userId: string;
+  /** Shared live list from the settings hook. When provided, this component
+   * does not maintain a second stale copy of auto_digest_jobs. */
+  liveJobs?: AutoDigestJob[];
 }
 
 type JobStatusTone = 'success' | 'partial' | 'failure' | 'running' | 'pending';
@@ -25,13 +28,22 @@ const ACTIVITY_FILTERS: { id: ActivityFilter; label: string }[] = [
   { id: 'errors',       label: 'Failed' },
 ];
 
+const JOB_PAGE_SIZE = 20;
+
+function mergeJobs(existing: AutoDigestJob[], incoming: AutoDigestJob[]): AutoDigestJob[] {
+  const byId = new Map<string, AutoDigestJob>();
+  for (const job of existing) byId.set(job.id, job);
+  for (const job of incoming) byId.set(job.id, job);
+  return Array.from(byId.values()).sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
 function jobMatchesFilter(job: AutoDigestJob, filter: ActivityFilter): boolean {
   if (filter === 'all') return true;
   const summary = job.result_summary as Record<string, any> | null;
   const sysErrors = countSystemErrors(summary);
   const digested = summary?.digested ?? summary?.articles_digested ?? 0;
   if (filter === 'productive')   return digested > 0;
-  if (filter === 'errors')       return sysErrors > 0 || job.status === 'failed';
+  if (filter === 'errors')       return sysErrors > 0 || job.status === 'failed' || job.status === 'partial' || job.status === 'timeout_partial';
   if (filter === 'skipped-only') return digested === 0 && sysErrors === 0 && job.status === 'completed';
   return true;
 }
@@ -48,8 +60,10 @@ function jobMatchesFilter(job: AutoDigestJob, filter: ActivityFilter): boolean {
 // errors fall through as `<feed name>: <transport message>`. Treating
 // both the same caused the page to render amber/red on healthy runs.
 const SYSTEM_ERROR_PREFIXES = [
+  'Classify ',
   'Classification fetch failed',
   'Entry fetch ',
+  'Entry ',
   'Entry "',
   'Digest ',
   'Report save ',
@@ -125,14 +139,21 @@ function jobToneAndLabel(job: AutoDigestJob): { tone: JobStatusTone; label: stri
   if (job.status === 'pending') return { tone: 'pending', label: 'Queued' };
   if (job.status === 'processing') return { tone: 'running', label: 'Running' };
   if (job.status === 'failed') return { tone: 'failure', label: 'Failed' };
-  if (job.status === 'timeout_partial') return { tone: 'partial', label: 'Timed out' };
+  if (job.status === 'cancelled') return { tone: 'failure', label: 'Cancelled' };
+  if (job.status === 'partial' || job.status === 'timeout_partial') return { tone: 'partial', label: job.status === 'partial' ? 'Partial' : 'Timed out' };
 
   if (systemErrors > 0) {
     return { tone: 'partial', label: `Completed with ${systemErrors} error${systemErrors === 1 ? '' : 's'}` };
   }
+  const harvested = summary?.articles_harvested ?? summary?.harvested ?? 0;
+
   if (digested > 0) {
     const note = feedErrors > 0 ? ` (${feedErrors} feed${feedErrors === 1 ? '' : 's'} unreachable)` : '';
     return { tone: 'success', label: `Completed${note}` };
+  }
+  if (harvested === 0) {
+    const note = feedErrors > 0 ? ` (${feedErrors} feed${feedErrors === 1 ? '' : 's'} unreachable)` : '';
+    return { tone: 'success', label: `Completed — no new articles${note}` };
   }
   return { tone: 'success', label: 'Completed — no threat-relevant articles' };
 }
@@ -162,6 +183,7 @@ function jobOneLineSummary(job: AutoDigestJob): string {
     return `In flight — ${feedsFetched} feed${feedsFetched === 1 ? '' : 's'} fetched so far`;
   }
   if (job.status === 'failed') return job.error || 'Run failed before reporting any stats';
+  if (job.status === 'cancelled') return job.error || 'Run cancelled by the analyst';
 
   const parts: string[] = [];
   parts.push(`${feedsFetched} feed${feedsFetched === 1 ? '' : 's'}`);
@@ -246,9 +268,15 @@ const JobRow: React.FC<{ job: AutoDigestJob; expanded: boolean; onToggle: () => 
 // MAIN COMPONENT
 // =============================================================================
 
-export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
-  const [jobs, setJobs] = useState<AutoDigestJob[]>([]);
+export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId, liveJobs }) => {
+  const [historyJobs, setHistoryJobs] = useState<AutoDigestJob[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const jobs = useMemo(
+    () => mergeJobs(historyJobs, liveJobs ?? []),
+    [historyJobs, liveJobs],
+  );
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<ActivityFilter>('all');
@@ -257,17 +285,22 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
   const requestedRunId = searchParams.get('run');
 
   const fetchJobs = useCallback(async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('auto_digest_jobs')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
-      .limit(20);
-    if (data) setJobs(data as AutoDigestJob[]);
+      .limit(JOB_PAGE_SIZE);
+    if (!error && data) {
+      setHistoryJobs((previous) => mergeJobs(previous, data as AutoDigestJob[]));
+      setHasMore(data.length === JOB_PAGE_SIZE);
+    }
   }, [userId]);
 
   useEffect(() => {
     let cancelled = false;
+    setHistoryJobs([]);
+    setHasMore(true);
     setIsLoading(true);
     fetchJobs().finally(() => {
       if (!cancelled) setIsLoading(false);
@@ -275,12 +308,36 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
     return () => { cancelled = true; };
   }, [fetchJobs]);
 
+  const oldestLoadedAt = historyJobs.length > 0
+    ? historyJobs[historyJobs.length - 1].created_at
+    : null;
+
+  const loadOlderJobs = useCallback(async () => {
+    if (!oldestLoadedAt || !hasMore || isLoadingOlder) return;
+    setIsLoadingOlder(true);
+    const { data, error } = await supabase
+      .from('auto_digest_jobs')
+      .select('*')
+      .eq('user_id', userId)
+      .lt('created_at', oldestLoadedAt)
+      .order('created_at', { ascending: false })
+      .limit(JOB_PAGE_SIZE);
+    if (!error && data) {
+      setHistoryJobs((previous) => mergeJobs(previous, data as AutoDigestJob[]));
+      setHasMore(data.length === JOB_PAGE_SIZE);
+    }
+    setIsLoadingOlder(false);
+  }, [userId, oldestLoadedAt, hasMore, isLoadingOlder]);
+
   const hasActiveJob = jobs.some((j) => j.status === 'pending' || j.status === 'processing');
   useEffect(() => {
-    if (!userId || !hasActiveJob) return;
+    // When liveJobs is supplied, useAutoDigestSettings owns the polling and
+    // publishes each update to this component. This fallback keeps the
+    // component self-contained for standalone callers.
+    if (liveJobs !== undefined || !userId || !hasActiveJob) return;
     const interval = setInterval(fetchJobs, 3000);
     return () => clearInterval(interval);
-  }, [userId, hasActiveJob, fetchJobs]);
+  }, [userId, hasActiveJob, fetchJobs, liveJobs]);
 
   // Auto-expand only when the user came in via a deep link (?run=ID)
   // or while a job is actively running. Closed-by-default for normal
@@ -439,6 +496,14 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId }) => {
             </div>
           );
         })}
+      {hasMore && historyJobs.length > 0 && (
+        <div className={'flex flex-col items-center gap-2 pt-6'}>
+          <button type={'button'} onClick={loadOlderJobs} disabled={isLoadingOlder} className={'text-sm font-medium text-primary hover:underline disabled:opacity-50 disabled:no-underline'}>
+            {isLoadingOlder ? 'Loading older runs...' : 'Load older runs'}
+          </button>
+          <span className={'text-xs text-on-surface-variant/60'}>Showing {jobs.length} runs</span>
+        </div>
+      )}
       </div>
     </div>
   );

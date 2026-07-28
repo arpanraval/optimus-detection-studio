@@ -40,7 +40,11 @@ export interface CuratedFeedSource {
 export interface AutoDigestJob {
   id: string;
   user_id: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed' | 'timeout_partial';
+  status: 'pending' | 'processing' | 'completed' | 'partial' | 'cancelled' | 'failed' | 'timeout_partial';
+  outcome?: 'complete' | 'partial' | 'failed' | 'cancelled' | null;
+  phase?: string | null;
+  heartbeat_at?: string | null;
+  active_entry_id?: string | null;
   started_at: string | null;
   completed_at: string | null;
   result_summary: Record<string, any> | null;
@@ -230,7 +234,7 @@ export function useAutoDigestSettings(userId: string) {
     }
   }, [userId]);
 
-  const saveSettings = useCallback(async (updates: Partial<AutoDigestSettings>) => {
+  const saveSettings = useCallback(async (updates: Partial<AutoDigestSettings>): Promise<boolean> => {
     const { error } = await supabase
       .from('auto_digest_settings')
       .upsert(
@@ -243,10 +247,11 @@ export function useAutoDigestSettings(userId: string) {
       );
     if (error) {
       showToast('error', 'Failed to save auto-digest settings');
-      return;
+      return false;
     }
     showToast('success', 'Auto-digest settings saved');
     await fetchSettings();
+    return true;
   }, [userId, fetchSettings, showToast]);
 
   const toggleSource = useCallback(async (source: CuratedFeedSource, enabled: boolean): Promise<boolean> => {
@@ -303,15 +308,58 @@ export function useAutoDigestSettings(userId: string) {
       showToast('error', `Failed to start: ${error.message}`);
       return null;
     }
+    const jobId = typeof data?.job_id === 'string' ? data.job_id : null;
+    if (jobId) {
+      // Publish the RPC response immediately so the header and Activity tab
+      // render the new run before the follow-up SELECT completes.
+      const jobStatus: AutoDigestJob['status'] =
+        data?.status === 'processing' ? 'processing' : 'pending';
+      const optimisticJob: AutoDigestJob = {
+        id: jobId,
+        user_id: userId,
+        status: jobStatus,
+        outcome: null,
+        phase: null,
+        heartbeat_at: null,
+        active_entry_id: null,
+        started_at: null,
+        completed_at: null,
+        result_summary: null,
+        error: null,
+        created_at: new Date().toISOString(),
+      };
+      setRecentJobs((previous) => {
+        const existing = previous.find((job) => job.id === jobId);
+        if (existing) {
+          return previous.map((job) =>
+            job.id === jobId ? { ...job, status: jobStatus } : job,
+          );
+        }
+        return [optimisticJob, ...previous].slice(0, 7);
+      });
+    }
     if (data?.status === 'pending' || data?.status === 'processing') {
       showToast('info', 'A digest job is already in progress');
     } else {
       showToast('success', 'Digest pipeline started');
     }
     await fetchRecentJobs();
-    return { jobId: data?.job_id };
-  }, [showToast, fetchRecentJobs]);
+    return jobId ? { jobId } : null;
+  }, [userId, showToast, fetchRecentJobs]);
 
+  const cancelJob = useCallback(async (jobId: string): Promise<boolean> => {
+    const { data, error } = await supabase.rpc('cancel_auto_digest_job', {
+      p_job_id: jobId,
+      p_reason: 'Cancelled by user',
+    });
+    if (error || data?.ok === false) {
+      showToast('error', `Failed to cancel digest: ${error?.message || 'Job is no longer active'}`);
+      return false;
+    }
+    showToast('info', 'Digest cancellation requested');
+    await fetchRecentJobs();
+    return true;
+  }, [fetchRecentJobs, showToast]);
   const refresh = useCallback(async () => {
     await Promise.all([
       fetchSettings(),
@@ -364,6 +412,7 @@ export function useAutoDigestSettings(userId: string) {
     removeCustomFeed,
     toggleCustomFeed,
     triggerManualRun,
+    cancelJob,
     refresh,
   };
 }

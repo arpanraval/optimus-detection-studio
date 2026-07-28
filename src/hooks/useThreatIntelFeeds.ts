@@ -9,6 +9,11 @@ export interface ThreatIntelFeed {
   feed_type: 'rss' | 'taxii';
   url: string;
   taxii_config?: Record<string, any>;
+  taxii_api_root?: string;
+  taxii_collection_id?: string;
+  taxii_credential_id?: string;
+  taxii_credential_present?: boolean;
+  taxii_credentials?: { username?: string; password?: string; token?: string };
   schedule_cron: string;
   is_enabled: boolean;
   quality_rating?: number;
@@ -71,6 +76,16 @@ export function useThreatIntelFeeds(userId: string) {
   }, [refreshFeeds, refreshEntries]);
 
   const addFeed = useCallback(async (feed: Partial<ThreatIntelFeed>) => {
+    if (feed.feed_type === 'taxii') {
+      const { taxii_credentials, ...feedPayload } = feed as any;
+      const { error } = await supabase.functions.invoke('manage-threat-intel-feed', {
+        body: { feed: { ...feedPayload, user_id: userId }, credentials: taxii_credentials },
+      });
+      if (error) { showToast('error', 'Failed to add feed'); return; }
+      showToast('success', 'Feed added');
+      refreshFeeds();
+      return;
+    }
     const { error } = await supabase.from('threat_intel_feeds').insert({ ...feed, user_id: userId });
     if (error) { showToast('error', 'Failed to add feed'); return; }
     showToast('success', 'Feed added');
@@ -78,6 +93,15 @@ export function useThreatIntelFeeds(userId: string) {
   }, [userId, refreshFeeds, showToast]);
 
   const updateFeed = useCallback(async (id: string, updates: Partial<ThreatIntelFeed>) => {
+    if (updates.feed_type === 'taxii' || updates.taxii_credentials) {
+      const { taxii_credentials, ...feedPayload } = updates as any;
+      const { error } = await supabase.functions.invoke('manage-threat-intel-feed', {
+        body: { feed_id: id, feed: feedPayload, credentials: taxii_credentials },
+      });
+      if (error) { showToast('error', 'Failed to update feed'); return; }
+      refreshFeeds();
+      return;
+    }
     const { error } = await supabase.from('threat_intel_feeds').update(updates).eq('id', id);
     if (error) { showToast('error', 'Failed to update feed'); return; }
     refreshFeeds();

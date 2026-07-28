@@ -426,14 +426,15 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
   // already committed but the user-visible "Save Changes" pill stayed
   // dirty for ALL 10 — hiding which 4 already landed.
   const handleSave = useCallback(async () => {
+    if (isSaving) return false;
     if (isSaving) return; // re-entrancy guard — Save button shouldn't fire twice
     setIsSaving(true);
     const failedToggleIds: string[] = [];
-    let configCommitted: boolean;
+    let configCommitted = true;
     try {
       if (configDirty) {
-        await saveSettings(localConfig);
-        configCommitted = true;
+        configCommitted = await saveSettings(localConfig);
+        // saveSettings determines whether configuration was committed.
       } else {
         configCommitted = true;
       }
@@ -476,9 +477,20 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     } finally {
       setIsSaving(false);
     }
+    return configCommitted && failedToggleIds.length === 0;
   }, [isSaving, configDirty, localConfig, pendingToggles, curatedSources, saveSettings, toggleSource, showToast]);
 
   // Discard changes
+  const handleSaveAndRun = useCallback(async () => {
+    if (hasUnsavedChanges) {
+      const saved = await handleSave();
+      if (!saved) {
+        showToast('error', 'Save failed; digest was not started');
+        return;
+      }
+    }
+    await handleRunNow();
+  }, [hasUnsavedChanges, handleSave, handleRunNow, showToast]);
   const handleDiscard = useCallback(() => {
     setPendingToggles(new Map());
     if (settings) {
@@ -644,7 +656,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
           color="primary"
           leadingIcon="play"
           loading={isRunning || isJobActive}
-          onClick={handleRunNow}
+          onClick={handleSaveAndRun}
           title={isJobActive ? 'A digest job is already in progress' : 'Run the pipeline now instead of waiting for the next scheduled slot'}
         >
           {isJobActive ? 'Running…' : 'Run Now'}
@@ -1158,7 +1170,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
                 color="primary"
                 leadingIcon="play"
                 loading={isRunning || isJobActive}
-                onClick={handleRunNow}
+                onClick={handleSaveAndRun}
                 title="Trigger a digest now to seed the prompt cache"
               >
                 {isJobActive ? 'Running…' : 'Run Now'}
@@ -1167,7 +1179,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
           )}
 
           {userId ? (
-            <FeedActivityLog userId={userId} />
+            <FeedActivityLog userId={userId} liveJobs={recentJobs} />
           ) : (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <Icon name="activity" className="w-8 h-8 text-on-surface-variant/20 mb-3" />
