@@ -84,6 +84,11 @@ export interface LibraryMatch {
   existing_detection_id: string;
   name: string;
   query_language: string;
+  /** Lifecycle status of the matched library detection ('Production', 'Draft',
+   *  'Deprecated', ...). Only a deployed rule counts as coverage; a Draft match
+   *  is advisory and does not suppress generation. Optional for backward
+   *  compatibility with sessions persisted before the field existed. */
+  status?: string;
   combined_score: number;
   semantic_score: number;
   keyword_score: number;
@@ -166,8 +171,32 @@ export interface GeneratedDetection {
    *  present the duplicate lives on `qa.duplicate_of` instead; check both.
    *  Optional for backward compatibility with previously-persisted sessions. */
   duplicate_of?: string | null;
+  /** A library detection that scored above the match threshold but did NOT
+   *  count as coverage, so the engineer generated a new query anyway. Lets the
+   *  detail card explain why the user is looking at a fresh query when their
+   *  library already holds something adjacent — previously this decision only
+   *  existed in the event log, which the card cannot reach. Optional for
+   *  backward compatibility. */
+  library_near_match?: LibraryNearMatch | null;
   saved_detection_id: string | null;
   archived: boolean;
+}
+
+/** Why a scoring library match was not treated as coverage.
+ *   - `not_deployed`      the rule isn't in a status that counts as deployed
+ *                         (a Draft rule detects nothing)
+ *   - `language_mismatch` the rule targets a different SIEM than this session */
+export type LibraryNearMatchReason = 'not_deployed' | 'language_mismatch';
+
+export interface LibraryNearMatch {
+  existing_detection_id: string;
+  name: string;
+  status: string;
+  query_language: string;
+  combined_score: number;
+  skipped_reason: LibraryNearMatchReason;
+  /** The session's target query language, for rendering "yours is KQL". */
+  target_language: string;
 }
 
 /** PR2 planner status, surfaced on the session tree so the UI can show

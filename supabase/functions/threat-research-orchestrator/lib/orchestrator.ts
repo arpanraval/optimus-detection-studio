@@ -36,6 +36,7 @@ import {
   generateDetectionForOpportunity,
   refineDetectionViaActorCritic,
 } from "./agents/detection-engineer.ts";
+import { COVERAGE_STATUSES, isDeployedCoverage, isLanguageRunnable } from "./coverage.ts";
 import { resolveQueryLanguage } from "./query-language.ts";
 import { flagCrossBehaviourDuplicates } from "./dedup.ts";
 import { loadKnowledgePack } from "./skills-loader.ts";
@@ -49,6 +50,8 @@ import { validateKqlAgainstDefenderSchema } from "./tools/defender-schema-lookup
 import type {
   DetectionOpportunity,
   GeneratedDetection,
+  LibraryNearMatch,
+  LibraryNearMatchReason,
   ResearchQueryLanguage,
   ThreatResearchTree,
 } from "./types.ts";
@@ -754,22 +757,22 @@ async function handleDetection(
   // match exists AND it's runnable in the user's current SIEM language,
   // skip generation entirely.
   const libMatch = await checkLibraryCoverage(toolCtx, behaviour, opp);
-  const matchedLanguageRunnable = (() => {
-    if (!libMatch) return false;
-    // Empty query_language means we couldn't determine the matched
-    // detection's language — be conservative and fall through to
-    // generation rather than veto with low confidence.
-    if (!libMatch.query_language) return false;
-    // Compare case-insensitively against the resolved env language. If
-    // the user's env doesn't resolve a SIEM language we still accept
-    // the match (better than failing closed).
-    return !queryLanguage || libMatch.query_language.toLowerCase() === queryLanguage.toLowerCase();
-  })();
-  if (libMatch && matchedLanguageRunnable) {
+  // Both gates live in lib/coverage.ts so they can be unit-tested. Semantics
+  // are unchanged from the previous inline check: an unknown match language
+  // falls through to generation, an unresolved session language accepts.
+  const matchedLanguageRunnable = isLanguageRunnable(libMatch, queryLanguage);
+  // A match only counts as COVERAGE if the rule is actually deployed. Before
+  // this gate, a Draft or Deprecated library rule could suppress generation
+  // entirely and the opportunity was marked feasibility:'covered' — a coverage
+  // claim the system could not substantiate, since a Draft rule detects
+  // nothing. Non-deployed matches stay advisory (event below) and generation
+  // proceeds.
+  const matchedStatusDeployed = isDeployedCoverage(libMatch);
+  if (libMatch && matchedLanguageRunnable && matchedStatusDeployed) {
     await emit(runCtx, {
       agent: 'detection-engineer',
       event_type: 'library_match_found',
-      message: `${opp.title} → already covered by "${libMatch.name}"`,
+      message: `${opp.title} → already covered by "${libMatch.name}" (${libMatch.status}, ${libMatch.query_language})`,
       payload: { behaviour_id: behaviour.id, opportunity_id: opp.id, match: libMatch },
     });
     // Mark this OPPORTUNITY as covered (not the whole behaviour — other
@@ -782,7 +785,7 @@ async function handleDetection(
     opp.detection.query_language = libMatch.query_language as ResearchQueryLanguage;
     opp.detection.description = `Already covered by library detection "${libMatch.name}".`;
     opp.detection.feasibility = 'covered';
-    opp.detection.feasibility_notes = `Library match (combined_score=${libMatch.combined_score.toFixed(2)})`;
+    opp.detection.feasibility_notes = `Library match: ${libMatch.status} rule in ${libMatch.query_language} (combined_score=${libMatch.combined_score.toFixed(2)})`;
     await patchDetection(supabase, session.id, behaviour.id, opp.id, opp.detection.id, {
       saved_detection_id: opp.detection.saved_detection_id,
       name: opp.detection.name,
@@ -793,21 +796,41 @@ async function handleDetection(
     });
     return;
   }
-  // libMatch existed but couldn't run in the user's SIEM — emit the
-  // signal so the engineer knows there's a near-match worth referencing
-  // via covers_behaviour_ids, but proceed to generation in the user's
-  // actual language.
-  if (libMatch && !matchedLanguageRunnable) {
+  // A match existed but didn't qualify as coverage — either it can't run in
+  // the user's SIEM, or it isn't deployed. Emit the signal so the engineer
+  // knows there's a near-match worth referencing via covers_behaviour_ids, and
+  // so the UI can show WHY generation went ahead anyway; then proceed.
+  //
+  // When both gates fail, language_mismatch wins: it's the more actionable of
+  // the two (the user would have to author a new rule either way, whereas a
+  // Draft in the right language just needs promoting).
+  let nearMatch: LibraryNearMatch | null = null;
+  if (libMatch && !(matchedLanguageRunnable && matchedStatusDeployed)) {
+    const skippedReason: LibraryNearMatchReason =
+      !matchedLanguageRunnable ? 'language_mismatch' : 'not_deployed';
+    nearMatch = {
+      existing_detection_id: libMatch.existing_detection_id,
+      name: libMatch.name,
+      status: libMatch.status,
+      query_language: libMatch.query_language,
+      combined_score: libMatch.combined_score,
+      skipped_reason: skippedReason,
+      target_language: queryLanguage,
+    };
+    const message = skippedReason === 'language_mismatch'
+      ? `${opp.title} → near-match "${libMatch.name}" in ${libMatch.query_language || 'unknown SIEM'} (skipped: user's SIEM is ${queryLanguage})`
+      : `${opp.title} → near-match "${libMatch.name}" is ${libMatch.status || 'not deployed'}, not counted as coverage (skipped: only ${[...COVERAGE_STATUSES].join('/')} rules count)`;
     await emit(runCtx, {
       agent: 'detection-engineer',
       event_type: 'library_match_found',
-      message: `${opp.title} → near-match "${libMatch.name}" in ${libMatch.query_language || 'unknown SIEM'} (skipped: user's SIEM is ${queryLanguage})`,
+      message,
       payload: {
         behaviour_id: behaviour.id,
         opportunity_id: opp.id,
         match: libMatch,
-        skipped_reason: 'language_mismatch',
+        skipped_reason: skippedReason,
         target_language: queryLanguage,
+        match_status: libMatch.status ?? null,
       },
     });
   }
@@ -928,8 +951,12 @@ async function handleDetection(
   }
 
   // ── 3. Persist the detection. ───────────────────────────────────────────
+  // Carry the advisory near-match (if any) onto the leaf so the detail card
+  // can explain why a fresh query exists next to an adjacent library rule.
+  generated.library_near_match = nearMatch;
   opp.detection = generated;
   await patchDetection(supabase, session.id, behaviour.id, opp.id, opp.detection.id, {
+    library_near_match: generated.library_near_match,
     name: generated.name,
     description: generated.description,
     query: generated.query,

@@ -4,7 +4,9 @@ import { Button } from '../ui/Button';
 import { useToast } from '../../hooks/useToast';
 import { saveDetectionFromLeaf, archiveLeaf, unarchiveLeaf, completeQa } from '../../lib/threatResearchService';
 import { routeHelpers } from '../../router/routes';
-import type { ThreatResearchSession, AttackBehaviour, DetectionOpportunity } from '../../types/threatResearch';
+import type {
+  ThreatResearchSession, AttackBehaviour, DetectionOpportunity, LibraryNearMatch,
+} from '../../types/threatResearch';
 
 interface Props {
   session: ThreatResearchSession;
@@ -264,6 +266,7 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
           {det.feasibility_notes && (
             <div className="mt-2 text-xs text-on-surface-variant">{det.feasibility_notes}</div>
           )}
+          {det.library_near_match && <LibraryNearMatchNote match={det.library_near_match} />}
           {det.qa && det.qa.concerns.length > 0 && (
             <div className="mt-3">
               <div className="mb-1 text-xs font-semibold text-on-surface">Concerns</div>
@@ -441,6 +444,33 @@ function Footer({
           <Button variant="outlined" onClick={onArchive} disabled={busy}>Discard</Button>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Explains why a new query exists next to an adjacent library rule. The
+ *  library search deliberately matches across every status so near-matches
+ *  stay visible; only deployed rules in the session's language suppress
+ *  generation. Without this note the decision lived solely in the event log,
+ *  and the user just saw a duplicate-looking detection with no explanation. */
+function LibraryNearMatchNote({ match }: { match: LibraryNearMatch }) {
+  const isLanguage = match.skipped_reason === 'language_mismatch';
+  const reason = isLanguage
+    ? `it targets ${match.query_language || 'another SIEM'} and this session targets ${match.target_language}`
+    : `it is ${match.status || 'not deployed'}, so it isn't detecting anything yet`;
+  return (
+    <div className="mt-2 rounded-md border border-outline-variant bg-surface-container px-3 py-2 text-xs text-on-surface-variant">
+      <span className="font-medium text-on-surface">Not counted as coverage.</span>{' '}
+      Your library has{' '}
+      <a
+        href={`/library/detections/${match.existing_detection_id}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-medium text-primary hover:underline"
+      >
+        {match.name}
+      </a>{' '}
+      (similarity {match.combined_score.toFixed(2)}), but {reason}. A new detection was written instead.
     </div>
   );
 }

@@ -379,11 +379,13 @@ export async function checkLibraryCoverage(
     existing_detection_id: top.id,
     name: top.name,
     query_language: top.query_language,
+    status: top.status ?? '',
     combined_score: top.combined_score,
     semantic_score: top.semantic_score,
     keyword_score: top.keyword_score,
   };
 }
+
 
 /** PR2 per-opportunity detection generation. The Opportunity Planner upstream
  *  already decided observable surface / telemetry / MITRE / tactic for THIS
