@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { FeatureSlide, MockupFrame, FeatureCarousel } from '../shared/FeatureSlide';
 
 const ACCENT = '#783264';
 const TEAL = '#4D7C6F';
+const SLATE = '#475069';
 
 /* ─── Shared chat primitives ─── */
 
@@ -12,9 +13,9 @@ const AgentHeader: React.FC = () => (
     <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black"
       style={{ background: `linear-gradient(135deg, ${ACCENT}, ${ACCENT}99)`, color: '#fff' }}>O</div>
     <span className="text-sm font-bold text-on-surface tracking-tight">Optimus Prime</span>
-    <span className="mono text-[8px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400/80 border border-emerald-500/20">Gemini 3 Flash ▸</span>
-    <span className="flex items-center gap-1 mono text-[8px] text-emerald-400/60">
-      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400/70" />7 Tools Active
+    <span className="mono text-[8px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 border border-emerald-500/25">Gemini 3 Flash ▸</span>
+    <span className="flex items-center gap-1 mono text-[8px] text-emerald-700/80">
+      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />7 Tools Active
     </span>
     <div className="ml-auto flex items-center gap-2 text-outline">
       <span className="text-[11px] cursor-pointer hover:text-on-surface-variant">⟲</span>
@@ -34,10 +35,140 @@ const UserBubble: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 const ToolActivity: React.FC<{ sources: number; time: string }> = ({ sources, time }) => (
   <div className="flex items-center gap-2 mb-3">
     <span className="text-on-surface-variant text-xs">•</span>
-    <span className="text-xs text-on-surface-variant">Analyzed {sources} sources in {time}</span>
+    <span className="text-xs text-on-surface-variant">Analyzed {sources} source{sources === 1 ? '' : 's'} in {time}</span>
     <span className="text-[10px] text-outline cursor-pointer">↓</span>
   </div>
 );
+
+/* ─── Coverage chat (primary — mirrors the real product screen) ─── */
+
+const DONUT_R = 40;
+const DONUT_C = 2 * Math.PI * DONUT_R;
+
+export const CoverageChatMockup: React.FC = () => {
+  const [on, setOn] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) setOn(true);
+    }, { threshold: 0.25 });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  const rows = [
+    { label: 'Production Coverage', detail: <><b>28</b> of 356 · actively deployed</>, pct: '8%', bar: ACCENT, pctColor: ACCENT },
+    { label: 'Development Coverage', detail: <><b>171</b> of 356 · promotable to production</>, pct: '48%', bar: SLATE, pctColor: 'rgb(var(--md-sys-color-on-surface))' },
+    { label: 'Coverage Gaps', detail: <><b>157</b> of 356 · no detection at any tier</>, pct: '44%', bar: '#c0392b', pctColor: '#c0392b' },
+  ];
+
+  return (
+    <MockupFrame title="OPTIMUS PRIME — RAG AGENT" accent={ACCENT}>
+      <div ref={ref}>
+        <AgentHeader />
+        <ToolActivity sources={1} time="3.8s" />
+
+        {/* Coverage card */}
+        <div className="border border-outline-variant rounded-xl bg-surface-container-highest overflow-hidden mb-4 shadow-sm">
+          <div className="px-4 pt-4 pb-2 flex items-start justify-between gap-3">
+            <div>
+              <div className="mono text-[8px] font-bold tracking-[0.22em] text-on-surface-variant uppercase mb-1">Overall Detection Coverage</div>
+              <div className="text-[11px] text-on-surface-variant">199 of 356 techniques have a detection</div>
+            </div>
+            <span className="mono text-[7px] px-2 py-1 rounded border border-outline-variant text-on-surface-variant tracking-widest shrink-0">MITRE ATT&CK</span>
+          </div>
+
+          <div className="px-4 py-3 flex flex-col sm:flex-row items-center gap-6">
+            {/* Donut */}
+            <div className="relative shrink-0">
+              <svg width="120" height="120" viewBox="0 0 120 120">
+                <circle cx="60" cy="60" r={DONUT_R} fill="none" stroke="rgb(var(--md-sys-color-surface-container-low))" strokeWidth="13" />
+                {/* Development band (48%) */}
+                <circle
+                  cx="60" cy="60" r={DONUT_R} fill="none" stroke={SLATE} strokeWidth="13" strokeLinecap="butt"
+                  strokeDasharray={`${DONUT_C * 0.48} ${DONUT_C}`}
+                  strokeDashoffset={on ? -DONUT_C * 0.08 : DONUT_C * 0.4}
+                  transform="rotate(-90 60 60)"
+                  style={{ transition: 'stroke-dashoffset 1.2s cubic-bezier(0.16, 1, 0.3, 1) 0.3s' }}
+                />
+                {/* Production arc (8%) */}
+                <circle
+                  cx="60" cy="60" r={DONUT_R} fill="none" stroke={ACCENT} strokeWidth="13" strokeLinecap="butt"
+                  strokeDasharray={`${DONUT_C * 0.08} ${DONUT_C}`}
+                  strokeDashoffset={on ? 0 : DONUT_C * 0.08}
+                  transform="rotate(-90 60 60)"
+                  style={{ transition: 'stroke-dashoffset 1s cubic-bezier(0.16, 1, 0.3, 1) 0.2s' }}
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-2xl font-black text-on-surface leading-none">8%</span>
+                <span className="mono text-[6.5px] tracking-[0.25em] text-on-surface-variant mt-1">PROTECTED</span>
+              </div>
+            </div>
+
+            {/* Tier rows */}
+            <div className="flex-1 w-full space-y-3">
+              {rows.map((r, i) => (
+                <div
+                  key={r.label}
+                  className="flex items-center gap-3 transition-all duration-700"
+                  style={{ opacity: on ? 1 : 0, transform: on ? 'translateX(0)' : 'translateX(12px)', transitionDelay: `${300 + i * 180}ms` }}
+                >
+                  <span className="w-[3px] h-8 rounded-full shrink-0" style={{ backgroundColor: r.bar }} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-bold text-on-surface">{r.label}</div>
+                    <div className="text-[10px] text-on-surface-variant [&_b]:font-semibold [&_b]:text-on-surface">{r.detail}</div>
+                  </div>
+                  <span className="text-sm font-black tabular-nums shrink-0" style={{ color: r.pctColor }}>{r.pct}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div className="px-4 pb-4 pt-1 flex flex-wrap gap-2">
+            <button className="mono text-[9px] font-semibold px-3.5 py-2 rounded-lg text-white cursor-pointer" style={{ backgroundColor: ACCENT }}>
+              Review Development Detections
+            </button>
+            <button className="mono text-[9px] font-semibold px-3.5 py-2 rounded-lg border border-outline-variant text-on-surface cursor-pointer bg-surface-container-highest">
+              View Ransomware Readiness
+            </button>
+          </div>
+        </div>
+
+        {/* Narrative analysis */}
+        <div className="text-[11px] text-on-surface-variant leading-relaxed space-y-2.5 mb-4 transition-opacity duration-700" style={{ opacity: on ? 1 : 0, transitionDelay: '700ms' }}>
+          <p>
+            Our current detection posture shows <span className="font-semibold text-on-surface">8% coverage</span> (28 techniques) in the{' '}
+            <span className="font-semibold text-on-surface">Production Library</span>. We can rapidly expand defense by promoting detections from development into production.
+          </p>
+          <div>
+            <div className="text-xs font-bold text-on-surface mb-1">Coverage Summary</div>
+            <ul className="space-y-1">
+              <li className="flex gap-2"><span className="text-outline mt-0.5">•</span><span><span className="font-semibold text-on-surface">Development Library (48%):</span> 171 techniques have "promotable" starter detections — the fastest path to coverage.</span></li>
+              <li className="flex gap-2"><span className="text-outline mt-0.5">•</span><span><span className="font-semibold text-on-surface">Total Gaps (44%):</span> 157 techniques need new detection engineering from scratch.</span></li>
+            </ul>
+          </div>
+          <p>
+            Critical gaps in <span className="font-semibold text-on-surface">Resource Development (0%)</span> and <span className="font-semibold text-on-surface">Impact (11%)</span> — no visibility into{' '}
+            <span className="italic">Data Compressed (T1002)</span> or <span className="italic">Winlogon Helper DLL (T1004)</span>.
+          </p>
+        </div>
+
+        {/* Chat input */}
+        <div className="flex items-center gap-2 border border-outline-variant rounded-xl px-4 py-2.5 bg-surface-container-highest">
+          <span className="text-[11px] text-outline flex-1">Ask about coverage, search detections, or request a draft…</span>
+          <span className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: `${ACCENT}15` }}>
+            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke={ACCENT} strokeWidth="2.5"><path d="M12 19V5M5 12l7-7 7 7" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </span>
+        </div>
+      </div>
+    </MockupFrame>
+  );
+};
 
 /* ─── Slide 1: Library Search ─── */
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Icon } from './Icon';
 import './new-landing/tokens/landing.css';
 import { PlatformShowcase } from './new-landing/PlatformShowcase';
-import { LibraryViewMockup } from './new-landing/features/DetectionLibraryFeature';
+import { HeroFlowScene } from './new-landing/hero/HeroFlowScene';
 
 // ============================================================================
 // CONSTANTS & COLORS
@@ -170,60 +170,51 @@ export const NewLandingPage: React.FC<{ onSignIn: () => void }> = ({ onSignIn })
         </div>
       </nav>
 
-      {/* ━━━ HERO SECTION — Product-first ━━━ */}
-      <section className="relative min-h-screen flex items-center pt-28 pb-20 overflow-hidden">
-        <div className="max-w-[1600px] w-full mx-auto px-6 sm:px-10 grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-14 items-center relative z-10">
+      {/* ━━━ HERO SECTION — Platform story ━━━ */}
+      <section className="relative min-h-screen flex items-center pt-32 pb-16 overflow-hidden">
+        <div className="max-w-[1400px] w-full mx-auto px-6 sm:px-10 relative z-10 flex flex-col items-center">
 
-          {/* Left: copy column */}
-          <div className="lg:col-span-5">
-            <ScrollReveal>
-              <div className="inline-flex items-center gap-2.5 px-3 py-1.5 rounded-full border border-outline-variant bg-surface-container-low mb-7">
-                <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-                <span className="mono text-[9px] font-bold tracking-[0.3em] text-primary uppercase">Detection Studio · Private Beta</span>
-              </div>
-            </ScrollReveal>
+          <ScrollReveal>
+            <div className="inline-flex items-center gap-2.5 px-3 py-1.5 rounded-full border border-outline-variant bg-surface-container-low mb-7">
+              <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+              <span className="mono text-[9px] font-bold tracking-[0.3em] text-primary uppercase">Detection Studio · Private Beta</span>
+            </div>
+          </ScrollReveal>
 
-            <ScrollReveal delay={100}>
-              <h1 className="font-brand font-bold leading-[1.02] tracking-tight mb-7">
-                <span className="block text-[clamp(2.5rem,5.2vw,4.5rem)] text-on-surface">Detection content</span>
-                <span className="block text-[clamp(2.5rem,5.2vw,4.5rem)] text-on-surface">is <span className="text-gradient-cyber">abundant.</span></span>
-                <span className="block text-[clamp(2.5rem,5.2vw,4.5rem)] text-on-surface mt-2">Everything around</span>
-                <span className="block text-[clamp(2.5rem,5.2vw,4.5rem)] text-on-surface">it is broken.</span>
-              </h1>
-            </ScrollReveal>
+          <ScrollReveal delay={100}>
+            <h1 className="font-brand font-bold leading-[1.05] tracking-tight mb-6 text-center max-w-4xl">
+              <span className="block text-[clamp(2.3rem,4.6vw,4rem)] text-on-surface">Detection content is <span className="text-gradient-cyber">abundant.</span></span>
+              <span className="block text-[clamp(2.3rem,4.6vw,4rem)] text-on-surface">Everything around it is broken.</span>
+            </h1>
+          </ScrollReveal>
 
-            <ScrollReveal delay={180}>
-              <p className="text-base sm:text-lg text-on-surface-variant leading-relaxed mb-9 max-w-md font-light">
-                One catalog for every rule you run. Continuous coverage checks against emerging threats. A conversational agent that knows your library. All the engineering glue your SOC has been duct-taping by hand.
-              </p>
-            </ScrollReveal>
+          <ScrollReveal delay={180}>
+            <p className="text-base sm:text-lg text-on-surface-variant leading-relaxed mb-8 max-w-2xl text-center font-light">
+              Optimus watches the threat landscape, measures your coverage, researches the gaps autonomously,
+              and ships review-ready detections to every SIEM you run — one continuous loop.
+            </p>
+          </ScrollReveal>
 
-            <ScrollReveal delay={260}>
-              <div className="flex flex-wrap gap-4 items-center">
-                <button
-                  onClick={() => setShowAccessModal(true)}
-                  className="btn-primary px-9 py-4 text-sm font-semibold tracking-wide"
-                >
-                  Request early access
-                </button>
-                <a
-                  href="#features"
-                  className="btn-outline px-7 py-4 text-sm font-semibold tracking-wide flex items-center gap-2 group"
-                >
-                  See it in action <span className="group-hover:translate-y-1 transition-transform duration-300">↓</span>
-                </a>
-              </div>
-            </ScrollReveal>
-          </div>
+          <ScrollReveal delay={240}>
+            <div className="flex flex-wrap gap-4 items-center justify-center mb-12">
+              <button
+                onClick={() => setShowAccessModal(true)}
+                className="btn-primary px-9 py-4 text-sm font-semibold tracking-wide"
+              >
+                Request early access
+              </button>
+              <a
+                href="#features"
+                className="btn-outline px-7 py-4 text-sm font-semibold tracking-wide flex items-center gap-2 group"
+              >
+                See it in action <span className="group-hover:translate-y-1 transition-transform duration-300">↓</span>
+              </a>
+            </div>
+          </ScrollReveal>
 
-          {/* Right: product mockup anchor */}
-          <div className="lg:col-span-7 relative">
-            <ScrollReveal delay={140}>
-              <div className="hero-mockup-shell">
-                <LibraryViewMockup />
-              </div>
-            </ScrollReveal>
-          </div>
+          <ScrollReveal delay={300} className="w-full">
+            <HeroFlowScene />
+          </ScrollReveal>
 
         </div>
       </section>
@@ -278,7 +269,7 @@ export const NewLandingPage: React.FC<{ onSignIn: () => void }> = ({ onSignIn })
                     </div>
                     <div className="text-center">
                       <div className="text-xs font-semibold text-on-surface-variant group-hover:text-on-surface transition-colors">{v.name}</div>
-                      <div className="mono text-[8px] tracking-widest text-[#00bcff] mt-1.5 uppercase font-bold">{v.lang}</div>
+                      <div className="mono text-[8px] tracking-widest text-[#005091] mt-1.5 uppercase font-bold">{v.lang}</div>
                     </div>
                   </div>
                 ))}
@@ -312,7 +303,7 @@ export const NewLandingPage: React.FC<{ onSignIn: () => void }> = ({ onSignIn })
                       </div>
                       <span className="text-sm font-medium text-on-surface-variant group-hover:text-on-surface transition-colors">{src.name}</span>
                     </div>
-                    <span className="mono text-[9px] text-[#00f0b5] tracking-widest font-bold bg-[#00f0b5]/5 px-2.5 py-1 rounded-md border border-[#00f0b5]/15">{src.count}</span>
+                    <span className="mono text-[9px] text-[#4D7C6F] tracking-widest font-bold bg-[#4D7C6F]/5 px-2.5 py-1 rounded-md border border-[#4D7C6F]/20">{src.count}</span>
                   </div>
                 ))}
               </div>

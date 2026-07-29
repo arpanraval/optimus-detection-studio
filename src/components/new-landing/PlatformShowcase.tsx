@@ -1,8 +1,9 @@
 import React, { useEffect, useRef } from 'react';
 import { LibraryViewMockup, DetectionPacksMockup } from './features/DetectionLibraryFeature';
-import { CoverageMockup, PipelineMockup } from './features/ThreatIntelFeature';
+import { ReportListingMockup } from './features/ThreatIntelFeature';
+import { AutoDigestMockup } from './features/AutoDigestFeature';
 import { GenerateQueryMockup } from './features/AIQueryFeature';
-import { ThreatCoverageMockup, LibrarySearchMockup } from './features/OptimusPrimeFeature';
+import { CoverageChatMockup, ThreatCoverageMockup } from './features/OptimusPrimeFeature';
 import { FullMatrixMockup } from './features/MITREFeature';
 import { DashboardMockup } from './features/DashboardFeature';
 import { ThreatResearchMockup } from './features/ThreatResearchFeature';
@@ -21,14 +22,78 @@ type Feature = {
   secondaryMockup?: React.ReactNode;
 };
 
+// Ordered as the product's actual workflow: intelligence lands → coverage is
+// assessed → agents research the gaps → build by hand when you want → everything
+// lives in one catalog → ask the agent → report the posture.
 const FEATURES: Feature[] = [
   {
-    id: 'library',
+    id: 'auto-digest',
     num: '01',
+    kicker: 'AUTO-DIGEST',
+    headline: 'Raw intel in. Operational reports out. Daily.',
+    description:
+      'Every morning Auto-Digest fetches your threat feeds, AI-gates what\'s actually actionable, ranks and digests the winners — extracting TTPs, IoCs, MITRE mappings, and library matches — then links multi-vendor coverage of the same campaign into one story. You wake up to structured intel, not 87 open tabs.',
+    bullets: [
+      'Five-stage pipeline: harvest → classify → rank → digest → link',
+      'Every report scored against your live library for coverage',
+      'Multi-vendor stories deduped into a single campaign entry',
+    ],
+    layout: 'mockup-right',
+    primaryMockup: <AutoDigestMockup />,
+    secondaryMockup: <ReportListingMockup />,
+  },
+  {
+    id: 'mitre',
+    num: '02',
+    kicker: 'MITRE ATT&CK COVERAGE',
+    headline: 'Your posture, on the actual matrix.',
+    description:
+      'Every rule mapped onto ATT&CK v18.1. Covered techniques carry live detection counts; hover any cell to see the rules, threat groups, and malware behind it. Filter the whole matrix through the intel graph — 172 groups, 52 campaigns, 786 software entries.',
+    bullets: [
+      'Production vs development coverage, toggled in one click',
+      'Technique cards: detections, groups, malware, campaigns',
+      'Filter by threat group, campaign, software, origin, or sector',
+    ],
+    layout: 'centered',
+    primaryMockup: <FullMatrixMockup />,
+  },
+  {
+    id: 'threat-research',
+    num: '03',
+    kicker: 'AUTONOMOUS THREAT RESEARCH',
+    headline: 'Agents research the threat. You review the rule.',
+    description:
+      'Point the engine at a campaign, technique, or CVE. Agents decompose it into tactics and attack opportunities on a live canvas, research the execution telemetry, then engineer and QA detections against simulated baselines. Every node on the canvas is inspectable — you see exactly how each rule was derived.',
+    bullets: [
+      'Threat → tactics → opportunities → research → validated rules',
+      'Every detection validated against telemetry before it reaches you',
+      'Full research trail on an explorable canvas — no black box',
+    ],
+    layout: 'centered',
+    primaryMockup: <ThreatResearchMockup />,
+  },
+  {
+    id: 'ai-query',
+    num: '04',
+    kicker: 'AI QUERY GENERATOR',
+    headline: 'Describe the behavior. Get the query.',
+    description:
+      'Pick a model, pick a SIEM dialect, describe what you want to catch in plain English. Refine iteratively in chat. Export documented rules to 14+ targets — Splunk, Sentinel, Chronicle, CrowdStrike, Elastic, and more. Sigma conversion runs in your browser via Pyodide — zero round-trips, zero API keys.',
+    bullets: [
+      'Multi-model: Gemini, GPT, Claude — pick the brain',
+      'Compile to 14+ SIEM dialects, one click each',
+      'Browser-side Sigma conversion — no server, no latency',
+    ],
+    layout: 'mockup-left',
+    primaryMockup: <GenerateQueryMockup />,
+  },
+  {
+    id: 'library',
+    num: '05',
     kicker: 'DETECTION LIBRARY',
     headline: 'One catalog. Every rule you run.',
     description:
-      "Pull production rules, drafts, and vendor packs out of scattered Git repos, spreadsheets, and SIEM consoles. Search, filter, and version everything in one place — with a quality score on every rule and visible health rings telling you what's stale.",
+      "Everything the loop produces — and everything you already had — lands in one versioned catalog. Pull rules out of scattered Git repos, spreadsheets, and SIEM consoles. Search, filter, and score everything, with health rings telling you what's stale.",
     bullets: [
       'Production library + dev sandbox, side-by-side',
       'Quality score, status, and MITRE mapping on every rule',
@@ -39,39 +104,8 @@ const FEATURES: Feature[] = [
     secondaryMockup: <DetectionPacksMockup />,
   },
   {
-    id: 'auto-digest',
-    num: '02',
-    kicker: 'AUTO-DIGEST',
-    headline: 'New threat lands. Coverage answers itself.',
-    description:
-      'Auto-Digest watches the open intel firehose continuously — CISA, Mandiant, Microsoft, vendor advisories. Each emerging campaign is parsed into TTPs, mapped to ATT&CK, and checked against your library. Gaps surface with one-click drafts. No analyst has to chase "what just happened."',
-    bullets: [
-      'Continuous ingestion from CISA, Mandiant, vendor advisories',
-      'Coverage gap analysis against your live library',
-      'One-click rule drafts for every missing technique',
-    ],
-    layout: 'mockup-left',
-    primaryMockup: <CoverageMockup />,
-    secondaryMockup: <PipelineMockup />,
-  },
-  {
-    id: 'ai-query',
-    num: '03',
-    kicker: 'AI QUERY GENERATOR',
-    headline: 'Describe the behavior. Get the query.',
-    description:
-      'Pick a model, pick a SIEM dialect, describe what you want to catch in plain English. Refine iteratively in chat. Export documented rules to 14+ targets — Splunk, Sentinel, Chronicle, CrowdStrike, Elastic, and more. Sigma conversion runs in your browser via Pyodide — zero round-trips, zero API keys.',
-    bullets: [
-      'Multi-model: Gemini, GPT, Claude — pick the brain',
-      'Compile to 14+ SIEM dialects, one click each',
-      'Browser-side Sigma conversion — no server, no latency',
-    ],
-    layout: 'mockup-right',
-    primaryMockup: <GenerateQueryMockup />,
-  },
-  {
     id: 'optimus-rag',
-    num: '04',
+    num: '06',
     kicker: 'OPTIMUS PRIME — RAG AGENT',
     headline: 'Ask your detection program anything.',
     description:
@@ -82,38 +116,8 @@ const FEATURES: Feature[] = [
       'Answers cite the underlying detections and sources',
     ],
     layout: 'mockup-left',
-    primaryMockup: <ThreatCoverageMockup />,
-    secondaryMockup: <LibrarySearchMockup />,
-  },
-  {
-    id: 'threat-research',
-    num: '05',
-    kicker: 'THREAT RESEARCH ENGINE',
-    headline: 'A team of agents writes detections while you sleep.',
-    description:
-      'Five specialized agents — Preflight, Research, Attack, Engineer, QA — coordinate on a single threat. They harvest TTPs, map execution telemetry, draft a SIEM rule, and validate it against a baseline before it lands in your review queue. Pure synthesis, not search.',
-    bullets: [
-      'Five-agent pipeline: TTPs → telemetry → rule → validation',
-      'Self-test against simulated log baselines',
-      'Drafts arrive review-ready in your queue',
-    ],
-    layout: 'centered',
-    primaryMockup: <ThreatResearchMockup />,
-  },
-  {
-    id: 'mitre',
-    num: '06',
-    kicker: 'MITRE ATT&CK COVERAGE',
-    headline: 'See your defense on the global matrix.',
-    description:
-      'Every production rule mapped onto ATT&CK. Filter by threat group, campaign, or platform. Spot the holes at a glance and export a coverage report your CISO will actually read.',
-    bullets: [
-      'Live mapping of every production rule to ATT&CK',
-      'Filter by group, campaign, platform, or data source',
-      'Exportable coverage report for leadership reviews',
-    ],
-    layout: 'centered',
-    primaryMockup: <FullMatrixMockup />,
+    primaryMockup: <CoverageChatMockup />,
+    secondaryMockup: <ThreatCoverageMockup />,
   },
   {
     id: 'dashboard',

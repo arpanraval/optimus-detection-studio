@@ -27,8 +27,8 @@ const ChatHeader: React.FC<{
   <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-outline-variant">
     <OptimusIcon />
     <span className="text-xs font-semibold text-on-surface tracking-wide">AI Query Generator</span>
-    <span className="mono text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400/90 border border-emerald-500/20">
-      Gemini 3 Flash <span className="text-emerald-400/50">&#9656;</span>
+    <span className="mono text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 border border-emerald-500/25">
+      Gemini 3 Flash <span className="text-emerald-600/60">&#9656;</span>
     </span>
     <span
       className="mono text-[9px] px-2 py-0.5 rounded-md border"
@@ -112,10 +112,10 @@ const ChatInput: React.FC<{ placeholder?: string }> = ({ placeholder = 'Refine d
 );
 
 /* Syntax-highlighting helpers */
-const K = ({ children }: { children: React.ReactNode }) => <span className="text-blue-400">{children}</span>;          // keywords
-const S = ({ children }: { children: React.ReactNode }) => <span className="text-green-400/80">{children}</span>;      // strings
-const V = ({ children }: { children: React.ReactNode }) => <span className="text-amber-400/80">{children}</span>;      // values / numbers
-const P = ({ children }: { children: React.ReactNode }) => <span className="text-fuchsia-400/80">{children}</span>;    // pipe / operators
+const K = ({ children }: { children: React.ReactNode }) => <span className="text-blue-600">{children}</span>;          // keywords
+const S = ({ children }: { children: React.ReactNode }) => <span className="text-green-700">{children}</span>;      // strings
+const V = ({ children }: { children: React.ReactNode }) => <span className="text-amber-600">{children}</span>;      // values / numbers
+const P = ({ children }: { children: React.ReactNode }) => <span className="text-fuchsia-600">{children}</span>;    // pipe / operators
 const C = ({ children }: { children: React.ReactNode }) => <span className="text-on-surface-variant italic">{children}</span>;   // comments
 const F = ({ children }: { children: React.ReactNode }) => <span className="text-on-surface">{children}</span>;          // field names
 
@@ -281,7 +281,7 @@ const OneClickDraftMockup = () => (
         <div className="space-y-3">
           {[
             { label: 'Title', value: 'LSASS Credential Dumping via Suspicious Process Access' },
-            { label: 'Severity', value: 'CRITICAL', color: 'bg-red-500/15 text-red-400/90' },
+            { label: 'Severity', value: 'CRITICAL', color: 'bg-red-500/10 text-red-600' },
             { label: 'MITRE ATT&CK', value: 'T1003.001 (OS Credential Dumping: LSASS Memory)' },
             { label: 'Log Source', value: 'Sysmon / Process Access (Event ID 10)' },
             { label: 'Platforms', value: 'Windows' },
