@@ -62,6 +62,59 @@ export function ThreatResearchDetailPage() {
   const [activityOpen, setActivityOpen] = useState(false);
   const [selected, setSelected] = useState<{ behaviour: AttackBehaviour; opportunity: DetectionOpportunity } | null>(null);
 
+  // One derivation for both banner placements. They were duplicated, and each
+  // handled exactly 'failed' and 'cancelled' — so a 'partial' session rendered
+  // NO outcome at all: the run ended, produced usable detections plus some
+  // needing review, and the page said nothing. Deriving once means a new
+  // terminal state cannot be handled in one place and silently dropped in the
+  // other.
+  const outcome = useMemo((): {
+    label: string;
+    detail: string;
+    icon: string;
+    tone: string;
+    canResume: boolean;
+    resumeLabel: string;
+  } | null => {
+    switch (session?.status) {
+      case 'failed':
+        return {
+          label: 'Failed.',
+          detail: session.failure_reason ?? 'no reason',
+          icon: 'alert-triangle',
+          tone: 'text-error',
+          canResume: true,
+          resumeLabel: 'Resume from failures',
+        };
+      case 'cancelled':
+        return {
+          label: 'Cancelled.',
+          detail: session.failure_reason ?? 'no reason',
+          icon: 'x-circle',
+          tone: 'text-on-surface-variant',
+          canResume: true,
+          resumeLabel: 'Resume',
+        };
+      case 'partial':
+        // Deliberately not styled as an error. The session did its job; some
+        // of the output needs a human before it can ship, and saying so is the
+        // point of the state existing.
+        return {
+          label: 'Finished — some detections need review.',
+          detail: session.failure_reason ?? '',
+          icon: 'alert-circle',
+          // text-tertiary, not text-error: this is an outcome needing
+          // attention, not a fault. (There is no `warning` token in the M3
+          // palette this app uses — tertiary is the attention colour.)
+          tone: 'text-tertiary',
+          canResume: false,
+          resumeLabel: 'Resume',
+        };
+      default:
+        return null;
+    }
+  }, [session?.status, session?.failure_reason]);
+
   if (permissionsLoading) return null;
   if (!hasRole('owner')) return <Navigate to="/" replace />;
 
@@ -169,18 +222,16 @@ export function ThreatResearchDetailPage() {
               <Button variant="text" color="surface" size="sm" onClick={handleCancel}>Cancel</Button>
             </div>
           )}
-          {(session.status === 'failed' || session.status === 'cancelled') && (
+          {outcome && (
             <div className="inline-flex items-center gap-2 rounded-full border border-outline-variant bg-surface-container px-3 py-1 text-sm">
-              <Icon
-                name={session.status === 'failed' ? 'alert-triangle' : 'x-circle'}
-                size={14}
-                className={`flex-shrink-0 ${session.status === 'failed' ? 'text-error' : 'text-on-surface-variant'}`}
-              />
+              <Icon name={outcome.icon} size={14} className={`flex-shrink-0 ${outcome.tone}`} />
               <span className="text-on-surface">
-                <span className="font-medium">{session.status === 'failed' ? 'Failed.' : 'Cancelled.'}</span>{' '}
-                <span className="text-on-surface-variant">{session.failure_reason ?? 'no reason'}</span>
+                <span className="font-medium">{outcome.label}</span>{' '}
+                <span className="text-on-surface-variant">{outcome.detail}</span>
               </span>
-              <Button variant="tonal" color="primary" size="sm" onClick={handleResume}>Resume</Button>
+              {outcome.canResume && (
+                <Button variant="tonal" color="primary" size="sm" onClick={handleResume}>Resume</Button>
+              )}
             </div>
           )}
         </div>
@@ -210,20 +261,18 @@ export function ThreatResearchDetailPage() {
                   <Button variant="text" color="surface" size="sm" onClick={handleCancel}>Cancel</Button>
                 </div>
               )}
-              {(session.status === 'failed' || session.status === 'cancelled') && (
+              {outcome && (
                 <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-outline-variant bg-surface px-4 py-2 shadow-sm">
-                  <Icon
-                    name={session.status === 'failed' ? 'alert-triangle' : 'x-circle'}
-                    size={14}
-                    className={`flex-shrink-0 ${session.status === 'failed' ? 'text-error' : 'text-on-surface-variant'}`}
-                  />
+                  <Icon name={outcome.icon} size={14} className={`flex-shrink-0 ${outcome.tone}`} />
                   <span className="text-sm text-on-surface">
-                    <span className="font-medium">{session.status === 'failed' ? 'Failed.' : 'Cancelled.'}</span>{' '}
-                    <span className="text-on-surface-variant">{session.failure_reason ?? 'no reason'}</span>
+                    <span className="font-medium">{outcome.label}</span>{' '}
+                    <span className="text-on-surface-variant">{outcome.detail}</span>
                   </span>
-                  <Button variant="tonal" color="primary" size="sm" onClick={handleResume}>
-                    {session.status === 'failed' ? 'Resume from failures' : 'Resume'}
-                  </Button>
+                  {outcome.canResume && (
+                    <Button variant="tonal" color="primary" size="sm" onClick={handleResume}>
+                      {outcome.resumeLabel}
+                    </Button>
+                  )}
                 </div>
               )}
             </div>

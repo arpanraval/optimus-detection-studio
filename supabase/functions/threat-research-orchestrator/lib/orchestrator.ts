@@ -69,6 +69,7 @@ import {
 import { validateKqlAgainstDefenderSchema } from "./tools/defender-schema-lookup.ts";
 import { runDetectionValidators } from "./validators/index.ts";
 import { sizeAfterResearch, sizeAfterPlanning } from "./budget-policy.ts";
+import { summariseYield, deriveSessionStatus } from "./readiness.ts";
 import type {
   DetectionOpportunity,
   GeneratedDetection,
@@ -1283,6 +1284,10 @@ async function handleQa(
     covers_behaviour_ids: refined.covers_behaviour_ids,
     qa: refined.qa,
     qa_error: refined.qa_error,
+    // Without this the flag lives only in memory and the persisted leaf reads
+    // as a plain 'fail' -- the repaired detection would be discarded exactly
+    // as before.
+    revised_after_fail: refined.revised_after_fail ?? null,
   });
 }
 
@@ -1373,12 +1378,31 @@ async function handleFinalise(
   // produced no usable output — that's a failure, not a success, and
   // downstream consumers querying status='completed' to mean "you have
   // detections" need to be told the truth.
-  const usableDetections = libraryMatchCount + qaPass + qaPassWithConcerns;
-  const allDetectionsFailed = usableDetections === 0;
-  const finalStatus: 'completed' | 'failed' = allDetectionsFailed ? 'failed' : 'completed';
-  const failureReason = allDetectionsFailed
-    ? `pipeline ran but produced no usable detections: ${engineerFailedCount} engineer_failed, ${qaErrorCount} qa_error, ${qaFail} qa_fail across ${oppCount} opportunit${oppCount === 1 ? 'y' : 'ies'}. Use the resume_session action to retry failed detection jobs after fixing the underlying cause.`
-    : null;
+  // Yield, derived from the shared readiness model rather than counted ad hoc
+  // here. Two failures came out of the old arithmetic
+  // (`library + qa_pass + qa_pass_with_concerns`), in opposite directions:
+  //
+  //   - a detection whose QA call ERRORED was discarded, though its query had
+  //     already been written and paid for. bc5804b3 wrote ten queries, hit six
+  //     QA errors, and delivered one.
+  //   - a run whose real work died could still report success on library
+  //     look-ups alone. 793cafab did exactly that on credit exhaustion and had
+  //     to be corrected by hand.
+  //
+  // Preservation and readiness are now separate: nothing generated is thrown
+  // away, and nothing unreviewed is called production-ready. `partial` is the
+  // state that was missing, and its absence is why the pipeline had to pick
+  // one of those two lies.
+  const allDetections = tree.behaviours.flatMap(b => b.opportunities.map(o => o.detection));
+  const sessionYield = summariseYield(allDetections);
+  const finalStatus = deriveSessionStatus(sessionYield);
+  const failureReason = finalStatus === 'failed'
+    ? `pipeline ran but preserved no detections: ${engineerFailedCount} engineer_failed, ${qaErrorCount} qa_error, ${qaFail} qa_fail across ${oppCount} opportunit${oppCount === 1 ? 'y' : 'ies'}. Use the resume_session action to retry failed detection jobs after fixing the underlying cause.`
+    : finalStatus === 'partial'
+      // Not a failure, and deliberately not silent either: the user is told
+      // exactly how much needs them before anything can ship.
+      ? `${sessionYield.productionCandidates} ready to review, ${sessionYield.needsReview} need a human verdict (QA did not reach one), ${sessionYield.drafts} not usable.`
+      : null;
 
   const { error: finaliseError } = await supabase
     .from('threat_research_sessions')
@@ -1401,7 +1425,12 @@ async function handleFinalise(
   await emit(runCtx, {
     agent: 'orchestrator',
     event_type: finalStatus === 'failed' ? 'session_failed' : 'session_completed',
-    message: `${tree.behaviours.length} behaviours → ${oppCount} opportunities → ${detectionWithQuery} detections (${libraryMatchCount} library / ${qaPass} pass / ${qaPassWithConcerns} pass+concerns / ${qaFail} fail / ${qaErrorCount} qa_error / ${engineerFailedCount} engineer_failed)${allDetectionsFailed ? ' — SESSION FAILED: no usable detections' : ''}`,
+    // Lead with yield, because that is the question being asked. The verdict
+    // breakdown follows for post-mortems.
+    message: `${tree.behaviours.length} behaviours → ${oppCount} opportunities → ` +
+      `${sessionYield.productionCandidates} ready / ${sessionYield.needsReview} need review / ${sessionYield.drafts} not usable` +
+      ` (${libraryMatchCount} library / ${qaPass} pass / ${qaPassWithConcerns} pass+concerns / ${qaFail} fail / ${qaErrorCount} qa_error / ${engineerFailedCount} engineer_failed)` +
+      `${finalStatus === 'failed' ? ' — SESSION FAILED: nothing preserved' : ''}`,
     duration_ms: totalMs,
     payload: {
       // budget
@@ -1415,6 +1444,16 @@ async function handleFinalise(
       planner_status:   tree.planner_status ?? null,
       behaviours:       tree.behaviours.length,
       opportunities:    oppCount,
+      // Session yield, as first-class telemetry rather than something an
+      // analyst has to reconstruct from verdict counts. The "did this run
+      // achieve anything" question previously had no machine-readable answer,
+      // which is why the useful/hollow split had to be worked out by hand
+      // across sessions with differing tree shapes.
+      session_status:         finalStatus,
+      production_candidates:  sessionYield.productionCandidates,
+      needs_review:           sessionYield.needsReview,
+      drafts:                 sessionYield.drafts,
+      preserved:              sessionYield.preserved,
       // detection state breakdown
       detections_with_query: detectionWithQuery,
       library_matches:       libraryMatchCount,

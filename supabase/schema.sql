@@ -1168,7 +1168,7 @@ ALTER TABLE public.threat_research_phase_budgets ADD CONSTRAINT threat_research_
 ALTER TABLE public.threat_research_phase_budgets ADD CONSTRAINT trpb_session_fk FOREIGN KEY (session_id) REFERENCES public.threat_research_sessions(id) ON DELETE CASCADE;
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_phase_check CHECK ((phase = ANY (ARRAY['preflight'::text, 'research'::text, 'attack_research'::text, 'opportunity_planning'::text, 'detection'::text, 'qa'::text, 'finalise'::text])));
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text])));
-ALTER TABLE public.threat_research_sessions ADD CONSTRAINT threat_research_sessions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text, 'cancelled'::text])));
+ALTER TABLE public.threat_research_sessions ADD CONSTRAINT threat_research_sessions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'partial'::text, 'failed'::text, 'cancelled'::text])));
 ALTER TABLE public.threat_research_sessions ADD CONSTRAINT threat_research_sessions_pkey PRIMARY KEY (id);
 ALTER TABLE public.user_dashboards ADD CONSTRAINT user_dashboards_pkey PRIMARY KEY (id);
 ALTER TABLE public.user_invitations ADD CONSTRAINT team_invitations_pkey PRIMARY KEY (id);

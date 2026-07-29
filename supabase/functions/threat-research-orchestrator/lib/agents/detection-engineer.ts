@@ -168,16 +168,26 @@ export async function driveSinglePassQa(
     };
   }
 
-  // One revision attempt. No second critique — the revised detection ships
-  // with the original 'fail' verdict + concerns so the user knows it needs
-  // review. This trades marginal quality (a second critic might catch a
-  // regression introduced by the fix) for ~40% lower token cost and zero
-  // chance of worker death mid-loop.
+  // One revision attempt, no second critique. That trades marginal quality (a
+  // second critic might catch a regression introduced by the fix) for ~40%
+  // lower token cost and no chance of worker death mid-loop.
+  //
+  // The revised detection still carries the ORIGINAL 'fail' verdict, because
+  // that is the last judgement anything actually made — inventing a passing
+  // one would be fabrication. But the verdict no longer describes the query
+  // that shipped, so `revised_after_fail` marks the gap.
+  //
+  // Without that marker the stale 'fail' was taken at face value: the leaf
+  // read as broken to the user AND was excluded from the session's usable
+  // count, so a detection was punished twice for having been repaired. It now
+  // derives as `revised_unverified` / `needs_review` (lib/readiness.ts) —
+  // preserved, surfaced, and honest about not having been re-checked.
   const revised = await writeFn(initialDetection, qa);
   return {
     ...revised,
     qa: { ...qa, iteration_history: history, iteration_count: 1 },
     qa_error: null,
+    revised_after_fail: true,
   };
 }
 

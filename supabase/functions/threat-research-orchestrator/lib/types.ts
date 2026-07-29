@@ -212,6 +212,15 @@ export interface GeneratedDetection {
    *  This is a pipeline state, not a detection-quality verdict. Don't conflate
    *  with qa.verdict='fail'. */
   qa_error: string | null;
+  /** True when QA returned `fail` and the engineer applied its suggested
+   *  changes. The `qa` block still holds the ORIGINAL failing verdict -- that
+   *  is the last judgement anything actually made, and inventing a passing one
+   *  would be fabrication -- but it no longer describes the query that
+   *  shipped. This flag marks that gap so the detection derives as
+   *  `revised_unverified` / `needs_review` rather than being read as broken
+   *  and then excluded from the session's usable count: punished twice for
+   *  having been repaired. */
+  revised_after_fail?: boolean | null;
   /** Set by the finalise cross-opportunity dedup pass when this detection is a
    *  semantic duplicate of another AND has no `qa` block to annotate. The
    *  duplicate signal has to live somewhere that is not `qa`, because

@@ -7,11 +7,15 @@ import type {
   AttackBehaviour,
   DetectionOpportunity,
   MitreTacticName,
+  ResearchStatus,
 } from '../../types/threatResearch';
 
 interface Props {
   tree: ThreatResearchTree;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  /** Use the shared ResearchStatus rather than restating the union: a local
+   *  copy silently went stale when 'partial' was added, and the only reason it
+   *  surfaced is that tsc happened to check this file. */
+  status: ResearchStatus;
   /** Behaviours with an agent currently running on them; renders an active
    *  pulse on their tile + descendants. Derived from the events stream. */
   activeBehaviourIds?: ReadonlySet<string>;
