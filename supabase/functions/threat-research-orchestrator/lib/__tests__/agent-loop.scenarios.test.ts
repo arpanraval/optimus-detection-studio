@@ -227,35 +227,70 @@ describe('agent loop — provider errors', () => {
     expect(failure.payload?.error_type).toBe('invalid_request_error');
   });
 
-  it('DEFECT: a terminal account error fails only this job, never the session', async () => {
+  it('aborts the whole session on a terminal account error', async () => {
     // Production session 793cafab: five attack-research workers, the planner
     // and two engineers each hit this same 400 within 56 seconds. The pipeline
     // degraded the planner, ran to the end, and emitted session_completed on
-    // five library matches. W1a adds an atomic session abort so the second
-    // worker never starts.
+    // five library matches.
     fake.setScript([{
       status: 400,
       body: errorBody('invalid_request_error', 'Your credit balance is too low to access the Anthropic API.'),
     }]);
     const harness = makeFakeRunContext();
-    await runLoop(makeConfig(), harness);
+    const outcome = await runLoop(makeConfig(), harness);
 
-    // Nothing in the loop signals "stop the session" -- there is no such event
-    // and no write that a sibling worker could observe.
-    expect(harness.ofType('session_aborted')).toHaveLength(0);
-    expect(harness.events.every(e => e.payload?.terminal !== true)).toBe(true);
+    expect(outcome.success).toBe(false);
+    expect(outcome.failure?.scope).toBe('account');
+    expect(harness.abortCalls).toHaveLength(1);
+    expect(harness.abortCalls[0].reason).toContain('credit balance is too low');
+
+    const failure = harness.ofType('agent_failed')[0];
+    expect(failure.payload?.terminal).toBe(true);
+    expect(failure.payload?.error_scope).toBe('account');
   });
 
-  it('surfaces a dropped connection as a failure', async () => {
-    fake.setScript([{ status: 200, body: '', destroy: true }]);
+  it('does NOT abort the session on a request-shape 400', async () => {
+    // "`temperature` is deprecated for this model" is a real production error
+    // of exactly this shape. It is a code bug affecting one agent; aborting
+    // every session on it would turn a one-agent bug into a total outage.
+    fake.setScript([{
+      status: 400,
+      body: errorBody('invalid_request_error', '`temperature` is deprecated for this model.'),
+    }]);
     const harness = makeFakeRunContext();
     const outcome = await runLoop(makeConfig(), harness);
 
     expect(outcome.success).toBe(false);
-    expect(outcome.reason).toBe('anthropic_failed');
-    // DEFECT: a reset socket is transient and is not retried today.
-    expect(fake.hits()).toBe(1);
+    expect(outcome.failure?.scope).toBe('request');
+    expect(harness.abortCalls).toHaveLength(0);
+    expect(harness.ofType('agent_failed')[0].payload?.terminal).toBe(false);
   });
+
+  it('stops at the next budget check once the session is aborted', async () => {
+    // Supabase Edge has no cancellation channel, so a sibling worker cannot be
+    // killed -- it observes the abort at its next tr_consume_budget call,
+    // which is exactly where it would otherwise have spent money.
+    const harness = makeFakeRunContext({
+      budget: () => ({ allowed: false, aborted: true, reason: 'research: credit balance is too low' }),
+    });
+    const outcome = await runLoop(makeConfig(), harness);
+
+    expect(outcome.reason).toBe('session_aborted');
+    expect(fake.hits()).toBe(0);
+    expect(harness.ofType('agent_failed')[0].message).toContain('session aborted');
+  });
+
+  it('retries a dropped connection inside the deadline', async () => {
+    fake.setScript([
+      { status: 200, body: '', destroy: true },
+      { status: 200, body: okBody('{"value":3}') },
+    ]);
+    const harness = makeFakeRunContext();
+    const outcome = await runLoop(makeConfig({ timeoutMs: 10_000 }), harness);
+
+    expect(outcome.success).toBe(true);
+    expect(fake.hits()).toBe(2);
+  }, 15_000);
 
   it('keeps running when event inserts fail — telemetry must never break a run', async () => {
     const harness = makeFakeRunContext({ failEventInserts: true });

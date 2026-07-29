@@ -22,6 +22,8 @@ interface ScriptedResponse {
   headers?: Record<string, string>;
   /** Hold the response open this long before replying, to drive timeouts. */
   delayMs?: number;
+  /** Destroy the socket without replying, to model a connection reset. */
+  destroy?: boolean;
 }
 
 const OK_BODY = JSON.stringify({
@@ -42,6 +44,10 @@ beforeEach(async () => {
     hits++;
     // Drain the request body so the socket does not stall.
     req.resume();
+    if (step.destroy) {
+      res.socket?.destroy();
+      return;
+    }
     const send = () => {
       res.writeHead(step.status, { 'Content-Type': 'application/json', ...(step.headers ?? {}) });
       res.end(step.body);
@@ -71,7 +77,12 @@ async function callRaw(overrides: Record<string, unknown> = {}) {
   return callAnthropicRaw('test-key-not-a-secret', {
     model: 'claude-sonnet-4-6',
     messages: [{ role: 'user', content: 'hello' }],
-    timeoutMs: 2_000,
+    // Generous by default so retry behaviour is what's under test. The adapter
+    // refuses to retry unless the backoff plus a minimally useful attempt fits
+    // inside the remaining deadline, so a 2s budget would abandon every retry
+    // and the assertions would be measuring the deadline, not the retry.
+    // Tests that ARE about the deadline pass their own small value.
+    timeoutMs: 10_000,
     ...overrides,
   } as never);
 }
@@ -96,52 +107,115 @@ describe('anthropic transport — current behaviour', () => {
     expect(hits).toBe(2);
   });
 
-  it('DEFECT: timeoutMs is per attempt, so total wall time can exceed it', async () => {
-    // One 429 with retry-after: 1s, against a 300ms "timeout". If timeoutMs
-    // were an absolute deadline the call would abort; instead each attempt
-    // gets a fresh AbortSignal.timeout() and the sleep is not counted at all.
+  it('treats timeoutMs as an absolute deadline spanning every attempt', async () => {
+    // One 429 quoting a 1s wait, against a 300ms deadline. The backoff plus a
+    // minimally useful attempt cannot fit, so the call fails immediately
+    // instead of sleeping past its budget.
     //
-    // This is the mechanism behind `reaper: worker exceeded edge-function
-    // lifetime` on research jobs: a role configured for 110s can legally run
-    // 5 attempts plus 4 backoffs against a ~400s worker kill.
-    //
-    // W1a: this assertion inverts — elapsed must stay under the deadline and
-    // the call must fail fast when the backoff would overrun it.
+    // This is the fix for `reaper: worker exceeded edge-function lifetime`.
+    // Previously each attempt got a fresh AbortSignal.timeout(timeoutMs) and
+    // the sleeps were not counted at all, so a call configured for 110s could
+    // run ~670s against a ~400s worker kill.
     script = [
       { status: 429, body: '{"type":"error"}', headers: { 'retry-after': '1' } },
       { status: 200, body: OK_BODY },
     ];
     const startedAt = Date.now();
-    const res = await callRaw({ timeoutMs: 300 });
+    await expect(callRaw({ timeoutMs: 300 })).rejects.toThrow(/Anthropic 429/);
     const elapsed = Date.now() - startedAt;
 
-    expect(res.text).toBe('ok');
-    expect(elapsed).toBeGreaterThan(300);
+    // Never slept the 1s the server asked for: there was no room for it.
+    expect(elapsed).toBeLessThan(1_000);
+    expect(hits).toBe(1);
   }, 10_000);
 
-  it('DEFECT: a 500 is not retried, even though it is transient', async () => {
-    // Anthropic 529 overloaded_error and 5xx are routine. Today they throw on
-    // the first response and kill the agent, so the job burns a full attempt
-    // and the reaper has to reset it minutes later.
-    //
-    // W1a: hits becomes 2+ and the call succeeds.
+  it('retries a 500 and succeeds — 5xx and 529 are transient', async () => {
     script = [
       { status: 500, body: '{"type":"error","error":{"type":"api_error"}}' },
       { status: 200, body: OK_BODY },
     ];
-    await expect(callRaw()).rejects.toThrow(/^Anthropic 500:/);
+    const res = await callRaw();
+    expect(res.text).toBe('ok');
+    expect(hits).toBe(2);
+  }, 10_000);
+
+  it('retries a 529 overloaded_error', async () => {
+    script = [
+      { status: 529, body: '{"type":"error","error":{"type":"overloaded_error"}}' },
+      { status: 200, body: OK_BODY },
+    ];
+    const res = await callRaw();
+    expect(res.text).toBe('ok');
+    expect(hits).toBe(2);
+  }, 10_000);
+
+  it('retries a dropped connection', async () => {
+    // A reset socket produced a fetch-level TypeError that killed the agent on
+    // first sight. It is a transport fault, not a rejected request.
+    script = [
+      { status: 200, body: '', destroy: true },
+      { status: 200, body: OK_BODY },
+    ];
+    const res = await callRaw();
+    expect(res.text).toBe('ok');
+    expect(hits).toBe(2);
+  }, 10_000);
+
+  it('does not retry a 400 — a request-shape error is not transient', async () => {
+    // Retrying a malformed request just burns budget. This is the shape of the
+    // real "`temperature` is deprecated for this model" failure: a code bug
+    // affecting one agent, which must never abort a whole session.
+    script = [{ status: 400, body: '{"type":"error","error":{"type":"invalid_request_error","message":"bad param"}}' }];
+    await expect(callRaw()).rejects.toThrow(/Anthropic 400 invalid_request_error/);
     expect(hits).toBe(1);
   });
 
-  it('does not retry a 400 — a request-shape error is not transient', async () => {
-    // This one is correct today and must stay correct: retrying a malformed
-    // request just burns budget. It is also the shape of the real
-    // "`temperature` is deprecated for this model" failure in production, which
-    // is a code bug affecting one agent and must never abort a whole session.
-    script = [{ status: 400, body: '{"type":"error","error":{"type":"invalid_request_error"}}' }];
-    await expect(callRaw()).rejects.toThrow(/^Anthropic 400:/);
-    expect(hits).toBe(1);
+  it('classifies credit exhaustion as account-scoped, not a request bug', async () => {
+    // Anthropic returns this as a 400, indistinguishable by status from a
+    // malformed request. Getting the distinction right is what lets the caller
+    // stop the whole session instead of failing leaves one at a time -- the
+    // exact miss in production session 793cafab.
+    const { AnthropicError } = await import('../llm/anthropic-raw.ts');
+    script = [{
+      status: 400,
+      body: '{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}',
+    }];
+
+    await expect(callRaw()).rejects.toThrow(AnthropicError);
+    try {
+      await callRaw();
+    } catch (e) {
+      const info = (e as InstanceType<typeof AnthropicError>).info;
+      expect(info.kind).toBe('account');
+      expect(info.scope).toBe('account');
+      expect(info.retryable).toBe(false);
+    }
   });
+
+  it('classifies 401 and 403 as account-scoped', async () => {
+    const { classifyAnthropicHttpFailure } = await import('../llm/anthropic-raw.ts');
+    for (const status of [401, 403]) {
+      const info = classifyAnthropicHttpFailure(status, '{"error":{"type":"authentication_error"}}');
+      expect(info.scope).toBe('account');
+      expect(info.retryable).toBe(false);
+    }
+  });
+
+  it('abandons a retry rather than sleeping past the deadline (org-level 429)', async () => {
+    // An organisation-level rate limit can quote hours. Parking a worker for
+    // one is strictly worse than failing now and letting the queue re-dispatch
+    // into a fresh worker later.
+    script = [{ status: 429, body: '{"type":"error"}', headers: { 'retry-after': '3600' } }];
+    const stages: { stage: string }[] = [];
+    const startedAt = Date.now();
+
+    await expect(
+      callRaw({ timeoutMs: 3_000, debug: (e: { stage: string }) => { stages.push(e); } }),
+    ).rejects.toThrow(/Anthropic 429/);
+
+    expect(Date.now() - startedAt).toBeLessThan(3_000);
+    expect(stages.some(s => s.stage === 'retry_abandoned')).toBe(true);
+  }, 10_000);
 
   it('surfaces a stalled response as a TimeoutError naming the timeout', async () => {
     script = [{ status: 200, body: OK_BODY, delayMs: 1_000 }];

@@ -11,12 +11,14 @@
 
 import type { ResearchAgent } from "../types.ts";
 import { ToolContext, executeTool } from "../tools/index.ts";
-import { RunContext, emit, consumeBudget } from "../events.ts";
+import { RunContext, emit, consumeBudget, abortSession } from "../events.ts";
 import { callAnthropic } from "../llm/anthropic-direct.ts";
+import { AnthropicError } from "../llm/anthropic-raw.ts";
 import type {
   AnthropicMessage,
   AnthropicContentBlock,
   AnthropicDebugEvent,
+  AnthropicErrorInfo,
 } from "../llm/anthropic-direct.ts";
 
 /** Discriminated result from a final-output validator. The `reason` lets the
@@ -77,6 +79,11 @@ export interface AgentLoopOutcome<T> {
   output: T | null;
   iterations: number;
   reason: string | null;
+  /** Present only when the loop ended on a provider failure. `scope: 'account'`
+   *  means every other in-flight worker in this session will fail the same way,
+   *  so the caller should abort the session rather than let the remaining jobs
+   *  each burn an attempt discovering it independently. */
+  failure?: AnthropicErrorInfo | null;
 }
 
 /** Cap individual tool-result payloads so an exuberant search doesn't bloat
@@ -273,7 +280,22 @@ export async function runAgentLoop<T>(
 
     // Atomic check-and-spend at the session level. If the cap is reached,
     // the RPC returns allowed:false and we exit.
+    //
+    // This is also where a cooperative abort is observed. Supabase Edge has no
+    // cancellation channel — nothing can kill a running isolate from outside —
+    // so a worker learns the session is over at its next budget check. Since
+    // that check already happens immediately before every model call, the
+    // abort lands at exactly the point where money would otherwise be spent.
     const modelBudget = await consumeBudget(runCtx, { modelCalls: 1 });
+    if (modelBudget.aborted) {
+      await emit(runCtx, {
+        agent: cfg.agent,
+        event_type: 'agent_failed',
+        message: `session aborted: ${modelBudget.reason ?? 'terminal provider failure'}`,
+        payload: { ...ctxPayload, reason: 'session_aborted', terminal: true },
+      });
+      return exitLoop({ success: false, output: null, iterations: iteration - 1, reason: 'session_aborted' });
+    }
     if (!modelBudget.allowed) {
       await emit(runCtx, {
         agent: cfg.agent,
@@ -394,43 +416,49 @@ export async function runAgentLoop<T>(
       });
     } catch (e) {
       const errMsg = (e as Error)?.message ?? String(e);
-      // Try to extract a clean reason from Anthropic's JSON error body.
-      // Adapter formats errors as "Anthropic <status>: <body>". When the
-      // body is JSON we surface error.type + error.message in the activity
-      // console message instead of the raw blob. Full raw error stays in
-      // payload.error for forensics. Falls back to the raw error string
-      // if parsing fails — never throw from the error-handling path.
-      let cleanMessage = errMsg.slice(0, 300);
-      let parsedType: string | null = null;
-      let parsedReason: string | null = null;
-      const httpMatch = errMsg.match(/Anthropic (\d{3}):\s*(\{[\s\S]*)/);
-      if (httpMatch) {
-        const status = httpMatch[1];
-        try {
-          const body = JSON.parse(httpMatch[2]);
-          parsedType = body?.error?.type ?? null;
-          parsedReason = body?.error?.message ?? null;
-          if (parsedReason) {
-            cleanMessage = `Anthropic ${status} ${parsedType ?? 'error'}: ${parsedReason}`.slice(0, 300);
-          }
-        } catch {
-          // Body wasn't JSON; leave cleanMessage as the truncated raw error.
-        }
-      } else if (errMsg.startsWith('Anthropic call timed out')) {
-        cleanMessage = errMsg;
+      // The adapter classifies its own failures (anthropic-raw.ts) and throws
+      // an AnthropicError carrying the decision: is this retryable, and is it
+      // specific to this request or true of the whole account? That second
+      // field is what lets a caller stop a session on credit exhaustion
+      // instead of failing twenty leaves one at a time. Anything else reaching
+      // here is a genuine bug in our code, not a provider failure, so it is
+      // reported as-is rather than guessed at.
+      const failure = e instanceof AnthropicError ? e.info : null;
+
+      // An account-scoped failure is true of every worker in this session, so
+      // stop the session here rather than let the remaining jobs each burn an
+      // attempt rediscovering it. Idempotent: the siblings that hit the same
+      // error in the same second all call this and only the first takes
+      // effect. Done before the event so the flag is visible to any worker
+      // that checks its budget while this one is still emitting.
+      if (failure?.scope === 'account') {
+        await abortSession(runCtx, `${cfg.agent}: ${failure.message}`.slice(0, 500));
       }
+
       await emit(runCtx, {
         agent: cfg.agent,
         event_type: 'agent_failed',
-        message: cleanMessage,
+        message: errMsg.slice(0, 300),
         payload: {
           ...ctxPayload,
           error: errMsg.slice(0, 800),
-          error_type: parsedType,
-          error_reason: parsedReason,
+          error_kind: failure?.kind ?? null,
+          error_type: failure?.type ?? null,
+          error_reason: failure?.message?.slice(0, 800) ?? null,
+          error_status: failure?.status ?? null,
+          error_scope: failure?.scope ?? null,
+          error_retryable: failure?.retryable ?? null,
+          // Explicit marker the orchestrator keys off to abort the session.
+          terminal: failure?.scope === 'account',
         },
       });
-      return exitLoop({ success: false, output: null, iterations: iteration, reason: 'anthropic_failed' });
+      return exitLoop({
+        success: false,
+        output: null,
+        iterations: iteration,
+        reason: 'anthropic_failed',
+        failure,
+      });
     }
 
     // Visibility: every Anthropic response gets an event regardless of

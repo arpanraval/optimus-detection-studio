@@ -33,6 +33,9 @@ export interface FakeRunContext {
   lastFailureReason(): string | undefined;
   /** How many times the budget gate was consulted, and for what. */
   budgetCalls: { toolCalls: number; modelCalls: number; tokens: number }[];
+  /** Session aborts requested. Should be empty unless a terminal,
+   *  account-scoped provider failure occurred. */
+  abortCalls: { reason: string }[];
 }
 
 export interface FakeRunContextOptions {
@@ -52,6 +55,7 @@ export interface FakeRunContextOptions {
 export function makeFakeRunContext(options: FakeRunContextOptions = {}): FakeRunContext {
   const events: CapturedEvent[] = [];
   const budgetCalls: { toolCalls: number; modelCalls: number; tokens: number }[] = [];
+  const abortCalls: { reason: string }[] = [];
 
   const supabase = {
     from(table: string) {
@@ -76,6 +80,10 @@ export function makeFakeRunContext(options: FakeRunContextOptions = {}): FakeRun
       };
     },
     rpc(fn: string, args: Record<string, unknown>) {
+      if (fn === 'tr_abort_session') {
+        abortCalls.push({ reason: String(args.p_reason ?? '') });
+        return Promise.resolve({ data: { aborted: true }, error: null });
+      }
       if (fn !== 'tr_consume_budget') {
         return Promise.resolve({ data: null, error: null });
       }
@@ -102,6 +110,7 @@ export function makeFakeRunContext(options: FakeRunContextOptions = {}): FakeRun
     ctx,
     events,
     budgetCalls,
+    abortCalls,
     ofType: (type) => events.filter(e => e.event_type === type),
     lastFailureReason: () => {
       const failures = events.filter(e => e.event_type === 'agent_failed');

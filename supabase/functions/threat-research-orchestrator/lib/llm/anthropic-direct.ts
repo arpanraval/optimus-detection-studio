@@ -13,13 +13,15 @@ import { withAiTelemetry } from "../../../_shared/aiTelemetry.ts";
 import { callAnthropicRaw } from "./anthropic-raw.ts";
 import type { AnthropicCallParams, AnthropicCallResponse } from "./anthropic-raw.ts";
 
-export { callAnthropicRaw } from "./anthropic-raw.ts";
+export { callAnthropicRaw, AnthropicError, classifyAnthropicHttpFailure } from "./anthropic-raw.ts";
 export type {
   AnthropicCallParams,
   AnthropicCallResponse,
   AnthropicMessage,
   AnthropicContentBlock,
   AnthropicDebugEvent,
+  AnthropicErrorInfo,
+  AnthropicErrorKind,
   ToolUse,
 } from "./anthropic-raw.ts";
 

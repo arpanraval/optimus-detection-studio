@@ -77,6 +77,11 @@ export async function emit(ctx: RunContext, ev: EmitEvent): Promise<void> {
 
 export interface BudgetSpendResult {
   allowed: boolean;
+  /** The session was aborted by a terminal, account-scoped provider failure.
+   *  Distinct from `allowed: false` on a cap: there is nothing to retry and no
+   *  other leaf will fare better, so the caller should stop rather than record
+   *  a per-leaf failure. */
+  aborted?: boolean;
   reason?: string;
   tool_used?: number;
   tool_cap?: number;
@@ -106,4 +111,28 @@ export async function consumeBudget(
     return { allowed: true };
   }
   return data as BudgetSpendResult;
+}
+
+/** Abort the whole session after a terminal, account-scoped provider failure.
+ *
+ *  Called when the adapter classifies a failure as `scope: 'account'` — credit
+ *  exhaustion, a bad key, a permission denial. Those are true of every
+ *  concurrent worker, so failing leaves one at a time just spends the rest of
+ *  the session's latency discovering the same fact N times, and then reports
+ *  whatever partial output survived as a success.
+ *
+ *  The RPC is idempotent, so the several workers that hit the failure in the
+ *  same second all call this and only the first takes effect.
+ *
+ *  Fail-open on RPC error, like consumeBudget: a telemetry or control-plane
+ *  fault must never be the thing that breaks a run. The worst case is the old
+ *  behaviour. */
+export async function abortSession(ctx: RunContext, reason: string): Promise<void> {
+  const { error } = await ctx.supabase.rpc('tr_abort_session', {
+    p_session_id: ctx.sessionId,
+    p_reason: reason.slice(0, 500),
+  });
+  if (error) {
+    console.warn('[abort] tr_abort_session rpc failed:', error.message);
+  }
 }

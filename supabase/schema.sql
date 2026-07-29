@@ -956,7 +956,9 @@ CREATE TABLE IF NOT EXISTS public.threat_research_sessions (
   current_phase text,
   model_calls_used integer NOT NULL DEFAULT 0,
   model_call_cap integer,
-  tool_call_cap integer
+  tool_call_cap integer,
+  aborted_at timestamp with time zone,
+  abort_reason text
 );
 CREATE TABLE IF NOT EXISTS public.user_dashboards (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -4132,6 +4134,8 @@ DECLARE
   v_tokens int;
   v_cap_tool int;
   v_cap_model int;
+  v_aborted_at timestamptz;
+  v_abort_reason text;
   c_default_tool  constant int := 30;
   c_default_model constant int := 40;
 BEGIN
@@ -4139,13 +4143,28 @@ BEGIN
          COALESCE(model_calls_used, 0),
          COALESCE(total_tokens, 0),
          COALESCE(tool_call_cap,  c_default_tool),
-         COALESCE(model_call_cap, c_default_model)
-    INTO v_tool, v_model, v_tokens, v_cap_tool, v_cap_model
+         COALESCE(model_call_cap, c_default_model),
+         aborted_at,
+         abort_reason
+    INTO v_tool, v_model, v_tokens, v_cap_tool, v_cap_model, v_aborted_at, v_abort_reason
     FROM public.threat_research_sessions
    WHERE id = p_session_id
    FOR UPDATE;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('allowed', false, 'reason', 'session not found');
+  END IF;
+
+  -- Checked before the caps: an aborted session must stop regardless of how
+  -- much budget it has left. See 20260729140000_threat_research_session_abort.
+  IF v_aborted_at IS NOT NULL THEN
+    RETURN jsonb_build_object(
+      'allowed', false,
+      'aborted', true,
+      'reason', COALESCE(v_abort_reason, 'session aborted'),
+      'tool_used', v_tool, 'tool_cap', v_cap_tool,
+      'model_used', v_model, 'model_cap', v_cap_model,
+      'tokens_used', v_tokens
+    );
   END IF;
 
   IF p_tool_calls > 0 AND v_tool + p_tool_calls > v_cap_tool THEN
@@ -4185,6 +4204,58 @@ BEGIN
   );
 END;
 $function$;
+CREATE OR REPLACE FUNCTION public.tr_abort_session(p_session_id uuid, p_reason text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_already   timestamptz;
+  v_cancelled int := 0;
+BEGIN
+  -- Idempotent: several workers hit the same account-scoped provider failure
+  -- within the same second, so the first to arrive wins.
+  SELECT aborted_at INTO v_already
+    FROM public.threat_research_sessions
+   WHERE id = p_session_id
+   FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('aborted', false, 'reason', 'session not found');
+  END IF;
+
+  IF v_already IS NOT NULL THEN
+    RETURN jsonb_build_object('aborted', true, 'already_aborted', true);
+  END IF;
+
+  UPDATE public.threat_research_sessions
+     SET aborted_at     = now(),
+         abort_reason   = p_reason,
+         status         = 'failed',
+         failure_reason = p_reason,
+         completed_at   = now(),
+         updated_at     = now()
+   WHERE id = p_session_id;
+
+  -- Fail everything not yet started; running jobs stop cooperatively at their
+  -- next tr_consume_budget call.
+  UPDATE public.threat_research_jobs
+     SET status         = 'failed',
+         failure_reason = COALESCE(failure_reason, p_reason),
+         completed_at   = now()
+   WHERE session_id = p_session_id
+     AND status     = 'pending';
+  GET DIAGNOSTICS v_cancelled = ROW_COUNT;
+
+  RETURN jsonb_build_object(
+    'aborted', true,
+    'already_aborted', false,
+    'pending_jobs_cancelled', v_cancelled
+  );
+END;
+$function$;
+REVOKE EXECUTE ON FUNCTION public.tr_abort_session(uuid, text) FROM PUBLIC, anon, authenticated;
 CREATE OR REPLACE FUNCTION public.tr_find_actor_tagged_detections(p_aliases text[], p_limit integer DEFAULT 200, p_user_id uuid DEFAULT NULL::uuid)
  RETURNS TABLE(id text, name text, severity text, mitre_technique_ids text[], matching_aliases text[])
  LANGUAGE sql

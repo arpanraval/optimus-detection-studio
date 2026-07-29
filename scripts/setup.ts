@@ -130,6 +130,7 @@ const FORWARD_MIGRATIONS = [
   'supabase/migrations/20260716000000_active_entry_id.sql',
   'supabase/migrations/20260729120000_threat_research_library_search_visibility_scope.sql',
   'supabase/migrations/20260729130000_threat_research_events_agent_check_add_dossier.sql',
+  'supabase/migrations/20260729140000_threat_research_session_abort.sql',
 ];
 
 async function main() {

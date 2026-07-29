@@ -84,6 +84,7 @@ export interface AnthropicDebugEvent {
     | 'fetch_headers'
     | 'rate_limited'
     | 'retry_sleep'
+    | 'retry_abandoned'
     | 'http_error_body_read'
     | 'json_parse_start'
     | 'json_parse_done'
@@ -233,16 +234,128 @@ const MODELS_WITHOUT_TEMPERATURE: ReadonlySet<string> = new Set([
  *  lifetime, not this timeout. */
 const ANTHROPIC_CALL_TIMEOUT_DEFAULT_MS = 180_000;
 
-/** Retries on 429. Anthropic Tier-1 input TPM is shared across in-flight
- *  workers; with 2-concurrent fan-out and 5-10 LLM calls per leaf we will
- *  hit 429s in normal operation. 4 retries × up to 30s backoff = ~2min
- *  worst-case wait — comfortable now that each job runs in its own fresh
- *  edge invocation via the queue (no shared wall budget). */
-const MAX_RATE_LIMIT_RETRIES = 4;
+/** Attempts beyond the first, for failures that are actually transient.
+ *
+ *  Anthropic Tier-1 input TPM is shared across in-flight workers; with
+ *  2-concurrent fan-out and 5-10 LLM calls per leaf we hit 429s in normal
+ *  operation. 529 `overloaded_error` and 5xx are likewise routine.
+ *
+ *  The retry count is no longer the binding constraint — `timeoutMs` is an
+ *  absolute deadline covering every attempt and every backoff, so the loop
+ *  stops as soon as another attempt cannot fit regardless of how many
+ *  remain. */
+const MAX_TRANSIENT_RETRIES = 4;
 
-/** Cap on a single 429 retry-after sleep so a misbehaving server can't burn
- *  the whole worker on one wait. */
+/** Cap on a single backoff sleep so one absurd `retry-after` (org-level rate
+ *  limits can quote hours) cannot swallow the whole deadline. Exceeding this
+ *  is itself a signal the caller should pause the job rather than spin. */
 const MAX_RETRY_AFTER_S = 30;
+
+/** Base for exponential backoff on failures that carry no `retry-after`
+ *  (5xx, 529, dropped sockets). */
+const BASE_BACKOFF_MS = 500;
+
+/** Below this much remaining deadline there is no point starting another
+ *  attempt: the request would abort mid-flight and we would have paid the
+ *  latency for nothing. */
+const MIN_ATTEMPT_MS = 2_000;
+
+/** How a call failed, in terms the caller can act on.
+ *
+ *  This exists because the orchestrator has to make two different decisions
+ *  from one failure, and a string message cannot support either:
+ *
+ *    - retry here, or exit cleanly and let the queue re-dispatch into a fresh
+ *      worker? (`retryable`)
+ *    - is this specific to this request, or will every other in-flight worker
+ *      hit it too? (`scope`)
+ *
+ *  The second question is the one production session 793cafab got wrong: five
+ *  attack researchers, the planner and two engineers each hit the same
+ *  credit-exhaustion 400 within 56 seconds, and because nothing distinguished
+ *  "this request is malformed" from "this account cannot make any request",
+ *  the pipeline ran to the end and reported success. */
+export type AnthropicErrorKind =
+  | 'rate_limited'   // 429
+  | 'overloaded'     // 529
+  | 'server_error'   // other 5xx
+  | 'network'        // socket reset, DNS, TLS
+  | 'timeout'        // our own deadline
+  | 'account'        // credit exhausted, bad key, permission denied
+  | 'request';       // malformed request; a bug in our code
+
+export interface AnthropicErrorInfo {
+  kind: AnthropicErrorKind;
+  status: number | null;
+  /** Whether replaying the identical request could succeed. */
+  retryable: boolean;
+  /** `account` means every concurrent worker is equally affected — the caller
+   *  should stop the whole session rather than fail leaves one at a time.
+   *  `request` means this call alone is broken. */
+  scope: 'account' | 'request';
+  /** Anthropic's own `error.type`, when the body parsed. */
+  type: string | null;
+  message: string;
+  /** Server-advertised wait, in seconds, when one was given. */
+  retryAfterS: number | null;
+}
+
+export class AnthropicError extends Error {
+  readonly info: AnthropicErrorInfo;
+  constructor(info: AnthropicErrorInfo) {
+    super(
+      info.status === null
+        ? `Anthropic ${info.kind}: ${info.message}`
+        : `Anthropic ${info.status} ${info.type ?? info.kind}: ${info.message}`,
+    );
+    this.name = 'AnthropicError';
+    this.info = info;
+  }
+}
+
+/** Messages that mean "this account cannot make ANY request right now".
+ *  Anthropic returns credit exhaustion as a 400 invalid_request_error, which
+ *  is otherwise indistinguishable from a genuine request-shape bug — so the
+ *  message text is the only available signal and has to be matched. */
+const ACCOUNT_SCOPE_PATTERNS: RegExp[] = [
+  /credit balance is too low/i,
+  /billing/i,
+  /insufficient (funds|quota)/i,
+];
+
+/** Turn an HTTP status plus response body into a decision the caller can use. */
+export function classifyAnthropicHttpFailure(status: number, rawBody: string): AnthropicErrorInfo {
+  let type: string | null = null;
+  let message = rawBody.slice(0, 600);
+  try {
+    const parsed = JSON.parse(rawBody);
+    type = parsed?.error?.type ?? null;
+    if (parsed?.error?.message) message = String(parsed.error.message);
+  } catch {
+    // Non-JSON body; keep the raw text.
+  }
+
+  // Authentication and permission are unambiguously account-scoped.
+  if (status === 401 || status === 403) {
+    return { kind: 'account', status, retryable: false, scope: 'account', type, message, retryAfterS: null };
+  }
+  // Credit exhaustion arrives as a 400. Distinguishing it from a malformed
+  // request is the whole point of this function.
+  if (status === 400 && ACCOUNT_SCOPE_PATTERNS.some(re => re.test(message))) {
+    return { kind: 'account', status, retryable: false, scope: 'account', type, message, retryAfterS: null };
+  }
+  if (status === 429) {
+    return { kind: 'rate_limited', status, retryable: true, scope: 'request', type, message, retryAfterS: null };
+  }
+  if (status === 529) {
+    return { kind: 'overloaded', status, retryable: true, scope: 'request', type, message, retryAfterS: null };
+  }
+  if (status >= 500) {
+    return { kind: 'server_error', status, retryable: true, scope: 'request', type, message, retryAfterS: null };
+  }
+  // Any other 4xx is our bug. Retrying it burns budget and cannot succeed.
+  return { kind: 'request', status, retryable: false, scope: 'request', type, message, retryAfterS: null };
+}
 
 async function debug(params: AnthropicCallParams, event: AnthropicDebugEvent): Promise<void> {
   if (!params.debug) return;
@@ -471,11 +584,77 @@ export async function callAnthropicRaw(
   // is enforced by the Rust networking layer — when it fires it severs
   // the socket, which produces a network error that wakes the isolate
   // and rejects the await.
+  //
+  // `timeoutMs` is an ABSOLUTE DEADLINE spanning every attempt and every
+  // backoff — not a per-attempt allowance.
+  //
+  // It used to be per-attempt: a fresh AbortSignal.timeout(timeoutMs) was
+  // built inside the loop, and the backoff sleeps were not counted at all. A
+  // call configured for 110s could therefore legally run 5 attempts plus 4
+  // backoffs — around 670s — against a Supabase edge worker the platform
+  // kills at ~400s. The worker died mid-request, the job row kept claiming to
+  // be 'running', and the reaper stamped
+  // "reaper: worker exceeded edge-function lifetime" minutes later. That is
+  // the mechanism behind the research-phase failures, independent of any
+  // max_tokens sizing.
+  //
+  // Because the agent loop already passes `min(role ceiling, remaining job
+  // runway)` as timeoutMs, making this a real deadline means the transport can
+  // no longer overrun the worker no matter how many times it retries.
+  const deadlineAt = startedAt + timeoutMs;
+  const remainingMs = () => deadlineAt - Date.now();
+
+  /** Wait before the next attempt, or report that there is no point.
+   *
+   *  Returns false when the caller should give up: either the retry budget is
+   *  spent, or the wait plus a minimally useful attempt would not fit inside
+   *  the remaining deadline. Refusing to sleep past the deadline is the whole
+   *  reason this is a function and not an inline `setTimeout` — a server that
+   *  answers a 429 with "retry-after: 3600" must fail the call in
+   *  milliseconds, not park a worker for an hour it does not have. */
+  const sleepBeforeRetry = async (failure: AnthropicErrorInfo, attempt: number): Promise<boolean> => {
+    if (attempt >= MAX_TRANSIENT_RETRIES) return false;
+
+    // Prefer the server's own guidance; otherwise back off exponentially.
+    const baseMs = failure.retryAfterS !== null
+      ? failure.retryAfterS * 1_000
+      : BASE_BACKOFF_MS * 2 ** attempt;
+    // Full jitter. Sibling workers fail together (they share the account's
+    // rate limit), so retrying in lockstep would reproduce the same burst that
+    // caused the 429. Spreading them is what actually clears it.
+    const jitteredMs = Math.min(baseMs, MAX_RETRY_AFTER_S * 1_000) * (0.5 + Math.random() * 0.5);
+    const sleepMs = Math.round(jitteredMs);
+
+    if (sleepMs + MIN_ATTEMPT_MS > remainingMs()) {
+      await debug(params, {
+        stage: 'retry_abandoned',
+        attempt,
+        elapsed_ms: Date.now() - startedAt,
+        sleep_s: sleepMs / 1_000,
+        error_message:
+          `backoff ${Math.round(sleepMs / 1000)}s + minimum attempt would exceed the ` +
+          `${Math.round(remainingMs() / 1000)}s left of this call's deadline`,
+      });
+      return false;
+    }
+
+    await debug(params, {
+      stage: 'retry_sleep',
+      attempt,
+      elapsed_ms: Date.now() - startedAt,
+      sleep_s: sleepMs / 1_000,
+    });
+    await new Promise(r => setTimeout(r, sleepMs));
+    return true;
+  };
+
   let res: Response | null = null;
   let data: unknown = null;
-  let lastErr = '';
-  for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {
-    const signal = AbortSignal.timeout(timeoutMs);
+  let lastFailure: AnthropicErrorInfo | null = null;
+  for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt++) {
+    // Each attempt is bounded by what is LEFT of the deadline, so the sum of
+    // attempts can never exceed it.
+    const signal = AbortSignal.timeout(Math.max(1, remainingMs()));
     try {
       await debug(params, {
         stage: 'fetch_start',
@@ -502,41 +681,30 @@ export async function callAnthropicRaw(
         ok: res.ok,
       });
 
-      if (res.status === 429) {
-        const retryAfterRaw = res.headers.get('retry-after') ?? '';
-        const retryAfter = parseInt(retryAfterRaw) || (attempt + 1) * 5;
-        lastErr = `Anthropic 429 (retry-after ${retryAfter}s)`;
-        await debug(params, {
-          stage: 'rate_limited',
-          attempt,
-          elapsed_ms: Date.now() - startedAt,
-          status: res.status,
-          retry_after_s: retryAfter,
-        });
-        if (attempt < MAX_RATE_LIMIT_RETRIES) {
-          const sleepS = Math.min(retryAfter, MAX_RETRY_AFTER_S);
-          await debug(params, {
-            stage: 'retry_sleep',
-            attempt,
-            elapsed_ms: Date.now() - startedAt,
-            sleep_s: sleepS,
-          });
-          await new Promise(r => setTimeout(r, sleepS * 1000));
-          continue;
-        }
-        break;
-      }
-
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
+        const failure = classifyAnthropicHttpFailure(res.status, errText);
+        if (res.status === 429) {
+          const headerValue = parseInt(res.headers.get('retry-after') ?? '', 10);
+          failure.retryAfterS = Number.isFinite(headerValue) && headerValue > 0 ? headerValue : null;
+        }
+        lastFailure = failure;
+
         await debug(params, {
-          stage: 'http_error_body_read',
+          stage: failure.kind === 'rate_limited' ? 'rate_limited' : 'http_error_body_read',
           attempt,
           elapsed_ms: Date.now() - startedAt,
           status: res.status,
-          error_message: errText.slice(0, 300),
+          error_message: failure.message.slice(0, 300),
+          ...(failure.retryAfterS !== null ? { retry_after_s: failure.retryAfterS } : {}),
         });
-        throw new Error(`Anthropic ${res.status}: ${errText.slice(0, 600)}`);
+
+        // A malformed request or an exhausted account cannot be fixed by
+        // trying again — retrying just spends money to fail identically.
+        if (!failure.retryable) throw new AnthropicError(failure);
+
+        if (!(await sleepBeforeRetry(failure, attempt))) throw new AnthropicError(failure);
+        continue;
       }
 
       await debug(params, {
@@ -581,30 +749,73 @@ export async function callAnthropicRaw(
       });
       break;
     } catch (e) {
+      // A classified failure thrown above is already a decision — don't
+      // reclassify it as a network error on the way out.
+      if (e instanceof AnthropicError) throw e;
+
       const name = (e as Error).name;
+      const rawMessage = ((e as Error)?.message ?? String(e)).slice(0, 300);
       await debug(params, {
         stage: 'fetch_error',
         attempt,
         elapsed_ms: Date.now() - startedAt,
         timeout_ms: timeoutMs,
         error_name: name,
-        error_message: ((e as Error)?.message ?? String(e)).slice(0, 300),
+        error_message: rawMessage,
       });
+
+      // The deadline fired. Retrying is pointless: there is by definition no
+      // time left, and the message names the budget so the job trail shows
+      // whether the ceiling or the model was the problem.
       if (name === 'TimeoutError' || name === 'AbortError') {
-        throw new Error(`Anthropic call timed out after ${timeoutMs / 1000}s (${name})`);
+        throw new AnthropicError({
+          kind: 'timeout',
+          status: null,
+          retryable: false,
+          scope: 'request',
+          type: name,
+          message: `Anthropic call timed out after ${timeoutMs / 1000}s (${name})`,
+          retryAfterS: null,
+        });
       }
-      throw e;
+
+      // Anything else reaching here is a transport fault — a reset socket, a
+      // DNS blip, a TLS failure. These are transient and worth another attempt
+      // inside the deadline; previously they killed the agent on first sight.
+      const failure: AnthropicErrorInfo = {
+        kind: 'network',
+        status: null,
+        retryable: true,
+        scope: 'request',
+        type: name ?? null,
+        message: rawMessage,
+        retryAfterS: null,
+      };
+      lastFailure = failure;
+      if (!(await sleepBeforeRetry(failure, attempt))) throw new AnthropicError(failure);
+      continue;
     }
   }
 
   if (data === null) {
+    // Reached only if the loop exhausted its attempts without either
+    // succeeding or throwing — kept as a belt so a future edit to the loop
+    // cannot silently return an empty response.
     await debug(params, {
       stage: 'no_data',
       elapsed_ms: Date.now() - startedAt,
       status: res?.status,
-      error_message: lastErr || 'no data returned',
+      error_message: lastFailure?.message ?? 'no data returned',
     });
-    throw new Error(`Anthropic ${res?.status ?? 'no-response'}: ${lastErr || 'no data returned'}`);
+    throw new AnthropicError(lastFailure ?? {
+      kind: 'network',
+      status: res?.status ?? null,
+      retryable: false,
+      scope: 'request',
+      type: null,
+      message: 'no data returned',
+      retryAfterS: null,
+    });
   }
   const parsed = data as {
     content?: AnthropicContentBlock[];
