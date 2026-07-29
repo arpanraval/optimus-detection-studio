@@ -236,3 +236,37 @@ describe('anthropic transport — current behaviour', () => {
     expect(stages).toContain('json_parse_done');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Retry-After parsing
+// ---------------------------------------------------------------------------
+
+describe('parseRetryAfterSeconds', () => {
+  it('reads delta-seconds', async () => {
+    const { parseRetryAfterSeconds } = await import('../llm/anthropic-raw.ts');
+    expect(parseRetryAfterSeconds('30')).toBe(30);
+  });
+
+  it('reads an HTTP-date, which used to fall through to exponential backoff', async () => {
+    // RFC 9110 allows both forms. Only the integer form was handled, so a
+    // date-valued header produced a much SHORTER wait than the server asked
+    // for -- on an org-level limit that means retrying straight back into it.
+    const { parseRetryAfterSeconds } = await import('../llm/anthropic-raw.ts');
+    const now = Date.parse('2026-07-30T00:00:00Z');
+    expect(parseRetryAfterSeconds('Thu, 30 Jul 2026 00:01:00 GMT', now)).toBe(60);
+  });
+
+  it('treats a past date as no guidance', async () => {
+    const { parseRetryAfterSeconds } = await import('../llm/anthropic-raw.ts');
+    const now = Date.parse('2026-07-30T00:05:00Z');
+    expect(parseRetryAfterSeconds('Thu, 30 Jul 2026 00:00:00 GMT', now)).toBeNull();
+  });
+
+  it('returns null for absent, empty or unparseable values', async () => {
+    const { parseRetryAfterSeconds } = await import('../llm/anthropic-raw.ts');
+    expect(parseRetryAfterSeconds(null)).toBeNull();
+    expect(parseRetryAfterSeconds('')).toBeNull();
+    expect(parseRetryAfterSeconds('soon')).toBeNull();
+    expect(parseRetryAfterSeconds('0')).toBeNull();
+  });
+});

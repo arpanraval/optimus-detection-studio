@@ -255,6 +255,41 @@ const MAX_RETRY_AFTER_S = 30;
  *  (5xx, 529, dropped sockets). */
 const BASE_BACKOFF_MS = 500;
 
+/** Floor under a full-jitter draw. Without it a draw near zero becomes an
+ *  immediate retry against a server that just asked us to wait. */
+const MIN_BACKOFF_MS = 100;
+
+/** Parse a `Retry-After` header.
+ *
+ *  The header has two legal forms (RFC 9110): delta-seconds, and an HTTP-date.
+ *  Only the integer form was handled, so a date-valued header fell through to
+ *  exponential backoff — usually a much shorter wait than the server asked
+ *  for, which on an organisation-level rate limit means retrying straight back
+ *  into the limit.
+ *
+ *  Returns seconds, or null when the header is absent or unparseable. Negative
+ *  and non-finite results are discarded: a date already in the past means "no
+ *  wait needed", which is the same as having no guidance. */
+export function parseRetryAfterSeconds(
+  headerValue: string | null | undefined,
+  now: number = Date.now(),
+): number | null {
+  const raw = headerValue?.trim();
+  if (!raw) return null;
+
+  // delta-seconds
+  if (/^\d+$/.test(raw)) {
+    const seconds = Number.parseInt(raw, 10);
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+  }
+
+  // HTTP-date
+  const at = Date.parse(raw);
+  if (!Number.isFinite(at)) return null;
+  const seconds = Math.ceil((at - now) / 1_000);
+  return seconds > 0 ? seconds : null;
+}
+
 /** Below this much remaining deadline there is no point starting another
  *  attempt: the request would abort mid-flight and we would have paid the
  *  latency for nothing. */
@@ -619,11 +654,18 @@ export async function callAnthropicRaw(
     const baseMs = failure.retryAfterS !== null
       ? failure.retryAfterS * 1_000
       : BASE_BACKOFF_MS * 2 ** attempt;
-    // Full jitter. Sibling workers fail together (they share the account's
-    // rate limit), so retrying in lockstep would reproduce the same burst that
-    // caused the 429. Spreading them is what actually clears it.
-    const jitteredMs = Math.min(baseMs, MAX_RETRY_AFTER_S * 1_000) * (0.5 + Math.random() * 0.5);
-    const sleepMs = Math.round(jitteredMs);
+    // FULL jitter: uniform over [0, cap], not [50%, 100%] of it.
+    //
+    // Sibling workers fail together — they share the account's rate limit — so
+    // retrying in lockstep reproduces the burst that caused the 429. Half-range
+    // jitter still leaves them clustered in the back half of the window, which
+    // is the part of the spread that matters least. Uniform over the whole
+    // interval is the standard result and actually decorrelates them.
+    //
+    // A floor keeps a jitter draw near zero from becoming an immediate retry,
+    // which would hammer a server that just asked us to wait.
+    const cappedMs = Math.min(baseMs, MAX_RETRY_AFTER_S * 1_000);
+    const sleepMs = Math.max(MIN_BACKOFF_MS, Math.round(Math.random() * cappedMs));
 
     if (sleepMs + MIN_ATTEMPT_MS > remainingMs()) {
       await debug(params, {
@@ -685,8 +727,7 @@ export async function callAnthropicRaw(
         const errText = await res.text().catch(() => '');
         const failure = classifyAnthropicHttpFailure(res.status, errText);
         if (res.status === 429) {
-          const headerValue = parseInt(res.headers.get('retry-after') ?? '', 10);
-          failure.retryAfterS = Number.isFinite(headerValue) && headerValue > 0 ? headerValue : null;
+          failure.retryAfterS = parseRetryAfterSeconds(res.headers.get('retry-after'));
         }
         lastFailure = failure;
 

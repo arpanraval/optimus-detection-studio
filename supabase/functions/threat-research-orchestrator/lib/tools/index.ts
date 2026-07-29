@@ -9,6 +9,7 @@ import type { WebFetchResult } from "../../../_shared/web-fetch.ts";
 import { webSearchToolDeclaration, handleWebSearch } from "./web-search.ts";
 import { webFetchToolDeclaration, handleWebFetch } from "./web-fetch.ts";
 import { ruleRepoSearchToolDeclaration, handleRuleRepoSearch } from "./rule-repo-search.ts";
+import type { VendorSearchRecord } from "./rule-repo-search.ts";
 import { mitreSearchToolDeclaration, handleMitreSearch } from "./mitre-search.ts";
 import { librarySearchToolDeclaration, handleLibrarySearch } from "./library-search.ts";
 import { feasibilityLookupToolDeclaration, handleFeasibilityLookup } from "./feasibility-lookup.ts";
@@ -57,6 +58,14 @@ export interface ToolContext {
    *  the userId — so a single slot is enough. Lazily populated on first
    *  call. Reset implicitly when a new worker starts (fresh ToolContext). */
   envContextCache?: EnvironmentContextResult | null;
+  /** Target query language for this session, used to pick which vendor rule
+   *  repos are worth searching. */
+  queryLanguage?: string | null;
+  /** Vendor-search attempts made during this worker invocation. The
+   *  orchestrator persists these to the tree so a session can substantiate
+   *  what it reviewed — production had seven searches with no recorded result,
+   *  URL, or error. */
+  vendorSearchLog?: VendorSearchRecord[];
 }
 
 /**
@@ -75,7 +84,13 @@ export async function executeTool(
     case 'web_fetch':
       return handleWebFetch(ctx.fetchCache, params);
     case 'rule_repo_search':
-      return handleRuleRepoSearch(params);
+      // Language selects the repo set (all seven would spend seven of the ten
+      // code-search requests GitHub allows per minute); vendorSearchLog makes
+      // the attempt durable, including the not-configured case.
+      return handleRuleRepoSearch(params, {
+        queryLanguage: ctx.queryLanguage,
+        vendorSearchLog: ctx.vendorSearchLog,
+      });
     case 'mitre_search':
       return handleMitreSearch(ctx.supabase, params);
     case 'library_search':

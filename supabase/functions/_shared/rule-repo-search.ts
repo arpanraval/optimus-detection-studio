@@ -49,7 +49,38 @@ export const TARGET_REPOS = [
   'splunk/security_content',
   'panther-labs/panther-analysis',
   'sublime-security/sublime-rules',
+  // Microsoft's two public detection corpora. Their absence was a real gap:
+  // KQL is a primary target language here, and neither Sentinel's analytics
+  // rules nor the Defender hunting queries were being searched at all — so a
+  // KQL session's "vendor rule review" could only ever find Sigma.
+  'Azure/Azure-Sentinel',
+  'microsoft/Microsoft-365-Defender-Hunting-Queries',
 ] as const;
+
+/** Repos worth searching for a given target language.
+ *
+ *  Searching all seven costs seven of the ten code-search requests GitHub
+ *  allows per minute, and most are irrelevant to any one session — a Splunk
+ *  shop gains nothing from the Sublime email rules. Narrowing keeps the
+ *  request budget for the repos that can actually produce a usable rule.
+ *
+ *  Sigma is always included: pySigma converts to most target languages, so a
+ *  Sigma rule is useful evidence whatever the session targets. */
+export function reposForLanguage(language: string | null | undefined): readonly string[] {
+  const lang = (language ?? '').toUpperCase();
+  switch (lang) {
+    case 'KQL':
+      return ['SigmaHQ/sigma', 'Azure/Azure-Sentinel', 'microsoft/Microsoft-365-Defender-Hunting-Queries'];
+    case 'SPL':
+      return ['SigmaHQ/sigma', 'splunk/security_content'];
+    case 'EQL':
+      return ['SigmaHQ/sigma', 'elastic/detection-rules'];
+    default:
+      // Unknown or Sigma target: the portable corpus plus the two broadest
+      // vendor sets.
+      return ['SigmaHQ/sigma', 'elastic/detection-rules', 'splunk/security_content'];
+  }
+}
 
 const GITHUB_API_VERSION = '2026-03-10';
 const GITHUB_TIMEOUT_MS = 15_000;

@@ -70,6 +70,7 @@ import { validateKqlAgainstDefenderSchema } from "./tools/defender-schema-lookup
 import { runDetectionValidators } from "./validators/index.ts";
 import { sizeAfterResearch, sizeAfterPlanning } from "./budget-policy.ts";
 import { summariseYield, deriveSessionStatus } from "./readiness.ts";
+import type { VendorSearchRecord } from "./tools/rule-repo-search.ts";
 import type {
   DetectionOpportunity,
   AttackBehaviour,
@@ -197,7 +198,20 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
   };
   // envContextCache starts undefined; populated lazily by executeTool on
   // the first environment_context call within this worker invocation.
-  const toolCtx: ToolContext = { supabase, userId: session.user_id, searchCache, fetchCache };
+  // vendorSearchLog is collected here, at the worker level, and persisted after
+  // the phase handler returns. Production had seven rule_repo_search calls with
+  // no recorded result, URL, or error — the tool's "not configured" answer went
+  // only into the model's context, so the session could substantiate neither
+  // that it found nothing nor that it never looked.
+  const vendorSearchLog: VendorSearchRecord[] = [];
+  const toolCtx: ToolContext = {
+    supabase,
+    userId: session.user_id,
+    searchCache,
+    fetchCache,
+    queryLanguage: resolveQueryTarget(session.environment_snapshot ?? null).language,
+    vendorSearchLog,
+  };
 
   // Hydrate tree (will mutate, then persist).
   const tree: ThreatResearchTree = (session.tree as ThreatResearchTree | null) ?? {
@@ -336,6 +350,21 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
       payload: { job_id: job.id, behaviour_id: job.behaviour_id, attempt: job.attempt_count + 1 },
     });
   } finally {
+    // Persist vendor-search provenance regardless of how the job ended. A
+    // search that ran before the failure is still evidence of what was
+    // reviewed, and the not-configured case is exactly the one worth keeping —
+    // it is the difference between "found nothing" and "never looked".
+    //
+    // Appended rather than replaced: sibling workers each carry their own log,
+    // and a whole-field write would clobber theirs.
+    if (vendorSearchLog.length > 0) {
+      try {
+        await appendVendorSearchProvenance(supabase, session.id, vendorSearchLog);
+      } catch (e) {
+        console.warn('[worker] vendor search provenance write failed:', (e as Error).message);
+      }
+    }
+
     // ALWAYS emit worker_exit, even on uncaught throws or partial state.
     // If we see this event, the worker reached the end of its body.
     // If we DON'T see it, the platform killed the isolate.
@@ -475,8 +504,23 @@ async function handleResearch(
   // 25 + 6*N retains retry headroom across research, the per-behaviour
   // attack-research fan-out and planning. It is a ceiling, not a target.
   const N = out.behaviours.length;
-  const modelCap = Math.min(800, 25 + 6 * N);
-  const toolCap  = Math.min(800, 25 + 6 * N);
+  // Call caps are a RUNAWAY BACKSTOP now, not the spend control — tokens are
+  // (see budget-policy.ts). They are deliberately wide so the token budget is
+  // what binds.
+  //
+  // The old sizing (25 + 6N, so 73 for 8 behaviours) was the spend control, and
+  // it is why 199 agent failures read "model-call budget exhausted": a
+  // call-count cliff stopped work that was nowhere near its token budget, and
+  // whichever leaves happened to run last were the ones starved. Since a
+  // failed call also consumed a call, a flaky session tightened the cliff on
+  // itself.
+  //
+  // 3x the previous allowance keeps a genuine runaway bounded — an infinite
+  // agent loop still cannot spin forever — while making the cliff essentially
+  // unreachable in a healthy session.
+  const CALL_CAP_BACKSTOP_MULTIPLIER = 3;
+  const modelCap = Math.min(2000, (25 + 6 * N) * CALL_CAP_BACKSTOP_MULTIPLIER);
+  const toolCap  = Math.min(2000, (25 + 6 * N) * CALL_CAP_BACKSTOP_MULTIPLIER);
 
   await supabase
     .from('threat_research_sessions')
@@ -529,6 +573,37 @@ async function handleResearch(
       },
     });
   }
+}
+
+/** Append this worker's vendor-search attempts to the session tree.
+ *
+ *  Read-modify-write on `tree.vendor_search`, appending only. Several workers
+ *  search concurrently and each holds its own log, so replacing the field would
+ *  discard the others'. The read is deliberately narrow (one jsonb field) rather
+ *  than a full-tree round trip.
+ *
+ *  Best-effort by design: provenance is evidence about the run, and losing it
+ *  must never be the thing that fails the run. */
+async function appendVendorSearchProvenance(
+  supabase: SupabaseClient,
+  sessionId: string,
+  records: readonly VendorSearchRecord[],
+): Promise<void> {
+  const { data, error } = await supabase
+    .from('threat_research_sessions')
+    .select('tree')
+    .eq('id', sessionId)
+    .single();
+  if (error || !data) return;
+
+  const tree = (data.tree ?? {}) as ThreatResearchTree & { vendor_search?: VendorSearchRecord[] };
+  const existing = Array.isArray(tree.vendor_search) ? tree.vendor_search : [];
+  tree.vendor_search = [...existing, ...records];
+
+  await supabase
+    .from('threat_research_sessions')
+    .update({ tree, updated_at: new Date().toISOString() })
+    .eq('id', sessionId);
 }
 
 /** A 1:1 behaviour→opportunity stand-in, used when the planner produced
@@ -866,8 +941,11 @@ async function handleOpportunityPlanning(
 
     const { error: bumpErr } = await supabase.rpc('tr_bump_caps', {
       p_session_id: session.id,
-      p_model_delta: 12 * oppCount,
-      p_tool_delta: 8 * oppCount,
+      // Same reasoning as the initial sizing: these are a runaway backstop, and
+      // the token floors installed just above are the real control. Sized so a
+      // detection or QA leaf cannot hit a call cliff while it still has tokens.
+      p_model_delta: 36 * oppCount,
+      p_tool_delta: 24 * oppCount,
     });
     if (bumpErr) {
       console.warn(`[handleOpportunityPlanning] tr_bump_caps failed:`, bumpErr.message);
