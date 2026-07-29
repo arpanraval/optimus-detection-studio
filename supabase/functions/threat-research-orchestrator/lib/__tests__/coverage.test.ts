@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { COVERAGE_STATUSES, isDeployedCoverage, isLanguageRunnable } from '../coverage';
+import { COVERAGE_STATUSES, hasMitreOverlap, isDeployedCoverage, isLanguageRunnable } from '../coverage';
 
 describe('isDeployedCoverage', () => {
   it('counts a Production rule as coverage', () => {
@@ -62,6 +62,27 @@ describe('isLanguageRunnable', () => {
 
   it('rejects a null match', () => {
     expect(isLanguageRunnable(null, 'KQL')).toBe(false);
+  });
+});
+
+describe('hasMitreOverlap', () => {
+  it('accepts an exact technique overlap case-insensitively', () => {
+    expect(hasMitreOverlap(['T1218.015'], ['t1218.015', 'T1059'])).toBe(true);
+  });
+
+  it('rejects the false-positive mappings observed in the live T1218.015 run', () => {
+    expect(hasMitreOverlap(['T1218.015'], ['T1497'])).toBe(false);
+    expect(hasMitreOverlap(['T1218.015'], ['T1574', 'T1574.001'])).toBe(false);
+    expect(hasMitreOverlap(['T1218.015'], ['T1190', 'T1059.004'])).toBe(false);
+  });
+
+  it('rejects an unmapped library rule when the opportunity is mapped', () => {
+    expect(hasMitreOverlap(['T1218.015'], [])).toBe(false);
+  });
+
+  it('preserves score-only matching for an unmapped legacy opportunity', () => {
+    expect(hasMitreOverlap([], ['T1497'])).toBe(true);
+    expect(hasMitreOverlap(undefined, undefined)).toBe(true);
   });
 });
 
