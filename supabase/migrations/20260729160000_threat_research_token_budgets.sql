@@ -81,12 +81,24 @@ GRANT SELECT ON TABLE public.threat_research_phase_budgets TO authenticated;
 -- ---------------------------------------------------------------------------
 -- tr_consume_budget: adds token reserve/settle and the phase gate.
 --
--- Body is the live definition plus the abort check from
--- 20260729140000, with the token logic added. New parameters all default, so
--- an older deployed worker calling the four-argument form keeps working
--- unchanged -- important because the function is replaced before the edge
--- function is redeployed.
+-- Body is the live definition plus the abort check from 20260729140000, with
+-- the token logic added. New parameters all default, so an older deployed
+-- worker calling the four-argument form keeps working unchanged -- important
+-- because this lands BEFORE the edge function is redeployed.
+--
+-- The DROP is load-bearing, not tidying. Postgres identifies a function by its
+-- full argument list, so CREATE OR REPLACE with three extra parameters creates
+-- a SECOND overload rather than replacing the first. Both would then match a
+-- four-argument call -- the old one exactly, the new one through its defaults
+-- -- and Postgres would reject it as ambiguous (42725). Every budget check
+-- happens immediately before a model call, so the result would be that no
+-- agent in any session could make one.
+--
+-- Dropping first is safe for the running v84 worker: PostgREST resolves its
+-- four named arguments against the new function's defaults.
 -- ---------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.tr_consume_budget(uuid, integer, integer, integer);
+
 CREATE OR REPLACE FUNCTION public.tr_consume_budget(
   p_session_id     uuid,
   p_tool_calls     integer DEFAULT 0,

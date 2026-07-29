@@ -4151,6 +4151,10 @@ BEGIN
    RETURNING j.id, j.session_id, j.phase, j.behaviour_id, j.status, j.attempt_count, j.failure_reason;
 END;
 $function$;
+-- Drop the pre-token four-argument signature. Postgres identifies a function
+-- by its full argument list, so leaving it in place would give a
+-- four-argument call two equally valid candidates and fail as ambiguous.
+DROP FUNCTION IF EXISTS public.tr_consume_budget(uuid, integer, integer, integer);
 CREATE OR REPLACE FUNCTION public.tr_consume_budget(
   p_session_id     uuid,
   p_tool_calls     integer DEFAULT 0,
