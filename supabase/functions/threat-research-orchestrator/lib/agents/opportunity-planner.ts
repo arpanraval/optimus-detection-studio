@@ -164,8 +164,16 @@ Output a single JSON object with explicit key/value pairs. Do not use shorthand 
       "detectability": "siem",
       "detectability_rationale": "<one sentence>"
     }
+  ],
+  "excluded_behaviours": [
+    {
+      "behaviour_id": "b7",
+      "reason": "<why no detection opportunity exists for this behaviour>"
+    }
   ]
 }
+
+EVERY input behaviour must be accounted for. A behaviour is accounted for when it is a "primary_behaviour_id", appears in some opportunity's "source_behaviour_ids", OR is listed in "excluded_behaviours" with a reason. Silently leaving a behaviour out is not an available option — it would be recorded as undetectable without anyone having decided that. Use "excluded_behaviours" for a deliberate call, and say what makes it undetectable.
 
 "tactic" must be one single MITRE tactic string, not an array and not a combined value. "detectability" must be exactly one of "siem", "edr", "needs_telemetry", or "not_detectable".`;
 
@@ -191,8 +199,39 @@ export interface CanonicalOpportunity {
   detectability_rationale: string;
 }
 
+/** A behaviour the planner deliberately produced no opportunity for.
+ *
+ *  Exists so that an omission has to be a decision. The validator previously
+ *  required only ONE valid opportunity, so any behaviour the planner happened
+ *  to leave out was stamped `not_detectable` with "Opportunity planner did not
+ *  produce a detection opportunity for this behaviour" — a silent drop
+ *  presented to the user as a finding. */
+export interface ExcludedBehaviour {
+  behaviour_id: string;
+  reason: string;
+}
+
 export interface OpportunityPlannerOutput {
   opportunities: CanonicalOpportunity[];
+  /** Deliberate exclusions, each with a reason. */
+  excluded_behaviours: ExcludedBehaviour[];
+  /** Behaviours neither covered nor excluded. Always empty on a response that
+   *  passed validation — the validator rejects any response that leaves a
+   *  behaviour unaccounted for. Retained on the type because the orchestrator's
+   *  targeted fallback needs to know which behaviours to rescue when the
+   *  planner still cannot account for them after its retry. */
+  unaccounted_behaviour_ids: string[];
+}
+
+/** Bind the validator to a behaviour set.
+ *
+ *  Exported so the coverage invariant is directly testable. It is the rule that
+ *  stops a behaviour disappearing without a decision, which makes it worth
+ *  asserting on rather than reaching only through a live planner call. */
+export function buildPlannerValidator(
+  validBehaviourIds: ReadonlySet<string>,
+): (text: string) => ValidationResult<OpportunityPlannerOutput> {
+  return (text) => validate(text, validBehaviourIds);
 }
 
 function validate(text: string, validBehaviourIds: ReadonlySet<string>): ValidationResult<OpportunityPlannerOutput> {
@@ -273,7 +312,52 @@ function validate(text: string, validBehaviourIds: ReadonlySet<string>): Validat
     };
   }
 
-  return { ok: true, value: { opportunities } };
+  // Deliberate exclusions. Only ids that exist are kept — an exclusion naming
+  // a behaviour that was never researched accounts for nothing.
+  const excluded: ExcludedBehaviour[] = [];
+  for (const e of Array.isArray(json.excluded_behaviours) ? json.excluded_behaviours : []) {
+    const id = typeof e?.behaviour_id === 'string' ? e.behaviour_id.trim() : '';
+    const reason = typeof e?.reason === 'string' ? e.reason.trim() : '';
+    if (id && validBehaviourIds.has(id) && reason) excluded.push({ behaviour_id: id, reason });
+  }
+
+  // COVERAGE INVARIANT.
+  //
+  // Requiring one valid opportunity was never enough. A behaviour the planner
+  // omitted was recorded as `not_detectable` — "Opportunity planner did not
+  // produce a detection opportunity for this behaviour" — which reads as a
+  // judgement and is actually the absence of one. For six MSHTA surfaces or
+  // four AdFind primitives, that is how real detections disappear without
+  // anyone deciding they should.
+  //
+  // A behaviour is accounted for if it is a primary, is referenced as a
+  // source, or is explicitly excluded with a reason. Anything else fails
+  // validation, and the agent loop hands the reason back so the planner can
+  // fix that specific thing.
+  const accounted = new Set<string>();
+  for (const o of opportunities) {
+    accounted.add(o.primary_behaviour_id);
+    for (const src of o.source_behaviour_ids ?? []) accounted.add(src);
+  }
+  for (const e of excluded) accounted.add(e.behaviour_id);
+
+  const unaccounted = [...validBehaviourIds].filter(id => !accounted.has(id));
+  if (unaccounted.length > 0) {
+    return {
+      ok: false,
+      reason:
+        `${unaccounted.length} behaviour(s) unaccounted for: ${unaccounted.join(', ')}. ` +
+        'Every input behaviour must be a primary_behaviour_id, appear in some ' +
+        "opportunity's source_behaviour_ids, or be listed in excluded_behaviours " +
+        'with a reason. Add opportunities for them, or exclude them explicitly and ' +
+        'say what makes them undetectable.',
+    };
+  }
+
+  return {
+    ok: true,
+    value: { opportunities, excluded_behaviours: excluded, unaccounted_behaviour_ids: [] },
+  };
 }
 
 export async function runOpportunityPlanner(

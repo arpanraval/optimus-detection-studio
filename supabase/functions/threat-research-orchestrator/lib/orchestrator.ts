@@ -72,6 +72,7 @@ import { sizeAfterResearch, sizeAfterPlanning } from "./budget-policy.ts";
 import { summariseYield, deriveSessionStatus } from "./readiness.ts";
 import type {
   DetectionOpportunity,
+  AttackBehaviour,
   GeneratedDetection,
   LibraryNearMatch,
   ResearchQueryLanguage,
@@ -530,6 +531,54 @@ async function handleResearch(
   }
 }
 
+/** A 1:1 behaviour→opportunity stand-in, used when the planner produced
+ *  nothing usable for a behaviour.
+ *
+ *  Shared by two callers with deliberately different scope: the whole-plan
+ *  degraded path (planner returned nothing at all) and the targeted rescue
+ *  (planner returned a good plan but left specific behaviours unaccounted for).
+ *  Extracted so those two cannot drift — the rescue exists precisely because
+ *  discarding a good plan to fix one gap loses the merges the planner is for. */
+function buildFallbackOpportunity(
+  b: AttackBehaviour,
+  queryLanguage: ResearchQueryLanguage,
+): DetectionOpportunity {
+  return {
+    id: 'o1',
+    title: b.title,
+    description: b.narrative_description,
+    observable_chain: b.artefacts,
+    telemetry: b.data_sources,
+    mitre_technique_ids: b.mitre_technique_ids,
+    tactic: b.tactic,
+    primary_behaviour_id: b.id,
+    source_behaviour_ids: [b.id],
+    variants: [],
+    detectability: 'siem',
+    detectability_rationale: 'Planner unavailable; defaulting to SIEM-detectable per behaviour-level data sources.',
+    detection: {
+      id: 'd_o1',
+      name: '',
+      description: '',
+      query_language: queryLanguage,
+      query: '',
+      mitre_technique_ids: b.mitre_technique_ids,
+      unverified_mitre_ids: [],
+      tactic: b.tactic,
+      suggested_severity: 'Medium',
+      suggested_detection_type: 'Detection',
+      feasibility: 'partial',
+      feasibility_notes: '',
+      citations: [],
+      covers_behaviour_ids: [b.id],
+      qa: null,
+      qa_error: null,
+      saved_detection_id: null,
+      archived: false,
+    },
+  };
+}
+
 /** Build the list of composite "{primary_behaviour_id}/{opportunity_id}"
  *  strings that the detection phase will fan out on. Called by the
  *  opportunity_planning promote step after the planner has populated
@@ -639,41 +688,7 @@ async function handleOpportunityPlanning(
       },
     });
     for (const b of tree.behaviours) {
-      const fallbackOpp: DetectionOpportunity = {
-        id: 'o1',
-        title: b.title,
-        description: b.narrative_description,
-        observable_chain: b.artefacts,
-        telemetry: b.data_sources,
-        mitre_technique_ids: b.mitre_technique_ids,
-        tactic: b.tactic,
-        primary_behaviour_id: b.id,
-        source_behaviour_ids: [b.id],
-        variants: [],
-        detectability: 'siem',
-        detectability_rationale: 'Planner unavailable; defaulting to SIEM-detectable per behaviour-level data sources.',
-        detection: {
-          id: 'd_o1',
-          name: '',
-          description: '',
-          query_language: queryLanguage,
-          query: '',
-          mitre_technique_ids: b.mitre_technique_ids,
-          unverified_mitre_ids: [],
-          tactic: b.tactic,
-          suggested_severity: 'Medium',
-          suggested_detection_type: 'Detection',
-          feasibility: 'partial',
-          feasibility_notes: '',
-          citations: [],
-          covers_behaviour_ids: [b.id],
-          qa: null,
-          qa_error: null,
-          saved_detection_id: null,
-          archived: false,
-        },
-      };
-      b.opportunities = [fallbackOpp];
+      b.opportunities = [buildFallbackOpportunity(b, queryLanguage)];
       await patchBehaviour(supabase, session.id, b.id, { opportunities: b.opportunities });
     }
     // patchBehaviour persists each fallback leaf but cannot write this
@@ -716,6 +731,44 @@ async function handleOpportunityPlanning(
 
   const priority: Record<string, number> = { siem: 4, edr: 3, needs_telemetry: 2, not_detectable: 1 };
 
+  const excludedById = new Map(
+    (out.excluded_behaviours ?? []).map(e => [e.behaviour_id, e]),
+  );
+
+  // Targeted rescue. The validator rejects a plan that leaves a behaviour
+  // unaccounted for, so this only fires if the planner failed its retry too.
+  //
+  // Scoped deliberately to the MISSING behaviours. The existing
+  // `planner_degraded` path throws the whole plan away and rebuilds every
+  // behaviour 1:1 with no dedup — losing good merges to rescue one gap.
+  // Rescuing only what is missing keeps the planner's real work.
+  const accountedIds = new Set<string>();
+  for (const cop of out.opportunities) {
+    if (cop.primary_behaviour_id) accountedIds.add(cop.primary_behaviour_id);
+    for (const src of cop.source_behaviour_ids ?? []) accountedIds.add(src);
+  }
+  for (const id of excludedById.keys()) accountedIds.add(id);
+
+  const rescued = tree.behaviours.filter(b => !accountedIds.has(b.id));
+  if (rescued.length > 0) {
+    await emit(runCtx, {
+      agent: 'orchestrator',
+      event_type: 'planner_degraded',
+      message:
+        `PLANNER PARTIAL — ${rescued.length} of ${tree.behaviours.length} behaviour(s) ` +
+        `unaccounted for after retry (${rescued.map(b => b.id).join(', ')}); ` +
+        'generating 1:1 opportunities for those only. The rest of the plan is kept.',
+      payload: {
+        rescued_behaviour_ids: rescued.map(b => b.id),
+        planned_opportunities: out.opportunities.length,
+        excluded: [...excludedById.keys()],
+      },
+    });
+    for (const b of rescued) {
+      byPrimary.set(b.id, [buildFallbackOpportunity(b, queryLanguage)]);
+    }
+  }
+
   for (const b of tree.behaviours) {
     const opps = byPrimary.get(b.id) ?? [];
     const merged = bySource.get(b.id) ?? [];
@@ -723,11 +776,25 @@ async function handleOpportunityPlanning(
     b.merged_into_opportunity_ids = merged.map(m => m.ref);
 
     if (opps.length === 0 && merged.length === 0) {
-      // No canonical opportunity claims this behaviour as primary AND no
-      // opportunity includes it in source_behaviour_ids. Planner judged
-      // it not actionable.
+      // No opportunity claims this behaviour as primary and none references it
+      // as a source. Two very different situations, previously collapsed into
+      // one and both reported as a verdict:
+      //
+      //   - the planner EXCLUDED it and said why. That is a real judgement.
+      //   - the planner simply left it out. That is the absence of a judgement,
+      //     and stamping 'not_detectable' on it invented one.
+      //
+      // The validator now rejects the second case outright, so reaching here
+      // without an exclusion means the planner failed twice and the targeted
+      // fallback below could not rescue it. Say that, rather than claiming the
+      // behaviour cannot be detected.
+      const exclusion = excludedById.get(b.id);
       b.detectability = 'not_detectable';
-      b.detectability_rationale = 'Opportunity planner did not produce a detection opportunity for this behaviour.';
+      b.detectability_rationale = exclusion
+        ? `Planner excluded this behaviour: ${exclusion.reason}`
+        : 'No detection opportunity was produced for this behaviour and the planner ' +
+          'gave no reason. This is a gap in the plan, not a finding that the behaviour ' +
+          'is undetectable — re-run the planner for this behaviour.';
       b.artefacts_required = [];
     } else if (opps.length === 0 && merged.length > 0) {
       // Behaviour was merged into other behaviours' canonical opportunities.
