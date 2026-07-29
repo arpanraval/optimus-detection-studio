@@ -1132,7 +1132,7 @@ ALTER TABLE public.threat_intel_reports ADD CONSTRAINT threat_intel_reports_revi
 ALTER TABLE public.threat_intel_reports ADD CONSTRAINT threat_intel_reports_source_check CHECK ((source = ANY (ARRAY['manual'::text, 'auto'::text])));
 ALTER TABLE public.threat_intel_reports ADD CONSTRAINT report_review_note_max_length CHECK ((char_length(review_note) <= 2000));
 ALTER TABLE public.threat_intel_reports ADD CONSTRAINT threat_intel_reports_pkey PRIMARY KEY (id);
-ALTER TABLE public.threat_research_events ADD CONSTRAINT threat_research_events_agent_check CHECK ((agent = ANY (ARRAY['orchestrator'::text, 'preflight'::text, 'research'::text, 'attack-researcher'::text, 'planner'::text, 'detection-engineer'::text, 'qa'::text])));
+ALTER TABLE public.threat_research_events ADD CONSTRAINT threat_research_events_agent_check CHECK ((agent = ANY (ARRAY['orchestrator'::text, 'preflight'::text, 'dossier'::text, 'research'::text, 'attack-researcher'::text, 'planner'::text, 'detection-engineer'::text, 'qa'::text])));
 ALTER TABLE public.threat_research_events ADD CONSTRAINT threat_research_events_pkey PRIMARY KEY (id);
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_pkey PRIMARY KEY (id);
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_session_id_phase_behaviour_id_key UNIQUE (session_id, phase, behaviour_id);
@@ -3114,7 +3114,7 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
-CREATE OR REPLACE FUNCTION public.hybrid_search_detections(p_query text, p_query_embedding vector, p_semantic_weight double precision DEFAULT 0.5, p_keyword_weight double precision DEFAULT 0.5, p_limit integer DEFAULT 25, p_status text DEFAULT NULL::text, p_severity text DEFAULT NULL::text)
+CREATE OR REPLACE FUNCTION public.hybrid_search_detections(p_query text, p_query_embedding vector, p_semantic_weight double precision DEFAULT 0.5, p_keyword_weight double precision DEFAULT 0.5, p_limit integer DEFAULT 25, p_status text DEFAULT NULL::text, p_severity text DEFAULT NULL::text, p_user_id uuid DEFAULT NULL::uuid)
  RETURNS TABLE(detection_id text, name text, description text, mitre_ids text[], status text, severity text, semantic_score double precision, keyword_score double precision, combined_score double precision)
  LANGUAGE plpgsql
 AS $function$
@@ -3166,6 +3166,10 @@ begin
   where
     (p_status is null or d.status = p_status)
     and (p_severity is null or d.severity = p_severity)
+    and (
+      d.library_type = 'production'
+      or (d.library_type = 'development' and (d.visibility = 'shared' or d.user_id = p_user_id))
+    )
   order by c.total_score desc
   limit p_limit;
 end;
@@ -4181,7 +4185,7 @@ BEGIN
   );
 END;
 $function$;
-CREATE OR REPLACE FUNCTION public.tr_find_actor_tagged_detections(p_aliases text[], p_limit integer DEFAULT 200)
+CREATE OR REPLACE FUNCTION public.tr_find_actor_tagged_detections(p_aliases text[], p_limit integer DEFAULT 200, p_user_id uuid DEFAULT NULL::uuid)
  RETURNS TABLE(id text, name text, severity text, mitre_technique_ids text[], matching_aliases text[])
  LANGUAGE sql
  STABLE
@@ -4194,6 +4198,10 @@ AS $function$
     ARRAY(SELECT DISTINCT t FROM unnest(d.tags) t WHERE t = ANY(p_aliases))::text[] AS matching_aliases
   FROM public.detections d
   WHERE d.tags && p_aliases
+    AND (
+      d.library_type = 'production'
+      OR (d.library_type = 'development' AND (d.visibility = 'shared' OR d.user_id = p_user_id))
+    )
   ORDER BY d."updatedDate" DESC NULLS LAST
   LIMIT p_limit;
 $function$;

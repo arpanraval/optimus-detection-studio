@@ -73,11 +73,14 @@ export async function handleLibrarySearch(
     return { hits: [] };
   }
 
-  // 2. Hybrid search.
+  // 2. Hybrid search. p_user_id scopes development-library rows to the
+  //    caller (or shared ones) — required because this runs on the
+  //    service-role client, which bypasses RLS entirely.
   const { data, error } = await supabase.rpc('hybrid_search_detections', {
     p_query: q,
     p_query_embedding: embedRes.embedding,
     p_limit: limit,
+    p_user_id: params.userId,
   });
   if (error) {
     console.warn('[library-search] hybrid_search_detections failed:', error.message);
