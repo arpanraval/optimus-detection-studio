@@ -210,6 +210,103 @@ describe('agent loop — worker lifetime', () => {
   });
 });
 
+describe('agent loop — resumable checkpoints', () => {
+  const JOB_ID = '00000000-0000-4000-8000-0000000000aa';
+
+  it('persists the conversation after an iteration that used tools', async () => {
+    fake.setScript([
+      { status: 200, body: toolUseBody('web_search', { query: 'x' }) },
+      { status: 200, body: okBody('{"value":5}') },
+    ]);
+    const harness = makeFakeRunContext({ jobId: JOB_ID });
+    const outcome = await runLoop(makeConfig(), harness);
+
+    expect(outcome.success).toBe(true);
+    // One write after the tool-call iteration...
+    expect(harness.checkpointWrites).toHaveLength(1);
+    expect(harness.checkpointWrites[0].job_id).toBe(JOB_ID);
+    // ...and cleared on success, since it holds the environment profile and
+    // library rule bodies and is dead weight once the job produced output.
+    expect(harness.checkpointDeletes()).toBe(1);
+    expect(harness.checkpoint()).toBeNull();
+  });
+
+  it('resumes a killed attempt instead of replaying its tool calls', async () => {
+    // This is the reaper-reset path: the worker died, the job row was reset,
+    // and a fresh worker claimed the SAME job id. Previously it restarted from
+    // message zero and re-ran every tool call.
+    const priorConversation = [
+      { role: 'user', content: 'do the task' },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'web_search', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: '{"results":[]}' }] },
+    ];
+    fake.setScript([{ status: 200, body: okBody('{"value":9}') }]);
+    const harness = makeFakeRunContext({
+      jobId: JOB_ID,
+      existingCheckpoint: {
+        schema_version: 1,
+        iteration: 2,
+        restore_count: 0,
+        messages: priorConversation,
+      },
+    });
+
+    const outcome = await runLoop(makeConfig(), harness);
+    expect(outcome.success).toBe(true);
+
+    // The restored turns were sent, so the tool call was not repeated.
+    const sent = fake.requests()[0] as { messages: unknown[] };
+    expect(sent.messages).toHaveLength(priorConversation.length);
+    expect(harness.events.some(e => e.message?.includes('resumed from checkpoint'))).toBe(true);
+  });
+
+  it('starts clean when the checkpoint came from a different code version', async () => {
+    // Deploys happen mid-session. Replaying a message shape the running parser
+    // no longer understands turns a recoverable job into a confusing one.
+    fake.setScript([{ status: 200, body: okBody('{"value":1}') }]);
+    const harness = makeFakeRunContext({
+      jobId: JOB_ID,
+      existingCheckpoint: {
+        schema_version: 999,
+        iteration: 3,
+        restore_count: 0,
+        messages: [{ role: 'user', content: 'stale shape' }],
+      },
+    });
+
+    await runLoop(makeConfig(), harness);
+    const sent = fake.requests()[0] as { messages: { content: unknown }[] };
+    expect(sent.messages).toHaveLength(1);
+    expect(sent.messages[0].content).toBe('do the task');
+    expect(harness.events.some(e => e.message?.includes('schema_mismatch'))).toBe(true);
+  });
+
+  it('stops resuming a conversation that has already burned its restores', async () => {
+    fake.setScript([{ status: 200, body: okBody('{"value":1}') }]);
+    const harness = makeFakeRunContext({
+      jobId: JOB_ID,
+      existingCheckpoint: {
+        schema_version: 1,
+        iteration: 4,
+        restore_count: 2,
+        messages: [{ role: 'user', content: 'poisoned turn' }],
+      },
+    });
+
+    await runLoop(makeConfig(), harness);
+    const sent = fake.requests()[0] as { messages: { content: unknown }[] };
+    expect(sent.messages[0].content).toBe('do the task');
+    expect(harness.events.some(e => e.message?.includes('restore_cap_reached'))).toBe(true);
+  });
+
+  it('does nothing at all when the context carries no job id', async () => {
+    const harness = makeFakeRunContext();
+    const outcome = await runLoop(makeConfig(), harness);
+    expect(outcome.success).toBe(true);
+    expect(harness.checkpointWrites).toHaveLength(0);
+  });
+});
+
 describe('agent loop — provider errors', () => {
   it('parses a terminal credit-exhaustion 400 into a readable failure', async () => {
     fake.setScript([{

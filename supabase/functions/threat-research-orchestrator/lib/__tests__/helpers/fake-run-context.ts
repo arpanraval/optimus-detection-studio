@@ -36,12 +36,22 @@ export interface FakeRunContext {
   /** Session aborts requested. Should be empty unless a terminal,
    *  account-scoped provider failure occurred. */
   abortCalls: { reason: string }[];
+  /** Conversation checkpoints written, in order. */
+  checkpointWrites: Record<string, unknown>[];
+  /** The checkpoint row as it currently stands, or null. */
+  checkpoint(): Record<string, unknown> | null;
+  /** How many times the checkpoint was deleted. */
+  checkpointDeletes(): number;
 }
 
 export interface FakeRunContextOptions {
   sessionId?: string;
   userId?: string;
   jobStartedAt?: number;
+  /** Set to enable checkpointing; checkpoint.ts no-ops without a job id. */
+  jobId?: string;
+  /** Pre-existing checkpoint row, to drive the resume path. */
+  existingCheckpoint?: Record<string, unknown> | null;
   /** Decides each budget request. Default: always allowed. */
   budget?: (
     spend: { toolCalls: number; modelCalls: number; tokens: number },
@@ -56,9 +66,49 @@ export function makeFakeRunContext(options: FakeRunContextOptions = {}): FakeRun
   const events: CapturedEvent[] = [];
   const budgetCalls: { toolCalls: number; modelCalls: number; tokens: number }[] = [];
   const abortCalls: { reason: string }[] = [];
+  const checkpointWrites: Record<string, unknown>[] = [];
+  let checkpointRow: Record<string, unknown> | null = options.existingCheckpoint ?? null;
+  let checkpointDeletes = 0;
 
   const supabase = {
     from(table: string) {
+      // Checkpoint table: a one-row key-value store keyed by job_id, with just
+      // enough of the PostgREST builder surface for checkpoint.ts.
+      if (table === 'threat_research_job_checkpoints') {
+        return {
+          select() {
+            return {
+              eq() {
+                return {
+                  maybeSingle: () => Promise.resolve({ data: checkpointRow, error: null }),
+                };
+              },
+            };
+          },
+          upsert(row: Record<string, unknown>) {
+            checkpointRow = { ...(checkpointRow ?? {}), ...row } as Record<string, unknown>;
+            checkpointWrites.push(row);
+            return Promise.resolve({ error: null });
+          },
+          update(patch: Record<string, unknown>) {
+            return {
+              eq() {
+                if (checkpointRow) checkpointRow = { ...checkpointRow, ...patch };
+                return Promise.resolve({ error: null });
+              },
+            };
+          },
+          delete() {
+            return {
+              eq() {
+                checkpointRow = null;
+                checkpointDeletes++;
+                return Promise.resolve({ error: null });
+              },
+            };
+          },
+        };
+      }
       return {
         insert(row: Record<string, unknown>) {
           if (table === 'threat_research_events') {
@@ -104,6 +154,7 @@ export function makeFakeRunContext(options: FakeRunContextOptions = {}): FakeRun
     sessionId: options.sessionId ?? '00000000-0000-4000-8000-000000000001',
     userId: options.userId ?? '00000000-0000-4000-8000-000000000002',
     jobStartedAt: options.jobStartedAt,
+    jobId: options.jobId,
   } as unknown as RunContext;
 
   return {
@@ -111,6 +162,9 @@ export function makeFakeRunContext(options: FakeRunContextOptions = {}): FakeRun
     events,
     budgetCalls,
     abortCalls,
+    checkpointWrites,
+    checkpoint: () => checkpointRow,
+    checkpointDeletes: () => checkpointDeletes,
     ofType: (type) => events.filter(e => e.event_type === type),
     lastFailureReason: () => {
       const failures = events.filter(e => e.event_type === 'agent_failed');

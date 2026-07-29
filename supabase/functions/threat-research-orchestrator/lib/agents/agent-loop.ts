@@ -12,6 +12,7 @@
 import type { ResearchAgent } from "../types.ts";
 import { ToolContext, executeTool } from "../tools/index.ts";
 import { RunContext, emit, consumeBudget, abortSession } from "../events.ts";
+import { loadCheckpoint, saveCheckpoint, deleteCheckpoint } from "./checkpoint.ts";
 import { callAnthropic } from "../llm/anthropic-direct.ts";
 import { AnthropicError } from "../llm/anthropic-raw.ts";
 import type {
@@ -223,6 +224,64 @@ export async function runAgentLoop<T>(
     payload: { ...ctxPayload },
   });
 
+  // Resume a conversation the previous attempt got partway through. The reaper
+  // resets a job whose worker the platform killed, and without this the retry
+  // re-runs every tool call and regenerates every turn already paid for.
+  //
+  // Restoring is guarded three ways in checkpoint.ts — schema version, size,
+  // and a restore cap — so a stale, oversized, or poisoned conversation makes
+  // the job start clean rather than replay into a wall.
+  let resumedFromIteration = 0;
+  const restored = await loadCheckpoint(runCtx);
+  if (restored.messages) {
+    messages.length = 0;
+    messages.push(...restored.messages);
+    resumedFromIteration = restored.iteration;
+    await emit(runCtx, {
+      agent: cfg.agent,
+      event_type: 'agent_post_response_checkpoint',
+      message: `resumed from checkpoint at iteration ${restored.iteration}`,
+      payload: {
+        ...ctxPayload,
+        checkpoint: 'restored',
+        resumed_from_iteration: restored.iteration,
+        message_count: messages.length,
+      },
+    });
+  } else if (restored.reason && restored.reason !== 'no_checkpoint') {
+    // Say why a checkpoint existed but was refused — otherwise a job that
+    // silently restarts looks identical to one that never had state.
+    await emit(runCtx, {
+      agent: cfg.agent,
+      event_type: 'agent_post_response_checkpoint',
+      message: `checkpoint not resumed: ${restored.reason}`,
+      payload: { ...ctxPayload, checkpoint: 'rejected', reason: restored.reason },
+    });
+  }
+
+  /** Persist the conversation, reporting when it was too large to store.
+   *  Best-effort throughout: losing the ability to resume is a cost, but a
+   *  checkpoint failure must never be what fails a run. */
+  const persistCheckpoint = async (iteration: number): Promise<void> => {
+    const decision = await saveCheckpoint(runCtx, cfg.agent, iteration, messages);
+    if (!decision.save && decision.reason === 'too_large') {
+      // Skipped rather than truncated: a partial message list would resume
+      // into a conversation the model cannot follow, which is worse than the
+      // honest fallback of starting over.
+      await emit(runCtx, {
+        agent: cfg.agent,
+        event_type: 'agent_post_response_checkpoint',
+        message: `checkpoint skipped: conversation is ${Math.round(decision.bytes / 1024)}KB`,
+        payload: {
+          ...ctxPayload,
+          iteration,
+          checkpoint: 'skipped_too_large',
+          bytes: decision.bytes,
+        },
+      });
+    }
+  };
+
   // Universal exit emitter — fires on every return path of the loop so we
   // can always tell the difference between "loop returned X" and "worker
   // was killed externally". The specific agent_completed / agent_failed
@@ -310,7 +369,14 @@ export async function runAgentLoop<T>(
       agent: cfg.agent,
       event_type: 'agent_iteration',
       message: `iteration ${iteration}`,
-      payload: { ...ctxPayload, iteration },
+      payload: {
+        ...ctxPayload,
+        iteration,
+        // Present only on a resumed job, so the trail distinguishes "iteration
+        // 1 of a fresh attempt" from "iteration 1 continuing a conversation
+        // that already reached iteration 3".
+        ...(resumedFromIteration > 0 ? { resumed_from_iteration: resumedFromIteration } : {}),
+      },
     });
 
     const callStart = Date.now();
@@ -571,6 +637,9 @@ export async function runAgentLoop<T>(
       });
       const parsed = cfg.validateFinalOutput(response.text);
       if (parsed.ok) {
+        // The job produced its output; the conversation is now dead weight and
+        // holds the user's environment profile and rule bodies. Drop it.
+        await deleteCheckpoint(runCtx);
         await emit(runCtx, {
           agent: cfg.agent,
           event_type: 'agent_post_response_checkpoint',
@@ -647,6 +716,7 @@ export async function runAgentLoop<T>(
           `Fix THAT specifically and re-emit the JSON. ` +
           `Output the JSON object directly — no markdown fences, no commentary outside the JSON.`,
       });
+      await persistCheckpoint(iteration);
       continue;
     }
 
@@ -725,6 +795,12 @@ export async function runAgentLoop<T>(
         tool_result_chars: toolResultBlocks.reduce((sum, block) => sum + block.content.length, 0),
       },
     });
+
+    // Persist AFTER the tool results are in the message list. This is the
+    // point where the iteration's expensive work — the model call and every
+    // tool it triggered — is fully represented, so a worker killed from here
+    // on can resume without repeating any of it.
+    await persistCheckpoint(iteration);
   }
 
   await emit(runCtx, {

@@ -181,7 +181,16 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
 
   const searchCache = new Map<string, WebSearchResult>();
   const fetchCache = new Map<string, WebFetchResult>();
-  const runCtx: RunContext = { supabase, sessionId: session.id, userId: session.user_id, jobStartedAt: start };
+  // jobId keys the resumable conversation checkpoint: a reaper-reset retry
+  // claims the SAME job row, so the killed attempt's conversation is waiting
+  // for it instead of starting over from message zero.
+  const runCtx: RunContext = {
+    supabase,
+    sessionId: session.id,
+    userId: session.user_id,
+    jobStartedAt: start,
+    jobId,
+  };
   // envContextCache starts undefined; populated lazily by executeTool on
   // the first environment_context call within this worker invocation.
   const toolCtx: ToolContext = { supabase, userId: session.user_id, searchCache, fetchCache };

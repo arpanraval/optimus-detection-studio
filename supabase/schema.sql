@@ -935,6 +935,19 @@ CREATE TABLE IF NOT EXISTS public.threat_research_jobs (
   started_at timestamp with time zone,
   completed_at timestamp with time zone
 );
+CREATE TABLE IF NOT EXISTS public.threat_research_job_checkpoints (
+  job_id uuid NOT NULL,
+  session_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  agent text NOT NULL,
+  schema_version integer NOT NULL,
+  iteration integer NOT NULL,
+  restore_count integer NOT NULL DEFAULT 0,
+  messages jsonb NOT NULL,
+  bytes integer NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS public.threat_research_sessions (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
@@ -1138,6 +1151,9 @@ ALTER TABLE public.threat_research_events ADD CONSTRAINT threat_research_events_
 ALTER TABLE public.threat_research_events ADD CONSTRAINT threat_research_events_pkey PRIMARY KEY (id);
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_pkey PRIMARY KEY (id);
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_session_id_phase_behaviour_id_key UNIQUE (session_id, phase, behaviour_id);
+ALTER TABLE public.threat_research_job_checkpoints ADD CONSTRAINT threat_research_job_checkpoints_pkey PRIMARY KEY (job_id);
+ALTER TABLE public.threat_research_job_checkpoints ADD CONSTRAINT trjc_job_fk FOREIGN KEY (job_id) REFERENCES public.threat_research_jobs(id) ON DELETE CASCADE;
+ALTER TABLE public.threat_research_job_checkpoints ADD CONSTRAINT trjc_session_fk FOREIGN KEY (session_id) REFERENCES public.threat_research_sessions(id) ON DELETE CASCADE;
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_phase_check CHECK ((phase = ANY (ARRAY['preflight'::text, 'research'::text, 'attack_research'::text, 'opportunity_planning'::text, 'detection'::text, 'qa'::text, 'finalise'::text])));
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text])));
 ALTER TABLE public.threat_research_sessions ADD CONSTRAINT threat_research_sessions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text, 'cancelled'::text])));
@@ -5569,6 +5585,12 @@ ALTER TABLE public.threat_intel_report_detections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.threat_intel_reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.threat_research_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.threat_research_jobs ENABLE ROW LEVEL SECURITY;
+-- Checkpoints hold the full model conversation: the user's environment
+-- profile, their library rule bodies, intermediate agent reasoning. RLS on
+-- with NO policies denies every non-service role; the orchestrator uses the
+-- service role, which bypasses RLS. Deliberately not exposed to Realtime.
+ALTER TABLE public.threat_research_job_checkpoints ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.threat_research_job_checkpoints FROM PUBLIC, anon, authenticated;
 ALTER TABLE public.threat_research_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_dashboards ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_invitations ENABLE ROW LEVEL SECURITY;

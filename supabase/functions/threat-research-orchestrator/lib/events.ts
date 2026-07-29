@@ -27,6 +27,12 @@ export interface RunContext {
    *  only so RunContext values built outside runJob (tests, etc.) don't need
    *  to supply it; the guard no-ops when absent. */
   jobStartedAt?: number;
+  /** The job row this worker claimed. Keys the resumable conversation
+   *  checkpoint (see agents/checkpoint.ts) so a reaper-reset retry continues
+   *  where the killed attempt stopped instead of restarting from message zero.
+   *  Optional so RunContext values built outside runJob (tests, one-off
+   *  tooling) need not supply it; checkpointing simply no-ops when absent. */
+  jobId?: string;
 }
 
 export interface EmitEvent {
