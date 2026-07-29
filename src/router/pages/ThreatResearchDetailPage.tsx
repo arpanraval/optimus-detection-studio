@@ -133,7 +133,7 @@ export function ThreatResearchDetailPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <ResearchHeader session={session} view={view} onViewChange={setView} />
+      <ResearchHeader session={session} view={view} onViewChange={setView} currentPhase={jobs.currentPhase} />
 
       {/* Planner-degraded banner. ext-amber wash matches the design
           system's Warning / Medium-severity treatment. */}
@@ -152,9 +152,12 @@ export function ThreatResearchDetailPage() {
         </div>
       )}
 
-      {/* List view: inline status banner row above the table — full width,
-          no overlap. */}
-      {view === 'list' && (
+      {/* List and Research views: inline status banner row — full width,
+          no overlap. Canvas gets its own floating chrome below instead.
+          Research previously had NO status chrome at all — a user parked
+          there during a live run had no Cancel/Resume affordance and no
+          progress signal. */}
+      {(view === 'list' || view === 'research') && (
         <div className="flex flex-wrap items-center gap-2 border-b border-outline-variant bg-surface px-6 py-3">
           {(session.status === 'pending' || session.status === 'running') && (
             <div className="inline-flex items-center gap-2 rounded-full border border-outline-variant bg-surface-container px-3 py-1 text-sm text-on-surface">
@@ -193,11 +196,6 @@ export function ThreatResearchDetailPage() {
               status={session.status}
               activeBehaviourIds={activeBehaviourIds}
               onLeafClick={(b, o) => setSelected({ behaviour: b, opportunity: o })}
-              onLibraryMatchClick={(b) => {
-                if (b.library_match) {
-                  window.open(`/library/detections/${b.library_match.existing_detection_id}`, '_blank');
-                }
-              }}
             />
 
             {/* Floating chrome stack — ONLY on the canvas view. */}

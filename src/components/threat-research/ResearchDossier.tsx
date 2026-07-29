@@ -100,18 +100,11 @@ export function ResearchDossier({ tree }: { tree: ThreatResearchTree }) {
     <div className="flex-1 overflow-y-auto px-6 py-5">
       <div className="mx-auto max-w-4xl space-y-8">
 
-        {tree.planner_status === 'degraded' && (
-          <div className="flex items-start gap-3 rounded-2xl border border-ext-amber/30 bg-ext-amber/10 px-4 py-3">
-            <Icon name="alert-triangle" size={16} className="mt-0.5 flex-shrink-0 text-ext-amber" />
-            <div className="text-sm text-on-surface">
-              <span className="font-semibold">Opportunity Planner did not run.</span>{' '}
-              <span className="text-on-surface-variant">
-                The research below is unaffected, but detections were generated 1:1 per behaviour
-                without canonical clustering, so the detection views may contain near-duplicates.
-              </span>
-            </div>
-          </div>
-        )}
+        {/* planner_status === 'degraded' banner intentionally NOT rendered
+            here — ThreatResearchDetailPage already renders it once, above
+            every view (including this one), with the actionable "Re-run
+            planner" button. Duplicating a decorative-only copy of the same
+            banner here just showed it twice on the Research tab. */}
 
         {/* ── Subject ───────────────────────────────────────────────────── */}
         <section className="space-y-4 rounded-2xl border border-outline-variant bg-surface p-5">

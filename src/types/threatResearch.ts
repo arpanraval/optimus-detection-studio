@@ -9,7 +9,11 @@ export type ResearchInputClassification =
 
 export type ResearchAgent =
   | 'orchestrator' | 'preflight'
-  | 'research' | 'attack-researcher' | 'planner' | 'detection-engineer' | 'qa';
+  // 'dossier' is retained only for events written during the short-lived
+  // 2026-07-29 merged-agent rollout.
+  // New sessions emit research + attack-researcher.
+  | 'dossier' | 'research' | 'attack-researcher'
+  | 'planner' | 'detection-engineer' | 'qa';
 
 export type ResearchEventType =
   | 'agent_started' | 'agent_iteration' | 'agent_tool_call' | 'agent_narration'
@@ -76,10 +80,8 @@ export interface PreflightSummary {
   ran_at: string;
 }
 
-/** Existing-detection match in the user's library — the Detection Engineer
- *  surfaces this when a strong match exists (combined_score >= 0.6 by
- *  default; THREAT_RESEARCH_LIBRARY_MATCH_THRESHOLD overrides). UI renders
- *  the leaf with a sage-green glow border. */
+/** Existing-detection match in the user's library. Reuse requires both the
+ *  configured similarity score and MITRE overlap with the opportunity. */
 export interface LibraryMatch {
   existing_detection_id: string;
   name: string;
@@ -92,12 +94,15 @@ export interface LibraryMatch {
   /** The existing rule's query body, so a reused leaf renders the actual rule.
    *  Optional for back-compat with sessions persisted before the field. */
   detection_query?: string;
+  /** Technique ids on the existing rule. Optional for sessions created
+   *  before the technique-overlap reuse gate. */
+  mitre_technique_ids?: string[];
   combined_score: number;
   semantic_score: number;
   keyword_score: number;
 }
 
-/** Attack Researcher's per-behaviour offensive deep dive. */
+/** Per-behaviour offensive deep dive, produced by the Attack Researcher phase. */
 export interface AttackResearchDeepDive {
   how_it_works: string;
   controls_bypassed: string[];
@@ -182,7 +187,19 @@ export interface GeneratedDetection {
    *  backward compatibility. */
   library_near_match?: LibraryNearMatch | null;
   saved_detection_id: string | null;
+  /** True when `saved_detection_id` was set by the reuse-first short-circuit
+   *  (Amendment 1) pointing this leaf at an existing library rule, rather
+   *  than by the user saving a freshly-generated detection this session.
+   *  Optional for back-compat with sessions persisted before this field
+   *  existed. */
+  reused_from_library?: boolean;
   archived: boolean;
+  /** Findings from the deterministic (non-LLM) validators run after
+   *  generation: telemetry-feasibility, sigma-syntax, citation-check, mitre.
+   *  Keyed by validator name, value is a human-readable finding string.
+   *  Absent or empty means all validators ran clean (or didn't apply).
+   *  Advisory only — never blocks a detection from shipping. */
+  validator_findings?: Record<string, string>;
 }
 
 /** Why a scoring library match was not treated as coverage.

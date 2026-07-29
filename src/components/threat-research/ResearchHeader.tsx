@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Icon } from '../Icon';
 import { ROUTES } from '../../router/routes';
 import type { ThreatResearchSession } from '../../types/threatResearch';
+import type { JobPhase } from '../../hooks/useThreatResearchJobs';
 
 export type ResearchView = 'canvas' | 'list' | 'research';
 
@@ -10,6 +11,47 @@ interface Props {
   session: ThreatResearchSession;
   view: ResearchView;
   onViewChange: (v: ResearchView) => void;
+  /** Most-advanced phase with any job row, from useThreatResearchJobs.
+   *  Drives the "Phase X of 7" indicator. Undefined/null hides it — there's
+   *  nothing to show before the first job exists, or once a session has
+   *  already ended (its badge value would just be stale). */
+  currentPhase?: JobPhase | null;
+}
+
+/** Display stages in pipeline order — one entry per real job phase.
+ *  attack_research is a genuine fan-out phase (one job per behaviour); it is
+ *  load-bearing for staying under the edge-worker ceiling — see the
+ *  phase-progression note in lib/orchestrator.ts. */
+const PHASE_STAGES: { phases: JobPhase[]; label: string }[] = [
+  { phases: ['preflight'], label: 'Classifying input' },
+  { phases: ['research'], label: 'Researching the threat' },
+  { phases: ['attack_research'], label: 'Per-behaviour deep dive' },
+  { phases: ['opportunity_planning'], label: 'Planning detection opportunities' },
+  { phases: ['detection'], label: 'Writing detections' },
+  { phases: ['qa'], label: 'QA review' },
+  { phases: ['finalise'], label: 'Finalising' },
+];
+
+function stageIndex(phase: JobPhase | null | undefined): number {
+  if (!phase) return -1;
+  return PHASE_STAGES.findIndex(s => s.phases.includes(phase));
+}
+
+/** "Phase X of 7: <label>" chip. Only rendered while a session is still
+ *  actively progressing — see the render-site guard in ResearchHeader. */
+function PhaseIndicator({ phase }: { phase: JobPhase | null | undefined }) {
+  const idx = stageIndex(phase);
+  if (idx < 0) return null;
+  const stage = PHASE_STAGES[idx];
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary ring-1 ring-inset ring-primary/25"
+      title={`Phase ${idx + 1} of ${PHASE_STAGES.length}: ${stage.label}`}
+    >
+      <Icon name="loader" size={10} className="animate-spin" />
+      Phase {idx + 1}/{PHASE_STAGES.length} · {stage.label}
+    </span>
+  );
 }
 
 const VIEWS: { id: ResearchView; label: string; title: string }[] = [
@@ -34,7 +76,7 @@ const CLASSIFICATION_LABEL: Record<string, string> = {
   concept:    'Concept',
 };
 
-export function ResearchHeader({ session, view, onViewChange }: Props) {
+export function ResearchHeader({ session, view, onViewChange, currentPhase }: Props) {
   const subject = session.tree.subject;
   const title = subject?.subject ?? session.input_text;
 
@@ -73,6 +115,9 @@ export function ResearchHeader({ session, view, onViewChange }: Props) {
               <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary ring-1 ring-inset ring-primary/25">
                 {CLASSIFICATION_LABEL[session.input_classification] ?? session.input_classification}
               </span>
+            )}
+            {(session.status === 'pending' || session.status === 'running') && (
+              <PhaseIndicator phase={currentPhase} />
             )}
             {otherSiems.length > 0 && targetedSiem && (
               <span

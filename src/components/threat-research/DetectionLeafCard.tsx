@@ -2,12 +2,25 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
 import { useToast } from '../../hooks/useToast';
+import { useSigmaConverter } from '../../hooks/useSigmaConverter';
 import { saveDetectionFromLeaf, archiveLeaf, unarchiveLeaf, completeQa } from '../../lib/threatResearchService';
 import { routeHelpers } from '../../router/routes';
 import { Section, CitationList } from './shared';
 import type {
   ThreatResearchSession, AttackBehaviour, DetectionOpportunity, LibraryNearMatch,
 } from '../../types/threatResearch';
+
+/** A few common conversion targets — not every backend SUPPORTED_BACKENDS
+ *  lists, just the ones a Sigma-output session is most likely to need.
+ *  `id` is the pysigma backend id (SigmaConverterService.convert's `target`
+ *  param), NOT the ResearchQueryLanguage the rest of this feature uses. */
+const SIGMA_CONVERT_TARGETS: { id: string; label: string }[] = [
+  { id: 'kusto',   label: 'KQL (Sentinel / Defender)' },
+  { id: 'splunk',  label: 'Splunk SPL' },
+  { id: 'lucene',  label: 'Elasticsearch (Lucene)' },
+  { id: 'eql',     label: 'Elasticsearch (EQL)' },
+  { id: 'esql',    label: 'Elasticsearch (ES|QL)' },
+];
 
 interface Props {
   session: ThreatResearchSession;
@@ -200,7 +213,14 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
         {det.saved_detection_id && (
           <div className="flex items-center gap-2 rounded-md bg-tertiary-container px-3 py-2 text-sm text-on-tertiary-container">
             <Icon name="check-circle" size={16} />
-            Saved to library as a Draft.
+            {det.reused_from_library
+              // reused_from_library means the reuse-first short-circuit
+              // pointed this leaf at an existing rule — no user action
+              // happened, and the rule may already be Production/Testing,
+              // not a Draft. The "Saved to library as a Draft" copy below
+              // is wrong for this case.
+              ? 'Already in your library — matched to an existing rule, not generated this session.'
+              : 'Saved to library as a Draft.'}
           </div>
         )}
 
@@ -293,6 +313,9 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
           <pre className="overflow-x-auto rounded-md bg-surface-container-highest px-3 py-2.5 text-xs text-on-surface">
             <code>{det.query}</code>
           </pre>
+          {det.query_language === 'Sigma' && det.query.trim() && (
+            <SigmaConvertSection query={det.query} />
+          )}
         </Section>
 
         <Section title="MITRE">
@@ -397,8 +420,15 @@ function Footer({
               : 'QA is still pending. Wait for the verdict before saving.'}
           </span>
           {det.qa_error && (
-            <Button variant="tonal" color="primary" size="sm" onClick={onRetryQa} disabled={busy}>
-              Retry QA
+            <Button
+              variant="tonal"
+              color="primary"
+              size="sm"
+              onClick={onRetryQa}
+              disabled={busy}
+              title="Queues QA for every detection in this session still missing a verdict, not just this one."
+            >
+              Retry QA (session-wide)
             </Button>
           )}
         </div>
@@ -436,6 +466,89 @@ function Footer({
           <Button variant="outlined" onClick={onArchive} disabled={busy}>Discard</Button>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Convert-and-copy for Sigma-language detections. SigmaConverterService is
+ *  a Pyodide WASM worker — booting it loads a full Python + sigma-cli
+ *  runtime in-browser, which is real cost (several seconds) that shouldn't
+ *  happen just because a leaf card opened. useSigmaConverter() is only
+ *  called (and the worker only created) inside SigmaConvertRunner, which
+ *  itself only mounts after the user explicitly clicks Convert — the idle
+ *  state below never touches the hook. */
+function SigmaConvertSection({ query }: { query: string }) {
+  const [target, setTarget] = useState(SIGMA_CONVERT_TARGETS[0].id);
+  const [running, setRunning] = useState(false);
+
+  if (running) {
+    return (
+      <SigmaConvertRunner
+        query={query}
+        target={target}
+        targetLabel={SIGMA_CONVERT_TARGETS.find(t => t.id === target)?.label ?? target}
+        onDone={() => setRunning(false)}
+      />
+    );
+  }
+
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      <select
+        value={target}
+        onChange={e => setTarget(e.target.value)}
+        className="rounded-md border border-outline-variant bg-surface px-2 py-1 text-xs text-on-surface"
+        aria-label="Convert target"
+      >
+        {SIGMA_CONVERT_TARGETS.map(t => (
+          <option key={t.id} value={t.id}>{t.label}</option>
+        ))}
+      </select>
+      <Button variant="outlined" size="sm" onClick={() => setRunning(true)}>
+        <Icon name="file-code" size={12} />
+        Convert &amp; Copy
+      </Button>
+    </div>
+  );
+}
+
+function SigmaConvertRunner({
+  query, target, targetLabel, onDone,
+}: {
+  query: string;
+  target: string;
+  targetLabel: string;
+  onDone: () => void;
+}) {
+  const { showToast } = useToast();
+  const { isReady, convert } = useSigmaConverter();
+  const startedRef = useRef(false);
+
+  useEffect(() => {
+    if (!isReady || startedRef.current) return;
+    startedRef.current = true;
+    (async () => {
+      const result = await convert(query, target);
+      if (!result || result.error) {
+        showToast('error', `Conversion to ${targetLabel} failed: ${result?.error ?? 'unknown error'}`);
+      } else {
+        try {
+          await navigator.clipboard.writeText(result.query);
+          showToast('success', `Converted to ${targetLabel} and copied to clipboard`);
+        } catch {
+          showToast('info', `Converted to ${targetLabel}, but clipboard write was blocked — check browser permissions`);
+        }
+      }
+      onDone();
+    })();
+  }, [isReady, convert, query, target, targetLabel, onDone, showToast]);
+
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      <Button variant="outlined" size="sm" disabled>
+        <Icon name="loader" size={12} className="animate-spin" />
+        {isReady ? 'Converting…' : 'Loading converter…'}
+      </Button>
     </div>
   );
 }

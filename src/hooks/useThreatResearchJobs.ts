@@ -79,6 +79,20 @@ function rowsToLeafMap(rows: JobRow[]): ReadonlyMap<string, LeafJobState> {
   return map;
 }
 
+/** Phases in pipeline order. `attack_research` is a real fan-out phase (one
+ *  job per behaviour) that sits between `research` and `opportunity_planning`.
+ *  Order matters: `currentPhase` below is derived by taking the highest-ranked
+ *  phase that has any job row, so an out-of-order entry would report the wrong
+ *  progress stage. */
+const PHASE_ORDER: JobPhase[] = [
+  'preflight', 'research', 'attack_research', 'opportunity_planning', 'detection', 'qa', 'finalise',
+];
+
+function phaseRank(p: JobPhase): number {
+  const i = PHASE_ORDER.indexOf(p);
+  return i < 0 ? -1 : i;
+}
+
 export interface UseThreatResearchJobsResult {
   /** Map composite "{behaviour}/{opportunity}" → state for both phases. */
   byLeaf: ReadonlyMap<string, LeafJobState>;
@@ -89,12 +103,18 @@ export interface UseThreatResearchJobsResult {
    *  running. Lets the header show a coarse "still working" indicator even
    *  before any per-leaf job exists. */
   singletonActive: boolean;
+  /** The most-advanced active phase for this session, or null when no job is
+   *  pending/running. Restricting this to active rows matters after a resume:
+   *  historical completed finalise rows must not outrank a newly retried
+   *  detection or QA job. */
+  currentPhase: JobPhase | null;
 }
 
 const EMPTY_RESULT: UseThreatResearchJobsResult = {
   byLeaf: EMPTY,
   attackResearchActive: new Set<string>(),
   singletonActive: false,
+  currentPhase: null,
 };
 
 export function useThreatResearchJobs(sessionId: string | null): UseThreatResearchJobsResult {
@@ -122,7 +142,17 @@ export function useThreatResearchJobs(sessionId: string | null): UseThreatResear
       const byLeaf = rowsToLeafMap(rows);
       const attackResearchActive = new Set<string>();
       let singletonActive = false;
+      let currentPhase: JobPhase | null = null;
+      let currentPhaseRank = -1;
       for (const r of rows) {
+        const active = r.status === 'pending' || r.status === 'running';
+        if (active) {
+          const rank = phaseRank(r.phase);
+          if (rank > currentPhaseRank) {
+            currentPhaseRank = rank;
+            currentPhase = r.phase;
+          }
+        }
         if (r.status !== 'running') continue;
         if (r.phase === 'attack_research' && r.behaviour_id) {
           attackResearchActive.add(r.behaviour_id);
@@ -133,7 +163,7 @@ export function useThreatResearchJobs(sessionId: string | null): UseThreatResear
           singletonActive = true;
         }
       }
-      setState({ byLeaf, attackResearchActive, singletonActive });
+      setState({ byLeaf, attackResearchActive, singletonActive, currentPhase });
     };
 
     void refetch();

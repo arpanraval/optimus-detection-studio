@@ -7,7 +7,7 @@ import type { LeafJobState } from '../../hooks/useThreatResearchJobs';
 import type {
   ThreatResearchSession, ThreatResearchTree, AttackBehaviour, DetectionOpportunity,
 } from '../../types/threatResearch';
-import { TrustFlags } from './shared';
+import { TrustFlags, isDetectionSaved } from './shared';
 
 interface Props {
   session: ThreatResearchSession;
@@ -70,7 +70,7 @@ export function ResearchList({
     for (const b of tree.behaviours) {
       for (const o of b.opportunities) {
         if (o.detection.archived) continue;
-        if (o.detection.saved_detection_id) continue;
+        if (isDetectionSaved(o.detection)) continue;
         out.push({ behaviour: b, opportunity: o, key: `${b.id}/${o.id}` });
       }
     }
@@ -191,7 +191,7 @@ export function ResearchList({
   if (tree.behaviours.length === 0) {
     return (
       <div className="flex h-full items-center justify-center p-8 text-sm text-on-surface-variant">
-        Waiting for the Attack Researcher to produce behaviours...
+        Waiting for the Research Agent to produce behaviours...
       </div>
     );
   }
@@ -203,27 +203,34 @@ export function ResearchList({
   // "is this session output usable?" answer.
   let engineerFailedCount = 0;
   let qaErrorCount = 0;
-  let qaPassCount = 0;
-  let qaPassWithConcernsCount = 0;
   let savedCount = 0;
   let totalDetections = 0;
   for (const b of tree.behaviours) {
     for (const o of b.opportunities) {
       totalDetections++;
       const det = o.detection;
-      if (det.saved_detection_id) savedCount++;
+      if (isDetectionSaved(det)) savedCount++;
       if (det.qa_error === 'engineer_failed') engineerFailedCount++;
       else if (det.qa_error) qaErrorCount++;
-      if (det.qa?.verdict === 'pass') qaPassCount++;
-      else if (det.qa?.verdict === 'pass_with_concerns') qaPassWithConcernsCount++;
       // qa.verdict === 'fail' is intentionally not surfaced in the header
       // counts — failed verdicts render per-row (Retry available) and
       // counting them here would imply a separate "X failed" badge that
       // doesn't exist in this view.
     }
   }
-  const usableCount = qaPassCount + qaPassWithConcernsCount + savedCount;
-  const passingCount = qaPassCount + qaPassWithConcernsCount;
+  // passingCount mirrors exactly what selectAllPassing() below selects:
+  // eligible (not saved, not archived) leaves with a pass/pass_with_concerns
+  // verdict. Deriving it from eligibleLeaves — rather than counting
+  // pass/pass_with_concerns across the WHOLE tree — makes usableCount =
+  // savedCount + passingCount mutually exclusive by construction. The
+  // previous `qaPassCount + qaPassWithConcernsCount + savedCount` double-
+  // counted any detection that was BOTH saved and QA-passing, so "N usable"
+  // could exceed the actual number of distinct usable detections.
+  const passingCount = eligibleLeaves.filter(l => {
+    const v = l.opportunity.detection.qa?.verdict;
+    return v === 'pass' || v === 'pass_with_concerns';
+  }).length;
+  const usableCount = savedCount + passingCount;
   const allEngineerFailed = totalDetections > 0 && engineerFailedCount === totalDetections;
   const hasFailures = engineerFailedCount > 0 || qaErrorCount > 0;
 
@@ -335,7 +342,7 @@ export function ResearchList({
               ]
               : b.opportunities.map(o => {
                 const key = `${b.id}/${o.id}` as LeafKey;
-                const eligible = !o.detection.archived && !o.detection.saved_detection_id;
+                const eligible = !o.detection.archived && !isDetectionSaved(o.detection);
                 const jobState = jobs.get(key) ?? null;
                 return (
                   <Row
@@ -388,7 +395,7 @@ function resolveRowState(
   jobState: LeafJobState | null,
 ): RowState {
   if (det.archived) return 'discarded';
-  if (det.saved_detection_id) return 'saved';
+  if (isDetectionSaved(det)) return 'saved';
   if (jobState?.detection_status === 'running') return 'detection_run';
   if (jobState?.qa_status === 'running') return 'qa_run';
   if (det.qa?.verdict === 'pass') return 'pass';
@@ -482,10 +489,14 @@ function Row({
   const failureTooltip =
     state === 'qa_other_error' ? `qa_error: ${det.qa_error}` :
     state === 'qa_timeout'     ? `qa_error: ${det.qa_error}` :
-    state === 'qa_budget'      ? 'Session model-call cap reached. Resume_session with a cap bump retries this leaf.' :
+    state === 'qa_budget'      ? 'Session model-call cap reached. Retry bumps the cap and regenerates this detection from scratch.' :
     state === 'qa_iteration'   ? 'QA agent loop hit iteration cap — typically a JSON parse failure on the candidate KQL (escape chars). Retry usually succeeds.' :
     state === 'eng_failed'     ? 'Detection engineer agent loop failed (budget/timeout/validation). Retry regenerates the detection from scratch.' :
-    state === 'lost_silent'    ? 'QA verdict was lost mid-pipeline (historical id-mismatch bug). Retry re-runs QA against the existing detection body.' :
+    // retry_leaf enqueues a fresh `detection` job — same full regeneration
+    // as eng_failed's retry, not a QA-only re-run of the existing query.
+    // The previous copy here claimed it "re-runs QA against the existing
+    // detection body," which is not what the endpoint does.
+    state === 'lost_silent'    ? 'QA verdict was lost mid-pipeline (historical id-mismatch bug). Retry regenerates the detection from scratch.' :
     state === 'dup_no_qa'      ? `Semantic duplicate of detection ${det.duplicate_of ?? 'another leaf'}; QA never ran on this one. Nothing to save — use the detection it duplicates.` :
     state === 'fail'           ? (det.qa?.concerns?.[0] ?? 'QA judged the detection inadequate.') :
     null;
@@ -590,14 +601,32 @@ function EmptyBehaviourRow({
   showResume: boolean;
   onResumeSession?: () => void;
 }) {
-  // Four mutually-exclusive states for a behaviour with zero opportunities:
+  // Five mutually-exclusive states for a behaviour with zero opportunities:
   //   1. active            — agent is currently working on it
-  //   2. engineer_failed   — agent loop crashed (budget/timeout/validation).
-  //                          Recoverable, but NOT via retry_leaf; this is NOT
-  //                          a model verdict that the behaviour is undetectable.
+  //   2. merged            — the Opportunity Planner folded this behaviour
+  //                          into another behaviour's canonical opportunity,
+  //                          so it has no opportunity of its own AND nothing
+  //                          is pending. Checked BEFORE the fallback: on a
+  //                          COMPLETED session these rows previously read
+  //                          "Waiting for the Detection Engineer…", which is
+  //                          plainly false — the work is done, it just lives
+  //                          on a sibling leaf (the detail card's
+  //                          "also covers: b2, b3…" cross-reference). Canvas
+  //                          already surfaced this via merged_into_opportunity_ids;
+  //                          List did not.
   //   3. not_detectable    — engineer ran successfully and concluded no
   //                          reliable signal exists.
-  //   4. otherwise         — genuinely waiting for engineer to claim the job.
+  //   4. needs_telemetry   — detectable in principle, but the customer's
+  //                          environment lacks the required log source.
+  //                          Canvas already distinguishes this (its own
+  //                          NodeState + icon); List fell through to the
+  //                          generic "waiting" message for it.
+  //   5. otherwise         — genuinely waiting for engineer to claim the job.
+  //
+  // (A prior 'engineer_failed' state existed here too, but the Opportunity
+  // Planner's VALID_DETECTABILITY never emits it — only siem/edr/
+  // needs_telemetry/not_detectable — and nothing else assigns it either, so
+  // that branch was permanently dead. Removed rather than left unreachable.)
   //
   // The recovery here is Resume session, not Retry. This row previously
   // offered Retry wired to onRetryLeaf(behaviour.id) — a bare "b1". retry_leaf
@@ -605,31 +634,30 @@ function EmptyBehaviourRow({
   // "{behaviour}/{opportunity}" id, so it threw every time. Even with a valid
   // id it could not have helped: the missing artefact is an opportunity, and
   // only the Opportunity Planner produces those.
-  const isFailed = !active && behaviour.detectability === 'engineer_failed';
-  const isNotDetectable = !active && behaviour.detectability === 'not_detectable';
+  const mergedCount = behaviour.merged_into_opportunity_ids?.length ?? 0;
+  const isMerged = !active && mergedCount > 0;
+  const isNotDetectable = !active && !isMerged && behaviour.detectability === 'not_detectable';
+  const isNeedsTelemetry = !active && !isMerged && behaviour.detectability === 'needs_telemetry';
 
   const message = active
     ? 'Agent working on this behaviour…'
-    : isFailed
-      ? 'Engineer agent failed (budget / timeout / validation). Resume the session to re-run the planner for this behaviour.'
+    : isMerged
+      ? `Covered by ${mergedCount} detection${mergedCount === 1 ? '' : 's'} on sibling behaviour${mergedCount === 1 ? '' : 's'} — the planner merged this into a shared observable surface rather than writing a near-duplicate query.`
       : isNotDetectable
         ? (behaviour.detectability_rationale
             || 'Engineer ran but found no reliable signal to detect this behaviour with current telemetry.')
-        : 'Waiting for the Detection Engineer…';
+        : isNeedsTelemetry
+          ? (behaviour.detectability_rationale
+              || 'Detectable in principle, but the required log source isn\'t in this environment yet.')
+          : 'Waiting for the Detection Engineer…';
 
-  // Always offer the recovery on engineer_failed regardless of the
-  // session-level showResume flag — a failed engineer is worth resuming even
-  // if the session as a whole hasn't been marked failed yet.
-  const offerResume = (showResume || isFailed) && !!onResumeSession;
+  const offerResume = showResume && !!onResumeSession;
 
   // Pending rows still deserve a left-edge indicator so the row visually
-  // aligns with status rows. Active = primary pulse, failed = error, not
-  // detectable = muted, default waiting = neutral outline.
-  const pendingBorder = active
-    ? 'border-l-primary'
-    : isFailed
-      ? 'border-l-error'
-      : 'border-l-outline-variant';
+  // aligns with status rows. Active = primary pulse, default waiting =
+  // neutral outline (not_detectable gets no special border — it's a real
+  // verdict, not an error).
+  const pendingBorder = active ? 'border-l-primary' : 'border-l-outline-variant';
 
   return (
     <tr className={`bg-surface-container-low border-l-4 ${pendingBorder}`}>
@@ -639,15 +667,17 @@ function EmptyBehaviourRow({
       <td className="px-4 py-2">
         <span className="inline-flex items-center gap-1.5 font-medium text-on-surface-variant">
           {active && <Icon name="loader" size={12} className="animate-spin text-primary" />}
-          {isFailed && <Icon name="alert-triangle" size={12} className="text-error" />}
+          {isMerged && <Icon name="git-fork" size={12} className="text-ext-teal" />}
           {isNotDetectable && <Icon name="eye-off" size={12} className="text-on-surface-variant" />}
+          {isNeedsTelemetry && <Icon name="help-circle" size={12} className="text-on-surface-variant" />}
           {behaviour.title}
           <TrustFlags behaviour={behaviour} />
         </span>
       </td>
       <td colSpan={6} className="px-4 py-2 text-xs italic text-on-surface-variant">
-        {isFailed ? <span className="not-italic font-medium text-error">Engineer failed. </span> : null}
+        {isMerged ? <span className="not-italic font-medium text-ext-teal">Merged. </span> : null}
         {isNotDetectable ? <span className="not-italic font-medium text-on-surface-variant">Not detectable. </span> : null}
+        {isNeedsTelemetry ? <span className="not-italic font-medium text-on-surface-variant">Needs telemetry. </span> : null}
         {message}
       </td>
       <td className="px-4 py-2">
@@ -656,11 +686,7 @@ function EmptyBehaviourRow({
             type="button"
             onClick={onResumeSession}
             title="Re-runs the session's failed jobs, including the Opportunity Planner that would produce this behaviour's opportunities."
-            className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-medium ${
-              isFailed
-                ? 'border border-primary bg-primary text-on-primary hover:opacity-90'
-                : 'border border-outline-variant text-on-surface hover:bg-surface-container'
-            }`}
+            className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-outline-variant px-3 py-1 text-[11px] font-medium text-on-surface hover:bg-surface-container"
           >
             Resume session
           </button>

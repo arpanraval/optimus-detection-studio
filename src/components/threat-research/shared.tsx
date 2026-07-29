@@ -10,7 +10,19 @@
 
 import React from 'react';
 import { Icon } from '../Icon';
-import type { AttackBehaviour } from '../../types/threatResearch';
+import type { AttackBehaviour, DetectionOpportunity } from '../../types/threatResearch';
+
+/** A detection with saved_detection_id set is terminal — "already in the
+ *  library, nothing more to do" — whether it got there because the user
+ *  saved it this session or because reuse-first (Amendment 1) pointed the
+ *  leaf at an existing rule instead of generating one. This must be checked
+ *  before any qa-based branching in EVERY view. ResearchList already did;
+ *  ResearchCanvas didn't, so a reused leaf rendered "qa pending" forever in
+ *  Canvas while List correctly showed "Saved to library" for the same leaf.
+ *  One shared predicate so that divergence can't reappear. */
+export function isDetectionSaved(det: DetectionOpportunity['detection']): boolean {
+  return !!det.saved_detection_id;
+}
 
 /** Labelled block. The uppercase micro-heading is the threat-research panel
  *  idiom; keep it identical everywhere so the views read as one surface. */
