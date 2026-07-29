@@ -1366,6 +1366,11 @@ async function handleQa(
     // as a plain 'fail' -- the repaired detection would be discarded exactly
     // as before.
     revised_after_fail: refined.revised_after_fail ?? null,
+    // Without these the version history lives only in the worker's memory and
+    // the persisted leaf shows a single query -- the revision would still be
+    // destructive from every reader's point of view.
+    candidate_versions: refined.candidate_versions ?? null,
+    active_version: refined.active_version ?? null,
   });
 }
 

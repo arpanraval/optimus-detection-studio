@@ -184,6 +184,36 @@ export interface QaResult {
   iteration_count: number;
 }
 
+/** One candidate query for a detection.
+ *
+ *  Detections used to hold a single mutable `query`. When QA returned `fail`
+ *  the engineer's revision REPLACED it, with no second critique and only a
+ *  fenced-block parser between the model and the shipped artefact. A wrong
+ *  fail therefore destroyed the better detector, irreversibly.
+ *
+ *  The realistic case is not exotic. A broad, useful primitive --
+ *
+ *    DeviceProcessEvents | where FileName =~ "mshta.exe"
+ *    | where ProcessCommandLine has_any ("http://", "https://")
+ *
+ *  -- can be "improved" into remote-MSHTA AND explorer parent AND PowerShell
+ *  child AND network event. Higher fidelity, and it now detects exactly one
+ *  ClickFix chain while missing generic remote MSHTA abuse. The original was
+ *  the better detection primitive and there was no way back to it.
+ *
+ *  Both are kept now, and the analyst chooses. Automatic QA revision is a
+ *  PROPOSAL, never a destructive overwrite. */
+export interface DetectionCandidateVersion {
+  /** 1-based. Version 1 is always the engineer's initial generation. */
+  version: number;
+  query: string;
+  source: 'generated' | 'qa_revision';
+  created_at: string;
+  /** The verdict that prompted this version. Null on version 1, which
+   *  predates any critique. */
+  prompted_by_verdict?: QaVerdict | null;
+}
+
 export interface GeneratedDetection {
   id: string;
   name: string;
@@ -221,6 +251,14 @@ export interface GeneratedDetection {
    *  and then excluded from the session's usable count: punished twice for
    *  having been repaired. */
   revised_after_fail?: boolean | null;
+  /** Every candidate query produced for this detection, oldest first. A
+   *  revision APPENDS; it never overwrites. Optional so the 31 sessions
+   *  persisted before versioning still load. */
+  candidate_versions?: DetectionCandidateVersion[];
+  /** Which version `query` currently mirrors. Readers that only understand
+   *  `query` keep working unchanged; readers that understand versions can
+   *  offer the analyst the alternative. */
+  active_version?: number;
   /** Set by the finalise cross-opportunity dedup pass when this detection is a
    *  semantic duplicate of another AND has no `qa` block to annotate. The
    *  duplicate signal has to live somewhere that is not `qa`, because

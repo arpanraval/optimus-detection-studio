@@ -8,6 +8,7 @@ import { routeHelpers } from '../../router/routes';
 import { Section, CitationList } from './shared';
 import type {
   ThreatResearchSession, AttackBehaviour, DetectionOpportunity, LibraryNearMatch,
+  GeneratedDetection,
 } from '../../types/threatResearch';
 
 /** A few common conversion targets — not every backend SUPPORTED_BACKENDS
@@ -310,12 +311,7 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
         </Section>
 
         <Section title={`Query (${det.query_language})`}>
-          <pre className="overflow-x-auto rounded-md bg-surface-container-highest px-3 py-2.5 text-xs text-on-surface">
-            <code>{det.query}</code>
-          </pre>
-          {det.query_language === 'Sigma' && det.query.trim() && (
-            <SigmaConvertSection query={det.query} />
-          )}
+          <QueryVersions det={det} />
         </Section>
 
         <Section title="MITRE">
@@ -586,6 +582,62 @@ function LibraryNearMatchNote({ match }: { match: LibraryNearMatch }) {
  *  revisions and whether the revision actually addressed each concern.
  *  Hidden when there's ≤1 entry (only the initial QA pass with no
  *  revisions to compare against). */
+/** Query body, with the version history when QA revised it.
+ *
+ *  A QA `fail` triggers one engineer revision and no second critique. That
+ *  revision used to REPLACE the query, so a wrong fail silently destroyed the
+ *  better detector: a broad `mshta.exe` + http primitive becomes a four-
+ *  condition ClickFix-only query -- higher fidelity, far worse recall, and no
+ *  way back.
+ *
+ *  Both versions are kept now, so this shows both and lets the analyst read
+ *  QA's reasoning between them. The revision is a proposal; the choice is
+ *  theirs. Sessions persisted before versioning have no candidate_versions and
+ *  render exactly as before. */
+function QueryVersions({ det }: { det: GeneratedDetection }) {
+  const versions = det.candidate_versions ?? [];
+  const [selected, setSelected] = useState<number | null>(null);
+
+  const active = det.active_version ?? (versions.length || 1);
+  const shown = selected ?? active;
+  const shownVersion = versions.find(v => v.version === shown);
+  const body = shownVersion?.query ?? det.query;
+
+  return (
+    <>
+      {versions.length > 1 && (
+        <div className="mb-2 flex flex-wrap items-center gap-1.5">
+          {versions.map(v => (
+            <button
+              key={v.version}
+              type="button"
+              onClick={() => setSelected(v.version)}
+              className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
+                v.version === shown
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-outline-variant text-on-surface-variant hover:text-on-surface'
+              }`}
+            >
+              v{v.version}
+              {v.source === 'generated' ? ' · original' : ' · QA revision'}
+              {v.version === active ? ' · active' : ''}
+            </button>
+          ))}
+          <span className="text-[11px] text-on-surface-variant">
+            QA proposed the revision; it was not re-checked. Compare before saving.
+          </span>
+        </div>
+      )}
+      <pre className="overflow-x-auto rounded-md bg-surface-container-highest px-3 py-2.5 text-xs text-on-surface">
+        <code>{body}</code>
+      </pre>
+      {det.query_language === 'Sigma' && body.trim() && (
+        <SigmaConvertSection query={body} />
+      )}
+    </>
+  );
+}
+
 function RevisionHistory({
   history,
 }: {

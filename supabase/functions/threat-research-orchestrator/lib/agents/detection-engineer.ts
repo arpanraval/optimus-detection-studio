@@ -31,6 +31,7 @@ import type {
   ActorCoverageSeedItem, AttackBehaviour,
   DetectionOpportunity, GeneratedDetection, LibraryMatch, MitreTacticName,
   QaIteration, QaResult, ResearchQueryLanguage, ResearchSubject,
+  DetectionCandidateVersion, QaVerdict,
 } from "../types.ts";
 
 /** Threshold above which library_search short-circuits Detection Engineer
@@ -136,19 +137,60 @@ Output: ONE fenced ${language} code block. Optional \`// name:\` and \`// severi
 // original critique's verdict — we don't run a second QA to confirm the
 // revision worked.
 
+/** Append a candidate query and make it active.
+ *
+ *  Idempotent on an unchanged query: re-recording an identical body would
+ *  present the analyst with two indistinguishable versions and imply a change
+ *  that never happened. A revision that produced nothing new is not a version.
+ */
+export function withCandidateVersion(
+  detection: GeneratedDetection,
+  query: string,
+  source: DetectionCandidateVersion['source'],
+  promptedByVerdict: QaVerdict | null,
+): GeneratedDetection {
+  const existing = detection.candidate_versions ?? [];
+  const last = existing[existing.length - 1];
+  if (last && last.query === query) {
+    return { ...detection, candidate_versions: existing, active_version: last.version };
+  }
+  const version = existing.length + 1;
+  return {
+    ...detection,
+    query,
+    candidate_versions: [
+      ...existing,
+      {
+        version,
+        query,
+        source,
+        created_at: new Date().toISOString(),
+        prompted_by_verdict: promptedByVerdict,
+      },
+    ],
+    active_version: version,
+  };
+}
+
 export async function driveSinglePassQa(
   initialDetection: GeneratedDetection,
   writeFn: (prevDetection: GeneratedDetection, qa: QaResult) => Promise<GeneratedDetection>,
   qaFn:    (detection: GeneratedDetection) => Promise<CritiqueOutcome>,
 ): Promise<GeneratedDetection> {
-  const outcome = await qaFn(initialDetection);
+  // Record the engineer's output as version 1 before QA ever sees it. Doing it
+  // here rather than at revision time means the original survives even if the
+  // revision path throws — the version history cannot be lost by the same
+  // failure that produced the revision.
+  const withV1 = withCandidateVersion(initialDetection, initialDetection.query, 'generated', null);
+
+  const outcome = await qaFn(withV1);
   if (outcome.kind === 'pipeline_error') {
     // QA pipeline failed (timeout, iteration cap, model error, etc.). Surface
     // as qa_error — distinct from a verdict. Detection ships without a QA
     // judgement; UI shows "QA didn't run — retry". The caller can re-enqueue
     // the qa job.
     return {
-      ...initialDetection,
+      ...withV1,
       qa: null,
       qa_error: outcome.reason,
     };
@@ -162,7 +204,7 @@ export async function driveSinglePassQa(
   // Only `fail` triggers revision. `pass` and `pass_with_concerns` ship as-is.
   if (qa.verdict !== 'fail') {
     return {
-      ...initialDetection,
+      ...withV1,
       qa: { ...qa, iteration_history: history, iteration_count: 1 },
       qa_error: null,
     };
@@ -182,9 +224,18 @@ export async function driveSinglePassQa(
   // count, so a detection was punished twice for having been repaired. It now
   // derives as `revised_unverified` / `needs_review` (lib/readiness.ts) —
   // preserved, surfaced, and honest about not having been re-checked.
-  const revised = await writeFn(initialDetection, qa);
+  const revised = await writeFn(withV1, qa);
+  // APPEND. The revision becomes the active version, but version 1 stays
+  // reachable so an analyst can compare and revert — QA's judgement is a
+  // proposal, not an irreversible edit.
+  const versioned = withCandidateVersion(
+    { ...revised, candidate_versions: withV1.candidate_versions },
+    revised.query,
+    'qa_revision',
+    qa.verdict,
+  );
   return {
-    ...revised,
+    ...versioned,
     qa: { ...qa, iteration_history: history, iteration_count: 1 },
     qa_error: null,
     revised_after_fail: true,
