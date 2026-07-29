@@ -220,7 +220,15 @@ export interface GeneratedDetection {
  *   - `not_deployed`      the rule isn't in a status that counts as deployed
  *                         (a Draft rule detects nothing)
  *   - `language_mismatch` the rule targets a different SIEM than this session */
-export type LibraryNearMatchReason = 'not_deployed' | 'language_mismatch';
+/** Why a library hit did not replace generating a new detection. All four
+ *  are shown to the user, because "there is a rule for this but it is a Draft"
+ *  and "there is a rule for this but it is written in SPL" are different
+ *  problems with different fixes. */
+export type LibraryNearMatchReason =
+  | 'not_deployed'
+  | 'language_mismatch'
+  | 'no_query_body'
+  | 'technique_mismatch';
 
 export interface LibraryNearMatch {
   existing_detection_id: string;

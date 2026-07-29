@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { COVERAGE_STATUSES, hasMitreOverlap, isDeployedCoverage, isLanguageRunnable } from '../coverage';
+import { COVERAGE_STATUSES, hasMitreOverlap, isDeployedCoverage, isLanguageRunnable, adjudicateReuse } from '../coverage';
 
 describe('isDeployedCoverage', () => {
   it('counts a Production rule as coverage', () => {
@@ -109,5 +109,102 @@ describe('feasibility labelling (what handleDetection does with these now)', () 
 
   it("labels an undeployed rule in another language 'partial' — still reused", () => {
     expect(feasibility({ status: 'Draft', query_language: 'SPL' }, 'KQL')).toBe('partial');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// adjudicateReuse
+// ---------------------------------------------------------------------------
+
+describe('adjudicateReuse', () => {
+  const KQL_PRODUCTION = {
+    status: 'Production',
+    query_language: 'KQL',
+    detection_query: 'DeviceProcessEvents | where FileName =~ "adfind.exe"',
+    mitre_technique_ids: ['T1018'],
+  };
+
+  it('reuses a rule only when every condition holds', () => {
+    const a = adjudicateReuse({
+      opportunityMitreIds: ['T1018'],
+      match: KQL_PRODUCTION,
+      targetLanguage: 'KQL',
+    });
+    expect(a.suppressGeneration).toBe(true);
+    expect(a.skippedReason).toBeNull();
+  });
+
+  it('generates the gap AND shows a Draft rule as related coverage', () => {
+    // Previously any MITRE-overlapping hit suppressed generation outright, so
+    // 048fdd12 spent 165K tokens returning six existing rules. The user asked
+    // for detections and got a search result.
+    const a = adjudicateReuse({
+      opportunityMitreIds: ['T1018'],
+      match: { ...KQL_PRODUCTION, status: 'Draft' },
+      targetLanguage: 'KQL',
+    });
+    expect(a.suppressGeneration).toBe(false);
+    expect(a.showAsRelatedCoverage).toBe(true);
+    expect(a.skippedReason).toBe('not_deployed');
+  });
+
+  it('generates when the rule is in another SIEM language', () => {
+    const a = adjudicateReuse({
+      opportunityMitreIds: ['T1018'],
+      match: { ...KQL_PRODUCTION, query_language: 'SPL' },
+      targetLanguage: 'KQL',
+    });
+    expect(a.suppressGeneration).toBe(false);
+    expect(a.showAsRelatedCoverage).toBe(true);
+    expect(a.skippedReason).toBe('language_mismatch');
+  });
+
+  it('refuses to treat a rule with no query body as coverage', () => {
+    // A title is not a detection. Reusing one hands the user a claim the
+    // system cannot substantiate.
+    const a = adjudicateReuse({
+      opportunityMitreIds: ['T1018'],
+      match: { ...KQL_PRODUCTION, detection_query: '   ' },
+      targetLanguage: 'KQL',
+    });
+    expect(a.suppressGeneration).toBe(false);
+    expect(a.skippedReason).toBe('no_query_body');
+  });
+
+  it('does not surface a technique mismatch as related coverage', () => {
+    // The live T1218.015 run reused T1497, T1574.001 and T1190 rules on
+    // similarity alone. Those are bad search hits, not related coverage --
+    // showing them would train the user to ignore the panel.
+    const a = adjudicateReuse({
+      opportunityMitreIds: ['T1218.015'],
+      match: { ...KQL_PRODUCTION, mitre_technique_ids: ['T1497'] },
+      targetLanguage: 'KQL',
+    });
+    expect(a.suppressGeneration).toBe(false);
+    expect(a.showAsRelatedCoverage).toBe(false);
+    expect(a.skippedReason).toBe('technique_mismatch');
+  });
+
+  it('nothing to adjudicate when there was no match', () => {
+    const a = adjudicateReuse({ opportunityMitreIds: ['T1018'], match: null, targetLanguage: 'KQL' });
+    expect(a.suppressGeneration).toBe(false);
+    expect(a.showAsRelatedCoverage).toBe(false);
+    expect(a.skippedReason).toBeNull();
+  });
+
+  it('reports every condition so the trail can name the one that failed', () => {
+    const a = adjudicateReuse({
+      opportunityMitreIds: ['T1018'],
+      match: { ...KQL_PRODUCTION, status: 'Deprecated', query_language: 'SPL' },
+      targetLanguage: 'KQL',
+    });
+    expect(a.reasons).toEqual({
+      mitreOverlap: true,
+      runnableQuery: true,
+      compatibleLanguage: false,
+      deployedStatus: false,
+    });
+    // Language wins the report: it is the more actionable of the two.
+    expect(a.skippedReason).toBe('language_mismatch');
   });
 });

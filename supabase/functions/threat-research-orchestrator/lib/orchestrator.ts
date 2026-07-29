@@ -56,7 +56,7 @@ import {
 } from "./agents/detection-engineer.ts";
 // isDeployedCoverage / isLanguageRunnable are now DISPLAY helpers only — they
 // annotate the reused leaf, they no longer gate whether a rule is reused.
-import { isDeployedCoverage, isLanguageRunnable } from "./coverage.ts";
+import { isDeployedCoverage, isLanguageRunnable, adjudicateReuse } from "./coverage.ts";
 import { resolveQueryLanguage } from "./query-language.ts";
 import { flagCrossBehaviourDuplicates } from "./dedup.ts";
 import { loadKnowledgePack } from "./skills-loader.ts";
@@ -866,7 +866,20 @@ async function handleDetection(
   // library, because no rule was simultaneously Production AND KQL — so the
   // pipeline generated from scratch instead of reusing any of them.
   // See Amendment 1 in docs/plans/2026-07-28-threat-research-remediation-plan.md.
-  if (libMatch) {
+  // Adjudicate rather than reuse on sight. A hit replaces generation only when
+  // it overlaps on technique, has a runnable query, is written in this
+  // session's language, and is actually deployed. Otherwise it is shown as
+  // related coverage and the gap is still filled -- which is what makes the
+  // strictness safe: failing a condition costs the short-circuit, not the
+  // match. See adjudicateReuse in coverage.ts for why the earlier
+  // Production-AND-language gate was reverted and why this is not that.
+  const adjudication = adjudicateReuse({
+    opportunityMitreIds: opp.mitre_technique_ids,
+    match: libMatch,
+    targetLanguage: queryLanguage,
+  });
+
+  if (libMatch && adjudication.suppressGeneration) {
     const deployed = isDeployedCoverage(libMatch);
     const runnable = isLanguageRunnable(libMatch, queryLanguage);
     await emit(runCtx, {
@@ -941,9 +954,39 @@ async function handleDetection(
     }
     return;
   }
-  // Nothing in the library matched, so generation proceeds below. There is no
-  // longer a "near match that didn't qualify" case — any match is reused.
-  const nearMatch: LibraryNearMatch | null = null;
+  // Generation proceeds. A match may still exist here — it just did not earn
+  // the right to replace writing a new detection. Surfacing it as related
+  // coverage is the whole reason the adjudication can afford to be strict:
+  // the engineer sees the neighbouring rule, the user sees why it was not
+  // reused, and the gap still gets filled.
+  const nearMatch: LibraryNearMatch | null =
+    libMatch && adjudication.showAsRelatedCoverage
+      ? {
+          existing_detection_id: libMatch.existing_detection_id,
+          name: libMatch.name,
+          query_language: libMatch.query_language,
+          status: libMatch.status,
+          combined_score: libMatch.combined_score,
+          skipped_reason: adjudication.skippedReason ?? 'unknown',
+        } as LibraryNearMatch
+      : null;
+
+  if (nearMatch) {
+    await emit(runCtx, {
+      agent: 'detection-engineer',
+      event_type: 'library_match_found',
+      message: `${opp.title} → related rule "${libMatch!.name}" not reused ` +
+        `(${adjudication.skippedReason}); writing a new detection for this gap`,
+      payload: {
+        behaviour_id: behaviour.id,
+        opportunity_id: opp.id,
+        match: libMatch,
+        skipped_reason: adjudication.skippedReason,
+        conditions: adjudication.reasons,
+        target_language: queryLanguage,
+      },
+    });
+  }
 
   // Resolve the full set of source behaviours referenced by this
   // canonical opportunity. Pre-fix the orchestrator passed only the
