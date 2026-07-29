@@ -593,6 +593,11 @@ export async function refineDetectionViaActorCritic(
   language: ResearchQueryLanguage,
   pack: string,
   actorCoverageSeed: ActorCoverageSeedItem[] = [],
+  /** SIEM product this query targets. Sentinel and Defender XDR share KQL but
+   *  not their table sets, so QA cannot judge a table reference from the
+   *  language alone. Optional and last so existing callers keep compiling;
+   *  null means Sigma, which is product-agnostic. */
+  queryProduct: string | null = null,
 ): Promise<GeneratedDetection> {
   const leafCtx = {
     behaviour_id: behaviour.id,
@@ -612,6 +617,7 @@ export async function refineDetectionViaActorCritic(
     opportunityDescription: opp.description,
     observableChain: opp.observable_chain ?? [],
     telemetry: opp.telemetry ?? [],
+    queryProduct,
   };
   const refined = await driveSinglePassQa(
     opp.detection,

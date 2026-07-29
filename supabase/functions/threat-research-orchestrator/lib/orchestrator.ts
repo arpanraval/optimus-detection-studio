@@ -57,7 +57,7 @@ import {
 // isDeployedCoverage / isLanguageRunnable are now DISPLAY helpers only — they
 // annotate the reused leaf, they no longer gate whether a rule is reused.
 import { isDeployedCoverage, isLanguageRunnable, adjudicateReuse } from "./coverage.ts";
-import { resolveQueryLanguage } from "./query-language.ts";
+import { resolveQueryTarget, supportsDefenderSchemaValidation } from "./query-language.ts";
 import { flagCrossBehaviourDuplicates } from "./dedup.ts";
 import { loadKnowledgePack } from "./skills-loader.ts";
 import { buildActorCoverageSeed } from "./actor-coverage.ts";
@@ -606,7 +606,8 @@ async function handleOpportunityPlanning(
     return;
   }
 
-  const queryLanguage = resolveQueryLanguage(session.environment_snapshot ?? null);
+  const { language: queryLanguage, product: queryProduct } =
+    resolveQueryTarget(session.environment_snapshot ?? null);
   const out = await runOpportunityPlanner(toolCtx, runCtx, tree.subject, tree.behaviours);
   if (!out) {
     // Planner failed. Don't blow up the session — fall back to a no-op:
@@ -830,7 +831,8 @@ async function handleDetection(
   const opp = behaviour.opportunities.find(o => o.id === opportunityId);
   if (!opp) throw new Error(`opportunity ${behaviourId}/${opportunityId} not in tree (planner missed it?)`);
 
-  const queryLanguage = resolveQueryLanguage(session.environment_snapshot ?? null);
+  const { language: queryLanguage, product: queryProduct } =
+    resolveQueryTarget(session.environment_snapshot ?? null);
 
   // Refresh the actor coverage seed at job start. The seed is built once
   // when Research completes, but a session can run for 30+ minutes — and
@@ -1065,14 +1067,46 @@ async function handleDetection(
   // (wrong column name) mechanically — no LLM call, no extra latency
   // beyond one RPC roundtrip.
   //
-  // Only fires when query_language is KQL AND there's actually a query body.
-  // Non-KQL languages skip this entirely; we'll add per-language schemas
-  // later. Library-match short-circuits (saved_detection_id set) skip too —
-  // the matched detection's query isn't ours to validate.
+  // Gated on PRODUCT, not language. Microsoft Sentinel and Microsoft Defender
+  // XDR both write KQL, so gating on 'KQL' alone ran the Defender schema check
+  // over Sentinel queries: a correct query using SecurityEvent, SigninLogs or
+  // AuditLogs came back as "unknown table", the note landed in
+  // feasibility_notes, and QA — which is told to incorporate those findings —
+  // could then "repair" a working query into the wrong product's schema.
+  //
+  // There is no Sentinel schema table here, so a Sentinel query records the
+  // check as SKIPPED rather than receiving a fabricated verdict. Saying "not
+  // checked" is worth more than confidently saying the wrong thing, because
+  // the wrong thing is what got acted on.
+  //
+  // Library-match short-circuits (saved_detection_id set) still skip: the
+  // matched detection's query isn't ours to validate.
+  const canSchemaValidate = supportsDefenderSchemaValidation(queryProduct);
   if (
     generated.query_language === 'KQL' &&
     generated.query &&
-    !generated.saved_detection_id
+    !generated.saved_detection_id &&
+    !canSchemaValidate
+  ) {
+    await emit(runCtx, {
+      agent: 'detection-engineer',
+      event_type: 'schema_validation_completed',
+      message: `schema validation skipped — no schema available for ${queryProduct ?? 'unspecified product'}`,
+      payload: {
+        opportunity_id: opp.id,
+        behaviour_id: behaviour.id,
+        detection_id: generated.id,
+        skipped: true,
+        skipped_reason: queryProduct ? 'no_schema_for_product' : 'no_product_resolved',
+        product: queryProduct,
+      },
+    });
+  }
+  if (
+    generated.query_language === 'KQL' &&
+    generated.query &&
+    !generated.saved_detection_id &&
+    canSchemaValidate
   ) {
     const findings = await validateKqlAgainstDefenderSchema(supabase, generated.query);
     await emit(runCtx, {
@@ -1216,7 +1250,8 @@ async function handleQa(
   // Idempotent: if QA already ran (re-dispatch race, manual retry), skip.
   if (opp.detection.qa) return;
 
-  const queryLanguage = resolveQueryLanguage(session.environment_snapshot ?? null);
+  const { language: queryLanguage, product: queryProduct } =
+    resolveQueryTarget(session.environment_snapshot ?? null);
   const pack = await loadKnowledgePack('detection-engineering');
 
   // Refresh the actor coverage seed at qa-job start. Same rationale as in
@@ -1239,7 +1274,7 @@ async function handleQa(
   // duplicate them here. Returns the REVISED detection with qa.iteration_*
   // populated.
   const refined = await refineDetectionViaActorCritic(
-    toolCtx, runCtx, behaviour, opp, queryLanguage, pack, actorCoverageSeed,
+    toolCtx, runCtx, behaviour, opp, queryLanguage, pack, actorCoverageSeed, queryProduct,
   );
 
   // Re-run BOTH MITRE post-steps on the revised detection: revisions can

@@ -33,6 +33,16 @@ export interface QaIntentContext {
   opportunityDescription: string;
   observableChain: string[];
   telemetry: string[];
+  /** Which SIEM product this query targets, e.g. 'Microsoft Sentinel'.
+   *
+   *  Language alone is not enough to judge a table reference. Sentinel and
+   *  Defender XDR both write KQL over completely different table sets, so
+   *  without the product QA was checking Sentinel queries against Defender
+   *  expectations — flagging correct SecurityEvent / SigninLogs / AuditLogs
+   *  usage as wrong, and then proposing a "fix" into the other product.
+   *
+   *  Null when the language is Sigma, which is product-agnostic. */
+  queryProduct?: string | null;
 }
 
 /** Outcome of one QA pass on a single detection. Discriminated so callers can
@@ -187,6 +197,18 @@ export async function critiqueDetection(
     (intent.observableChain.length ? `Observable chain: ${intent.observableChain.join(' → ')}\n` : '') +
     (intent.telemetry.length ? `Required telemetry: ${intent.telemetry.join(', ')}\n` : '') +
     `</untrusted_input>\n\n` +
+    // Product, not just language. Sentinel and Defender XDR both write KQL
+    // over entirely different table sets, so without this QA judged Sentinel
+    // queries against Defender expectations — flagging correct SecurityEvent /
+    // SigninLogs / AuditLogs usage and then proposing a "fix" into the wrong
+    // product. Stated outside <untrusted_input> because it is a fact about the
+    // environment, not model- or user-supplied content.
+    (intent.queryProduct
+      ? `Target platform: ${intent.queryProduct}. Judge every table and field ` +
+        `against THIS product's schema. Do not flag a table as invalid because it ` +
+        `belongs to a different Microsoft product.\n\n`
+      : `Target platform: not specified (product-agnostic rule format). Do not ` +
+        `assert that a specific vendor table does or does not exist.\n\n`) +
     `Candidate detection to critique:\n<untrusted_input>\n${JSON.stringify(detection, null, 2)}\n</untrusted_input>\n\n` +
     `Critique this detection per the query-qa knowledge pack — step 3 is whether the query actually expresses the PARENT BEHAVIOUR's intent above, not just its own description field. Output the JSON verdict.`;
 
