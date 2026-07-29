@@ -10,10 +10,19 @@ on:
   push:
     paths:
       - 'supabase/schema.sql'
+      # Migrations too. Triggering only on schema.sql meant the one mistake this
+      # guard exists to catch — a migration that forgets to mirror into
+      # schema.sql — was also the one case that never ran it. Fresh installs
+      # apply schema.sql, so an unmirrored migration silently diverges prod from
+      # a new clone.
+      - 'supabase/migrations/**'
+      - 'scripts/setup.ts'
       - '.github/workflows/schema-check.yml'
   pull_request:
     paths:
       - 'supabase/schema.sql'
+      - 'supabase/migrations/**'
+      - 'scripts/setup.ts'
       - '.github/workflows/schema-check.yml'
   workflow_dispatch:
 

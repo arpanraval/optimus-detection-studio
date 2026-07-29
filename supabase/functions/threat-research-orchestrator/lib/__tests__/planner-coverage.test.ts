@@ -12,7 +12,7 @@
 // so these drive it through the exported config the agent loop uses.
 
 import { describe, it, expect } from 'vitest';
-import { buildPlannerValidator } from '../agents/opportunity-planner.ts';
+import { buildPlannerValidator, salvagePartialPlan } from '../agents/opportunity-planner.ts';
 
 const BEHAVIOURS = ['b1', 'b2', 'b3'];
 const validate = buildPlannerValidator(new Set(BEHAVIOURS));
@@ -106,5 +106,52 @@ describe('planner coverage invariant', () => {
       expect(r.reason).toContain('b2');
       expect(r.reason).toContain('b3');
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// salvagePartialPlan
+// ---------------------------------------------------------------------------
+
+describe('salvagePartialPlan', () => {
+  it('recovers a plan that failed ONLY the coverage invariant', () => {
+    // Before this, the strict validator's rejection meant the agent loop
+    // returned no output, the orchestrator saw null, and nine correct merged
+    // opportunities were discarded to rescue one unaccounted behaviour. It also
+    // made the targeted-rescue branch unreachable: that branch can only act on
+    // a partial plan, and a partial plan never arrived.
+    const salvaged = salvagePartialPlan(
+      JSON.stringify({ opportunities: [opportunity('b1'), opportunity('b2')] }),
+      new Set(BEHAVIOURS),
+    );
+    expect(salvaged).not.toBeNull();
+    expect(salvaged!.opportunities).toHaveLength(2);
+    expect(salvaged!.unaccounted_behaviour_ids).toEqual(['b3']);
+  });
+
+  it('counts explicit exclusions as accounted for', () => {
+    const salvaged = salvagePartialPlan(
+      JSON.stringify({
+        opportunities: [opportunity('b1')],
+        excluded_behaviours: [{ behaviour_id: 'b2', reason: 'no telemetry' }],
+      }),
+      new Set(BEHAVIOURS),
+    );
+    expect(salvaged!.unaccounted_behaviour_ids).toEqual(['b3']);
+  });
+
+  it('returns null when the response is unusable for any other reason', () => {
+    // A genuine parse failure or a plan with no valid opportunities still means
+    // full fallback — salvage must not paper over those.
+    expect(salvagePartialPlan('not json', new Set(BEHAVIOURS))).toBeNull();
+    expect(salvagePartialPlan(JSON.stringify({ opportunities: [] }), new Set(BEHAVIOURS))).toBeNull();
+  });
+
+  it('reports nothing unaccounted when coverage was actually complete', () => {
+    const salvaged = salvagePartialPlan(
+      JSON.stringify({ opportunities: BEHAVIOURS.map(b => opportunity(b)) }),
+      new Set(BEHAVIOURS),
+    );
+    expect(salvaged!.unaccounted_behaviour_ids).toEqual([]);
   });
 });

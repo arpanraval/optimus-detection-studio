@@ -975,6 +975,19 @@ CREATE TABLE IF NOT EXISTS public.threat_research_sessions (
   token_cap integer,
   tokens_reserved integer NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS public.threat_research_vendor_searches (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  session_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  phase text,
+  behaviour_id text,
+  query text NOT NULL,
+  repositories text[] NOT NULL DEFAULT '{}'::text[],
+  results_found integer NOT NULL DEFAULT 0,
+  source_urls text[] NOT NULL DEFAULT '{}'::text[],
+  error text,
+  attempted_at timestamp with time zone NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS public.threat_research_phase_budgets (
   session_id uuid NOT NULL,
   phase text NOT NULL,
@@ -1164,6 +1177,8 @@ ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_sess
 ALTER TABLE public.threat_research_job_checkpoints ADD CONSTRAINT threat_research_job_checkpoints_pkey PRIMARY KEY (job_id);
 ALTER TABLE public.threat_research_job_checkpoints ADD CONSTRAINT trjc_job_fk FOREIGN KEY (job_id) REFERENCES public.threat_research_jobs(id) ON DELETE CASCADE;
 ALTER TABLE public.threat_research_job_checkpoints ADD CONSTRAINT trjc_session_fk FOREIGN KEY (session_id) REFERENCES public.threat_research_sessions(id) ON DELETE CASCADE;
+ALTER TABLE public.threat_research_vendor_searches ADD CONSTRAINT threat_research_vendor_searches_pkey PRIMARY KEY (id);
+ALTER TABLE public.threat_research_vendor_searches ADD CONSTRAINT trvs_session_fk FOREIGN KEY (session_id) REFERENCES public.threat_research_sessions(id) ON DELETE CASCADE;
 ALTER TABLE public.threat_research_phase_budgets ADD CONSTRAINT threat_research_phase_budgets_pkey PRIMARY KEY (session_id, phase);
 ALTER TABLE public.threat_research_phase_budgets ADD CONSTRAINT trpb_session_fk FOREIGN KEY (session_id) REFERENCES public.threat_research_sessions(id) ON DELETE CASCADE;
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_phase_check CHECK ((phase = ANY (ARRAY['preflight'::text, 'research'::text, 'attack_research'::text, 'opportunity_planning'::text, 'detection'::text, 'qa'::text, 'finalise'::text])));
@@ -5736,6 +5751,17 @@ ALTER TABLE public.threat_research_job_checkpoints ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.threat_research_job_checkpoints FROM PUBLIC, anon, authenticated;
 -- Phase budgets are readable by the owning user so the UI can show remaining
 -- spend; only the orchestrator (service role) writes them.
+-- Append-only vendor-search provenance. Deliberately NOT on the session tree:
+-- several workers search concurrently, and a read-modify-write of the tree
+-- would discard both their provenance and any detection/QA leaf patched
+-- between the read and the write.
+ALTER TABLE public.threat_research_vendor_searches ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.threat_research_vendor_searches FROM PUBLIC, anon;
+DROP POLICY IF EXISTS trvs_self_select ON public.threat_research_vendor_searches;
+CREATE POLICY trvs_self_select ON public.threat_research_vendor_searches
+  FOR SELECT TO authenticated
+  USING (user_id = (SELECT auth.uid()));
+GRANT SELECT ON TABLE public.threat_research_vendor_searches TO authenticated;
 ALTER TABLE public.threat_research_phase_budgets ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.threat_research_phase_budgets FROM PUBLIC, anon;
 DROP POLICY IF EXISTS trpb_self_select ON public.threat_research_phase_budgets;

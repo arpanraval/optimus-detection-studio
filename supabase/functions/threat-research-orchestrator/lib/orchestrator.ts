@@ -355,11 +355,14 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
     // reviewed, and the not-configured case is exactly the one worth keeping —
     // it is the difference between "found nothing" and "never looked".
     //
-    // Appended rather than replaced: sibling workers each carry their own log,
-    // and a whole-field write would clobber theirs.
+    // Written to its own append-only table, never onto the session tree: a
+    // read-modify-write of the tree would discard concurrent workers' detection
+    // and QA patches along with their provenance.
     if (vendorSearchLog.length > 0) {
       try {
-        await appendVendorSearchProvenance(supabase, session.id, vendorSearchLog);
+        await appendVendorSearchProvenance(
+          supabase, session.id, session.user_id, job, vendorSearchLog,
+        );
       } catch (e) {
         console.warn('[worker] vendor search provenance write failed:', (e as Error).message);
       }
@@ -587,23 +590,38 @@ async function handleResearch(
 async function appendVendorSearchProvenance(
   supabase: SupabaseClient,
   sessionId: string,
+  userId: string,
+  job: JobRow,
   records: readonly VendorSearchRecord[],
 ): Promise<void> {
-  const { data, error } = await supabase
-    .from('threat_research_sessions')
-    .select('tree')
-    .eq('id', sessionId)
-    .single();
-  if (error || !data) return;
-
-  const tree = (data.tree ?? {}) as ThreatResearchTree & { vendor_search?: VendorSearchRecord[] };
-  const existing = Array.isArray(tree.vendor_search) ? tree.vendor_search : [];
-  tree.vendor_search = [...existing, ...records];
-
-  await supabase
-    .from('threat_research_sessions')
-    .update({ tree, updated_at: new Date().toISOString() })
-    .eq('id', sessionId);
+  // A plain INSERT. No read, so there is nothing to clobber.
+  //
+  // The first version of this read the whole session tree, appended to one
+  // field, and wrote the whole tree back. That is a data-loss bug, and the
+  // comment on it claimed the opposite: appending to one field of a whole-tree
+  // round trip still writes the whole tree. Two workers reading the same
+  // version would each write their own copy, losing the other's provenance AND
+  // any detection or QA leaf committed in between — the precise "work
+  // disappeared" failure this remediation exists to remove. Detection and QA
+  // leaves are patched concurrently by design; tr_patch_detection exists so
+  // they never need a full-tree write.
+  const { error } = await supabase
+    .from('threat_research_vendor_searches')
+    .insert(records.map(r => ({
+      session_id: sessionId,
+      user_id: userId,
+      phase: job.phase,
+      behaviour_id: job.behaviour_id,
+      query: r.query,
+      repositories: r.repositories,
+      results_found: r.results_found,
+      source_urls: r.source_urls,
+      error: r.error ?? null,
+      attempted_at: r.attempted_at,
+    })));
+  if (error) {
+    console.warn('[worker] vendor search provenance insert failed:', error.message);
+  }
 }
 
 /** A 1:1 behaviour→opportunity stand-in, used when the planner produced

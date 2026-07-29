@@ -234,7 +234,46 @@ export function buildPlannerValidator(
   return (text) => validate(text, validBehaviourIds);
 }
 
-function validate(text: string, validBehaviourIds: ReadonlySet<string>): ValidationResult<OpportunityPlannerOutput> {
+/** Salvage a plan that failed the coverage invariant.
+ *
+ *  The strict validator makes the agent loop retry, which is what we want. But
+ *  when the retry ALSO fails, the loop returns no output at all — so the
+ *  orchestrator saw null and threw the entire plan away, rebuilding every
+ *  behaviour 1:1 with no dedup. A plan with nine good, correctly-merged
+ *  opportunities and one unaccounted behaviour was discarded wholesale.
+ *
+ *  That made the targeted-rescue branch unreachable: it can only run on a
+ *  partial plan, and a partial plan never arrived. This re-parses the last
+ *  response, ignoring the coverage rule, and reports which behaviours are
+ *  missing so the caller can rescue only those.
+ *
+ *  Returns null when the response is unusable for any other reason — a genuine
+ *  parse failure or no valid opportunities at all still means full fallback. */
+export function salvagePartialPlan(
+  text: string,
+  validBehaviourIds: ReadonlySet<string>,
+): OpportunityPlannerOutput | null {
+  const relaxed = validate(text, validBehaviourIds, { requireFullCoverage: false });
+  if (!relaxed.ok) return null;
+
+  const accounted = new Set<string>();
+  for (const o of relaxed.value.opportunities) {
+    accounted.add(o.primary_behaviour_id);
+    for (const src of o.source_behaviour_ids ?? []) accounted.add(src);
+  }
+  for (const e of relaxed.value.excluded_behaviours) accounted.add(e.behaviour_id);
+
+  return {
+    ...relaxed.value,
+    unaccounted_behaviour_ids: [...validBehaviourIds].filter(id => !accounted.has(id)),
+  };
+}
+
+function validate(
+  text: string,
+  validBehaviourIds: ReadonlySet<string>,
+  opts: { requireFullCoverage?: boolean } = {},
+): ValidationResult<OpportunityPlannerOutput> {
   let json: any;
   try {
     const t = text.trim();
@@ -342,7 +381,10 @@ function validate(text: string, validBehaviourIds: ReadonlySet<string>): Validat
   for (const e of excluded) accounted.add(e.behaviour_id);
 
   const unaccounted = [...validBehaviourIds].filter(id => !accounted.has(id));
-  if (unaccounted.length > 0) {
+  // The salvage path re-parses with this off, so a plan that failed only the
+  // coverage rule can be recovered and its gaps rescued individually instead of
+  // the whole plan being discarded.
+  if (opts.requireFullCoverage !== false && unaccounted.length > 0) {
     return {
       ok: false,
       reason:
@@ -356,7 +398,11 @@ function validate(text: string, validBehaviourIds: ReadonlySet<string>): Validat
 
   return {
     ok: true,
-    value: { opportunities, excluded_behaviours: excluded, unaccounted_behaviour_ids: [] },
+    value: {
+      opportunities,
+      excluded_behaviours: excluded,
+      unaccounted_behaviour_ids: opts.requireFullCoverage === false ? unaccounted : [],
+    },
   };
 }
 
@@ -373,6 +419,7 @@ export async function runOpportunityPlanner(
   const role = ROLE_CONFIG.PLANNER;
   const validIds = new Set(behaviours.map(b => b.id));
 
+  let lastResponseText = '';
   const cfg: AgentLoopConfig<OpportunityPlannerOutput> = {
     agent: 'planner',
     model: role.model,
@@ -392,7 +439,15 @@ export async function runOpportunityPlanner(
     // just burn Opus tokens. Worst-case planner cost drops ~50%.
     iterationCap: 3,
     feature: 'tr-opportunity-planner',
-    validateFinalOutput: (text) => validate(text, validIds),
+    // Keep the last response so a plan that failed ONLY the coverage invariant
+    // can be salvaged below. Without this the loop's null output threw away
+    // nine good merged opportunities to rescue one unaccounted behaviour — and
+    // it made the targeted-rescue branch unreachable, since that branch can
+    // only act on a partial plan it never received.
+    validateFinalOutput: (text) => {
+      lastResponseText = text;
+      return validate(text, validIds);
+    },
     timeoutMs: role.timeoutMs,
     maxTokens: role.maxTokens,
   };
@@ -444,7 +499,32 @@ export async function runOpportunityPlanner(
       });
     }
   }
-  return outcome.output;
+  if (outcome.output) return outcome.output;
+
+  // The loop produced no valid output. If the ONLY thing wrong was coverage,
+  // salvage the plan and report the gaps so the caller can rescue just those.
+  // Discarding a plan with nine correct merges because of one unaccounted
+  // behaviour costs exactly what the planner exists to provide.
+  const salvaged = salvagePartialPlan(lastResponseText, validIds);
+  if (salvaged) {
+    await emit(runCtx, {
+      agent: 'planner',
+      event_type: 'agent_validation_failed',
+      message:
+        `salvaged a partial plan: ${salvaged.opportunities.length} opportunit` +
+        `${salvaged.opportunities.length === 1 ? 'y' : 'ies'} kept, ` +
+        `${salvaged.unaccounted_behaviour_ids.length} behaviour(s) unaccounted ` +
+        `(${salvaged.unaccounted_behaviour_ids.join(', ')})`,
+      payload: {
+        opportunities: salvaged.opportunities.length,
+        unaccounted_behaviour_ids: salvaged.unaccounted_behaviour_ids,
+        excluded: salvaged.excluded_behaviours.map(e => e.behaviour_id),
+      },
+    });
+    return salvaged;
+  }
+
+  return null;
 }
 
 /** Project a CanonicalOpportunity into the tree's DetectionOpportunity shape.

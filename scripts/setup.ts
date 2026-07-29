@@ -135,6 +135,7 @@ const FORWARD_MIGRATIONS = [
   'supabase/migrations/20260729160000_threat_research_token_budgets.sql',
   'supabase/migrations/20260729170000_threat_research_partial_status.sql',
   'supabase/migrations/20260729180000_tr_consume_budget_relock_and_validate.sql',
+  'supabase/migrations/20260730120000_threat_research_vendor_searches.sql',
 ];
 
 async function main() {
