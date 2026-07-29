@@ -68,6 +68,7 @@ import {
 } from "./mitre-validator.ts";
 import { validateKqlAgainstDefenderSchema } from "./tools/defender-schema-lookup.ts";
 import { runDetectionValidators } from "./validators/index.ts";
+import { sizeAfterResearch, sizeAfterPlanning } from "./budget-policy.ts";
 import type {
   DetectionOpportunity,
   GeneratedDetection,
@@ -190,6 +191,7 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
     userId: session.user_id,
     jobStartedAt: start,
     jobId,
+    phase: job.phase,
   };
   // envContextCache starts undefined; populated lazily by executeTool on
   // the first environment_context call within this worker invocation.
@@ -484,6 +486,47 @@ async function handleResearch(
       updated_at: new Date().toISOString(),
     })
     .eq('id', session.id);
+
+  // Token budget with per-phase floors. Call counts above stay as a secondary
+  // runaway guard, but they cannot bound spend — one 16K-token call costs
+  // ~50x a 300-token one, which is why bc5804b3 used 169 calls for 1.17M
+  // tokens while 048fdd12 used 28 for 165K.
+  //
+  // Floors matter more than the ceiling. detection and qa are sized here, on
+  // an ESTIMATE of opportunities, specifically so research and attack_research
+  // cannot spend that budget first. The planner re-sizes with the real count,
+  // and floors may only rise.
+  const budgets = sizeAfterResearch(N);
+  const { error: budgetErr } = await supabase.rpc('tr_set_phase_budgets', {
+    p_session_id: session.id,
+    p_token_cap:  budgets.tokenCap,
+    p_phases:     budgets.perPhase,
+  });
+  if (budgetErr) {
+    // Non-fatal: an unsized session falls back to the call caps, i.e. the
+    // previous behaviour. Losing a guard rail must not lose the run.
+    console.warn('[handleResearch] tr_set_phase_budgets failed:', budgetErr.message);
+  } else {
+    await emit(runCtx, {
+      agent: 'orchestrator',
+      event_type: 'preflight_completed',
+      message: budgets.capped
+        // Never let a session be quietly under-funded: one that dies two
+        // thirds of the way through is the exact failure being fixed, so say
+        // it up front rather than let it look like a mid-run crash.
+        ? `Token budget CAPPED: ${N} behaviours need more than the ${Math.round(budgets.tokenCap / 1000)}K ` +
+          `session ceiling, so every phase floor was scaled down. This session may not complete all leaves.`
+        : `Token budget: ${Math.round(budgets.tokenCap / 1000)}K total, ` +
+          `detection ${Math.round(budgets.perPhase.detection / 1000)}K / ` +
+          `qa ${Math.round(budgets.perPhase.qa / 1000)}K reserved`,
+      payload: {
+        token_cap: budgets.tokenCap,
+        per_phase: budgets.perPhase,
+        behaviours: N,
+        capacity_limited: budgets.capped,
+      },
+    });
+  }
 }
 
 /** Build the list of composite "{primary_behaviour_id}/{opportunity_id}"
@@ -736,6 +779,22 @@ async function handleOpportunityPlanning(
   // tax — both gone now.
   const oppCount = out.opportunities.length;
   if (oppCount > 0) {
+    // Re-size the token floors now that the real opportunity count is known.
+    // handleResearch estimated it (behaviours / 1.5) so detection and qa had a
+    // reservation before this phase could spend against it; this replaces the
+    // estimate with the measurement. tr_set_phase_budgets only ever RAISES a
+    // floor, so a planner that merged aggressively cannot retroactively starve
+    // a phase that has already begun spending.
+    const planned = sizeAfterPlanning(tree.behaviours.length, oppCount);
+    const { error: tokenBudgetErr } = await supabase.rpc('tr_set_phase_budgets', {
+      p_session_id: session.id,
+      p_token_cap:  planned.tokenCap,
+      p_phases:     planned.perPhase,
+    });
+    if (tokenBudgetErr) {
+      console.warn('[handleOpportunityPlanning] tr_set_phase_budgets failed:', tokenBudgetErr.message);
+    }
+
     const { error: bumpErr } = await supabase.rpc('tr_bump_caps', {
       p_session_id: session.id,
       p_model_delta: 12 * oppCount,

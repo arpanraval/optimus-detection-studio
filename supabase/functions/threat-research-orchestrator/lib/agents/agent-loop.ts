@@ -13,6 +13,7 @@ import type { ResearchAgent } from "../types.ts";
 import { ToolContext, executeTool } from "../tools/index.ts";
 import { RunContext, emit, consumeBudget, abortSession } from "../events.ts";
 import { loadCheckpoint, saveCheckpoint, deleteCheckpoint } from "./checkpoint.ts";
+import { estimateCallTokens } from "../budget-policy.ts";
 import { callAnthropic } from "../llm/anthropic-direct.ts";
 import { AnthropicError } from "../llm/anthropic-raw.ts";
 import type {
@@ -345,7 +346,22 @@ export async function runAgentLoop<T>(
     // so a worker learns the session is over at its next budget check. Since
     // that check already happens immediately before every model call, the
     // abort lands at exactly the point where money would otherwise be spent.
-    const modelBudget = await consumeBudget(runCtx, { modelCalls: 1 });
+    // Reserve the worst case this call could cost. Settled against real usage
+    // once the response returns (see the reconciliation below). Reserving
+    // rather than checking committed spend is what stops N parallel leaves
+    // each passing the gate and then collectively blowing the cap.
+    const reservedTokens = estimateCallTokens(
+      // The system block is composed below; approximate the prompt from the
+      // parts already known. Precision is not needed — this is a ceiling that
+      // gets replaced by measured usage seconds later.
+      cfg.systemInstruction.length + cfg.knowledgePack.length + JSON.stringify(messages).length,
+      cfg.maxTokens ?? 16_384,
+    );
+    const modelBudget = await consumeBudget(runCtx, {
+      modelCalls: 1,
+      tokensReserve: reservedTokens,
+      phase: runCtx.phase,
+    });
     if (modelBudget.aborted) {
       await emit(runCtx, {
         agent: cfg.agent,
@@ -491,6 +507,11 @@ export async function runAgentLoop<T>(
       // reported as-is rather than guessed at.
       const failure = e instanceof AnthropicError ? e.info : null;
 
+      // Release the reservation this call never spent. Without this a failing
+      // job would shrink the budget for every leaf after it — the failure
+      // compounding into a starvation the retries then inherit.
+      await consumeBudget(runCtx, { tokensRelease: reservedTokens, phase: runCtx.phase });
+
       // An account-scoped failure is true of every worker in this session, so
       // stop the session here rather than let the remaining jobs each burn an
       // attempt rediscovering it. Idempotent: the siblings that hit the same
@@ -582,10 +603,15 @@ export async function runAgentLoop<T>(
     // returns). This second call records the tokens for cost attribution
     // and the soft alarm threshold. Fail-open: budget RPC errors here
     // never block the loop — same posture as the pre-call gate.
+    // Settle: commit what the call actually cost and release the reservation.
+    // Always settle, even at zero tokens, or the reservation would leak and
+    // shrink the budget available to later leaves.
     const totalTokens = response.usage.inputTokens + response.usage.outputTokens;
-    if (totalTokens > 0) {
-      await consumeBudget(runCtx, { tokens: totalTokens });
-    }
+    await consumeBudget(runCtx, {
+      tokens: totalTokens,
+      tokensRelease: reservedTokens,
+      phase: runCtx.phase,
+    });
     await emit(runCtx, {
       agent: cfg.agent,
       event_type: 'agent_post_response_checkpoint',

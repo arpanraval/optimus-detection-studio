@@ -33,6 +33,12 @@ export interface RunContext {
    *  Optional so RunContext values built outside runJob (tests, one-off
    *  tooling) need not supply it; checkpointing simply no-ops when absent. */
   jobId?: string;
+  /** Which pipeline phase this worker is running. Selects the phase token
+   *  floor so an overrunning research phase cannot consume the budget
+   *  reserved for detection and QA — the starvation behind 199 recorded
+   *  "model-call budget exhausted" failures. Optional; work without a phase
+   *  draws only on the session budget. */
+  phase?: string;
 }
 
 export interface EmitEvent {
@@ -101,13 +107,28 @@ export interface BudgetSpendResult {
  *  when a hard cap would be exceeded; the agent loop aborts in that case. */
 export async function consumeBudget(
   ctx: RunContext,
-  spend: { toolCalls?: number; modelCalls?: number; tokens?: number },
+  spend: {
+    toolCalls?: number;
+    modelCalls?: number;
+    tokens?: number;
+    /** Worst-case tokens this call may use, held against the cap until the
+     *  real usage settles. Without it, concurrent workers each pass a gate
+     *  that only sees committed spend and collectively overshoot. */
+    tokensReserve?: number;
+    /** Release a reservation made earlier by this same call. */
+    tokensRelease?: number;
+    /** Which phase floor to draw from. Omit for unbudgeted work. */
+    phase?: string;
+  },
 ): Promise<BudgetSpendResult> {
   const { data, error } = await ctx.supabase.rpc('tr_consume_budget', {
     p_session_id: ctx.sessionId,
     p_tool_calls: spend.toolCalls ?? 0,
     p_model_calls: spend.modelCalls ?? 0,
     p_tokens: spend.tokens ?? 0,
+    p_phase: spend.phase ?? null,
+    p_tokens_reserve: spend.tokensReserve ?? 0,
+    p_tokens_release: spend.tokensRelease ?? 0,
   });
   if (error) {
     console.warn('[budget] tr_consume_budget rpc failed:', error.message);
