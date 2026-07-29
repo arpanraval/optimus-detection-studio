@@ -20,6 +20,21 @@ import type {
   GeneratedDetection, QaResult, QaVerdict, QaCoverageQuality,
 } from "../types.ts";
 
+/** The parent behaviour/opportunity's actual intent — what the query-qa
+ *  pack's step 3 ("the query expresses the parent behaviour's intent, read
+ *  narrative_description") requires. Previously `critiqueDetection` received
+ *  only the GeneratedDetection, which has no narrative_description field
+ *  (that lives on AttackBehaviour) — QA was judging the query against its
+ *  own generated description, not the behaviour it was supposed to defend. */
+export interface QaIntentContext {
+  behaviourTitle: string;
+  behaviourNarrative: string;
+  opportunityTitle: string;
+  opportunityDescription: string;
+  observableChain: string[];
+  telemetry: string[];
+}
+
 /** Outcome of one QA pass on a single detection. Discriminated so callers can
  *  tell apart "QA completed with verdict X" (a legitimate quality judgement)
  *  from "QA pipeline failed" (the loop never produced a verdict). The previous
@@ -135,6 +150,7 @@ export async function critiqueDetection(
   toolCtx: ToolContext,
   runCtx: RunContext,
   detection: GeneratedDetection,
+  intent: QaIntentContext,
   contextPayload?: Record<string, unknown>,
 ): Promise<CritiqueOutcome> {
   const pack = await loadKnowledgePack('query-qa');
@@ -163,8 +179,16 @@ export async function critiqueDetection(
   };
 
   const initialMessage =
+    `Parent behaviour this detection must defend:\n<untrusted_input>\n` +
+    `Behaviour: ${intent.behaviourTitle}\n` +
+    `Narrative: ${intent.behaviourNarrative}\n` +
+    `Opportunity: ${intent.opportunityTitle}\n` +
+    `Opportunity description: ${intent.opportunityDescription}\n` +
+    (intent.observableChain.length ? `Observable chain: ${intent.observableChain.join(' → ')}\n` : '') +
+    (intent.telemetry.length ? `Required telemetry: ${intent.telemetry.join(', ')}\n` : '') +
+    `</untrusted_input>\n\n` +
     `Candidate detection to critique:\n<untrusted_input>\n${JSON.stringify(detection, null, 2)}\n</untrusted_input>\n\n` +
-    `Critique this detection per the query-qa knowledge pack. Output the JSON verdict.`;
+    `Critique this detection per the query-qa knowledge pack — step 3 is whether the query actually expresses the PARENT BEHAVIOUR's intent above, not just its own description field. Output the JSON verdict.`;
 
   const outcome = await runAgentLoop<QaResult>(cfg, toolCtx, runCtx, initialMessage);
 

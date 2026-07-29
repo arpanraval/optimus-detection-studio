@@ -2,8 +2,8 @@
 //
 // When does an existing library detection count as COVERAGE?
 //
-// Two independent gates, both of which must hold before the Detection Engineer
-// skips generating a new query:
+// Two independent signals determine whether a reused detection represents
+// deployed, runnable coverage in the session environment:
 //
 //   1. STATUS  — the rule has to actually be deployed. A Draft or Deprecated
 //                rule detects nothing, so treating it as coverage hands the
@@ -60,4 +60,23 @@ export function isLanguageRunnable(
   if (!match.query_language) return false;
   if (!targetLanguage) return true;
   return match.query_language.toLowerCase() === targetLanguage.toLowerCase();
+}
+
+/** A library hit may short-circuit generation only when it covers at least
+ *  one technique claimed by the canonical opportunity. Semantic similarity
+ *  alone is not coverage: the live T1218.015 verification otherwise reused
+ *  T1497, T1574.001, and T1190/T1059.004 rules with scores above 0.86.
+ *
+ *  When an opportunity has no MITRE ids (legacy/fallback data), preserve the
+ *  historical score-only behaviour. When the opportunity is mapped but the
+ *  library rule is not, fail open to generation rather than claiming
+ *  unprovable coverage. */
+export function hasMitreOverlap(
+  opportunityIds: readonly string[] | null | undefined,
+  libraryIds: readonly string[] | null | undefined,
+): boolean {
+  if (!opportunityIds?.length) return true;
+  if (!libraryIds?.length) return false;
+  const normalizedLibraryIds = new Set(libraryIds.map(id => id.trim().toUpperCase()).filter(Boolean));
+  return opportunityIds.some(id => normalizedLibraryIds.has(id.trim().toUpperCase()));
 }

@@ -41,6 +41,10 @@ export interface AnthropicCallParams {
   tools?: readonly any[];
   messages: AnthropicMessage[];
   maxTokens?: number;
+  /** Streaming is deliberately opt-in. Production callers use the proven
+   *  JSON response shape; 'auto' exists only so the dormant stream parser
+   *  can remain covered by mock-endpoint tests. */
+  streaming?: 'off' | 'auto';
   /** Sampling temperature [0, 1]. Default Anthropic value is 1.0 which
    *  produces high run-to-run variance — for the orchestrator we want
    *  determinism, so callers pass 0. */
@@ -48,8 +52,8 @@ export interface AnthropicCallParams {
   /** When 'on' (default), the adapter applies cache_control:ephemeral to
    *  the system prompt and the tools array. Tool definitions + system
    *  prompt are >90% repeat content across an agent's iteration loop and
-   *  across sibling workers within a session — the 5-minute TTL fits the
-   *  orchestrator's per-session wall time and reads cost 1/10th of writes.
+   *  across sibling workers within a session. Threat-research sessions often
+   *  exceed five minutes, so the adapter uses Anthropic's one-hour TTL.
    *  Set to 'off' for debugging or for callers with <4k-token prefixes
    *  (cache writes below the model's min-cache-size are silently skipped
    *  by Anthropic but do incur the 25% write surcharge on retries). */
@@ -180,7 +184,7 @@ function convertTools(
   // breakpoint on the final tool definition caches all of them together
   // with the system prompt that precedes them.
   if (opts.cacheLastTool) {
-    out[out.length - 1].cache_control = { type: 'ephemeral' };
+    out[out.length - 1].cache_control = { type: 'ephemeral', ttl: '1h' };
   }
   return out;
 }
@@ -249,6 +253,143 @@ async function debug(params: AnthropicCallParams, event: AnthropicDebugEvent): P
   }
 }
 
+/** Dormant threshold used only when a caller explicitly opts into
+ *  `streaming: 'auto'`. Production callers omit that option and therefore
+ *  retain the proven JSON response path. The stream parser and its tests stay
+ *  available for a separately tested rollout. */
+const STREAM_ABOVE_MAX_TOKENS = 16_000;
+
+/** Production defaults to the proven JSON response shape. Keeping this
+ *  decision pure and exported gives CI a regression test for the transport
+ *  switch that accompanied the failed Dossier rollout. */
+export function shouldUseAnthropicStream(
+  streaming: AnthropicCallParams['streaming'],
+  maxTokens: number,
+): boolean {
+  return streaming === 'auto' && maxTokens > STREAM_ABOVE_MAX_TOKENS;
+}
+
+function safeParseToolInput(json: string): Record<string, unknown> {
+  if (!json.trim()) return {};
+  try {
+    return JSON.parse(json);
+  } catch {
+    // A tool_use block with unparseable partial JSON is a real model/stream
+    // defect, not something to paper over with an empty object silently —
+    // but the caller (agent-loop) already handles malformed tool args via
+    // its normal validation-retry path, so surfacing {} here (rather than
+    // throwing and losing the whole response) keeps that path working.
+    return {};
+  }
+}
+
+/** Consume an Anthropic streaming Messages-API response (SSE) and
+ *  reconstruct the same shape callAnthropicRaw returns for a non-streaming
+ *  call: content blocks (text concatenated per block, tool_use inputs
+ *  assembled from incremental `input_json_delta` chunks) plus usage merged
+ *  from `message_start` (input/cache tokens) and the final `message_delta`
+ *  (output tokens, cumulative). Event shapes per Anthropic's documented raw
+ *  SSE format: message_start -> content_block_start -> content_block_delta*
+ *  -> content_block_stop -> message_delta -> message_stop. */
+async function consumeAnthropicStream(res: Response): Promise<{
+  content: AnthropicContentBlock[];
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_input_tokens: number;
+    cache_creation_input_tokens: number;
+  };
+}> {
+  if (!res.body) throw new Error('Anthropic streaming response had no body');
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  type BlockAcc =
+    | { type: 'text'; text: string }
+    | { type: 'tool_use'; id: string; name: string; inputJson: string };
+  const blocks: BlockAcc[] = [];
+
+  let inputTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheCreationTokens = 0;
+  let outputTokens = 0;
+
+  const processFrame = (frame: string) => {
+    const dataLine = frame.split('\n').find((l) => l.startsWith('data:'));
+    if (!dataLine) return;
+    const jsonStr = dataLine.slice(5).trim();
+    if (!jsonStr) return;
+    let evt: any;
+    try {
+      evt = JSON.parse(jsonStr);
+    } catch {
+      return; // malformed SSE frame — skip rather than abort the whole call
+    }
+    switch (evt.type) {
+      case 'message_start': {
+        const u = evt.message?.usage ?? {};
+        inputTokens = u.input_tokens ?? 0;
+        cacheReadTokens = u.cache_read_input_tokens ?? 0;
+        cacheCreationTokens = u.cache_creation_input_tokens ?? 0;
+        break;
+      }
+      case 'content_block_start': {
+        const cb = evt.content_block;
+        if (cb?.type === 'text') blocks[evt.index] = { type: 'text', text: cb.text ?? '' };
+        else if (cb?.type === 'tool_use') {
+          blocks[evt.index] = { type: 'tool_use', id: cb.id, name: cb.name, inputJson: '' };
+        }
+        break;
+      }
+      case 'content_block_delta': {
+        const b = blocks[evt.index];
+        if (!b) break;
+        if (b.type === 'text' && evt.delta?.type === 'text_delta') b.text += evt.delta.text ?? '';
+        else if (b.type === 'tool_use' && evt.delta?.type === 'input_json_delta') {
+          b.inputJson += evt.delta.partial_json ?? '';
+        }
+        break;
+      }
+      case 'message_delta': {
+        if (evt.usage?.output_tokens !== undefined) outputTokens = evt.usage.output_tokens;
+        break;
+      }
+      default:
+        break; // content_block_stop / message_stop / ping carry nothing we need
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let sep: number;
+    while ((sep = buffer.indexOf('\n\n')) !== -1) {
+      const frame = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      if (frame.trim()) processFrame(frame);
+    }
+  }
+  if (buffer.trim()) processFrame(buffer); // trailing frame with no terminating blank line
+
+  const content: AnthropicContentBlock[] = blocks.map((b) =>
+    b.type === 'text'
+      ? { type: 'text', text: b.text }
+      : { type: 'tool_use', id: b.id, name: b.name, input: safeParseToolInput(b.inputJson) },
+  );
+
+  return {
+    content,
+    usage: {
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      cache_read_input_tokens: cacheReadTokens,
+      cache_creation_input_tokens: cacheCreationTokens,
+    },
+  };
+}
+
 export async function callAnthropicRaw(
   apiKey: string,
   params: AnthropicCallParams,
@@ -266,6 +407,14 @@ export async function callAnthropicRaw(
     max_tokens: params.maxTokens ?? 16384,
     messages: params.messages,
   };
+  // Streaming remains dormant in production. It was introduced with the
+  // failed 32K Dossier rollout and never completed a real hosted call. Tests
+  // opt into threshold-based streaming so the parser stays covered.
+  const useStream = shouldUseAnthropicStream(
+    params.streaming,
+    body.max_tokens as number,
+  );
+  if (useStream) body.stream = true;
   if (params.systemInstruction) {
     // System prompt as content-block array (rather than plain string) so we
     // can attach cache_control. The two-block split puts the long, fully-
@@ -275,11 +424,13 @@ export async function callAnthropicRaw(
     // composes the system prompt with a single newline join, so the
     // boundary is content-only.
     if (cacheEnabled) {
+      // One-hour TTL: the split-phase pipeline commonly runs longer than five
+      // minutes, so sibling workers otherwise rewrite the same stable prefix.
       body.system = [
         {
           type: 'text',
           text: params.systemInstruction,
-          cache_control: { type: 'ephemeral' },
+          cache_control: { type: 'ephemeral', ttl: '1h' },
         },
       ];
     } else {
@@ -293,7 +444,10 @@ export async function callAnthropicRaw(
     strict: params.strictTools === true,
     cacheLastTool: cacheEnabled && Boolean(params.tools && params.tools.length > 0),
   });
-  if (tools) body.tools = tools;
+  if (tools) {
+    body.tools = tools;
+    // convertTools set the same one-hour marker on the final tool definition.
+  }
 
   const timeoutMs = params.timeoutMs ?? ANTHROPIC_CALL_TIMEOUT_DEFAULT_MS;
 
@@ -392,7 +546,16 @@ export async function callAnthropicRaw(
         timeout_ms: timeoutMs,
         status: res.status,
       });
-      data = await res.json();
+      // Streaming and non-streaming responses are reassembled into the same
+      // { content, usage } shape below so everything past this point
+      // (toolUses/text extraction, AnthropicCallResponse construction) is
+      // identical either way.
+      if (useStream) {
+        const streamed = await consumeAnthropicStream(res);
+        data = { content: streamed.content, usage: streamed.usage };
+      } else {
+        data = await res.json();
+      }
       const parsedForDebug = data as {
         content?: AnthropicContentBlock[];
         usage?: {

@@ -10,7 +10,10 @@ export type ResearchInputClassification =
 
 export type ResearchAgent =
   | 'orchestrator' | 'preflight'
-  | 'research' | 'attack-researcher' | 'planner' | 'detection-engineer' | 'qa';
+  // 'dossier' is retained only for events written during the short-lived
+  // 2026-07-29 rollout. New sessions emit research + attack-researcher.
+  | 'dossier' | 'research' | 'attack-researcher'
+  | 'planner' | 'detection-engineer' | 'qa';
 
 export type ResearchEventType =
   | 'agent_started' | 'agent_iteration' | 'agent_tool_call' | 'agent_narration'
@@ -116,11 +119,9 @@ export interface PreflightSummary {
 }
 
 /** When the Detection Engineer finds an existing detection in the user's
- *  library for an opportunity (combined_score >= 0.6 by default;
- *  THREAT_RESEARCH_LIBRARY_MATCH_THRESHOLD overrides), the leaf is pointed at
- *  that rule via `saved_detection_id` and generation is skipped — regardless
- *  of the rule's status or query language. The UI renders the leaf with a
- *  sage-green glow and a link to the existing detection. */
+ *  library for an opportunity (score threshold plus MITRE overlap), the leaf
+ *  is pointed at that rule via `saved_detection_id` and generation is skipped.
+ *  Status and language affect the coverage label, not the reuse decision. */
 export interface LibraryMatch {
   existing_detection_id: string;
   name: string;
@@ -128,12 +129,14 @@ export interface LibraryMatch {
   /** Lifecycle status of the matched library detection ('Production', 'Draft',
    *  'Deprecated', ...). DISPLAY ONLY — it tells the user where the rule lives
    *  and feeds the 'covered' vs 'partial' label, but it never decides whether
-   *  the rule is reused. Reuse is unconditional; see Amendment 1 in
-   *  docs/plans/2026-07-28-threat-research-remediation-plan.md. */
+   *  the technique-matched rule is reused. */
   status: string;
   /** The existing rule's query body, so a reused leaf can render the actual
    *  rule instead of an empty code block. Empty when the row has no query. */
   detection_query: string;
+  /** Technique ids on the existing rule. Reuse requires overlap with the
+   *  canonical opportunity when that opportunity is mapped. */
+  mitre_technique_ids: string[];
   combined_score: number;
   semantic_score: number;
   keyword_score: number;
@@ -224,7 +227,22 @@ export interface GeneratedDetection {
    *  something adjacent. Null/absent when there was no near-match. */
   library_near_match?: LibraryNearMatch | null;
   saved_detection_id: string | null;
+  /** True when `saved_detection_id` was set by the reuse-first short-circuit
+   *  (Amendment 1) pointing this leaf at an existing library rule, rather
+   *  than by the user saving a freshly-generated detection this session.
+   *  Distinguishes "already had this" from "you just saved this" — without
+   *  it the UI's "Saved to library as a Draft" banner is wrong for a reused
+   *  Production/Testing rule the user never touched. Optional for back-
+   *  compat with sessions persisted before this field existed. */
+  reused_from_library?: boolean;
   archived: boolean;
+  /** Findings from the deterministic (non-LLM) validators run after
+   *  generation: telemetry-feasibility, sigma-syntax, citation-check. Keyed
+   *  by validator name, value is a human-readable finding string. Absent or
+   *  empty means all validators ran clean (or didn't apply to this
+   *  detection's query_language). Advisory only — never blocks a detection
+   *  from shipping. */
+  validator_findings?: Record<string, string>;
 }
 
 /** Why a scoring library match was not treated as coverage.
@@ -332,8 +350,8 @@ export interface AttackBehaviour {
    *  from a sourced one downstream. */
   unsourced: boolean;
 
-  /** The Attack Researcher's per-behaviour offensive deep dive. Filled by
-   *  Phase 2 (one Attack Researcher invocation per behaviour). */
+  /** The per-behaviour offensive deep dive. Filled by the Attack Researcher
+   *  phase, one independently budgeted invocation per behaviour. */
   deep_dive: AttackResearchDeepDive | null;
 
   /** When set, the user's library already covers this behaviour and the

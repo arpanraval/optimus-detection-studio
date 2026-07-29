@@ -17,16 +17,34 @@
 // against the platform cap.
 //
 // Phase progression (each row is one job):
-//   preflight         → research          (singleton)
-//   research          → attack_research × N  (fan-out, one job per behaviour)
-//   attack_research × N  → detection × N    (fan-in then fan-out)
-//   detection × N     → finalise           (fan-in)
-//   finalise                                 (singleton; marks session completed)
+//   preflight            → research              (singleton)
+//   research             → attack_research × N   (fan-out, one job per behaviour)
+//   attack_research × N  → opportunity_planning  (fan-in, singleton)
+//   opportunity_planning → detection × N         (fan-out per canonical opportunity)
+//   detection × N        → finalise              (fan-in)
+//   finalise                                       (singleton; marks session completed)
+//
+// The attack_research fan-out is LOAD-BEARING, not incidental. Supabase kills
+// an edge worker at ~400s, and the measured Sonnet generation rate here is
+// ~57 tokens/s (5,338 output tokens in 93s on a real research synthesis call).
+// That puts a hard ceiling of roughly 19K output tokens on ANY single model
+// call in this pipeline. Splitting the deep-dive work across one worker per
+// behaviour is what keeps every individual call under that ceiling while
+// still producing far more total output than one call ever could
+// (6,144 + N×8,192 ≈ 71K tokens for an 8-behaviour subject).
+//
+// 2026-07-29: this phase was briefly merged into `research` as a single
+// "Dossier Agent" call with maxTokens 32,768 (~575s of generation at the
+// measured rate). Every session failed with "reaper: worker exceeded
+// edge-function lifetime" — the call cannot finish inside one worker on any
+// subject. Reverted. Do not merge these phases again without first changing
+// the per-worker execution model.
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 import { RunContext, emit } from "./events.ts";
 import type { ToolContext } from "./tools/index.ts";
 import type { WebSearchResult } from "../../_shared/web-search.ts";
+import type { WebFetchResult } from "../../_shared/web-fetch.ts";
 import { runPreflight } from "./preflight.ts";
 import { runResearchAgent } from "./agents/research-agent.ts";
 import { runAttackResearcherForBehaviour } from "./agents/attack-researcher.ts";
@@ -49,6 +67,7 @@ import {
   findUnverifiedMitreIds,
 } from "./mitre-validator.ts";
 import { validateKqlAgainstDefenderSchema } from "./tools/defender-schema-lookup.ts";
+import { runDetectionValidators } from "./validators/index.ts";
 import type {
   DetectionOpportunity,
   GeneratedDetection,
@@ -65,7 +84,7 @@ interface JobRow {
   id: string;
   session_id: string;
   phase: 'preflight' | 'research' | 'attack_research' | 'opportunity_planning' | 'detection' | 'qa' | 'finalise';
-  /** For attack_research: just the behaviour_id (e.g. "b1").
+  /** For attack_research: the behaviour id (for example "b1").
    *  For detection: composite "{primary_behaviour_id}/{opportunity_id}"
    *  (e.g. "b1/o3") — detection is now per canonical opportunity, not
    *  per behaviour, since the Opportunity Planner runs upstream.
@@ -161,10 +180,11 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
   }
 
   const searchCache = new Map<string, WebSearchResult>();
-  const runCtx: RunContext = { supabase, sessionId: session.id, userId: session.user_id };
+  const fetchCache = new Map<string, WebFetchResult>();
+  const runCtx: RunContext = { supabase, sessionId: session.id, userId: session.user_id, jobStartedAt: start };
   // envContextCache starts undefined; populated lazily by executeTool on
   // the first environment_context call within this worker invocation.
-  const toolCtx: ToolContext = { supabase, userId: session.user_id, searchCache };
+  const toolCtx: ToolContext = { supabase, userId: session.user_id, searchCache, fetchCache };
 
   // Hydrate tree (will mutate, then persist).
   const tree: ThreatResearchTree = (session.tree as ThreatResearchTree | null) ?? {
@@ -192,6 +212,9 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
       case 'research':
         await handleResearch(supabase, runCtx, toolCtx, session, tree);
         await markJobCompleted(supabase, job);
+        // Fan out one attack_research job per behaviour. Each gets its own
+        // fresh edge worker, which is what keeps every deep-dive call under
+        // the ~400s platform ceiling (see the header comment).
         await promote(
           supabase,
           session.id,
@@ -208,8 +231,7 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
         // Throttling: dispatch the next pending sibling so we keep ~2
         // concurrent in flight (Anthropic Tier-1 TPM safety net).
         await dispatchNextInPhase(supabase, session.id, 'attack_research');
-        // Fan-in to opportunity_planning (singleton). PR2: before detection
-        // fans out per-canonical-opportunity, the planner dedupes the
+        // Fan-in to opportunity_planning (singleton). The planner dedupes the
         // behaviour-level outputs into canonical detection opportunities.
         // promote() is a no-op if siblings are still running.
         await promote(
@@ -414,7 +436,7 @@ async function handleResearch(
   // Best-effort: a failure leaves the field absent; the engineer continues
   // with per-behaviour vector search alone.
   try {
-    tree.actor_coverage_seed = await buildActorCoverageSeed(supabase, out.subject);
+    tree.actor_coverage_seed = await buildActorCoverageSeed(supabase, out.subject, runCtx.userId);
     if (tree.actor_coverage_seed.length > 0) {
       await emit(runCtx, {
         agent: 'orchestrator',
@@ -430,18 +452,15 @@ async function handleResearch(
 
   // Stage-based budget. The initial cap covers the pre-opportunity phases:
   //   classifier (preflight):      1 call
-  //   research (singleton):        ~3-5 calls (iter cap 5)
-  //   attack_research × N:         ~3 calls each (iter cap 6, ~3 avg)
+  //   research (singleton):         up to 5 calls
+  //   attack_research x N:          up to 6 calls per independent worker
   //   opportunity_planning:        ~3-6 calls (iter cap 6, singleton)
   // handleOpportunityPlanning bumps the cap (via tr_bump_caps) once M
   // canonical opportunities are known, sizing for the detection + qa
   // per-opportunity work that follows.
   //
-  // Formula: 25 + 6*N (was 15+6*N, and before that 5+6*N — pre-fix, the headroom didn't cover
-  // retries on the four pre-opportunity phases together; e.g. one
-  // attack_research leaf retrying twice + a planner retry could exhaust
-  // the budget and starve the planner's final call). The extra 10 calls
-  // are cheap insurance for classifier/research/planner validation retries.
+  // 25 + 6*N retains retry headroom across research, the per-behaviour
+  // attack-research fan-out and planning. It is a ceiling, not a target.
   const N = out.behaviours.length;
   const modelCap = Math.min(800, 25 + 6 * N);
   const toolCap  = Math.min(800, 25 + 6 * N);
@@ -460,8 +479,8 @@ async function handleResearch(
 
 /** Build the list of composite "{primary_behaviour_id}/{opportunity_id}"
  *  strings that the detection phase will fan out on. Called by the
- *  attack_research/opportunity_planning promote step after the planner has
- *  populated behaviour.opportunities[]. */
+ *  opportunity_planning promote step after the planner has populated
+ *  behaviour.opportunities[]. */
 function collectOpportunityCompositeIds(tree: ThreatResearchTree): string[] {
   const ids: string[] = [];
   for (const b of tree.behaviours) {
@@ -479,6 +498,9 @@ function collectOpportunityCompositeIds(tree: ThreatResearchTree): string[] {
   return ids;
 }
 
+/** One behaviour's offensive deep-dive. Runs as its OWN edge worker (one job
+ *  per behaviour), which is what keeps each call comfortably under the ~400s
+ *  platform ceiling — see the phase-progression note at the top of this file. */
 async function handleAttackResearch(
   supabase: SupabaseClient,
   runCtx: RunContext,
@@ -600,6 +622,10 @@ async function handleOpportunityPlanning(
       b.opportunities = [fallbackOpp];
       await patchBehaviour(supabase, session.id, b.id, { opportunities: b.opportunities });
     }
+    // patchBehaviour persists each fallback leaf but cannot write this
+    // top-level flag. Persist it so the UI banner and resume_session planner
+    // recovery path can observe degraded mode.
+    await persistTree(supabase, session.id, tree);
     return;
   }
 
@@ -745,7 +771,7 @@ async function handleDetection(
   // Falls back to whatever's on the tree if rebuild fails.
   let actorCoverageSeed = tree.actor_coverage_seed ?? [];
   try {
-    actorCoverageSeed = await buildActorCoverageSeed(supabase, tree.subject);
+    actorCoverageSeed = await buildActorCoverageSeed(supabase, tree.subject, runCtx.userId);
   } catch (e) {
     console.warn('[handleDetection] actor coverage seed refresh failed:', (e as Error).message);
   }
@@ -789,8 +815,12 @@ async function handleDetection(
     });
     // Point this OPPORTUNITY's leaf at the existing rule. The leaf itself is
     // unchanged in shape — saved_detection_id is what the UI already reads to
-    // render a reused leaf and link back to the library entry.
+    // render a reused leaf and link back to the library entry. reused_from_library
+    // distinguishes this from a user manually saving a freshly-generated
+    // detection — the UI's "Saved to library as a Draft" banner is wrong here
+    // (no user action happened, and the rule may already be Production/Testing).
     opp.detection.saved_detection_id = libMatch.existing_detection_id;
+    opp.detection.reused_from_library = true;
     opp.detection.name = libMatch.name;
     opp.detection.query_language = (libMatch.query_language || queryLanguage) as ResearchQueryLanguage;
     // Carry the rule body across so the leaf shows the actual query, not just
@@ -808,13 +838,38 @@ async function handleDetection(
     ].join(' · ');
     await patchDetection(supabase, session.id, behaviour.id, opp.id, opp.detection.id, {
       saved_detection_id: opp.detection.saved_detection_id,
+      reused_from_library: true,
       name: opp.detection.name,
       query_language: opp.detection.query_language,
       query: opp.detection.query,
       description: opp.detection.description,
       feasibility: opp.detection.feasibility,
       feasibility_notes: opp.detection.feasibility_notes,
+      // A reused rule was never critiqued by THIS pipeline — clear any qa
+      // verdict/error left over from a prior attempt on this opportunity
+      // (e.g. a failed generation that's now being retried and resolves via
+      // reuse instead). Without this a retry-into-reuse keeps showing a
+      // stale verdict/error alongside a brand-new query body.
+      qa: null,
+      qa_error: null,
     });
+    // Also resolve any pre-existing qa JOB row for this opportunity. A reuse
+    // needs no QA pass, so mark it 'completed' directly rather than leaving
+    // it 'pending'/'failed' (which would either block the finalise gate —
+    // tr_promote_finalise_if_ready only treats completed/failed as done — or
+    // get picked up by the dispatcher cron and waste a QA call critiquing a
+    // rule this pipeline didn't write).
+    const qaCompositeIdForReuse = `${behaviour.id}/${opp.id}`;
+    const { error: reuseQaResetErr } = await supabase
+      .from('threat_research_jobs')
+      .update({ status: 'completed', completed_at: new Date().toISOString(), failure_reason: null })
+      .eq('session_id', session.id)
+      .eq('phase', 'qa')
+      .eq('behaviour_id', qaCompositeIdForReuse)
+      .neq('status', 'completed');
+    if (reuseQaResetErr) {
+      console.warn(`[handleDetection] reuse-path qa resolve for ${qaCompositeIdForReuse} failed:`, reuseQaResetErr.message);
+    }
     return;
   }
   // Nothing in the library matched, so generation proceeds below. There is no
@@ -936,6 +991,13 @@ async function handleDetection(
     }
   }
 
+  // Post-step: deterministic (no-LLM) validators — telemetry feasibility,
+  // Sigma structural syntax, citation spot-check, MITRE ID/tactic
+  // consistency. Advisory only; never blocks the detection from shipping.
+  // Runs after the KQL schema check above so validator_findings and
+  // feasibility_notes both reflect the same final generated detection.
+  generated.validator_findings = await runDetectionValidators(supabase, runCtx.userId, opp, generated);
+
   // ── 3. Persist the detection. ───────────────────────────────────────────
   // Carry the advisory near-match (if any) onto the leaf so the detail card
   // can explain why a fresh query exists next to an adjacent library rule.
@@ -956,6 +1018,7 @@ async function handleDetection(
     feasibility_notes: generated.feasibility_notes,
     citations: generated.citations,
     covers_behaviour_ids: generated.covers_behaviour_ids,
+    validator_findings: generated.validator_findings,
     qa: null,
     qa_error: null,
   });
@@ -1053,7 +1116,7 @@ async function handleQa(
   let actorCoverageSeed = tree.actor_coverage_seed ?? [];
   if (tree.subject) {
     try {
-      actorCoverageSeed = await buildActorCoverageSeed(supabase, tree.subject);
+      actorCoverageSeed = await buildActorCoverageSeed(supabase, tree.subject, runCtx.userId);
     } catch (e) {
       console.warn('[handleQa] actor coverage seed refresh failed:', (e as Error).message);
     }
@@ -1243,13 +1306,13 @@ async function handleFinalise(
   // downstream consumers querying status='completed' to mean "you have
   // detections" need to be told the truth.
   const usableDetections = libraryMatchCount + qaPass + qaPassWithConcerns;
-  const allDetectionsFailed = oppCount > 0 && usableDetections === 0;
+  const allDetectionsFailed = usableDetections === 0;
   const finalStatus: 'completed' | 'failed' = allDetectionsFailed ? 'failed' : 'completed';
   const failureReason = allDetectionsFailed
     ? `pipeline ran but produced no usable detections: ${engineerFailedCount} engineer_failed, ${qaErrorCount} qa_error, ${qaFail} qa_fail across ${oppCount} opportunit${oppCount === 1 ? 'y' : 'ies'}. Use the resume_session action to retry failed detection jobs after fixing the underlying cause.`
     : null;
 
-  await supabase
+  const { error: finaliseError } = await supabase
     .from('threat_research_sessions')
     .update({
       status: finalStatus,
@@ -1263,6 +1326,9 @@ async function handleFinalise(
       // tr_consume_budget — don't overwrite them here.
     })
     .eq('id', session.id);
+  if (finaliseError) {
+    throw new Error(`finalise session update: ${finaliseError.message}`);
+  }
 
   await emit(runCtx, {
     agent: 'orchestrator',
@@ -1301,17 +1367,20 @@ async function handleFinalise(
 
 /** Full-tree write. ONLY safe for singleton-phase handlers (preflight,
  *  research, finalise) where exactly one worker is writing. NEVER use this
- *  in attack_research / detection — those are fan-out and must use
- *  patchBehaviour to avoid trampling sibling workers. */
+ *  in attack_research/detection/qa — those are fan-out and must use
+ *  patchBehaviour / patchDetection to avoid trampling sibling workers. */
 async function persistTree(
   supabase: SupabaseClient,
   sessionId: string,
   tree: ThreatResearchTree,
 ): Promise<void> {
-  await supabase
+  const { error } = await supabase
     .from('threat_research_sessions')
     .update({ tree, updated_at: new Date().toISOString() })
     .eq('id', sessionId);
+  if (error) {
+    throw new Error(`persistTree ${sessionId}: ${error.message}`);
+  }
 }
 
 /** Atomic merge of a JSONB patch into one behaviour. Concurrent-safe — use

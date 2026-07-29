@@ -20,6 +20,13 @@ export interface RunContext {
   /** User the session belongs to. Used by Cost Center telemetry to attribute
    *  per-agent spend. */
   userId: string;
+  /** Date.now() at the top of runJob, when this worker invocation claimed
+   *  the job. Lets runAgentLoop check real remaining wall-clock time against
+   *  the platform's ~400s edge-worker ceiling before starting an iteration
+   *  that can't finish — see agent-loop.ts's job-wall-budget guard. Optional
+   *  only so RunContext values built outside runJob (tests, etc.) don't need
+   *  to supply it; the guard no-ops when absent. */
+  jobStartedAt?: number;
 }
 
 export interface EmitEvent {

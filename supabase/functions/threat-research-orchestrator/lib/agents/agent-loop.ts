@@ -86,6 +86,27 @@ export interface AgentLoopOutcome<T> {
  *  falls back to training memory and hallucinates. */
 const TOOL_RESULT_MAX_CHARS = 12000;
 
+/** Job-wall-budget safe deadline: the platform kills the edge worker at
+ *  ~400s (verified against the reaper's own thresholds — see
+ *  20260728120200_threat_research_reaper_platform_ceiling.sql), and this
+ *  guard needs margin under that to actually exit cleanly rather than being
+ *  killed mid-request. 370s leaves 30s for job-claim overhead, clock skew,
+ *  and the emit() call itself before the worker dies. */
+const JOB_WALL_BUDGET_SAFE_DEADLINE_MS = 370_000;
+
+/** Minimum remaining runway worth attempting another iteration for. Below
+ *  this, refuse outright rather than start a call that has almost no room
+ *  to work with. Found via Batch 8 live verification: the guard originally
+ *  refused whenever cfg.timeoutMs (the worst-case ceiling for a role, e.g.
+ *  340s for DOSSIER's long final-synthesis call) didn't fully fit in the
+ *  remaining budget — which fired after ~40s of real elapsed time on every
+ *  real session, since most iterations are short tool-calling turns that
+ *  never need anywhere near the full ceiling. The fix: shrink THIS call's
+ *  timeout to whatever's actually left (see effectiveTimeoutMs below)
+ *  instead of refusing whenever the nominal ceiling doesn't fit, and only
+ *  refuse when the remaining runway drops below this floor. */
+const MIN_USEFUL_CALL_MS = 30_000;
+
 /** Prepend current-date context to every agent's system prompt. The QA agent
  *  in particular was flagging real Tavily-sourced current-year citations as
  *  "future-dated/hypothetical/fabricated" because its training cutoff
@@ -217,6 +238,39 @@ export async function runAgentLoop<T>(
   };
 
   for (let iteration = 1; iteration <= cfg.iterationCap; iteration++) {
+    // Job-wall-budget guard. Supabase kills the edge worker at ~400s
+    // (platform ceiling, verified against the reaper's own thresholds in
+    // 20260728120200_threat_research_reaper_platform_ceiling.sql). Rather
+    // than let that happen silently — the exact "worker died mid-loop, no
+    // reason recorded" failure the observability events exist to catch —
+    // track the real wall-clock remaining since the job was claimed
+    // (runCtx.jobStartedAt, which spans the WHOLE worker invocation, not
+    // just this loop's own start — a job can call runAgentLoop more than
+    // once, e.g. detection generation then a separate QA critique call).
+    //
+    // This call's ACTUAL timeout shrinks to whatever runway is left rather
+    // than refusing outright whenever cfg.timeoutMs (the worst-case ceiling
+    // for this role) doesn't fully fit — most iterations are short tool-
+    // calling turns that never need anywhere near that ceiling. Only refuse
+    // when the remaining runway drops below MIN_USEFUL_CALL_MS.
+    let effectiveTimeoutMs = cfg.timeoutMs ?? 180_000;
+    if (runCtx.jobStartedAt !== undefined) {
+      const jobElapsedMs = Date.now() - runCtx.jobStartedAt;
+      const remainingMs = JOB_WALL_BUDGET_SAFE_DEADLINE_MS - jobElapsedMs;
+      if (remainingMs < MIN_USEFUL_CALL_MS) {
+        await emit(runCtx, {
+          agent: cfg.agent,
+          event_type: 'agent_failed',
+          message: `job_wall_budget: ${Math.round(jobElapsedMs / 1000)}s elapsed since job claim, ` +
+            `only ${Math.round(remainingMs / 1000)}s of runway left before the platform's ~400s worker ` +
+            `ceiling — exiting cleanly instead of risking a silent kill`,
+          payload: { ...ctxPayload, reason: 'job_wall_budget', job_elapsed_ms: jobElapsedMs, iteration },
+        });
+        return exitLoop({ success: false, output: null, iterations: iteration - 1, reason: 'job_wall_budget' });
+      }
+      effectiveTimeoutMs = Math.min(effectiveTimeoutMs, remainingMs);
+    }
+
     // Atomic check-and-spend at the session level. If the cap is reached,
     // the RPC returns allowed:false and we exit.
     const modelBudget = await consumeBudget(runCtx, { modelCalls: 1 });
@@ -259,7 +313,7 @@ export async function runAgentLoop<T>(
         iteration,
         model: cfg.model,
         feature: cfg.feature,
-        timeout_ms: cfg.timeoutMs ?? null,
+        timeout_ms: effectiveTimeoutMs,
         max_tokens: cfg.maxTokens ?? null,
         strict_tools: strictTools,
         cache: cacheMode,
@@ -307,13 +361,14 @@ export async function runAgentLoop<T>(
           // match the tool's input_schema. Callers can opt out by setting
           // cfg.strictTools=false (debugging only).
           strictTools,
-          // Default ON: prompt caching of system prompt + tools array.
-          // The 5-minute TTL fits the orchestrator's per-session wall time;
-          // sibling workers within a session reuse the cached prefix.
+          // Default ON: prompt caching of system prompt + tools array. The
+          // adapter uses a one-hour TTL so later fan-out workers still reuse
+          // the stable prefix.
           cache: cacheMode,
-          // Per-role overrides (model-routing.ts). When unset, the adapter
-          // applies its own defaults (180s / 16384).
-          timeoutMs: cfg.timeoutMs,
+          // Per-role ceiling (model-routing.ts), shrunk to whatever
+          // job-wall-budget runway remains (see the guard above) so a late
+          // iteration can't itself overrun the platform's ~400s kill.
+          timeoutMs: effectiveTimeoutMs,
           maxTokens: cfg.maxTokens,
           debug: debugModelCall,
         },
@@ -569,7 +624,7 @@ export async function runAgentLoop<T>(
 
     // Tool calls → execute each, build matching tool_result blocks (each with
     // tool_use_id matching the assistant's tool_use block id).
-    const toolResultBlocks: AnthropicContentBlock[] = [];
+    const toolResultBlocks: Extract<AnthropicContentBlock, { type: 'tool_result' }>[] = [];
     for (const call of response.toolUses) {
       const toolBudget = await consumeBudget(runCtx, { toolCalls: 1 });
       if (!toolBudget.allowed) {

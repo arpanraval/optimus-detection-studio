@@ -33,8 +33,9 @@
 // All three models support tool use AND strict tool use AND prompt caching
 // (per Anthropic docs as of 2026-05). The previous comment in research-agent.ts
 // claiming "Sonnet's slower per-token rate exceeded the per-call wall budget"
-// is stale — the queue architecture gives each LLM call its own fresh edge
-// worker, and the 180s per-call timeout fits any of these models comfortably.
+// is stale. The queue gives each PHASE JOB a fresh worker; one agent loop can
+// still make several model/tool calls inside that worker. Role limits therefore
+// remain subordinate to agent-loop.ts's whole-job safe deadline.
 
 export type ResearchAgentRole =
   | 'PLANNER'      // Detection Opportunity Planner (PR2)

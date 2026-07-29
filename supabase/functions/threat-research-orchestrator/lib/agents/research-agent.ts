@@ -179,6 +179,25 @@ export function validate(text: string): ValidationResult<ResearchAgentOutput> {
   if (!subjectName)    return { ok: false, reason: 'subject.subject missing — required canonical name' };
   if (!brief)          return { ok: false, reason: 'subject.brief missing — required short synthesis' };
 
+  // Narrow to the enum the rest of the pipeline assumes. The orchestrator
+  // normally pins classification to preflight's authoritative value anyway
+  // (this only surfaces for legacy sessions with no preflight data), but the
+  // model's own echo of it should still be validated rather than blindly
+  // cast — a stray value here would otherwise silently violate
+  // ResearchSubject.classification's type everywhere downstream reads it.
+  // (Latent since this file was written; only caught once `deno check` was
+  // first run against these edge functions on 2026-07-29.)
+  const VALID_CLASSIFICATIONS = new Set<ResearchInputClassification>(
+    ['cve', 'group', 'campaign', 'technique', 'concept'],
+  );
+  if (!VALID_CLASSIFICATIONS.has(classification as ResearchInputClassification)) {
+    return {
+      ok: false,
+      reason: `subject.classification "${classification}" is not one of cve|group|campaign|technique|concept`,
+    };
+  }
+  const classificationNarrowed = classification as ResearchInputClassification;
+
   const intelRaw = s.intel_summary ?? s.intelSummary ?? s.intel ?? {};
   const citationsRaw = Array.isArray(s.citations) ? s.citations
                      : Array.isArray(s.sources)    ? s.sources
@@ -186,7 +205,7 @@ export function validate(text: string): ValidationResult<ResearchAgentOutput> {
                      : [];
 
   const subject: ResearchSubject = {
-    classification,
+    classification: classificationNarrowed,
     subject: subjectName,
     brief,
     intel_summary: intelRaw,
@@ -397,7 +416,21 @@ export async function runResearchAgent(
     validateFinalOutput: validate,
     timeoutMs: role.timeoutMs,
     maxTokens: role.maxTokens,
-    maxValidationRetries: 0,
+    // 1 retry (was 0). This agent emits the largest, most deeply-nested JSON
+    // in the pipeline — subject + 14 tactic_summary rows + N behaviours — and
+    // was the ONLY agent with retries disabled; every other agent already
+    // takes runAgentLoop's default of 1. A single stray character therefore
+    // killed the whole session with no second chance: two real runs died on
+    // `JSON parse failed` (one on a missing opening quote in a MITRE id,
+    // `"T1482", T1069.002"`). The original 0 was set in a bulk commit with no
+    // stated rationale, and the likely reason for it — retries re-sending the
+    // huge invalid payload — no longer applies: agent-loop.ts replaces the bad
+    // output with a short `[invalid JSON output omitted]` placeholder and
+    // feeds back only the validator's specific reason, so the retry is small
+    // and targeted. Budget: the retry adds one synthesis call (~80-93s
+    // measured) to a ~143s job → ~240s, comfortably inside the 400s worker
+    // ceiling, and iterationCap 5 leaves room (a normal run uses 3).
+    maxValidationRetries: 1,
     contextPayload: { classification },
   };
 

@@ -330,7 +330,7 @@ serve(async (req: Request) => {
         })
         .eq('session_id', sessionId)
         .eq('phase', 'qa')
-        .like('behaviour_id', `${behaviourId}/%`);
+        .eq('behaviour_id', behaviourId);
       if (qaResetErr) {
         console.warn('[entry] retry_leaf qa-reset failed (non-fatal):', qaResetErr.message);
       }
