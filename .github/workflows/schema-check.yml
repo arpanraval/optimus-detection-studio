@@ -85,5 +85,26 @@ jobs:
           [ "$A" -eq 1 ]  || { echo "::error::expected on_auth_user_created trigger, got $A"; fail=1; }
           [ "$C" -eq 2 ]  || { echo "::error::expected active_entry_id and heartbeat_at, got $C"; fail=1; }
           [ "$W" -eq 1 ]  || { echo "::error::expected heartbeat-aware auto_digest_watchdog, got $W"; fail=1; }
+
+          # No SECURITY DEFINER function in public may be reachable by anon.
+          #
+          # This is not hypothetical. Changing tr_consume_budget's signature
+          # required DROP + CREATE; DROP discards the function's ACL, and
+          # Supabase default privileges then re-granted EXECUTE to PUBLIC, anon
+          # and authenticated -- silently undoing lock_down_rpc_execute for that
+          # function and exposing a SECURITY DEFINER budget mutator through
+          # /rest/v1/rpc with no caller validation.
+          #
+          # Nothing caught it: it is invisible to tsc, to vitest, and to a
+          # schema diff, because the function body was correct. Only the grant
+          # was wrong. So the assertion belongs here, against a real database.
+          S=$(psql "$PGURL" -tA -c "select coalesce(string_agg(p.oid::regprocedure::text, ', '), '') from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.prosecdef and has_function_privilege('anon', p.oid, 'EXECUTE');")
+          if [ -n "$S" ]; then
+            echo "::error::SECURITY DEFINER function(s) executable by anon: $S"
+            fail=1
+          else
+            echo "anon-executable SECURITY DEFINER functions: none ✅"
+          fi
+
           [ "$fail" -eq 0 ] && echo "✅ supabase/schema.sql applies cleanly on an empty database"
           exit $fail

@@ -4185,6 +4185,18 @@ DECLARE
   c_default_tool  constant int := 30;
   c_default_model constant int := 40;
 BEGIN
+  -- Every parameter is a quantity consumed or reserved. A negative value would
+  -- run the accounting backwards and hand out budget that was never earned.
+  IF COALESCE(p_tool_calls, 0)     < 0
+     OR COALESCE(p_model_calls, 0) < 0
+     OR COALESCE(p_tokens, 0)      < 0
+     OR COALESCE(p_tokens_reserve, 0) < 0
+     OR COALESCE(p_tokens_release, 0) < 0 THEN
+    RETURN jsonb_build_object(
+      'allowed', false,
+      'reason', 'negative budget arguments are not permitted'
+    );
+  END IF;
   SELECT COALESCE(tool_calls_used, 0),
          COALESCE(model_calls_used, 0),
          COALESCE(total_tokens, 0),
@@ -4297,6 +4309,23 @@ BEGIN
   );
 END;
 $function$;
+
+REVOKE ALL ON FUNCTION public.tr_consume_budget(uuid, integer, integer, integer, text, integer, integer)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.tr_consume_budget(uuid, integer, integer, integer, text, integer, integer)
+  TO service_role;
+
+-- Restated so this migration is self-sufficient.
+REVOKE ALL ON FUNCTION public.tr_set_phase_budgets(uuid, integer, jsonb)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.tr_set_phase_budgets(uuid, integer, jsonb) TO service_role;
+
+REVOKE ALL ON FUNCTION public.tr_abort_session(uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.tr_abort_session(uuid, text) TO service_role;
+
+COMMENT ON FUNCTION public.tr_consume_budget(uuid, integer, integer, integer, text, integer, integer) IS
+  'Atomic budget check-and-spend for a threat-research session. SECURITY DEFINER, service-role only: it validates no caller identity, so end-user execution must stay revoked. Any future signature change must re-apply these grants -- DROP discards the ACL and Supabase default privileges re-grant anon/authenticated.';
+
 CREATE OR REPLACE FUNCTION public.tr_set_phase_budgets(
   p_session_id uuid,
   p_token_cap  integer,
