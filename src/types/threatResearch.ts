@@ -266,7 +266,10 @@ export type LibraryNearMatchReason =
   | 'not_deployed'
   | 'language_mismatch'
   | 'no_query_body'
-  | 'technique_mismatch';
+  | 'technique_mismatch'
+  /** Right technique, deployed, runnable here -- but it watches different
+   *  telemetry, so it covers a different detection surface. */
+  | 'different_observables';
 
 export interface LibraryNearMatch {
   existing_detection_id: string;

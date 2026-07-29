@@ -129,9 +129,40 @@ describe('adjudicateReuse', () => {
       opportunityMitreIds: ['T1018'],
       match: KQL_PRODUCTION,
       targetLanguage: 'KQL',
+      // Same telemetry as the rule -- without this the observable condition
+      // fails and generation correctly proceeds.
+      opportunityObservableChain: ['adfind.exe enumerating the domain'],
+      opportunityTelemetry: ['DeviceProcessEvents'],
     });
     expect(a.suppressGeneration).toBe(true);
     expect(a.skippedReason).toBeNull();
+  });
+
+  it('generates when the rule watches DIFFERENT telemetry', () => {
+    // The T1218.005 failure generalised: a rule can be about the right
+    // technique, deployed, and runnable here, and still cover a different
+    // detection surface. MITRE overlap cannot see that.
+    const a = adjudicateReuse({
+      opportunityMitreIds: ['T1018'],
+      match: KQL_PRODUCTION,
+      targetLanguage: 'KQL',
+      opportunityObservableChain: ['LDAP query volume from a single host'],
+      opportunityTelemetry: ['DeviceNetworkEvents'],
+    });
+    expect(a.suppressGeneration).toBe(false);
+    expect(a.showAsRelatedCoverage).toBe(true);
+    expect(a.skippedReason).toBe('different_observables');
+  });
+
+  it('declines the short-circuit when the opportunity declares no surface', () => {
+    // Costs one generation; the opposite default costs a missed detection.
+    const a = adjudicateReuse({
+      opportunityMitreIds: ['T1018'],
+      match: KQL_PRODUCTION,
+      targetLanguage: 'KQL',
+    });
+    expect(a.suppressGeneration).toBe(false);
+    expect(a.reasons.observableOverlap).toBe(false);
   });
 
   it('generates the gap AND shows a Draft rule as related coverage', () => {
@@ -203,6 +234,7 @@ describe('adjudicateReuse', () => {
       runnableQuery: true,
       compatibleLanguage: false,
       deployedStatus: false,
+      observableOverlap: false,
     });
     // Language wins the report: it is the more actionable of the two.
     expect(a.skippedReason).toBe('language_mismatch');

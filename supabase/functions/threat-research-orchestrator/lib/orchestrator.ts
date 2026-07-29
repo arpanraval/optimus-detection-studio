@@ -879,6 +879,11 @@ async function handleDetection(
     opportunityMitreIds: opp.mitre_technique_ids,
     match: libMatch,
     targetLanguage: queryLanguage,
+    // The opportunity's declared detection surface. Without these the
+    // observable condition cannot be satisfied and every match falls through
+    // to generation -- safe, but it would make the gate inert.
+    opportunityObservableChain: opp.observable_chain,
+    opportunityTelemetry: opp.telemetry,
   });
 
   if (libMatch && adjudication.suppressGeneration) {
