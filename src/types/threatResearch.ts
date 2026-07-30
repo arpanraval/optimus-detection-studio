@@ -26,6 +26,9 @@ export type ResearchEventType =
   | 'preflight_started' | 'preflight_completed'
   | 'behaviour_created' | 'opportunity_created' | 'detection_generated'
   | 'qa_verdict' | 'qa_refinement_started' | 'qa_refinement_completed'
+  /** A QA revision failed deterministic revalidation, so the earlier version
+   *  stayed active. */
+  | 'qa_revision_rejected'
   | 'session_completed' | 'session_cancelled' | 'session_failed' | 'job_failed'
   | 'tool_call' | 'tool_cache_hit'
   | 'library_match_found' | 'attack_research_completed'
@@ -74,12 +77,15 @@ export interface ResearchSubject {
 }
 
 export interface PreflightSummary {
-  /** Number of detections matching the raw input via hybrid library search.
-   *  Not a coverage metric — purely "you have N nearby detections". */
+  /** ALWAYS 0. VESTIGIAL — do not render it.
+   *
+   *  The phase-0 library search that produced this was removed as structurally
+   *  misleading: no behaviours exist yet to match against and there was no
+   *  similarity floor. Retained only so sessions persisted before the removal
+   *  still parse. An early coverage inventory belongs after research, not
+   *  here. */
   library_hits: number;
-  /** Distinct MITRE technique IDs mentioned in the matching detections. NOT
-   *  a coverage claim — surface in UI as "techniques mentioned", never as
-   *  "covered techniques". */
+  /** ALWAYS []. VESTIGIAL — see library_hits. */
   techniques_seen_in_hits: string[];
   skipped: boolean;
   ran_at: string;
@@ -173,6 +179,23 @@ export interface DetectionCandidateVersion {
   /** The verdict that prompted this version. Null on version 1, which
    *  predates any critique. */
   prompted_by_verdict?: QaVerdict | null;
+  /** Result of re-running the DETERMINISTIC validators against this body.
+   *
+   *  A QA revision used to ship with no second check of any kind and become
+   *  active automatically, so the body reaching the analyst was the one nothing
+   *  had validated while the validated body sat behind a tab. Deterministic
+   *  only -- unknown schema columns, Sigma syntax -- never a model opinion. */
+  validation?: CandidateValidation | null;
+}
+
+/** Outcome of the deterministic checks for one candidate body. */
+export interface CandidateValidation {
+  /** Whether the checks actually ran. False on sessions persisted before
+   *  revalidation existed, so "no problems" is never read as "not looked at". */
+  checked: boolean;
+  /** Problems recomputable from the query text plus the schema. Empty is
+   *  clean. */
+  problems: string[];
 }
 
 export interface GeneratedDetection {

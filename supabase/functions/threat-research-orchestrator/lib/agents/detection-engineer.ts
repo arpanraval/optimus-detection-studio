@@ -25,6 +25,8 @@ import { loadKnowledgePack } from "../skills-loader.ts";
 import { ROLE_CONFIG } from "../llm/model-routing.ts";
 import { handleLibrarySearch } from "../tools/library-search.ts";
 import { hasMitreOverlap } from "../coverage.ts";
+import { supportsDefenderSchemaValidation } from "../query-language.ts";
+import { validateKqlAgainstDefenderSchema } from "../tools/defender-schema-lookup.ts";
 import { mergeSourceCitations } from "../citations.ts";
 import { critiqueDetection, type CritiqueOutcome, type QaIntentContext } from "./qa-agent.ts";
 import type {
@@ -172,10 +174,63 @@ export function withCandidateVersion(
   };
 }
 
+/** Annotate each candidate with its deterministic verdict and choose which one
+ *  ships.
+ *
+ *  One rule: the NEWEST version that is deterministically clean becomes active;
+ *  if none is clean, the newest wins.
+ *
+ *  Both halves matter. "Newest clean" means a revision that introduces a
+ *  hallucinated column cannot displace the original that parsed — which is the
+ *  whole guarantee C2 was supposed to provide and did not, because activation
+ *  was unconditional. "Newest when none is clean" means a real QA fail still
+ *  gets its repair attempt promoted rather than falling back to a body QA had
+ *  already rejected.
+ *
+ *  Pure, so the decision is testable without a schema or a model. `query`
+ *  is kept in step with `active_version` so every existing reader that only
+ *  understands `query` sees the same body the version tab calls active. */
+export function applyCandidateValidation(
+  detection: GeneratedDetection,
+  problemsByVersion: Readonly<Record<number, string[]>>,
+): GeneratedDetection {
+  const versions = detection.candidate_versions ?? [];
+  if (versions.length === 0) return detection;
+
+  const annotated: DetectionCandidateVersion[] = versions.map(v => {
+    const problems = problemsByVersion[v.version];
+    return {
+      ...v,
+      validation: problems === undefined
+        ? (v.validation ?? { checked: false, problems: [] })
+        : { checked: true, problems },
+    };
+  });
+
+  const clean = annotated.filter(v => v.validation?.checked && v.validation.problems.length === 0);
+  const pool = clean.length > 0 ? clean : annotated;
+  const chosen = pool[pool.length - 1];
+
+  return {
+    ...detection,
+    candidate_versions: annotated,
+    active_version: chosen.version,
+    query: chosen.query,
+  };
+}
+
+/** Re-run the deterministic validators against a candidate body. Returns the
+ *  problems found; empty means clean. Supplied by the orchestrator, which owns
+ *  the Supabase client the schema check needs. */
+export type CandidateValidator = (query: string) => Promise<string[]>;
+
 export async function driveSinglePassQa(
   initialDetection: GeneratedDetection,
   writeFn: (prevDetection: GeneratedDetection, qa: QaResult) => Promise<GeneratedDetection>,
   qaFn:    (detection: GeneratedDetection) => Promise<CritiqueOutcome>,
+  /** Optional so existing callers compile. When absent, versions record
+   *  `checked: false` and activation keeps its previous behaviour. */
+  validateFn?: CandidateValidator,
 ): Promise<GeneratedDetection> {
   // Record the engineer's output as version 1 before QA ever sees it. Doing it
   // here rather than at revision time means the original survives even if the
@@ -234,8 +289,30 @@ export async function driveSinglePassQa(
     'qa_revision',
     qa.verdict,
   );
+
+  // Re-run the deterministic checks on both bodies before deciding which one
+  // ships. QA is not consulted again -- it just got this wrong enough to
+  // trigger a revision -- but "does this column exist" and "does this parse"
+  // are facts, and they are exactly the failures a hurried revision
+  // introduces.
+  let decided = versioned;
+  if (validateFn) {
+    const byVersion: Record<number, string[]> = {};
+    for (const v of versioned.candidate_versions ?? []) {
+      try {
+        byVersion[v.version] = await validateFn(v.query);
+      } catch (e) {
+        // A validator that cannot run has found nothing; it must not be able to
+        // mark a good body as problematic. Leaving the entry absent records
+        // `checked: false` rather than a clean bill of health.
+        console.warn('[detection-engineer] candidate revalidation failed:', e);
+      }
+    }
+    decided = applyCandidateValidation(versioned, byVersion);
+  }
+
   return {
-    ...versioned,
+    ...decided,
     qa: { ...qa, iteration_history: history, iteration_count: 1 },
     qa_error: null,
     revised_after_fail: true,
@@ -670,11 +747,46 @@ export async function refineDetectionViaActorCritic(
     telemetry: opp.telemetry ?? [],
     queryProduct,
   };
+  // Deterministic revalidation of every candidate body. Gated on product for
+  // the same reason the initial check is (C1): both Microsoft SIEMs write KQL,
+  // and there is no Sentinel schema here, so running the Defender check on a
+  // Sentinel query invents unknown-table findings for correct code. No schema,
+  // no check -- an honest absence rather than a false verdict.
+  const revalidate: CandidateValidator | undefined =
+    supportsDefenderSchemaValidation(queryProduct) && language === 'KQL'
+      ? async (query: string) => {
+        const f = await validateKqlAgainstDefenderSchema(toolCtx.supabase, query);
+        const problems: string[] = [];
+        if (f.table && !f.table_known) problems.push(`unknown table: ${f.table}`);
+        for (const c of f.unknown_columns) problems.push(`unknown column: ${c}`);
+        return problems;
+      }
+      : undefined;
+
   const refined = await driveSinglePassQa(
     opp.detection,
     (prev, qa) => reviseDetection(toolCtx, runCtx, prev, qa, language, pack, leafCtx),
     (det) => critiqueDetection(toolCtx, runCtx, det, intent, leafCtx),
+    revalidate,
   );
+  // A revision that introduced a deterministic defect does not become active.
+  // Say so in the event trail: silently shipping v1 when the UI had been told
+  // v2 was the answer is how the previous version of this got confusing.
+  const activeVersion = refined.candidate_versions?.find(v => v.version === refined.active_version);
+  if (refined.candidate_versions && refined.candidate_versions.length > 1
+      && refined.active_version !== refined.candidate_versions.length) {
+    await emit(runCtx, {
+      agent: 'qa',
+      event_type: 'qa_revision_rejected',
+      message: `revision for ${opp.detection.id} failed revalidation; keeping v${refined.active_version}`,
+      payload: {
+        ...leafCtx,
+        active_version: refined.active_version,
+        rejected_problems: refined.candidate_versions.at(-1)?.validation?.problems ?? [],
+        active_problems: activeVersion?.validation?.problems ?? [],
+      },
+    });
+  }
   await emit(runCtx, {
     agent: 'qa',
     event_type: 'qa_refinement_completed',

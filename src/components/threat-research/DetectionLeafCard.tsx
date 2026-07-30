@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
 import { useToast } from '../../hooks/useToast';
@@ -50,8 +50,25 @@ const FEASIBILITY_STYLE: Record<string, string> = {
 
 export function DetectionLeafCard({ session, behaviour, opportunity, onClose, onMutated }: Props) {
   const { showToast } = useToast();
-  const det = opportunity.detection;
+  const stored = opportunity.detection;
   const [busy, setBusy] = useState(false);
+  // Which candidate version the analyst has chosen, null = whatever the
+  // pipeline made active.
+  //
+  // This lives HERE rather than inside QueryVersions because it has to reach
+  // handleSave. When it was local to that component, picking v1 changed only
+  // what was displayed: the save still sent `det`, whose `query` mirrors the
+  // active version, so the analyst read v1, pressed Save, and stored v2. An
+  // affordance that looks like a choice and is not one is worse than no
+  // affordance.
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+  const det = useMemo<GeneratedDetection>(() => {
+    const versions = stored.candidate_versions ?? [];
+    if (selectedVersion === null || versions.length < 2) return stored;
+    const picked = versions.find(v => v.version === selectedVersion);
+    if (!picked) return stored;
+    return { ...stored, query: picked.query, active_version: picked.version };
+  }, [stored, selectedVersion]);
   // Acknowledgement gate for saving a QA-failed detection. Resets when the
   // user opens a different leaf because the component remounts.
   const [confirmFailedSave, setConfirmFailedSave] = useState(false);
@@ -311,7 +328,11 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
         </Section>
 
         <Section title={`Query (${det.query_language})`}>
-          <QueryVersions det={det} />
+          <QueryVersions
+            det={stored}
+            selected={selectedVersion}
+            onSelect={setSelectedVersion}
+          />
         </Section>
 
         <Section title="MITRE">
@@ -594,14 +615,22 @@ function LibraryNearMatchNote({ match }: { match: LibraryNearMatch }) {
  *  QA's reasoning between them. The revision is a proposal; the choice is
  *  theirs. Sessions persisted before versioning have no candidate_versions and
  *  render exactly as before. */
-function QueryVersions({ det }: { det: GeneratedDetection }) {
+function QueryVersions({
+  det, selected, onSelect,
+}: {
+  det: GeneratedDetection;
+  /** null = show whatever the pipeline made active. Owned by the parent so the
+   *  choice reaches Save. */
+  selected: number | null;
+  onSelect: (version: number) => void;
+}) {
   const versions = det.candidate_versions ?? [];
-  const [selected, setSelected] = useState<number | null>(null);
 
   const active = det.active_version ?? (versions.length || 1);
   const shown = selected ?? active;
   const shownVersion = versions.find(v => v.version === shown);
   const body = shownVersion?.query ?? det.query;
+  const shownValidation = shownVersion?.validation ?? null;
 
   return (
     <>
@@ -611,7 +640,7 @@ function QueryVersions({ det }: { det: GeneratedDetection }) {
             <button
               key={v.version}
               type="button"
-              onClick={() => setSelected(v.version)}
+              onClick={() => onSelect(v.version)}
               className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
                 v.version === shown
                   ? 'border-primary bg-primary/10 text-primary'
@@ -621,11 +650,26 @@ function QueryVersions({ det }: { det: GeneratedDetection }) {
               v{v.version}
               {v.source === 'generated' ? ' · original' : ' · QA revision'}
               {v.version === active ? ' · active' : ''}
+              {v.validation?.checked && v.validation.problems.length > 0 ? ' · ✗' : ''}
             </button>
           ))}
           <span className="text-[11px] text-on-surface-variant">
-            QA proposed the revision; it was not re-checked. Compare before saving.
+            {shown === active
+              ? 'Saving stores this version.'
+              : `Saving stores v${shown}, not the active v${active}.`}
           </span>
+        </div>
+      )}
+      {shownValidation?.checked && shownValidation.problems.length > 0 && (
+        <div className="mb-2 rounded-md border border-error/40 bg-error-container/40 px-2.5 py-1.5 text-[11px] text-on-error-container">
+          <span className="font-semibold">Schema check failed on this version:</span>{' '}
+          {shownValidation.problems.join('; ')}
+        </div>
+      )}
+      {versions.length > 1 && !shownValidation?.checked && (
+        <div className="mb-2 text-[11px] text-tertiary">
+          No schema is available for this product, so neither version was
+          re-checked. Compare them before saving.
         </div>
       )}
       <pre className="overflow-x-auto rounded-md bg-surface-container-highest px-3 py-2.5 text-xs text-on-surface">

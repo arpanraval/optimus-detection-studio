@@ -8,7 +8,9 @@
 // pin that both versions survive and the analyst can still reach the original.
 
 import { describe, it, expect } from 'vitest';
-import { driveSinglePassQa, withCandidateVersion } from '../agents/detection-engineer.ts';
+import {
+  driveSinglePassQa, withCandidateVersion, applyCandidateValidation,
+} from '../agents/detection-engineer.ts';
 import type { GeneratedDetection, QaResult } from '../types.ts';
 
 const BROAD = 'DeviceProcessEvents | where FileName =~ "mshta.exe" | where ProcessCommandLine has_any ("http://", "https://")';
@@ -127,5 +129,104 @@ describe('driveSinglePassQa versioning', () => {
     expect(out.candidate_versions).toHaveLength(1);
     expect(out.query).toBe(BROAD);
     expect(out.qa_error).toBe('qa timed out');
+  });
+});
+
+// Keeping both versions was only half the fix. The revision still became active
+// automatically and was never re-checked, so the body that reached the analyst
+// was the one nothing had validated -- a wrong `fail` could still put a broken
+// query in front of them, just with the working one behind a tab.
+describe('applyCandidateValidation', () => {
+  const twoVersions = () => withCandidateVersion(
+    withCandidateVersion(detection(), BROAD, 'generated', null),
+    NARROW, 'qa_revision', 'fail',
+  );
+
+  it('keeps the earlier version active when the revision breaks the schema', () => {
+    const out = applyCandidateValidation(twoVersions(), {
+      1: [],
+      2: ['unknown column: InitiatingProcessFileNam'],
+    });
+    expect(out.active_version).toBe(1);
+    // `query` must follow, or every reader that only understands `query` still
+    // gets the broken body.
+    expect(out.query).toBe(BROAD);
+    // The rejected revision is still reachable, with its reason attached.
+    expect(out.candidate_versions![1].validation).toEqual({
+      checked: true, problems: ['unknown column: InitiatingProcessFileNam'],
+    });
+  });
+
+  it('promotes the revision when it is the clean one', () => {
+    const out = applyCandidateValidation(twoVersions(), { 1: ['unknown column: Computer'], 2: [] });
+    expect(out.active_version).toBe(2);
+    expect(out.query).toBe(NARROW);
+  });
+
+  it('promotes the revision when both are clean', () => {
+    const out = applyCandidateValidation(twoVersions(), { 1: [], 2: [] });
+    expect(out.active_version).toBe(2);
+  });
+
+  it('still promotes the revision when NEITHER is clean', () => {
+    // Falling back to v1 here would re-activate a body QA had already
+    // rejected, on the strength of it being equally broken.
+    const out = applyCandidateValidation(twoVersions(), { 1: ['a'], 2: ['b'] });
+    expect(out.active_version).toBe(2);
+  });
+
+  it('records checked:false for a version it could not check', () => {
+    // "No problems found" and "never looked at" must not render the same.
+    const out = applyCandidateValidation(twoVersions(), { 1: [] });
+    expect(out.candidate_versions![0].validation).toEqual({ checked: true, problems: [] });
+    expect(out.candidate_versions![1].validation).toEqual({ checked: false, problems: [] });
+    // An unchecked version cannot be "the newest clean one".
+    expect(out.active_version).toBe(1);
+  });
+
+  it('leaves a legacy detection with no versions untouched', () => {
+    const legacy = detection();
+    expect(applyCandidateValidation(legacy, {})).toBe(legacy);
+  });
+});
+
+describe('driveSinglePassQa revalidation', () => {
+  const failThenNarrow = async (prev: GeneratedDetection) => ({ ...prev, query: NARROW });
+  const failVerdict = async () => ({ kind: 'completed' as const, qa: qaResult('fail') });
+
+  it('does not activate a revision that fails revalidation', async () => {
+    const out = await driveSinglePassQa(
+      detection(), failThenNarrow, failVerdict,
+      async (query) => (query === NARROW ? ['unknown column: Nope'] : []),
+    );
+    expect(out.candidate_versions).toHaveLength(2);
+    expect(out.active_version).toBe(1);
+    expect(out.query).toBe(BROAD);
+    // The revision is preserved as a proposal, not discarded.
+    expect(out.candidate_versions![1].query).toBe(NARROW);
+  });
+
+  it('activates a revision that revalidates cleanly', async () => {
+    const out = await driveSinglePassQa(detection(), failThenNarrow, failVerdict, async () => []);
+    expect(out.active_version).toBe(2);
+    expect(out.query).toBe(NARROW);
+  });
+
+  it('a validator that throws cannot mark a body as problematic', async () => {
+    // The schema RPC being unreachable says nothing about the query. Treating
+    // that as a defect would let an outage silently change which version ships.
+    const out = await driveSinglePassQa(
+      detection(), failThenNarrow, failVerdict,
+      async () => { throw new Error('rpc unreachable'); },
+    );
+    expect(out.candidate_versions!.every(v => v.validation?.checked === false)).toBe(true);
+    expect(out.active_version).toBe(2);
+  });
+
+  it('leaves activation alone when no validator is supplied', async () => {
+    // Sigma and Sentinel sessions have no schema to check against.
+    const out = await driveSinglePassQa(detection(), failThenNarrow, failVerdict);
+    expect(out.active_version).toBe(2);
+    expect(out.candidate_versions![1].validation).toBeUndefined();
   });
 });

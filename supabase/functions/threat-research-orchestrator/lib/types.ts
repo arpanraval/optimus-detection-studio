@@ -21,6 +21,12 @@ export type ResearchEventType =
   | 'preflight_started' | 'preflight_completed'
   | 'behaviour_created' | 'opportunity_created' | 'detection_generated'
   | 'qa_verdict' | 'qa_refinement_started' | 'qa_refinement_completed'
+  /** A QA revision failed deterministic revalidation, so the earlier version
+   *  stayed active. Emitted because shipping v1 while the version tab says v2
+   *  is the answer must be visible, not inferred. `event_type` has no CHECK
+   *  constraint (only `agent` does -- the 'dossier' lesson), so this needs no
+   *  migration; `agent: 'qa'` is already permitted. */
+  | 'qa_revision_rejected'
   | 'session_completed' | 'session_cancelled' | 'session_failed' | 'job_failed'
   | 'tool_call' | 'tool_cache_hit'
   | 'library_match_found' | 'attack_research_completed'
@@ -102,17 +108,19 @@ export interface ResearchSubject {
 }
 
 export interface PreflightSummary {
-  /** Number of detections in the user's library whose hybrid (vector +
-   *  keyword) match against the raw input scored above the floor. NOT a
-   *  coverage measure — these are just detections that are TEXTUALLY similar
-   *  to the input. Surfaced informationally so the user knows the library
-   *  has *something* in this neighbourhood. */
+  /** ALWAYS 0. VESTIGIAL — read nothing into it.
+   *
+   *  This once counted library detections textually similar to the raw input.
+   *  The search was removed (see the preflight.ts header) because at phase 0
+   *  there are no behaviours to match against and no similarity floor, so the
+   *  number was noise wearing the costume of a measurement.
+   *
+   *  Kept only so the 31 persisted sessions still parse. A meaningful early
+   *  coverage inventory has to run AFTER research, where behaviours exist to
+   *  match on; it is not this field. Do not populate it to make a UI look
+   *  informed — 0 is the honest value for a search that does not happen. */
   library_hits: number;
-  /** Distinct MITRE technique IDs MENTIONED in the matching library
-   *  detections' tags. Does NOT mean the user has coverage of those
-   *  techniques — a low-quality or archived detection mentioning T1059 is
-   *  still mentioned here. UI must label this honestly ("mentioned in
-   *  matching detections", not "covered"). */
+  /** ALWAYS []. VESTIGIAL — see library_hits. */
   techniques_seen_in_hits: string[];
   skipped: boolean;
   ran_at: string;
@@ -212,6 +220,29 @@ export interface DetectionCandidateVersion {
   /** The verdict that prompted this version. Null on version 1, which
    *  predates any critique. */
   prompted_by_verdict?: QaVerdict | null;
+  /** Result of re-running the DETERMINISTIC validators against this body.
+   *
+   *  This exists because a QA revision used to ship with no second check of any
+   *  kind, and it became the active version automatically. So the body that
+   *  reached the analyst was the one nothing had ever validated, while the body
+   *  that HAD been validated sat behind a tab. A wrong `fail` could therefore
+   *  replace a working query with a broken one and nothing would notice.
+   *
+   *  Deterministic only -- unknown schema columns, Sigma syntax. Not a model
+   *  opinion: re-critiquing with a model would cost another call per revision
+   *  and could not be trusted to be right about the thing it just got wrong. */
+  validation?: CandidateValidation | null;
+}
+
+/** Outcome of the deterministic checks for one candidate body. */
+export interface CandidateValidation {
+  /** Whether the checks actually ran. False on the 31 legacy sessions and
+   *  wherever no validator was wired, so "no problems" is never confused with
+   *  "not looked at". */
+  checked: boolean;
+  /** Problems that can be recomputed from the query text plus the schema.
+   *  Empty means clean. */
+  problems: string[];
 }
 
 export interface GeneratedDetection {
