@@ -18,10 +18,12 @@ import { supportsDefenderSchemaValidation } from '../query-language.ts';
 import { adjudicateReuse } from '../coverage.ts';
 import { withCandidateVersion } from '../agents/detection-engineer.ts';
 import { deriveDetectionStates, summariseYield, deriveSessionStatus } from '../readiness.ts';
+import { extractLeadingTable, extractSchemaColumnRefs } from '../tools/defender-schema-lookup.ts';
 import {
   GOLDEN_CASES,
   deterministicCases,
   judgedCases,
+  unknownColumnsAgainstFixture,
   type GoldenCase,
 } from './golden/detection-golden-set.ts';
 import type { GeneratedDetection } from '../types.ts';
@@ -60,6 +62,20 @@ describe('golden set — deterministic cases are enforced', () => {
     'schema routing: $id',
     (c) => {
       expect(supportsDefenderSchemaValidation(c.product)).toBe(c.expected.schemaFlagged);
+    },
+  );
+
+  // The routing assertion above compares two strings, so on its own it would
+  // pass with a completely broken column extractor. These cases run the real
+  // parser and check its verdict against a schema fixture, which is what makes
+  // the routing decision mean something.
+  it.each(deterministicCases().filter(c => c.expected.unknownColumns !== undefined))(
+    'schema columns: $id',
+    (c) => {
+      const table = extractLeadingTable(c.query);
+      expect(table).not.toBeNull();
+      const unknown = unknownColumnsAgainstFixture(table!, extractSchemaColumnRefs(c.query));
+      expect(unknown.sort()).toEqual([...c.expected.unknownColumns!].sort());
     },
   );
 

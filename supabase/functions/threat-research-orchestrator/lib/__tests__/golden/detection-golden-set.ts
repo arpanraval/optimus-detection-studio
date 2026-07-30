@@ -48,6 +48,10 @@ export interface ExpectedOutcome {
   /** Detection type the query really is, when the point of the case is that
    *  metadata should change rather than the query being rejected. */
   detectionType?: 'Detection' | 'Hunting';
+  /** Columns the deterministic schema check should report as not existing on
+   *  the query's table. `[]` asserts a clean query is left alone — the half of
+   *  this contract that a false-positive-prone extractor would break. */
+  unknownColumns?: string[];
 }
 
 export interface GoldenCase {
@@ -71,6 +75,34 @@ export interface GoldenCase {
 const DEFENDER = 'Microsoft Defender XDR';
 const SENTINEL = 'Microsoft Sentinel';
 
+/** A slice of the real Defender XDR schema — enough to decide the column cases
+ *  without a database.
+ *
+ *  This exists because the previous version of the schema cases asserted only
+ *  `supportsDefenderSchemaValidation(product)`, which compares two strings. The
+ *  query, chain and telemetry on those cases were decorative: a case could pass
+ *  while the column extractor was completely broken. With a fixture, the cases
+ *  run the real parser and check its answer. */
+export const DEFENDER_COLUMN_FIXTURE: Readonly<Record<string, readonly string[]>> = {
+  deviceprocessevents: [
+    'Timestamp', 'DeviceId', 'DeviceName', 'ActionType', 'FileName', 'FolderPath',
+    'SHA256', 'ProcessId', 'ProcessCommandLine', 'ProcessVersionInfoOriginalFileName',
+    'ProcessVersionInfoCompanyName', 'AccountName', 'AccountDomain',
+    'InitiatingProcessFileName', 'InitiatingProcessCommandLine',
+    'InitiatingProcessParentFileName', 'ReportId',
+  ],
+};
+
+/** Columns in `query` that do not exist on `table`, per the fixture above.
+ *  Mirrors what `validate_defender_xdr_columns` does server-side, so a case can
+ *  assert the deterministic verdict offline. */
+export function unknownColumnsAgainstFixture(table: string, refs: readonly string[]): string[] {
+  const known = new Set(
+    (DEFENDER_COLUMN_FIXTURE[table.toLowerCase()] ?? []).map(c => c.toLowerCase()),
+  );
+  return refs.filter(r => !known.has(r.toLowerCase()));
+}
+
 export const GOLDEN_CASES: readonly GoldenCase[] = [
   {
     id: 'sentinel-tables-in-sentinel-session',
@@ -88,7 +120,11 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     observableChain: ['mshta.exe process creation recorded by the Windows security log'],
     telemetry: ['SecurityEvent'],
     mitreIds: ['T1218.005'],
-    expected: { schemaFlagged: false },
+    // EventID and NewProcessName are real Sentinel columns. The Defender schema
+    // has never heard of either, so these are exactly what the pipeline used to
+    // report as invalid on a working query. Asserting them makes the gate
+    // load-bearing: flip it off and this case says what breaks.
+    expected: { schemaFlagged: false, unknownColumns: ['EventID', 'NewProcessName'] },
   },
   {
     id: 'defender-tables-in-defender-session',
@@ -103,7 +139,44 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     observableChain: ['mshta.exe launched with a remote URL'],
     telemetry: ['DeviceProcessEvents'],
     mitreIds: ['T1218.005'],
-    expected: { schemaFlagged: true, verdict: 'pass_with_concerns' },
+    // Every column here is real, so the check must stay silent. This is the
+    // half that catches an over-eager extractor: a validator that flags
+    // legitimate columns trains users to ignore it.
+    expected: { schemaFlagged: true, verdict: 'pass_with_concerns', unknownColumns: [] },
+  },
+  {
+    id: 'hallucinated-column-is-a-deterministic-fail',
+    kind: 'deterministic',
+    intent: 'A query referencing a column that does not exist is wrong, provably, with no model.',
+    rationale:
+      '`Computer` is the Sentinel/Log Analytics name; the Defender equivalent is ' +
+      'DeviceName. This is the single most common KQL hallucination, and it is the ' +
+      'one QA finding that needs no judgement — the column either exists or it does ' +
+      'not. Grounding a fail here is legitimate; inferring one from a model\'s ' +
+      'opinion about a schema it cannot query is not.',
+    product: DEFENDER,
+    language: 'KQL',
+    query: 'DeviceProcessEvents | where Computer == "host1" | where FileName =~ "mshta.exe"',
+    observableChain: ['mshta.exe process creation'],
+    telemetry: ['DeviceProcessEvents'],
+    mitreIds: ['T1218.005'],
+    expected: { schemaFlagged: true, unknownColumns: ['Computer'], verdict: 'fail' },
+  },
+  {
+    id: 'derived-column-is-not-a-hallucination',
+    kind: 'deterministic',
+    intent: 'A column the query itself introduces must not be reported as non-existent.',
+    rationale:
+      'extend/project/let bindings are local names, not schema columns. Flagging them ' +
+      'was this validator\'s most common false positive, and a false schema finding is ' +
+      'what lets QA "repair" a working query into a broken one.',
+    product: DEFENDER,
+    language: 'KQL',
+    query: 'DeviceProcessEvents | extend CmdLower = tolower(ProcessCommandLine) | where CmdLower has "mshta.exe"',
+    observableChain: ['mshta.exe process creation'],
+    telemetry: ['DeviceProcessEvents'],
+    mitreIds: ['T1218.005'],
+    expected: { schemaFlagged: true, unknownColumns: [] },
   },
   {
     id: 'thirty-day-lookback-is-a-hunt',
@@ -177,14 +250,54 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     intent: 'A deployed, runnable rule on the same surface should suppress generation.',
     rationale:
       'The counterpart to the case above. If nothing ever suppresses, the library is ' +
-      'decorative and every session pays to rewrite rules the user already runs.',
+      'decorative and every session pays to rewrite rules the user already runs. ' +
+      'The chain names http because the rule PINS http: coverage now requires that ' +
+      'neither side demand something the other never mentions, so an opportunity ' +
+      'silent about the protocol is a different (broader) opportunity — see the ' +
+      'narrower-rule case below.',
     product: DEFENDER,
     language: 'KQL',
     query: 'DeviceProcessEvents | where FileName =~ "mshta.exe" | where ProcessCommandLine has "http"',
-    observableChain: ['mshta.exe retrieving a remote payload'],
+    observableChain: ['mshta.exe retrieving a remote payload over http'],
     telemetry: ['DeviceProcessEvents'],
     mitreIds: ['T1218.005'],
     expected: { suppressGeneration: true },
+  },
+  {
+    id: 'renamed-binary-is-not-covered-by-a-filename-rule',
+    kind: 'deterministic',
+    intent: 'A FileName predicate cannot cover an opportunity about a renamed binary.',
+    rationale:
+      'Forward containment. Same technique, same table, and the rule is deployed and ' +
+      'runnable — every gate except this one passes. But the whole point of the ' +
+      'opportunity is that FileName is attacker-controlled, so a rule keyed on ' +
+      'FileName is blind to it by construction. The previous unit test asserted this ' +
+      'case as COVERED, on the grounds that both read DeviceProcessEvents.',
+    product: DEFENDER,
+    language: 'KQL',
+    query: 'DeviceProcessEvents | where FileName =~ "mshta.exe" | where ProcessCommandLine has "http"',
+    observableChain: ['ProcessVersionInfoOriginalFileName is mshta.exe while FileName differs'],
+    telemetry: ['DeviceProcessEvents'],
+    mitreIds: ['T1218.005'],
+    expected: { suppressGeneration: false },
+  },
+  {
+    id: 'narrower-rule-does-not-cover-a-broader-opportunity',
+    kind: 'deterministic',
+    intent: 'A rule requiring a predicate the opportunity never asks for is not coverage.',
+    rationale:
+      'Backward containment, and the direction a one-sided overlap test cannot express. ' +
+      'Both sides are mshta.exe on DeviceProcessEvents, so table-level or ' +
+      'field-level matching grants this. The rule demands `http`, so it cannot serve ' +
+      'an opportunity about inline vbscript/javascript handlers — reusing it would ' +
+      'report coverage for a surface that is genuinely unmonitored.',
+    product: DEFENDER,
+    language: 'KQL',
+    query: 'DeviceProcessEvents | where FileName =~ "mshta.exe" | where ProcessCommandLine has "http"',
+    observableChain: ['mshta.exe with an inline vbscript or javascript protocol handler'],
+    telemetry: ['DeviceProcessEvents'],
+    mitreIds: ['T1218.005'],
+    expected: { suppressGeneration: false },
   },
   {
     id: 'qa-transport-error-preserves-the-query',

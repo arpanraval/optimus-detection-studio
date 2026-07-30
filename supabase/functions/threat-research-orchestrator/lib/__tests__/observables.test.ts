@@ -1,20 +1,29 @@
 // supabase/functions/threat-research-orchestrator/lib/__tests__/observables.test.ts
+//
+// The previous version of this file asserted that a `FileName =~ "mshta.exe"`
+// rule COVERS the "renamed mshta binary" opportunity, because both read
+// DeviceProcessEvents. That is the bug, not the contract: a filename predicate
+// is blind to a renamed binary by construction. A test encoding the weakness is
+// worse than no test, because it certifies it. It is inverted below, and the
+// six T1218.005 surfaces are now the primary case rather than an afterthought.
 
 import { describe, it, expect } from 'vitest';
 import {
   extractQueryObservables,
+  observableAnchors,
   observablesFromOpportunity,
   compareObservables,
 } from '../observables.ts';
 
 describe('extractQueryObservables — KQL', () => {
-  it('finds the leading table and compared fields', () => {
+  it('finds the leading table, compared fields, and pinned literals', () => {
     const o = extractQueryObservables(
       'DeviceProcessEvents | where FileName =~ "mshta.exe" | where ProcessCommandLine has "http"',
       'KQL',
     );
     expect([...o.tables]).toContain('deviceprocessevents');
     expect([...o.fields]).toEqual(expect.arrayContaining(['filename', 'processcommandline']));
+    expect([...o.values]).toEqual(expect.arrayContaining(['mshta.exe', 'http']));
   });
 
   it('does not mistake operators for tables', () => {
@@ -31,30 +40,51 @@ describe('extractQueryObservables — KQL', () => {
     expect([...o.tables]).toEqual(expect.arrayContaining(['deviceprocessevents', 'devicenetworkevents']));
   });
 
-  it('separates Sentinel tables from Defender tables', () => {
-    // The distinction C1 restored: these are different telemetry, so a rule
-    // over one must never be treated as covering an opportunity on the other.
-    const sentinel = extractQueryObservables('SecurityEvent | where EventID == 4688', 'KQL');
-    const defender = extractQueryObservables('DeviceProcessEvents | where FileName =~ "x"', 'KQL');
-    expect(compareObservables(sentinel, defender).overlaps).toBe(false);
+  it('keeps an unquoted numeric predicate — an event ID is discriminating', () => {
+    const o = extractQueryObservables('SecurityEvent | where EventID == 4688', 'KQL');
+    expect([...o.values]).toContain('4688');
+  });
+
+  it('reduces a pinned path to its basename for the backward check', () => {
+    // A full path and its basename are ONE requirement. Asking prose to
+    // contain `c:\windows\system32\mshta.exe` verbatim would deny every
+    // path-pinned rule.
+    const o = extractQueryObservables(
+      'DeviceProcessEvents | where FolderPath =~ "C:\\\\Windows\\\\System32\\\\mshta.exe"',
+      'KQL',
+    );
+    expect([...o.discriminators]).toContain('mshta.exe');
+    expect([...o.discriminators]).not.toContain('c:\\windows\\system32\\mshta.exe');
+    // ...but the forward check can still match the full path.
+    expect([...o.values]).toContain('c:\\windows\\system32\\mshta.exe');
+  });
+
+  it('recognises the dialect under any of its free-text spellings', () => {
+    // query_language is free text across 11K imported rules.
+    for (const lang of ['KQL', 'kql', 'Kusto', 'Microsoft Sentinel']) {
+      const o = extractQueryObservables('DeviceProcessEvents | where FileName =~ "x"', lang);
+      expect([...o.tables], lang).toContain('deviceprocessevents');
+    }
   });
 });
 
 describe('extractQueryObservables — other dialects', () => {
-  it('reads Splunk index as the source and other pairs as fields', () => {
+  it('reads Splunk index as the source, and pairs as field + value', () => {
     const o = extractQueryObservables('index=windows EventCode=4688 process_name="mshta.exe"', 'SPL');
     expect([...o.tables]).toContain('windows');
     expect([...o.fields]).toEqual(expect.arrayContaining(['eventcode', 'process_name']));
+    expect([...o.values]).toEqual(expect.arrayContaining(['4688', 'mshta.exe']));
   });
 
-  it('reads Sigma logsource and detection fields, stripping modifiers', () => {
+  it('reads Sigma logsource, fields and list values, stripping modifiers', () => {
     const o = extractQueryObservables(
       ['logsource:', '  product: windows', '  category: process_creation',
-       'detection:', '  selection:', '    Image|endswith: mshta.exe'].join('\n'),
+       'detection:', '  selection:', '    Image|endswith:', '      - \\mshta.exe'].join('\n'),
       'Sigma',
     );
     expect([...o.tables]).toEqual(expect.arrayContaining(['windows', 'process_creation']));
     expect([...o.fields]).toContain('image');   // modifier stripped
+    expect([...o.discriminators]).toContain('mshta.exe');
   });
 
   it('returns nothing for an empty query rather than guessing', () => {
@@ -63,62 +93,150 @@ describe('extractQueryObservables — other dialects', () => {
   });
 });
 
-describe('observablesFromOpportunity', () => {
-  it('treats telemetry as tables and chain tokens as fields', () => {
-    const o = observablesFromOpportunity(
-      ['mshta.exe spawned by explorer.exe', 'outbound HTTP to attacker host'],
-      ['DeviceProcessEvents'],
-    );
-    expect([...o.tables]).toContain('deviceprocessevents');
-    expect([...o.fields]).toEqual(expect.arrayContaining(['mshta.exe', 'explorer.exe']));
+describe('observableAnchors', () => {
+  it('keeps identifiers and drops prose scaffolding', () => {
+    const anchors = observableAnchors(['mshta.exe spawned by explorer.exe']);
+    const tokens = anchors.map(a => a.token);
+    expect(tokens).toEqual(expect.arrayContaining(['mshta.exe', 'explorer.exe']));
+    expect(tokens).not.toContain('spawned');
   });
 
-  it('drops short tokens that would manufacture overlap', () => {
-    // 'the', 'a', 'exe' match everything.
-    const o = observablesFromOpportunity(['the a of exe'], []);
-    expect(o.fields.size).toBe(0);
+  it('drops tokens too short to discriminate', () => {
+    // 'the', 'a', 'exe', 'url' match everything.
+    expect(observableAnchors(['the a of exe'])).toHaveLength(0);
+  });
+
+  it('marks only unambiguous identifiers as strong', () => {
+    const byToken = new Map(
+      observableAnchors(['ProcessVersionInfoOriginalFileName is mshta.exe, O_TMPFILE, fetching'])
+        .map(a => [a.token, a.strong]),
+    );
+    expect(byToken.get('processversioninfooriginalfilename')).toBe(true);  // CamelCase
+    expect(byToken.get('mshta.exe')).toBe(true);                          // extension
+    expect(byToken.get('o_tmpfile')).toBe(true);                          // underscore
+    // A lowercase English word is NOT evidence: it was never going to appear
+    // in KQL, so its absence from a rule must not veto coverage.
+    expect(byToken.get('fetching')).toBe(false);
+  });
+
+  it('strips trailing punctuation that would make a token unmatchable', () => {
+    expect(observableAnchors(['payload delivered via mshta.exe.']).map(a => a.token))
+      .toContain('mshta.exe');
   });
 });
 
-describe('compareObservables', () => {
-  const rule = extractQueryObservables(
+describe('compareObservables — the six T1218.005 surfaces', () => {
+  // One rule, the first surface: mshta.exe fetching a remote URL.
+  const remoteUrlRule = extractQueryObservables(
     'DeviceProcessEvents | where FileName =~ "mshta.exe" | where ProcessCommandLine has "http"',
     'KQL',
   );
 
-  it('overlaps when the same table is in play', () => {
-    const opp = observablesFromOpportunity(['mshta.exe with a remote URL'], ['DeviceProcessEvents']);
+  it('1. covers the surface it was written for', () => {
+    const opp = observablesFromOpportunity(
+      ['mshta.exe process creation', 'ProcessCommandLine referencing http'],
+      ['DeviceProcessEvents'],
+    );
+    const r = compareObservables(remoteUrlRule, opp);
+    expect(r.overlaps).toBe(true);
+    expect(r.unmatchedRulePredicates).toEqual([]);
+  });
+
+  it('2. does NOT cover inline protocol handlers — the rule requires http', () => {
+    // Backward containment. Both are about mshta.exe on the same table, so
+    // every one-sided test grants this. The rule pins `http`, which this
+    // opportunity never mentions, so the rule is narrower than the need.
+    const opp = observablesFromOpportunity(
+      ['mshta.exe with an inline vbscript or javascript protocol handler'],
+      ['DeviceProcessEvents'],
+    );
+    const r = compareObservables(remoteUrlRule, opp);
+    expect(r.overlaps).toBe(false);
+    expect(r.unmatchedRulePredicates).toContain('http');
+  });
+
+  it('3. does NOT cover a renamed binary — FileName is attacker-controlled', () => {
+    // Forward containment. This is the case the old test asserted as COVERED.
+    const opp = observablesFromOpportunity(
+      ['ProcessVersionInfoOriginalFileName is mshta.exe while FileName differs'],
+      ['DeviceProcessEvents'],
+    );
+    const r = compareObservables(remoteUrlRule, opp);
+    expect(r.overlaps).toBe(false);
+    expect(r.missingStrongAnchors).toContain('processversioninfooriginalfilename');
+  });
+
+  it('4. does NOT cover ClickFix lineage — nothing pins the parent', () => {
+    const opp = observablesFromOpportunity(
+      ['InitiatingProcessFileName is explorer.exe', 'FileName is mshta.exe'],
+      ['DeviceProcessEvents'],
+    );
+    const r = compareObservables(remoteUrlRule, opp);
+    expect(r.overlaps).toBe(false);
+    expect(r.missingStrongAnchors).toEqual(
+      expect.arrayContaining(['initiatingprocessfilename', 'explorer.exe']),
+    );
+  });
+
+  it('5. does NOT cover RunMRU registry evidence — different telemetry', () => {
+    const opp = observablesFromOpportunity(['RunMRU entry recording the pasted command'], ['DeviceRegistryEvents']);
+    const r = compareObservables(remoteUrlRule, opp);
+    expect(r.overlaps).toBe(false);
+    expect(r.sharedTables).toEqual([]);
+  });
+
+  it('6. does NOT cover a local .hta followed by egress', () => {
+    const opp = observablesFromOpportunity(
+      ['a local .hta file executed', 'DeviceNetworkEvents egress follows'],
+      ['DeviceProcessEvents', 'DeviceNetworkEvents'],
+    );
+    expect(compareObservables(remoteUrlRule, opp).overlaps).toBe(false);
+  });
+});
+
+describe('compareObservables — general contract', () => {
+  const rule = extractQueryObservables(
+    'DeviceProcessEvents | where FileName =~ "mshta.exe"',
+    'KQL',
+  );
+
+  it('grants coverage when a broader rule subsumes the opportunity', () => {
+    // The rule pins only mshta.exe; the opportunity asks for exactly that.
+    const opp = observablesFromOpportunity(['mshta.exe process creation'], ['DeviceProcessEvents']);
     expect(compareObservables(rule, opp).overlaps).toBe(true);
   });
 
-  it('does NOT overlap on shared field names alone', () => {
-    // ProcessCommandLine appears in nearly every endpoint rule. Matching on it
-    // would make everything equivalent to everything -- the exact failure
-    // MITRE-only matching already has.
-    const opp = observablesFromOpportunity(
-      ['registry RunMRU entry recording the pasted ProcessCommandLine'],
-      ['DeviceRegistryEvents'],
-    );
+  it('does not treat a bare program stem as the filename predicate', () => {
+    // 'mshta' is the program; 'mshta.exe' is the file. Stemming one into the
+    // other is what made surface 3 look covered.
+    const opp = observablesFromOpportunity(['renamed mshta binary'], ['DeviceProcessEvents']);
     const r = compareObservables(rule, opp);
-    expect(r.sharedFields.length).toBeGreaterThan(0);
+    expect(r.matchedAnchors).toEqual([]);
     expect(r.overlaps).toBe(false);
   });
 
-  it('declines to claim equivalence when nothing is extractable', () => {
-    // Costs one generation. The opposite default costs a missed detection,
-    // and a missed detection is invisible to the user.
+  it('declines when nothing is extractable rather than assuming coverage', () => {
+    // Costs one generation. The opposite default costs a detection, and a
+    // missing detection is invisible to the user.
     expect(compareObservables(rule, observablesFromOpportunity([], [])).overlaps).toBe(false);
   });
 
-  it('keeps the six T1218.005 surfaces distinct', () => {
-    // All share the technique; they are not the same detection. A rule over
-    // process events must not suppress the registry or network opportunity.
-    const registryOpp = observablesFromOpportunity(['RunMRU evidence'], ['DeviceRegistryEvents']);
-    const networkOpp  = observablesFromOpportunity(['egress after local HTA'], ['DeviceNetworkEvents']);
-    const processOpp  = observablesFromOpportunity(['renamed mshta binary'], ['DeviceProcessEvents']);
+  it('never claims a Sentinel rule covers a Defender opportunity', () => {
+    // The distinction C1 restored. SecurityEvent and DeviceProcessEvents are
+    // different products' telemetry.
+    const sentinelRule = extractQueryObservables('SecurityEvent | where EventID == 4688', 'KQL');
+    const defenderOpp = observablesFromOpportunity(['mshta.exe process creation'], ['DeviceProcessEvents']);
+    expect(compareObservables(sentinelRule, defenderOpp).overlaps).toBe(false);
+  });
 
-    expect(compareObservables(rule, registryOpp).overlaps).toBe(false);
-    expect(compareObservables(rule, networkOpp).overlaps).toBe(false);
-    expect(compareObservables(rule, processOpp).overlaps).toBe(true);
+  it('names what is missing, so a refusal can be explained not just asserted', () => {
+    const opp = observablesFromOpportunity(
+      ['mshta.exe writing to DeviceFileEvents with OriginalFileName intact'],
+      ['DeviceProcessEvents'],
+    );
+    const r = compareObservables(rule, opp);
+    expect(r.overlaps).toBe(false);
+    expect(r.missingStrongAnchors.length).toBeGreaterThan(0);
+    expect(r.matchedAnchors).toContain('mshta.exe');
   });
 });

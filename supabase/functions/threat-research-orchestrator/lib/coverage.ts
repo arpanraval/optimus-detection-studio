@@ -86,6 +86,7 @@ import {
   extractQueryObservables,
   observablesFromOpportunity,
   compareObservables,
+  type ObservableOverlap,
 } from "./observables.ts";
 
 export interface ReuseAdjudication {
@@ -101,15 +102,22 @@ export interface ReuseAdjudication {
     runnableQuery: boolean;
     compatibleLanguage: boolean;
     deployedStatus: boolean;
-    /** The rule and the opportunity actually look at the same telemetry.
+    /** The rule constrains everything this opportunity is looking for.
      *  MITRE overlap cannot establish this: six distinct T1218.005 surfaces --
      *  remote URL, inline protocol handler, renamed binary, ClickFix lineage,
      *  RunMRU evidence, local HTA plus egress -- all share the technique, so
-     *  one partial rule could suppress five real opportunities. */
+     *  one partial rule could suppress five real opportunities. Nor can a
+     *  shared table: every endpoint rule reads DeviceProcessEvents. This is a
+     *  containment test -- see observables.ts. */
     observableOverlap: boolean;
   };
   /** Short human-readable cause when generation proceeds anyway. */
   skippedReason: string | null;
+  /** WHY the observable condition landed where it did. `missingAnchors` is the
+   *  actionable part: it names the identifiers the opportunity asked for that
+   *  the rule says nothing about, so 'different_observables' can be explained
+   *  instead of asserted. */
+  observableDetail: ObservableOverlap;
 }
 
 /** Decide what a library hit means for one opportunity.
@@ -174,8 +182,17 @@ export function adjudicateReuse(input: {
         observableOverlap: false,
       },
       skippedReason: null,
+      observableDetail: {
+        sharedTables: [], matchedAnchors: [], missingAnchors: [],
+        missingStrongAnchors: [], unmatchedRulePredicates: [], overlaps: false,
+      },
     };
   }
+
+  const observableDetail = compareObservables(
+    extractQueryObservables(match.detection_query, match.query_language),
+    observablesFromOpportunity(opportunityObservableChain, opportunityTelemetry),
+  );
 
   const reasons = {
     mitreOverlap: hasMitreOverlap(opportunityMitreIds, match.mitre_technique_ids),
@@ -184,10 +201,7 @@ export function adjudicateReuse(input: {
     runnableQuery: typeof match.detection_query === 'string' && match.detection_query.trim().length > 0,
     compatibleLanguage: isLanguageRunnable(match, targetLanguage),
     deployedStatus: isDeployedCoverage(match),
-    observableOverlap: compareObservables(
-      extractQueryObservables(match.detection_query, match.query_language),
-      observablesFromOpportunity(opportunityObservableChain, opportunityTelemetry),
-    ).overlaps,
+    observableOverlap: observableDetail.overlaps,
   };
 
   const suppressGeneration =
@@ -207,8 +221,9 @@ export function adjudicateReuse(input: {
     else if (!reasons.compatibleLanguage) skippedReason = 'language_mismatch';
     else if (!reasons.deployedStatus) skippedReason = 'not_deployed';
     // Last, because it is the most specific answer: the rule IS about this
-    // technique, IS deployed and IS runnable here -- it simply watches
-    // different telemetry, so it covers a different surface.
+    // technique, IS deployed and IS runnable here -- it simply does not
+    // constrain what this opportunity is looking for. observableDetail
+    // .missingAnchors says which part.
     else skippedReason = 'different_observables';
   }
 
@@ -219,5 +234,6 @@ export function adjudicateReuse(input: {
     showAsRelatedCoverage: !suppressGeneration && reasons.mitreOverlap,
     reasons,
     skippedReason,
+    observableDetail,
   };
 }
