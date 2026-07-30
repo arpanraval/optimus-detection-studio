@@ -107,6 +107,21 @@ jobs:
           # Nothing caught it: it is invisible to tsc, to vitest, and to a
           # schema diff, because the function body was correct. Only the grant
           # was wrong. So the assertion belongs here, against a real database.
+          # SCOPE LIMIT, recorded so it is not mistaken for broader coverage:
+          # this catches FUNCTION grants because PostgreSQL itself grants
+          # EXECUTE to PUBLIC on CREATE FUNCTION, so the failure reproduces on a
+          # plain Postgres image.
+          #
+          # It does NOT catch TABLE grants. Plain PostgreSQL grants nothing to
+          # other roles on CREATE TABLE; the equivalent table leak comes from
+          # Supabase's ALTER DEFAULT PRIVILEGES, which only exists in a real
+          # project. threat_research_vendor_searches shipped revoking PUBLIC and
+          # anon but not authenticated, which left INSERT/UPDATE/DELETE/TRUNCATE
+          # in place -- RLS denied the first three, and TRUNCATE is not subject
+          # to RLS. A CI assertion here would have passed.
+          #
+          # So: after any CREATE TABLE, verify grants against the LIVE catalog.
+          # Adding a green check here for that class would be false comfort.
           S=$(psql "$PGURL" -tA -c "select coalesce(string_agg(p.oid::regprocedure::text, ', '), '') from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.prosecdef and has_function_privilege('anon', p.oid, 'EXECUTE');")
           if [ -n "$S" ]; then
             echo "::error::SECURITY DEFINER function(s) executable by anon: $S"

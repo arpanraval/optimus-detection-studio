@@ -48,7 +48,24 @@ CREATE INDEX IF NOT EXISTS trvs_session_idx
   ON public.threat_research_vendor_searches(session_id, attempted_at DESC);
 
 ALTER TABLE public.threat_research_vendor_searches ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.threat_research_vendor_searches FROM PUBLIC, anon;
+
+-- REVOKE from `authenticated` as well, not just PUBLIC and anon.
+--
+-- The first version of this migration revoked only PUBLIC and anon, so
+-- Supabase's default privileges left `authenticated` holding
+-- INSERT/UPDATE/DELETE/TRUNCATE -- and the explicit GRANT SELECT below made it
+-- look like the grant had been considered. Verified against the live catalog
+-- after applying: authenticated had DELETE, INSERT, REFERENCES, SELECT,
+-- TRIGGER, TRUNCATE, UPDATE.
+--
+-- This is the tr_consume_budget incident in a new place: the DDL was right and
+-- only the grant was wrong, which is invisible to tsc, to vitest, and to a
+-- schema diff. Grants have to be asserted against a real catalog.
+--
+-- RLS covered most of the exposure -- with only a SELECT policy,
+-- INSERT/UPDATE/DELETE are denied. TRUNCATE is NOT subject to row-level
+-- security, so the grant was the one hole RLS could not close.
+REVOKE ALL ON TABLE public.threat_research_vendor_searches FROM PUBLIC, anon, authenticated;
 
 -- Users may read their own provenance so the UI can show what was reviewed.
 -- Only the orchestrator (service role) writes.

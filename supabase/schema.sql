@@ -5756,7 +5756,11 @@ REVOKE ALL ON TABLE public.threat_research_job_checkpoints FROM PUBLIC, anon, au
 -- would discard both their provenance and any detection/QA leaf patched
 -- between the read and the write.
 ALTER TABLE public.threat_research_vendor_searches ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.threat_research_vendor_searches FROM PUBLIC, anon;
+-- `authenticated` too: Supabase default privileges grant it ALL on new public
+-- tables, so revoking only PUBLIC and anon left INSERT/UPDATE/DELETE/TRUNCATE
+-- in place. RLS denies the first three (no policy for them); TRUNCATE is not
+-- subject to RLS, so only the grant closes it.
+REVOKE ALL ON TABLE public.threat_research_vendor_searches FROM PUBLIC, anon, authenticated;
 DROP POLICY IF EXISTS trvs_self_select ON public.threat_research_vendor_searches;
 CREATE POLICY trvs_self_select ON public.threat_research_vendor_searches
   FOR SELECT TO authenticated
