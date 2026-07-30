@@ -46,6 +46,7 @@ export type ReviewState =
 export type ReadinessState =
   | 'draft'                 // not shippable: no query, or QA judged it wrong
   | 'needs_review'          // real query, but no trustworthy verdict — a human must look
+  | 'needs_telemetry'       // correct query, but the environment cannot feed it
   | 'production_candidate'; // query plus a verdict that stands behind it
 
 /** The subset of a generated detection this derivation depends on. Kept
@@ -59,6 +60,14 @@ export interface DetectionLike {
   qa?: { verdict?: string | null } | null;
   /** Set when the engineer revised after a fail verdict. */
   revised_after_fail?: boolean | null;
+  /** Findings from the DETERMINISTIC validators (validators/index.ts), keyed by
+   *  check name. `telemetry_feasibility` is present when the opportunity's
+   *  required log sources are absent from the user's environment profile.
+   *
+   *  Read here rather than taken from QA's prose because it is computed by
+   *  comparing the opportunity's telemetry against environment_profiles -- a
+   *  fact about the customer's estate, not a model's opinion about it. */
+  validator_findings?: Record<string, string> | null;
 }
 
 export interface DetectionStates {
@@ -93,7 +102,18 @@ export function deriveReviewState(det: DetectionLike): ReviewState {
   return 'unreviewed';
 }
 
-export function deriveReadiness(artifact: ArtifactState, review: ReviewState): ReadinessState {
+/** True when the deterministic validator found the environment cannot supply
+ *  this detection's telemetry. */
+function lacksTelemetry(det: DetectionLike): boolean {
+  const finding = det.validator_findings?.telemetry_feasibility;
+  return typeof finding === 'string' && finding.trim().length > 0;
+}
+
+export function deriveReadiness(
+  artifact: ArtifactState,
+  review: ReviewState,
+  det: DetectionLike,
+): ReadinessState {
   if (artifact === 'generation_failed') return 'draft';
 
   // A reused library rule is the user's own existing content. This pipeline
@@ -103,13 +123,6 @@ export function deriveReadiness(artifact: ArtifactState, review: ReviewState): R
   if (artifact === 'library_reused') return 'production_candidate';
 
   switch (review) {
-    case 'pass':
-    case 'pass_with_concerns':
-      // pass_with_concerns is explicitly shippable — concerns are surfaced for
-      // a human, not a veto. It is also, empirically, the verdict essentially
-      // every generated detection receives, so excluding it would leave the
-      // product unable to ever produce a candidate.
-      return 'production_candidate';
     case 'fail':
       return 'draft';
     case 'revised_unverified':
@@ -118,19 +131,41 @@ export function deriveReadiness(artifact: ArtifactState, review: ReviewState): R
       // judgement, and that is a human's call, not something to assume either
       // way.
       return 'needs_review';
+    case 'pass':
+    case 'pass_with_concerns':
+      // pass_with_concerns is explicitly shippable — concerns are surfaced for
+      // a human, not a veto. It is also, empirically, the verdict essentially
+      // every generated detection receives, so excluding it would leave the
+      // product unable to ever produce a candidate.
+      //
+      // But a verdict about the QUERY says nothing about whether the estate can
+      // run it. A detection over a log source the customer does not collect is
+      // correct and undeployable, and calling it a production candidate is the
+      // exact inversion this module exists to prevent: it puts something in the
+      // ready column that cannot fire. It is not a draft either — the query is
+      // right and the fix is a collection change, not a rewrite.
+      //
+      // Deliberately last, so this only ever downgrades something that would
+      // otherwise have been called ready. It does not muddy `needs_review`,
+      // which means something different: we have no trustworthy verdict at all.
+      return lacksTelemetry(det) ? 'needs_telemetry' : 'production_candidate';
   }
 }
 
 export function deriveDetectionStates(det: DetectionLike): DetectionStates {
   const artifact = deriveArtifactState(det);
   const review = deriveReviewState(det);
-  return { artifact, review, readiness: deriveReadiness(artifact, review) };
+  return { artifact, review, readiness: deriveReadiness(artifact, review, det) };
 }
 
 export interface SessionYield {
   total: number;
   productionCandidates: number;
   needsReview: number;
+  /** Correct queries the estate cannot currently feed. Counted separately
+   *  because the remedy is a collection change, and rolling them into
+   *  needsReview would send the user looking for a query problem. */
+  needsTelemetry: number;
   drafts: number;
   /** Anything the pipeline produced and did not throw away: candidates plus
    *  the ones awaiting a human. This is what "did the session achieve
@@ -141,11 +176,13 @@ export interface SessionYield {
 export function summariseYield(detections: readonly DetectionLike[]): SessionYield {
   let productionCandidates = 0;
   let needsReview = 0;
+  let needsTelemetry = 0;
   let drafts = 0;
   for (const det of detections) {
     switch (deriveDetectionStates(det).readiness) {
       case 'production_candidate': productionCandidates++; break;
       case 'needs_review':         needsReview++;          break;
+      case 'needs_telemetry':      needsTelemetry++;       break;
       case 'draft':                drafts++;               break;
     }
   }
@@ -153,8 +190,12 @@ export function summariseYield(detections: readonly DetectionLike[]): SessionYie
     total: detections.length,
     productionCandidates,
     needsReview,
+    needsTelemetry,
     drafts,
-    preserved: productionCandidates + needsReview,
+    // A detection blocked on collection is work the session produced and kept.
+    // Excluding it would recreate the bc5804b3 failure mode from a new angle:
+    // reporting "nothing preserved" while holding usable queries.
+    preserved: productionCandidates + needsReview + needsTelemetry,
   };
 }
 
@@ -173,6 +214,8 @@ export type SessionExecutionStatus = 'completed' | 'partial' | 'failed';
 
 export function deriveSessionStatus(y: SessionYield): SessionExecutionStatus {
   if (y.preserved === 0) return 'failed';
-  if (y.needsReview > 0 || y.drafts > 0) return 'partial';
+  // needsTelemetry counts too: a session whose output cannot run in the
+  // customer's estate has not finished the job, whatever the queries look like.
+  if (y.needsReview > 0 || y.needsTelemetry > 0 || y.drafts > 0) return 'partial';
   return 'completed';
 }

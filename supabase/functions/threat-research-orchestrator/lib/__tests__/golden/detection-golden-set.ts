@@ -42,7 +42,10 @@ export interface ExpectedOutcome {
   /** Whether an existing library rule should suppress generation. */
   suppressGeneration?: boolean;
   /** Readiness the leaf should land on. */
-  readiness?: 'draft' | 'needs_review' | 'production_candidate';
+  readiness?: 'draft' | 'needs_review' | 'needs_telemetry' | 'production_candidate';
+  /** Deterministic validator findings to feed the case, keyed by check name.
+   *  Present when the point of the case is what readiness does with them. */
+  validatorFindings?: Record<string, string>;
   /** For revision cases: which version should end up active. */
   activeVersion?: number;
   /** Detection type the query really is, when the point of the case is that
@@ -298,6 +301,32 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     telemetry: ['DeviceProcessEvents'],
     mitreIds: ['T1218.005'],
     expected: { suppressGeneration: false },
+  },
+  {
+    id: 'telemetry-the-estate-lacks-is-not-production-ready',
+    kind: 'deterministic',
+    intent: 'A correct query the environment cannot feed is not ready to ship.',
+    rationale:
+      'The query is right and QA is right to pass it. What is missing is the log ' +
+      'source, and the remedy is a collection change rather than a rewrite — so it ' +
+      'is neither a draft nor a production candidate. Previously ' +
+      'pass_with_concerns mapped straight to production_candidate, so an ' +
+      'undeployable detection was reported as ready: the exact inversion the ' +
+      'readiness model exists to prevent. The signal is deterministic (the ' +
+      'opportunity\'s telemetry against environment_profiles), which is why ' +
+      'readiness is allowed to act on it.',
+    product: DEFENDER,
+    language: 'KQL',
+    query: 'DeviceNetworkEvents | where RemoteUrl has "attacker.example" | where InitiatingProcessFileName =~ "mshta.exe"',
+    observableChain: ['mshta.exe making an outbound connection to attacker.example'],
+    telemetry: ['Zeek conn.log'],
+    mitreIds: ['T1218.005'],
+    validatorFindings: {
+      telemetry_feasibility:
+        '1/1 required telemetry source(s) not found in the user\'s configured '
+        + 'environment: Zeek conn.log. Verify against /settings/environment.',
+    },
+    expected: { verdict: 'pass_with_concerns', readiness: 'needs_telemetry' },
   },
   {
     id: 'qa-transport-error-preserves-the-query',

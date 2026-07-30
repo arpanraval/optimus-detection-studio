@@ -1652,7 +1652,9 @@ async function handleFinalise(
     : finalStatus === 'partial'
       // Not a failure, and deliberately not silent either: the user is told
       // exactly how much needs them before anything can ship.
-      ? `${sessionYield.productionCandidates} ready to review, ${sessionYield.needsReview} need a human verdict (QA did not reach one), ${sessionYield.drafts} not usable.`
+      ? `${sessionYield.productionCandidates} ready to review, ${sessionYield.needsReview} need a human verdict (QA did not reach one), `
+        + `${sessionYield.needsTelemetry} blocked on telemetry the environment profile does not list, `
+        + `${sessionYield.drafts} not usable.`
       : null;
 
   const { error: finaliseError } = await supabase
@@ -1679,7 +1681,7 @@ async function handleFinalise(
     // Lead with yield, because that is the question being asked. The verdict
     // breakdown follows for post-mortems.
     message: `${tree.behaviours.length} behaviours → ${oppCount} opportunities → ` +
-      `${sessionYield.productionCandidates} ready / ${sessionYield.needsReview} need review / ${sessionYield.drafts} not usable` +
+      `${sessionYield.productionCandidates} ready / ${sessionYield.needsReview} need review / ${sessionYield.needsTelemetry} need telemetry / ${sessionYield.drafts} not usable` +
       ` (${libraryMatchCount} library / ${qaPass} pass / ${qaPassWithConcerns} pass+concerns / ${qaFail} fail / ${qaErrorCount} qa_error / ${engineerFailedCount} engineer_failed)` +
       `${finalStatus === 'failed' ? ' — SESSION FAILED: nothing preserved' : ''}`,
     duration_ms: totalMs,
@@ -1703,6 +1705,7 @@ async function handleFinalise(
       session_status:         finalStatus,
       production_candidates:  sessionYield.productionCandidates,
       needs_review:           sessionYield.needsReview,
+      needs_telemetry:        sessionYield.needsTelemetry,
       drafts:                 sessionYield.drafts,
       preserved:              sessionYield.preserved,
       // detection state breakdown

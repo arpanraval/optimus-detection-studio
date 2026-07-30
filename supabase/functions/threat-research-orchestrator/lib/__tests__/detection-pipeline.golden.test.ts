@@ -106,6 +106,17 @@ describe('golden set — deterministic cases are enforced', () => {
     expect(states.readiness).toBe(c.expected.readiness);
   });
 
+  it('a query the estate cannot feed is not reported as ready', () => {
+    const c = GOLDEN_CASES.find(x => x.id === 'telemetry-the-estate-lacks-is-not-production-ready')!;
+    const states = deriveDetectionStates(asDetection(c, {
+      qa: { verdict: c.expected.verdict } as never,
+      validator_findings: c.validatorFindings,
+    } as never));
+    // The verdict is untouched -- QA was right about the query.
+    expect(states.review).toBe('pass_with_concerns');
+    expect(states.readiness).toBe(c.expected.readiness);
+  });
+
   it('a 30-day lookback stays usable once classified as a hunt', () => {
     const c = GOLDEN_CASES.find(x => x.id === 'thirty-day-lookback-is-a-hunt')!;
     const states = deriveDetectionStates(asDetection(c, {

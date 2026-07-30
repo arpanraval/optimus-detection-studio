@@ -140,3 +140,100 @@ describe('session yield and status', () => {
     expect(y.drafts).toBe(2);
   });
 });
+
+// A verdict about the QUERY says nothing about whether the estate can run it.
+// `pass_with_concerns` mapped straight to production_candidate, so a detection
+// over a log source the customer does not collect was reported as ready to
+// ship. That is the inversion this module exists to prevent, arriving through a
+// door it did not cover.
+//
+// The signal is deterministic: validators/index.ts compares the opportunity's
+// telemetry against environment_profiles. It is a fact about the estate, not a
+// model's opinion about it, which is why readiness may act on it.
+describe('telemetry-blocked detections', () => {
+  const MISSING = '2/3 required telemetry source(s) not found in the user\'s configured '
+    + 'environment: Zeek conn.log; Sysmon Event ID 3. Verify against /settings/environment.';
+
+  it('a correct query the environment cannot feed is not a production candidate', () => {
+    const s = deriveDetectionStates(generated({
+      qa: { verdict: 'pass_with_concerns' },
+      validator_findings: { telemetry_feasibility: MISSING },
+    }));
+    expect(s.review).toBe('pass_with_concerns');   // the verdict is untouched
+    expect(s.readiness).toBe('needs_telemetry');
+  });
+
+  it('applies to a clean pass too', () => {
+    const s = deriveDetectionStates(generated({
+      qa: { verdict: 'pass' },
+      validator_findings: { telemetry_feasibility: MISSING },
+    }));
+    expect(s.readiness).toBe('needs_telemetry');
+  });
+
+  it('does not rescue a detection QA rejected', () => {
+    // 'the query is wrong' outranks 'we could not feed it'. Reporting a failed
+    // query as merely blocked on collection would hide a real defect behind an
+    // infrastructure excuse.
+    const s = deriveDetectionStates(generated({
+      qa: { verdict: 'fail' },
+      validator_findings: { telemetry_feasibility: MISSING },
+    }));
+    expect(s.readiness).toBe('draft');
+  });
+
+  it('does not muddy needs_review, which means something different', () => {
+    // No trustworthy verdict at all is not the same problem as a known
+    // collection gap, and the two have different remedies.
+    const s = deriveDetectionStates(generated({
+      qa_error: 'qa timed out',
+      validator_findings: { telemetry_feasibility: MISSING },
+    }));
+    expect(s.readiness).toBe('needs_review');
+  });
+
+  it('leaves a reused library rule alone', () => {
+    // The user's own deployed rule. If it needs telemetry they lack, that is
+    // their existing posture, and re-judging it would tell them to re-approve
+    // rules they already run.
+    const s = deriveDetectionStates({
+      query: QUERY, reused_from_library: true, saved_detection_id: 'det-x',
+      validator_findings: { telemetry_feasibility: MISSING },
+    });
+    expect(s.readiness).toBe('production_candidate');
+  });
+
+  it('ignores an empty finding rather than treating it as a gap', () => {
+    for (const finding of ['', '   ']) {
+      const s = deriveDetectionStates(generated({
+        qa: { verdict: 'pass' },
+        validator_findings: { telemetry_feasibility: finding },
+      }));
+      expect(s.readiness, JSON.stringify(finding)).toBe('production_candidate');
+    }
+  });
+
+  it('other validator findings do not block readiness', () => {
+    // Only telemetry feasibility is a deployability blocker. A citation or
+    // MITRE finding is advisory and must not silently gate shipping.
+    const s = deriveDetectionStates(generated({
+      qa: { verdict: 'pass' },
+      validator_findings: { citation_check: 'one citation did not resolve' },
+    }));
+    expect(s.readiness).toBe('production_candidate');
+  });
+
+  it('counts as preserved work, and makes the session partial not completed', () => {
+    // Preserved: the query was generated and kept. Partial: it cannot run yet,
+    // so the session has not finished the job.
+    const y = summariseYield([
+      generated({ qa: { verdict: 'pass' } }),
+      generated({ qa: { verdict: 'pass' }, validator_findings: { telemetry_feasibility: MISSING } }),
+    ]);
+    expect(y.productionCandidates).toBe(1);
+    expect(y.needsTelemetry).toBe(1);
+    expect(y.needsReview).toBe(0);
+    expect(y.preserved).toBe(2);
+    expect(deriveSessionStatus(y)).toBe('partial');
+  });
+});
