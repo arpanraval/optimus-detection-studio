@@ -11,6 +11,7 @@ import { AutoDigestBanner } from './AutoDigestBanner';
 import { BulkTriageBar } from './BulkTriageBar';
 import { CampaignCard } from './CampaignCard';
 import { useDigestCampaigns } from '../../hooks/useDigestCampaigns';
+import { canManageThreatIntelRecord } from '../../lib/threatIntel/access';
 import {
   badgeSizes,
   getThreatLevelConfig,
@@ -264,7 +265,7 @@ const ReportListItem: React.FC<{
   columns: string[];
   to: string;
   onClick?: () => void;
-  onDelete: () => void;
+  onDelete?: () => void;
   isSelected?: boolean;
   onToggleSelect?: () => void;
 }> = ({ report, columns, to, onClick, onDelete, isSelected, onToggleSelect }) => {
@@ -397,14 +398,16 @@ const ReportListItem: React.FC<{
       {columns.map(key => (
         <div key={key} className="min-w-0 overflow-hidden">{renderCell(key)}</div>
       ))}
-      <button
-        onClick={(e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); onDelete(); }}
-        className="p-1.5 rounded text-on-surface-variant/40 hover:text-error hover:bg-error/10 opacity-0 group-hover:opacity-100 transition-all"
-        aria-label="Delete report"
-        title="Delete report"
-      >
-        <Icon name="trash" className="w-3.5 h-3.5" />
-      </button>
+      {onDelete && (
+        <button
+          onClick={(e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); onDelete(); }}
+          className="p-1.5 rounded text-on-surface-variant/40 hover:text-error hover:bg-error/10 opacity-0 group-hover:opacity-100 transition-all"
+          aria-label="Delete report"
+          title="Delete report"
+        >
+          <Icon name="trash" className="w-3.5 h-3.5" />
+        </button>
+      )}
     </Link>
   );
 };
@@ -444,7 +447,7 @@ interface ReportCardProps {
   report: ThreatIntelSessionSummary;
   to: string;
   onClick?: () => void;
-  onDelete: () => void;
+  onDelete?: () => void;
 }
 
 
@@ -518,13 +521,15 @@ const ReportCard: React.FC<ReportCardProps> = ({ report, to, onClick, onDelete }
               </span>
             )}
           </div>
-          <button
-            onClick={(e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); onDelete(); }}
-            className="shrink-0 p-1.5 rounded-lg text-on-surface-variant/25 hover:text-error hover:bg-error/10 transition-colors"
-            aria-label="Delete"
-          >
-            <Icon name="trash" className="w-3.5 h-3.5" />
-          </button>
+          {onDelete && (
+            <button
+              onClick={(e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); onDelete(); }}
+              className="shrink-0 p-1.5 rounded-lg text-on-surface-variant/25 hover:text-error hover:bg-error/10 transition-colors"
+              aria-label="Delete"
+            >
+              <Icon name="trash" className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
 
         {/* Title */}
@@ -669,6 +674,10 @@ export const ThreatIntelLibraryPage: React.FC = () => {
   const [bannerDismissed, setBannerDismissed] = useState(() => {
     return sessionStorage.getItem('autoDigestBannerDismissed') === 'true';
   });
+  const canManageReport = useCallback(
+    (report: ThreatIntelSessionSummary) => canManageThreatIntelRecord(report.ownerUserId, userId),
+    [userId],
+  );
   const dismissBanner = useCallback(() => {
     setBannerDismissed(true);
     sessionStorage.setItem('autoDigestBannerDismissed', 'true');
@@ -701,13 +710,16 @@ export const ThreatIntelLibraryPage: React.FC = () => {
   }, [selectedIds, updateReviewStatus]);
 
   const handleToggleSelect = useCallback((id: string) => {
+    const report = reports.find(candidate => candidate.id === id);
+    if (!report || !canManageReport(report)) return;
+
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  }, []);
+  }, [reports, canManageReport]);
 
   // Handle localStorage migration on mount
   useEffect(() => {
@@ -735,8 +747,10 @@ export const ThreatIntelLibraryPage: React.FC = () => {
   }, [navigate]);
 
   const handleDeleteClick = useCallback((id: string) => {
+    const report = reports.find(candidate => candidate.id === id);
+    if (!report || !canManageReport(report)) return;
     setDeleteConfirmId(id);
-  }, []);
+  }, [reports, canManageReport]);
 
   const handleConfirmDelete = useCallback(async () => {
     if (deleteConfirmId) {
@@ -1172,7 +1186,7 @@ export const ThreatIntelLibraryPage: React.FC = () => {
                   key={report.id}
                   report={report}
                   to={routeHelpers.threatIntelDetail(report.id)}
-                  onDelete={() => handleDeleteClick(report.id)}
+                  onDelete={canManageReport(report) ? () => handleDeleteClick(report.id) : undefined}
                 />
               ))}
             </div>
@@ -1182,9 +1196,9 @@ export const ThreatIntelLibraryPage: React.FC = () => {
               {/* List Header */}
               <div
                 className="grid gap-4 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/70"
-                style={{ gridTemplateColumns: (sortedReports.some(r => r.source === 'auto') ? '28px ' : '') + getListGridTemplate(listColumns) }}
+                style={{ gridTemplateColumns: (sortedReports.some(r => r.source === 'auto' && canManageReport(r)) ? '28px ' : '') + getListGridTemplate(listColumns) }}
               >
-                {sortedReports.some(r => r.source === 'auto') && <span />}
+                {sortedReports.some(r => r.source === 'auto' && canManageReport(r)) && <span />}
                 {listColumns.map(k => {
                   const col = LIST_COLUMN_OPTIONS.find(c => c.key === k);
                   if (!col) return null;
@@ -1206,9 +1220,9 @@ export const ThreatIntelLibraryPage: React.FC = () => {
                     report={report}
                     columns={listColumns}
                     to={routeHelpers.threatIntelDetail(report.id)}
-                    onDelete={() => handleDeleteClick(report.id)}
-                    isSelected={report.source === 'auto' ? selectedIds.has(report.id) : undefined}
-                    onToggleSelect={report.source === 'auto' ? () => handleToggleSelect(report.id) : undefined}
+                    onDelete={canManageReport(report) ? () => handleDeleteClick(report.id) : undefined}
+                    isSelected={report.source === 'auto' && canManageReport(report) ? selectedIds.has(report.id) : undefined}
+                    onToggleSelect={report.source === 'auto' && canManageReport(report) ? () => handleToggleSelect(report.id) : undefined}
                   />
                 ))}
               </div>

@@ -354,6 +354,7 @@ export interface LibraryMatch {
 
 export interface ThreatIntelSession {
   id: string;
+  ownerUserId?: string;
   name: string;
   createdAt: number;
   updatedAt: number;
@@ -385,6 +386,7 @@ export interface UpdatedEntityRecord {
 
 export interface ThreatIntelSessionSummary {
   id: string;
+  ownerUserId?: string;
   name: string;
   updatedAt: number;
   reportTitle?: string;

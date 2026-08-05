@@ -37,6 +37,7 @@ import { RetryWithModelButton } from './RetryWithModelButton';
 import { StatCard, ThreatLevelIndicator, InlineActionButton, TTPMiniMatrix, TTPTacticList, IoCTable, RuleListSection, MitreMappingsBlock } from './shared';
 import type { TTPLike } from './shared';
 import { createStixBundle } from '../../lib/threatIntel/stix';
+import { canManageThreatIntelRecord } from '../../lib/threatIntel/access';
 
 // =============================================================================
 // TYPES
@@ -212,9 +213,11 @@ const RetryButton: React.FC<{
   section: RetrySectionType;
   isRetrying: boolean;
   retryingSection: RetrySectionType | null;
-  onRetry: (section: RetrySectionType) => void;
+  onRetry?: (section: RetrySectionType) => void;
   label?: string;
 }> = ({ section, isRetrying, retryingSection, onRetry, label }) => {
+  if (!onRetry) return null;
+
   const isThisRetrying = retryingSection === section;
 
   return (
@@ -240,7 +243,7 @@ const EmptyStateWithRetry: React.FC<{
   section: RetrySectionType;
   isRetrying: boolean;
   retryingSection: RetrySectionType | null;
-  onRetry: (section: RetrySectionType, model?: string) => void;
+  onRetry?: (section: RetrySectionType, model?: string) => void;
   error?: string;
 }> = ({ icon, title, description, section, isRetrying, retryingSection, onRetry, error }) => (
   <div className="text-center py-16 bg-surface-container rounded-2xl border border-outline-variant/30">
@@ -252,12 +255,14 @@ const EmptyStateWithRetry: React.FC<{
         <p className="text-red-500 text-xs font-mono">{error}</p>
       </div>
     )}
-    <RetryWithModelButton
-      isRetrying={isRetrying}
-      isThisRetrying={retryingSection === section}
-      onRetry={(model) => onRetry(section, model)}
-      label="Retry Extraction"
-    />
+    {onRetry && (
+      <RetryWithModelButton
+        isRetrying={isRetrying}
+        isThisRetrying={retryingSection === section}
+        onRetry={(model) => onRetry(section, model)}
+        label="Retry Extraction"
+      />
+    )}
   </div>
 );
 
@@ -270,7 +275,7 @@ export const ThreatIntelReportPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const { fetchReport, saveReport, updateReport, userId } = useThreatIntel();
+  const { fetchReport, saveReport, userId } = useThreatIntel();
 
   const [session, setSession] = useState<ThreatIntelSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -339,6 +344,7 @@ export const ThreatIntelReportPage: React.FC = () => {
 
   // Extract report early so callbacks can reference it
   const report = session?.report;
+  const canManageReport = canManageThreatIntelRecord(session?.ownerUserId, userId);
 
   const handleCopy = useCallback((value: string) => {
     navigator.clipboard.writeText(value);
@@ -625,7 +631,7 @@ export const ThreatIntelReportPage: React.FC = () => {
 
   // Retry a specific section
   const handleRetrySection = useCallback(async (section: RetrySectionType, model?: string) => {
-    if (!report || !session) return;
+    if (!report || !session || !canManageReport) return;
 
     // Store previous counts to detect if data was preserved
     const prevCounts = {
@@ -690,7 +696,7 @@ export const ThreatIntelReportPage: React.FC = () => {
     } finally {
       setRetryingSection(null);
     }
-  }, [report, session, showToast]);
+  }, [report, session, canManageReport, showToast]);
 
   // Bulk-create draft detections from selected TTPs
   const handleBulkCreateDrafts = useCallback(async () => {
@@ -1047,9 +1053,11 @@ export const ThreatIntelReportPage: React.FC = () => {
               </div>
             </div>
             <div className="flex items-center gap-1">
-              <Button variant="tonal" color="primary" size="sm" leadingIcon="edit-2" onClick={handleStartEdit}>
-                Edit
-              </Button>
+              {canManageReport && (
+                <Button variant="tonal" color="primary" size="sm" leadingIcon="edit-2" onClick={handleStartEdit}>
+                  Edit
+                </Button>
+              )}
               <Button variant="tonal" color="secondary" size="sm" leadingIcon="download" onClick={handleExportReport}>
                 Export
               </Button>
@@ -1312,7 +1320,7 @@ export const ThreatIntelReportPage: React.FC = () => {
                     section="library"
                     isRetrying={!!retryingSection}
                     retryingSection={retryingSection}
-                    onRetry={handleRetrySection}
+                    onRetry={canManageReport ? handleRetrySection : undefined}
                     label="Refresh"
                   />
                 </div>
@@ -1471,7 +1479,7 @@ export const ThreatIntelReportPage: React.FC = () => {
                   section="ttps"
                   isRetrying={!!retryingSection}
                   retryingSection={retryingSection}
-                  onRetry={handleRetrySection}
+                  onRetry={canManageReport ? handleRetrySection : undefined}
                   error={report.sectionErrors?.ttps}
                 />
               ) : (
@@ -1496,7 +1504,7 @@ export const ThreatIntelReportPage: React.FC = () => {
                           section="ttps"
                           isRetrying={!!retryingSection}
                           retryingSection={retryingSection}
-                          onRetry={handleRetrySection}
+                          onRetry={canManageReport ? handleRetrySection : undefined}
                           label="Re-extract"
                         />
                       </div>
@@ -1562,11 +1570,11 @@ export const ThreatIntelReportPage: React.FC = () => {
                     editingValue={editingTTPValue}
                     onCreateDetection={handleCreateDetectionFromTTP}
                     onCopy={handleCopy}
-                    onStartEdit={handleStartEditTTP}
-                    onSaveEdit={handleSaveEditTTP}
-                    onCancelEdit={handleCancelEditTTP}
-                    onEditChange={setEditingTTPValue}
-                    onRemove={handleRemoveTTP}
+                    onStartEdit={canManageReport ? handleStartEditTTP : undefined}
+                    onSaveEdit={canManageReport ? handleSaveEditTTP : undefined}
+                    onCancelEdit={canManageReport ? handleCancelEditTTP : undefined}
+                    onEditChange={canManageReport ? setEditingTTPValue : undefined}
+                    onRemove={canManageReport ? handleRemoveTTP : undefined}
                     selectedIds={selectedTTPIds}
                     onToggleSelect={toggleTTPSelection}
                   />
@@ -1586,7 +1594,7 @@ export const ThreatIntelReportPage: React.FC = () => {
                   section="iocs"
                   isRetrying={!!retryingSection}
                   retryingSection={retryingSection}
-                  onRetry={handleRetrySection}
+                  onRetry={canManageReport ? handleRetrySection : undefined}
                   error={report.sectionErrors?.iocs}
                 />
               ) : (
@@ -1624,7 +1632,7 @@ export const ThreatIntelReportPage: React.FC = () => {
                         section="iocs"
                         isRetrying={!!retryingSection}
                         retryingSection={retryingSection}
-                        onRetry={handleRetrySection}
+                        onRetry={canManageReport ? handleRetrySection : undefined}
                         label="Re-extract"
                       />
                       <Button variant="outlined" color="secondary" size="sm" leadingIcon="download" onClick={handleExportCSV}>CSV</Button>
@@ -1639,11 +1647,11 @@ export const ThreatIntelReportPage: React.FC = () => {
                     editingValue={editingIoCValue}
                     onToggleDefang={handleToggleDefang}
                     onCopy={handleCopy}
-                    onStartEdit={handleStartEditIoC}
-                    onSaveEdit={handleSaveEditIoC}
-                    onCancelEdit={handleCancelEditIoC}
-                    onEditValueChange={setEditingIoCValue}
-                    onRemove={handleRemoveIoC}
+                    onStartEdit={canManageReport ? handleStartEditIoC : undefined}
+                    onSaveEdit={canManageReport ? handleSaveEditIoC : undefined}
+                    onCancelEdit={canManageReport ? handleCancelEditIoC : undefined}
+                    onEditValueChange={canManageReport ? setEditingIoCValue : undefined}
+                    onRemove={canManageReport ? handleRemoveIoC : undefined}
                   />
                 </>
               )}
@@ -1661,7 +1669,7 @@ export const ThreatIntelReportPage: React.FC = () => {
                   section="rules"
                   isRetrying={!!retryingSection}
                   retryingSection={retryingSection}
-                  onRetry={handleRetrySection}
+                  onRetry={canManageReport ? handleRetrySection : undefined}
                   error={report.sectionErrors?.rules}
                 />
               ) : (
@@ -1669,22 +1677,22 @@ export const ThreatIntelReportPage: React.FC = () => {
                   rules={report.rules || []}
                   fetchedRules={fetchedRules}
                   fetchingRuleId={fetchingRuleId}
-                  onOpenFetchDialog={handleOpenFetchDialog}
+                  onOpenFetchDialog={canManageReport ? handleOpenFetchDialog : undefined}
                   editingRuleId={editingRuleId}
                   editingRuleValue={editingRuleValue}
-                  onStartEditRule={handleStartEditRule}
-                  onSaveEditRule={handleSaveEditRule}
-                  onCancelEditRule={handleCancelEditRule}
-                  onEditRuleChange={setEditingRuleValue}
+                  onStartEditRule={canManageReport ? handleStartEditRule : undefined}
+                  onSaveEditRule={canManageReport ? handleSaveEditRule : undefined}
+                  onCancelEditRule={canManageReport ? handleCancelEditRule : undefined}
+                  onEditRuleChange={canManageReport ? setEditingRuleValue : undefined}
                   onCopy={handleCopy}
                   onCreateDraft={handleCreateDraftFromRule}
-                  onRemove={handleRemoveRule}
+                  onRemove={canManageReport ? handleRemoveRule : undefined}
                   retrySlot={
                     <RetryButton
                       section="rules"
                       isRetrying={!!retryingSection}
                       retryingSection={retryingSection}
-                      onRetry={handleRetrySection}
+                      onRetry={canManageReport ? handleRetrySection : undefined}
                       label="Re-extract"
                     />
                   }

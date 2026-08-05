@@ -10,6 +10,7 @@ import {
 import { useToast } from '../hooks/useToast';
 import { logger } from '../lib/logger';
 import { enrichFeasibilityForReport } from '../lib/feasibility/enrichClient';
+import { canManageThreatIntelRecord } from '../lib/threatIntel/access';
 
 // ============================================
 // UTILITIES
@@ -166,6 +167,7 @@ function dbRecordToSession(record: ThreatIntelReportDbRecord): ThreatIntelSessio
 
   return {
     id: record.id,
+    ownerUserId: record.user_id,
     name: record.name,
     createdAt: new Date(record.created_at).getTime(),
     updatedAt: new Date(record.updated_at).getTime(),
@@ -188,6 +190,7 @@ function dbRecordToSession(record: ThreatIntelReportDbRecord): ThreatIntelSessio
 function dbRecordToSummary(record: ThreatIntelReportDbRecord): ThreatIntelSessionSummary {
   return {
     id: record.id,
+    ownerUserId: record.user_id,
     name: record.name,
     updatedAt: new Date(record.updated_at).getTime(),
     reportTitle: record.report_title,
@@ -314,8 +317,7 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
       const { data, error } = await withTimeout(
         supabase
           .from('threat_intel_reports')
-          .select('id, name, updated_at, report_title, threat_level, attack_type, attribution, organization, ttp_count, ioc_count, rule_count, coverage_percent, ttps, summary, classification, mitre_mapping, source, source_feed_name, source_article_url, review_status, review_note, relevance_score, feasible_gap_count, infeasible_gap_count, campaign_id')
-          .eq('user_id', userId)
+          .select('id, user_id, name, updated_at, report_title, threat_level, attack_type, attribution, organization, ttp_count, ioc_count, rule_count, coverage_percent, ttps, summary, classification, mitre_mapping, source, source_feed_name, source_article_url, review_status, review_note, relevance_score, feasible_gap_count, infeasible_gap_count, campaign_id')
           .order('updated_at', { ascending: false })
           .limit(100),
         DEFAULT_TIMEOUT_MS
@@ -373,7 +375,6 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
           .from('threat_intel_reports')
           .select('*')
           .eq('id', id)
-          .eq('user_id', userId)
           .single(),
         DEFAULT_TIMEOUT_MS
       );
@@ -417,6 +418,9 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
 
   const saveReport = useCallback(async (session: ThreatIntelSession): Promise<string> => {
     if (!userId) throw new Error('User not authenticated');
+    if (!canManageThreatIntelRecord(session.ownerUserId, userId)) {
+      throw new Error('You have read-only access to this report');
+    }
 
     try {
       const record = sessionToDbRecord(session, userId);
@@ -431,7 +435,7 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
       if (error) throw error;
 
       // Update cache
-      reportCache.current.set(session.id, session);
+      reportCache.current.set(session.id, { ...session, ownerUserId: userId });
 
       // Refresh list
       await fetchReports();
@@ -490,16 +494,19 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
     if (!userId) throw new Error('User not authenticated');
 
     try {
-      const { error } = await withTimeout(
+      const { data, error } = await withTimeout(
         supabase
           .from('threat_intel_reports')
           .delete()
           .eq('id', id)
-          .eq('user_id', userId),
+          .eq('user_id', userId)
+          .select('id')
+          .maybeSingle(),
         DEFAULT_TIMEOUT_MS
       );
 
       if (error) throw error;
+      if (!data) throw new Error('Report not found or you do not have permission to delete it');
 
       // Remove from cache
       reportCache.current.delete(id);
@@ -634,16 +641,30 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
     if (!userId) throw new Error('User not authenticated');
 
     try {
-      const { error } = await supabase
+      const uniqueReportIds = Array.from(new Set(reportIds));
+      const containsReadOnlyReport = uniqueReportIds.some(id => {
+        const report = reports.find(candidate => candidate.id === id);
+        return report && !canManageThreatIntelRecord(report.ownerUserId, userId);
+      });
+      if (containsReadOnlyReport) {
+        throw new Error('You have read-only access to one or more selected reports');
+      }
+
+      const { data, error } = await supabase
         .from('threat_intel_reports')
         .update({
           review_status: status,
           review_note: note || null,
           reviewed_at: new Date().toISOString(),
         })
-        .in('id', reportIds);
+        .in('id', uniqueReportIds)
+        .eq('user_id', userId)
+        .select('id');
 
       if (error) throw error;
+      if ((data?.length ?? 0) !== uniqueReportIds.length) {
+        throw new Error('One or more reports were not updated because you do not own them');
+      }
 
       await fetchReports();
     } catch (err: unknown) {
@@ -651,7 +672,7 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
       showToast('error', 'Update Failed', err instanceof Error ? err.message : 'Failed to update review status');
       throw err;
     }
-  }, [userId, fetchReports, showToast]);
+  }, [userId, reports, fetchReports, showToast]);
 
   // ============================================
   // HELPER

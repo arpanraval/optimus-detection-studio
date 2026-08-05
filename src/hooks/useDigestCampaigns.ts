@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabaseClient';
 
 export interface DigestCampaignSummary {
   id: string;
+  ownerUserId: string;
   campaignName: string;
   threatActors: string[] | null;
   attackType: string | null;
@@ -37,9 +38,8 @@ export function useDigestCampaigns(userId: string | undefined): UseDigestCampaig
       const { data, error: queryError } = await supabase
         .from('auto_digest_campaigns')
         .select(
-          'id, name, threat_actors, attack_type, severity, article_count, total_ttp_count, coverage_percent, feasible_gap_count, infeasible_gap_count, review_status, first_seen_at, last_updated_at'
+          'id, user_id, name, threat_actors, attack_type, severity, article_count, total_ttp_count, coverage_percent, feasible_gap_count, infeasible_gap_count, review_status, first_seen_at, last_updated_at'
         )
-        .eq('user_id', userId)
         .order('last_updated_at', { ascending: false });
 
       if (queryError) throw queryError;
@@ -47,6 +47,7 @@ export function useDigestCampaigns(userId: string | undefined): UseDigestCampaig
       setCampaigns(
         (data ?? []).map(row => ({
           id: row.id,
+          ownerUserId: row.user_id,
           campaignName: row.name,
           threatActors: row.threat_actors ?? null,
           attackType: row.attack_type ?? null,

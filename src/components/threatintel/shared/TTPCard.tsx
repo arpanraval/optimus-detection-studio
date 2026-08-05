@@ -46,9 +46,8 @@ export const TTPCard: React.FC<TTPCardProps> = ({
     ? `border ${corroborationCardClasses(sourceCount)}`
     : `${coverageStyle.cardBg} border ${coverageStyle.cardBorder}`;
 
-  // The original guard `onCopy && onRemove` is preserved — digest provides both,
-  // story provides neither, so the inline-edit row is hidden on story.
-  const hasInlineActions = !!(onCopy && onRemove);
+  const hasInlineActions = !!(onCopy || onStartEdit || onRemove);
+  const canEdit = !!(onStartEdit && onSaveEdit && onCancelEdit && onEditChange);
 
   return (
     <div className={`${cardSurface} rounded-lg p-4 transition-all hover:bg-surface-container-high group`}>
@@ -125,9 +124,15 @@ export const TTPCard: React.FC<TTPCardProps> = ({
             </div>
           ) : (
             <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-              <InlineActionButton icon="copy" label="Copy MITRE ID" onClick={() => onCopy!(ttp.mitreId)} />
-              <InlineActionButton icon="edit" label="Edit Explanation" onClick={() => onStartEdit?.(ttp)} />
-              <InlineActionButton icon="trash" label="Remove" onClick={() => ttp.id && onRemove!(ttp.id)} variant="danger" />
+              {onCopy && (
+                <InlineActionButton icon="copy" label="Copy MITRE ID" onClick={() => onCopy(ttp.mitreId)} />
+              )}
+              {canEdit && (
+                <InlineActionButton icon="edit" label="Edit Explanation" onClick={() => onStartEdit(ttp)} />
+              )}
+              {onRemove && (
+                <InlineActionButton icon="trash" label="Remove" onClick={() => ttp.id && onRemove(ttp.id)} variant="danger" />
+              )}
             </div>
           )
         )}

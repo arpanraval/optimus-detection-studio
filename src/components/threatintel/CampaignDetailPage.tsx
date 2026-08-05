@@ -18,6 +18,8 @@ import {
 } from './shared';
 import type { TTPLike, IoCLike, RuleLike, MitreMappingEntity } from './shared';
 import { createStixBundle } from '../../lib/threatIntel/stix';
+import { useThreatIntel } from '../../context/ThreatIntelContext';
+import { canManageThreatIntelRecord } from '../../lib/threatIntel/access';
 
 // =============================================================================
 // TYPES
@@ -107,6 +109,7 @@ export const CampaignDetailPage: React.FC = () => {
   const { id: campaignId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { userId } = useThreatIntel();
 
   const [campaign, setCampaign] = useState<AutoDigestCampaign | null>(null);
   const [articles, setArticles] = useState<CampaignArticle[]>([]);
@@ -115,6 +118,7 @@ export const CampaignDetailPage: React.FC = () => {
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [triageModal, setTriageModal] = useState<{ action: 'deferred' | 'dismissed' } | null>(null);
   const [triageNote, setTriageNote] = useState('');
+  const canManageCampaign = !!campaign && canManageThreatIntelRecord(campaign.user_id, userId);
 
   // TTPs tab UI state
   const [ttpSearch, setTtpSearch] = useState('');
@@ -198,7 +202,7 @@ export const CampaignDetailPage: React.FC = () => {
   // Review status management
   // -------------------------------------------------------------------------
   const handleUpdateStatus = useCallback(async (status: ReviewStatus, note?: string) => {
-    if (!campaignId || !campaign) return;
+    if (!campaignId || !campaign || !canManageCampaign) return;
     setUpdatingStatus(true);
     try {
       const update: Record<string, any> = {
@@ -222,7 +226,7 @@ export const CampaignDetailPage: React.FC = () => {
     } finally {
       setUpdatingStatus(false);
     }
-  }, [campaignId, campaign, showToast]);
+  }, [campaignId, campaign, canManageCampaign, showToast]);
 
   const handleDefer   = useCallback(() => setTriageModal({ action: 'deferred' }), []);
   const handleDismiss = useCallback(() => setTriageModal({ action: 'dismissed' }), []);
@@ -512,27 +516,29 @@ export const CampaignDetailPage: React.FC = () => {
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="tonal" color="primary" size="sm" leadingIcon="check"
-                disabled={updatingStatus || campaign.review_status === 'reviewed'}
-                onClick={() => handleUpdateStatus('reviewed')}
-              >
-                Mark Reviewed
-              </Button>
-              <Button
-                variant="outlined" color="surface" size="sm" leadingIcon="minus"
-                disabled={updatingStatus} onClick={handleDefer}
-              >
-                Defer
-              </Button>
-              <Button
-                variant="outlined" color="surface" size="sm" leadingIcon="x-circle"
-                disabled={updatingStatus} onClick={handleDismiss}
-              >
-                Dismiss
-              </Button>
-            </div>
+            {canManageCampaign && (
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="tonal" color="primary" size="sm" leadingIcon="check"
+                  disabled={updatingStatus || campaign.review_status === 'reviewed'}
+                  onClick={() => handleUpdateStatus('reviewed')}
+                >
+                  Mark Reviewed
+                </Button>
+                <Button
+                  variant="outlined" color="surface" size="sm" leadingIcon="minus"
+                  disabled={updatingStatus} onClick={handleDefer}
+                >
+                  Defer
+                </Button>
+                <Button
+                  variant="outlined" color="surface" size="sm" leadingIcon="x-circle"
+                  disabled={updatingStatus} onClick={handleDismiss}
+                >
+                  Dismiss
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Row 2: Relevance + tags  |  dates + article count */}
