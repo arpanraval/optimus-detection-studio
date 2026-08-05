@@ -71,35 +71,35 @@ export const SourceCard: React.FC<SourceCardProps> = ({
   onRetry,
   animationDelay = 0,
 }) => {
-  const { source, selected, status, folders, importedCount, errorMessage } = state;
+  const { source, selected, status, folders, progress, importedCount, errorMessage } = state;
   const accentColor = getAccentColor(status);
   const processing = isProcessing(status);
   const showFolders = selected && status === 'ready' && folders.length > 0;
   const selectedFolderCount = folders.filter((f) => f.selected).length;
-  const totalFolderFiles = folders
-    .filter((f) => f.selected)
-    .reduce((sum, f) => sum + f.fileCount, 0);
+  const totalFolderFiles = folders.filter((f) => f.selected).reduce((sum, f) => sum + f.fileCount, 0);
+  const progressCurrent =
+    status === 'validating'
+      ? progress?.validRules || 0
+      : status === 'inserting'
+        ? progress?.insertedRules || 0
+        : progress?.processedFiles || 0;
+  const progressTotal =
+    status === 'validating' || status === 'inserting' ? progress?.totalRules || 0 : progress?.totalFiles || 0;
+  const progressPercent = progressTotal > 0 ? Math.min(100, Math.round((progressCurrent / progressTotal) * 100)) : 0;
 
   return (
     <div
       className={[
         'relative rounded-2xl border p-4 transition-all duration-200',
         'bg-surface-container-lowest',
-        selected
-          ? 'border-primary/30 shadow-sm'
-          : 'border-outline-variant/20',
+        selected ? 'border-primary/30 shadow-sm' : 'border-outline-variant/20',
         'hover:border-primary/30 hover:shadow-sm',
       ].join(' ')}
       style={{ animationDelay: `${animationDelay}ms` }}
     >
       {/* Accent bar */}
       {accentColor && (
-        <div
-          className={[
-            'absolute left-0 top-0 bottom-0 w-[3px] rounded-l-2xl',
-            accentColor,
-          ].join(' ')}
-        />
+        <div className={['absolute left-0 top-0 bottom-0 w-[3px] rounded-l-2xl', accentColor].join(' ')} />
       )}
 
       {/* Recon shimmer overlay */}
@@ -132,9 +132,7 @@ export const SourceCard: React.FC<SourceCardProps> = ({
         {/* Source info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-sm font-medium text-on-surface truncate">
-              {source.name}
-            </span>
+            <span className="text-sm font-medium text-on-surface truncate">{source.name}</span>
 
             {/* Toggle / status indicator */}
             {status === 'complete' ? (
@@ -151,16 +149,12 @@ export const SourceCard: React.FC<SourceCardProps> = ({
             )}
           </div>
 
-          <p className="text-xs text-on-surface-variant mt-0.5 line-clamp-1">
-            {source.description}
-          </p>
+          <p className="text-xs text-on-surface-variant mt-0.5 line-clamp-1">{source.description}</p>
 
           {/* Meta line */}
           <div className="flex items-center gap-1.5 mt-1 text-[11px] text-on-surface-variant/70">
             {status === 'complete' ? (
-              <span className="text-secondary font-medium">
-                {importedCount.toLocaleString()} imported
-              </span>
+              <span className="text-secondary font-medium">{importedCount.toLocaleString()} imported</span>
             ) : (
               <span>~{source.estimatedRules.toLocaleString()} rules</span>
             )}
@@ -188,6 +182,29 @@ export const SourceCard: React.FC<SourceCardProps> = ({
           </div>
         </div>
       </div>
+
+      {processing && progress && (
+        <div className="mt-3 rounded-lg bg-surface-container-low px-3 py-2">
+          <div className="flex items-center justify-between gap-3 text-[11px]">
+            <span className="truncate text-on-surface-variant">
+              {progressCurrent.toLocaleString()} of {progressTotal.toLocaleString()}{' '}
+              {status === 'validating' || status === 'inserting' ? 'rules' : 'files'}
+            </span>
+            <span className="shrink-0 tabular-nums text-primary">{progressPercent} percent</span>
+          </div>
+          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-surface-container-highest">
+            <div
+              className="h-full origin-left rounded-full bg-primary transition-transform duration-200"
+              style={{ transform: `scaleX(${progressPercent / 100})` }}
+            />
+          </div>
+          {progress.currentFile && (status === 'fetching' || status === 'parsing') && (
+            <p className="mt-1.5 truncate text-[10px] text-on-surface-variant/60" title={progress.currentFile}>
+              {progress.currentFile}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Error state */}
       {status === 'error' && errorMessage && (
@@ -272,13 +289,7 @@ function ToggleCheckbox({ checked }: { checked: boolean }) {
       {checked ? (
         <>
           <rect x={1} y={1} width={16} height={16} rx={4} className="fill-primary" />
-          <path
-            d="M5 9L8 12L13 6"
-            stroke="white"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+          <path d="M5 9L8 12L13 6" stroke="white" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
         </>
       ) : (
         <rect
@@ -302,13 +313,7 @@ function CompletionCheck() {
     <div className="animate-enter-scale">
       <svg width={18} height={18} viewBox="0 0 18 18" fill="none">
         <circle cx={9} cy={9} r={8} className="fill-secondary" />
-        <path
-          d="M5.5 9L8 11.5L12.5 6.5"
-          stroke="white"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        <path d="M5.5 9L8 11.5L12.5 6.5" stroke="white" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </div>
   );
@@ -317,27 +322,9 @@ function CompletionCheck() {
 /** Small animated spinner */
 function LoadingSpinner() {
   return (
-    <svg
-      className="animate-spin"
-      width={10}
-      height={10}
-      viewBox="0 0 16 16"
-      fill="none"
-    >
-      <circle
-        cx={8}
-        cy={8}
-        r={6}
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeOpacity={0.25}
-      />
-      <path
-        d="M14 8a6 6 0 00-6-6"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinecap="round"
-      />
+    <svg className="animate-spin" width={10} height={10} viewBox="0 0 16 16" fill="none">
+      <circle cx={8} cy={8} r={6} stroke="currentColor" strokeWidth={2} strokeOpacity={0.25} />
+      <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
     </svg>
   );
 }

@@ -45,7 +45,7 @@ const userMessage =
 console.log("Calling Anthropic (haiku, temperature=0, no tools)…");
 const t0 = Date.now();
 const res = await callAnthropicRaw(apiKey, {
-  model: "claude-haiku-4-5",
+  model: "claude-sonnet-5",
   systemInstruction: SYSTEM_PROMPT,
   messages: [{ role: "user", content: userMessage }],
   temperature: 0,

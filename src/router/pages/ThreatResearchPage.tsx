@@ -40,6 +40,25 @@ function countSavedDetections(session: ThreatResearchSession): number {
   return n;
 }
 
+/** Detections with a passing QA verdict that AREN'T saved yet — ready to
+ *  save, but not counted in countSavedDetections. Mutually exclusive with
+ *  it by construction (excludes anything already saved), so the two counts
+ *  can be shown side by side without double-counting the same detection —
+ *  same reasoning as ResearchList's usableCount fix. A session with 10/12
+ *  passing-but-unsaved detections previously read identically to one with
+ *  zero usable output, since only the saved count was ever surfaced. */
+function countUnsavedPassingDetections(session: ThreatResearchSession): number {
+  let n = 0;
+  for (const b of session.tree?.behaviours ?? []) {
+    for (const o of b.opportunities ?? []) {
+      const det = o.detection;
+      if (det?.saved_detection_id) continue;
+      if (det?.qa?.verdict === 'pass' || det?.qa?.verdict === 'pass_with_concerns') n++;
+    }
+  }
+  return n;
+}
+
 function countTotalDetections(session: ThreatResearchSession): number {
   let n = 0;
   for (const b of session.tree?.behaviours ?? []) {
@@ -182,11 +201,11 @@ export function ThreatResearchPage() {
           <div className="min-w-0">
             <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary ring-1 ring-inset ring-primary/20">
               <Icon name="spark" size={12} />
-              AI agents · Research → Engineer → QA
+              AI agents · Research → Attack → Planner → Engineer → QA
             </div>
             <h2 className="text-2xl font-semibold tracking-tight text-on-surface">Investigate any threat, end&#8209;to&#8209;end</h2>
             <p className="mt-1 max-w-2xl text-sm text-on-surface-variant">
-              Paste a CVE, threat actor, campaign, technique, or any detection idea — four AI agents will collaborate to map the threat, identify detection opportunities, and produce committable detection queries.
+              Paste a CVE, threat actor, campaign, technique, or any detection idea — five AI agents will collaborate to map the threat, identify detection opportunities, and produce committable detection queries.
             </p>
           </div>
           <Button onClick={() => setModalOpen(true)} className="group">
@@ -267,7 +286,7 @@ export function ThreatResearchPage() {
             </div>
             <h3 className="text-base font-semibold text-on-surface">No research sessions yet</h3>
             <p className="mx-auto mt-1 mb-5 max-w-md text-sm text-on-surface-variant">
-              Enter a threat actor, CVE, technique, or detection idea — four agents will collaborate to research it and produce committable detections.
+              Enter a threat actor, CVE, technique, or detection idea — five agents will collaborate to research it and produce committable detections.
             </p>
             <Button onClick={() => setModalOpen(true)}>
               <Icon name="plus" size={14} />
@@ -305,6 +324,7 @@ export function ThreatResearchPage() {
                   const subject = s.tree?.subject?.subject ?? s.input_text;
                   const total = countTotalDetections(s);
                   const saved = countSavedDetections(s);
+                  const readyToSave = countUnsavedPassingDetections(s);
                   // Dedupe: when the subject and the input prompt are the
                   // same string (very common when users paste the title in
                   // verbatim), don't render the same value twice.
@@ -330,7 +350,16 @@ export function ThreatResearchPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs text-on-surface-variant tabular-nums">
-                        {total > 0 ? `${saved} / ${total} saved` : '—'}
+                        {total > 0 ? (
+                          <>
+                            {saved} / {total} saved
+                            {readyToSave > 0 && (
+                              <span className="ml-1 text-on-surface" title={`${readyToSave} detection${readyToSave === 1 ? '' : 's'} passed QA but haven't been saved yet`}>
+                                · {readyToSave} ready
+                              </span>
+                            )}
+                          </>
+                        ) : '—'}
                       </td>
                       <td className="px-4 py-3 text-xs text-on-surface-variant tabular-nums">
                         {new Date(s.created_at).toLocaleString()}

@@ -6,7 +6,15 @@
  * threat_intel_feed_entries with digest_status = 'harvested'.
  */
 
-import type { FeedRow, JobResultSummary } from './types.ts';
+import {
+  assertPhaseBudget,
+  PhaseBudgetExceeded,
+  type FeedRow,
+  type JobResultSummary,
+} from './types.ts';
+import { isRedirectStatus, validateUrl, validateRedirect } from '../../_shared/url-validator.ts';
+import { canonicalizeUrl, fetchRssOrAtom, fetchTaxii, sha256Hex, type FeedItem } from '../../_shared/feed-ingestion.ts';
+import { decryptCredentials } from '../../_shared/credential-crypto.ts';
 import { emit, type RunContext } from './events.ts';
 
 // ---------------------------------------------------------------------------
@@ -17,6 +25,9 @@ const USER_AGENT = 'Optimus-Detection-Studio/2.0 AutoDigest';
 const FETCH_TIMEOUT_MS = 15_000;
 const MAX_AGE_MS = 72 * 60 * 60 * 1000; // 72 hours
 
+function hostForEvent(rawUrl: string | null | undefined): string | null {
+  try { return rawUrl ? new URL(rawUrl).hostname : null; } catch { return null; }
+}
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -34,12 +45,13 @@ const MAX_AGE_MS = 72 * 60 * 60 * 1000; // 72 hours
 export async function harvestFeeds(
   ctx: RunContext,
   result: JobResultSummary,
+  deadlineMs?: number,
 ): Promise<string[]> {
   const { supabase, userId } = ctx;
   // 1. Get user's auto-digest feeds
   const { data: feeds, error: feedsError } = await supabase
     .from('threat_intel_feeds')
-    .select('id, user_id, name, feed_type, url, is_auto_digest, extraction_method')
+    .select('id, user_id, name, feed_type, url, is_auto_digest, extraction_method, taxii_api_root, taxii_collection_id, taxii_credential_id, taxii_config, etag, last_modified, fetch_attempts, consecutive_failures, max_items_per_fetch')
     .eq('user_id', userId)
     .eq('is_enabled', true)
     .eq('is_auto_digest', true);
@@ -58,7 +70,8 @@ export async function harvestFeeds(
   // 2. Process each feed
   for (const feed of feeds as FeedRow[]) {
     try {
-      const newRows = await processFeed(supabase, userId!, feed);
+      assertPhaseBudget(deadlineMs, 'harvesting');
+      const newRows = await processFeedDurable(supabase, userId!, feed as any);
       allNewIds.push(...newRows.map((r) => r.id));
 
       result.feeds_fetched += 1;
@@ -69,7 +82,7 @@ export async function harvestFeeds(
         feed_id: feed.id,
         feed_name: feed.name,
         reason: `${newRows.length} new article${newRows.length === 1 ? '' : 's'} harvested`,
-        payload: { articles_found: newRows.length, feed_url: feed.url },
+        payload: { articles_found: newRows.length, feed_host: hostForEvent(feed.url) },
       });
       for (const row of newRows) {
         await emit(ctx, 'article_seen', {
@@ -88,6 +101,7 @@ export async function harvestFeeds(
         .update({ last_fetched_at: new Date().toISOString(), last_error: null })
         .eq('id', feed.id);
     } catch (err: any) {
+      if (err instanceof PhaseBudgetExceeded) throw err;
       const msg = `${feed.name}: ${err.message || 'Unknown error'}`;
       console.error(`[harvester] ${msg}`);
       result.errors.push(msg);
@@ -96,16 +110,18 @@ export async function harvestFeeds(
         feed_id: feed.id,
         feed_name: feed.name,
         reason: err.message || 'Unknown error',
-        payload: { feed_url: feed.url },
+        payload: { feed_host: hostForEvent(feed.url) },
       });
 
       // Update feed metadata — error
       await supabase
         .from('threat_intel_feeds')
-        .update({ last_error: err.message || 'Unknown error' })
+        .update({ last_error: err.message || 'Unknown error', fetch_attempts: Number((feed as any).fetch_attempts || 0) + 1, consecutive_failures: Number((feed as any).consecutive_failures || 0) + 1, next_retry_at: new Date(Date.now() + 15 * 60 * 1000).toISOString() })
         .eq('id', feed.id);
     }
   }
+
+  assertPhaseBudget(deadlineMs, 'harvesting');
 
   // Recovery loop — pick up entries stuck in 'harvested' from previous failed
   // classification runs (e.g. the orchestrator crashed after harvest but
@@ -126,6 +142,8 @@ export async function harvestFeeds(
     .eq('digest_status', 'harvested')
     .gte('fetched_at', new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString())
     .limit(50);
+
+  assertPhaseBudget(deadlineMs, 'harvesting');
 
   const recoveredEntries = (stuckEntries || []).filter((e: any) => !newIdSet.has(e.id));
   const recoveredIds = recoveredEntries.map((e: any) => e.id);
@@ -155,12 +173,132 @@ export async function harvestFeeds(
 const MAX_FEED_SIZE = 5 * 1024 * 1024; // 5 MB
 
 interface UpsertedEntry { id: string; title: string; url: string | null; published_at: string | null }
+async function fetchFeedWithSafeRedirects(url: string, redirectCount = 0): Promise<Response> {
+  if (redirectCount >= 5) throw new Error('Too many feed redirects');
+  const response = await fetch(url, {
+    headers: { 'User-Agent': USER_AGENT },
+    redirect: 'manual',
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  if (isRedirectStatus(response.status)) {
+    const location = response.headers.get('location');
+    if (!location) throw new Error(`Redirect ${response.status} missing Location`);
+    const target = new URL(location, url).toString();
+    const redirectValidation = validateRedirect(url, target);
+    if (!redirectValidation.valid) throw new Error(`Redirect blocked: ${redirectValidation.error}`);
+    return fetchFeedWithSafeRedirects(redirectValidation.sanitizedUrl!, redirectCount + 1);
+  }
+  return response;
+}
 
-async function processFeed(
+async function processFeedDurable(
+  supabase: any,
+  userId: string,
+  feed: any,
+): Promise<UpsertedEntry[]> {
+  const feedOptions = {
+    etag: feed.etag ?? null,
+    lastModified: feed.last_modified ?? null,
+  };
+  let items: FeedItem[];
+  let metadata: { notModified: boolean; etag: string | null; lastModified: string | null; httpStatus: number };
+
+  if (feed.feed_type === 'taxii') {
+    const config = feed.taxii_config || {};
+    let credentials: Record<string, string> = {};
+    if (feed.taxii_credential_id) {
+      const { data: credential, error: credentialError } = await supabase
+        .from('integration_credentials')
+        .select('encrypted_data')
+        .eq('id', feed.taxii_credential_id)
+        .single();
+      if (credentialError || !credential) throw new Error('TAXII credentials are unavailable');
+      credentials = await decryptCredentials(credential.encrypted_data);
+    }
+    const result = await fetchTaxii({
+      apiRoot: feed.taxii_api_root || config.api_root || feed.url,
+      collectionId: feed.taxii_collection_id || config.collection_id || '',
+      username: credentials.username,
+      password: credentials.password,
+      bearerToken: credentials.token,
+      ...feedOptions,
+    });
+    items = result.items;
+    metadata = result.metadata;
+  } else {
+    const result = await fetchRssOrAtom(feed.url, feedOptions);
+    items = result.items;
+    metadata = result.metadata;
+  }
+
+  const maxItems = Math.max(1, Math.min(200, Number(feed.max_items_per_fetch || 200)));
+  const cutoff = Date.now() - MAX_AGE_MS;
+  const recent = items.filter(item => {
+    if (!item.publishedAt) return true;
+    const timestamp = Date.parse(item.publishedAt);
+    return !Number.isFinite(timestamp) || timestamp >= cutoff;
+  }).slice(0, maxItems);
+  const createdRows: UpsertedEntry[] = [];
+
+  for (const item of recent) {
+    const publishedTimestamp = item.publishedAt && Number.isFinite(Date.parse(item.publishedAt))
+      ? new Date(item.publishedAt).toISOString()
+      : null;
+    const content = (item.description || '').slice(0, 100_000) || null;
+    const canonicalUrl = canonicalizeUrl(item.url);
+    const contentHash = await sha256Hex(
+      [canonicalUrl || item.externalId, item.title, content || ''].join('\n'),
+    );
+    const { data: ingested, error: ingestError } = await supabase.rpc('ingest_threat_intel_feed_entry', {
+      p_user_id: userId,
+      p_feed_id: feed.id,
+      p_external_id: item.externalId.slice(0, 1000),
+      p_title: item.title.slice(0, 1000),
+      p_content: content,
+      p_url: item.url,
+      p_published_at: publishedTimestamp,
+      p_canonical_url: canonicalUrl,
+      p_content_hash: contentHash,
+    });
+    if (ingestError) throw new Error(`Feed entry persistence failed: ${ingestError.message}`);
+    const row = Array.isArray(ingested) ? ingested[0] : ingested;
+    if (row?.created && row.entry_id) {
+      createdRows.push({
+        id: row.entry_id,
+        title: item.title,
+        url: item.url,
+        published_at: publishedTimestamp,
+      });
+    }
+  }
+
+  const now = new Date().toISOString();
+  await supabase.from('threat_intel_feeds').update({
+    last_fetched_at: now,
+    last_error: null,
+    etag: metadata.etag,
+    last_modified: metadata.lastModified,
+    fetch_attempts: Number(feed.fetch_attempts || 0) + 1,
+    consecutive_failures: 0,
+    last_http_status: metadata.httpStatus,
+    last_discovered_count: items.length,
+    last_duplicate_count: Math.max(0, recent.length - createdRows.length),
+    last_accepted_count: createdRows.length,
+    next_retry_at: null,
+  }).eq('id', feed.id);
+
+  return createdRows;
+}
+
+
+async function processFeedLegacy(
   supabase: any,
   userId: string,
   feed: FeedRow,
 ): Promise<UpsertedEntry[]> {
+  const feedValidation = validateUrl(feed.url);
+  if (!feedValidation.valid) throw new Error(`URL validation failed: ${feedValidation.error}`);
+  const safeFeedUrl = feedValidation.sanitizedUrl!;
   // Validate feed URL (SSRF protection)
   try {
     const parsed = new URL(feed.url);
@@ -178,10 +316,7 @@ async function processFeed(
   }
 
   // Fetch XML
-  const response = await fetch(feed.url, {
-    headers: { 'User-Agent': USER_AGENT },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
+  const response = await fetchFeedWithSafeRedirects(safeFeedUrl);
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);

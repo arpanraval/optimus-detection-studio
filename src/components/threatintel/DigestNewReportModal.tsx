@@ -620,7 +620,7 @@ export const DigestNewReportModal: React.FC<Props> = ({ isOpen, onClose, onCompl
                   className="w-full px-3 py-2.5 bg-surface-container-high border border-outline-variant/30 rounded-lg
                            text-on-surface text-sm focus:outline-none focus:border-primary/50 cursor-pointer"
                 >
-                  {LLM_MODELS.map(m => (
+                  {LLM_MODELS.filter(m => m.capabilities.json).map(m => (
                     <option key={m.id} value={m.id}>
                       {m.name} ({m.provider})
                     </option>

@@ -147,6 +147,17 @@ export interface ThreatReport {
   id: string;
   createdAt: string;
   updatedAt: string;
+  outcome?: 'complete' | 'partial' | 'failed' | 'cancelled';
+  sourceQuality?: 'full_article' | 'partial_article' | 'feed_summary' | 'title_only' | 'unavailable' | 'legacy_unverified';
+  sourceContentLength?: number;
+  sourceContentHash?: string;
+  fetchedUrl?: string;
+  qualityWarnings?: string[];
+  possibleActorMentions?: string[];
+  libraryOverlapPercent?: number | null;
+  validatedOverlapPercent?: number | null;
+  deploymentReadinessPercent?: number | null;
+  coveragePercent?: number | null;
 
   // Input
   sourceType: 'url' | 'paste';
@@ -177,6 +188,7 @@ export interface ThreatReport {
     rules?: string;
     mitre?: string;
     library?: string;
+    evidence?: string;
   };
 }
 
@@ -221,6 +233,9 @@ export interface ExtractedTTP {
   hasExistingDetection?: boolean;
   existingDetectionCount?: number;
   existingDetectionIds?: string[];
+  provenance?: 'explicit' | 'inferred' | 'validated' | 'rejected' | 'analyst_verified';
+  validationState?: 'pending' | 'validated' | 'rejected' | 'analyst_verified';
+  evidenceSupported?: boolean;
 }
 
 export interface ExtractedIoC {
@@ -236,6 +251,9 @@ export interface ExtractedIoC {
   relatedIoCs?: string[];    // IDs of related IoCs
   defanged?: boolean;        // If URL/IP was defanged in original
   originalValue?: string;    // Original defanged value if re-fanged
+  potentialFalsePositive?: boolean;
+  falsePositiveReason?: string;
+  evidenceSupported?: boolean;
 }
 
 export interface ExtractedRule {
@@ -247,6 +265,10 @@ export interface ExtractedRule {
   description?: string;
   author?: string;
   relatedTTPs?: string[];    // MITRE IDs this rule covers
+  provenance?: 'verbatim' | 'pattern_extracted' | 'reconstructed' | 'generated' | 'external_link';
+  isValidated?: boolean;
+  validationStatus?: 'candidate' | 'validated' | 'rejected';
+  evidenceSupported?: boolean;
 }
 
 export interface MitreMapping {
@@ -412,6 +434,7 @@ export interface DigestOptions {
 export interface DigestReportResponse {
   success: boolean;
   report?: ThreatReport;
+  outcome?: 'complete' | 'partial' | 'failed' | 'cancelled';
   error?: string;
   processingTimeMs?: number;
 }

@@ -173,21 +173,20 @@ Return ONLY valid JSON, no markdown code blocks.`
       {
         userId,
         feature: 'playbook-runner',
-        model: 'gemini-2.0-flash',
+        model: 'gemini-3.6-flash',
         provider: 'google',
         category: 'llm',
         metadata: { playbook_id: playbookId, step: 'report_synthesis' },
       },
       async () => {
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY! },
             body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }],
               generationConfig: {
-                temperature: 0.3,
                 maxOutputTokens: 2000,
                 responseMimeType: 'application/json',
               },

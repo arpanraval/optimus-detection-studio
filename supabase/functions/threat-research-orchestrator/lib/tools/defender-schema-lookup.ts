@@ -147,8 +147,14 @@ export interface KqlSchemaFindings {
   checked_columns: number;
 }
 
-/** Extract the leading table identifier. Allow optional pipe/whitespace/let. */
-function extractLeadingTable(query: string): string | null {
+/** Extract the leading table identifier. Allow optional pipe/whitespace/let.
+ *
+ *  Exported for tests. The schema check is the one part of QA that is
+ *  deterministic, so it is also the one part a golden case can assert on
+ *  without a model or a database — but only if the parsing is reachable
+ *  separately from the Supabase round trip. Everything below is pure; only
+ *  `validateKqlAgainstDefenderSchema` needs a client. */
+export function extractLeadingTable(query: string): string | null {
   // Strip leading comments and whitespace.
   const cleaned = query.replace(/^(\s*\/\/[^\n]*\n)+/g, '').trim();
   // First non-keyword identifier is the table. We don't support `let` bindings
@@ -200,8 +206,9 @@ function extractAliases(query: string): Set<string> {
   return aliases;
 }
 
-/** Pull identifiers that appear in column-reference positions. */
-function extractColumnRefs(query: string): string[] {
+/** Pull identifiers that appear in column-reference positions.
+ *  Exported for tests — see extractLeadingTable. */
+export function extractColumnRefs(query: string): string[] {
   const refs = new Set<string>();
 
   // Strip strings and comments to avoid pulling identifiers from inside them.
@@ -228,6 +235,20 @@ function extractColumnRefs(query: string): string[] {
   }
 
   return Array.from(refs);
+}
+
+/** The column references a query actually asks the SCHEMA about: everything in
+ *  a column position, minus the names the query introduces itself.
+ *
+ *  This is the whole deterministic half of the schema check, and it is exported
+ *  so tests assert on the same function production uses. A test that re-composed
+ *  `extractColumnRefs` minus `extractAliases` by hand drifted from the real path
+ *  immediately — it reported `CmdLower` (an extend binding) as a hallucinated
+ *  column, which is precisely the false positive this subtraction exists to
+ *  prevent. One function, one behaviour. */
+export function extractSchemaColumnRefs(query: string): string[] {
+  const aliases = extractAliases(query);
+  return extractColumnRefs(query).filter(r => !aliases.has(r));
 }
 
 /** Validate a KQL query body against the imported Defender XDR schema.
@@ -263,8 +284,7 @@ export async function validateKqlAgainstDefenderSchema(
   // NOT schema columns. Exclude them from the lookup so the validator stops
   // false-positiving on every derived column (DataLower, ParentProcess, etc).
   const aliases = extractAliases(query);
-  const allRefs = extractColumnRefs(query);
-  const columnRefs = allRefs.filter(r => !aliases.has(r));
+  const columnRefs = extractSchemaColumnRefs(query);
   if (columnRefs.length === 0) {
     return { table, table_known: true, unknown_columns: [], checked_columns: 0 };
   }

@@ -17,16 +17,34 @@
 // against the platform cap.
 //
 // Phase progression (each row is one job):
-//   preflight         → research          (singleton)
-//   research          → attack_research × N  (fan-out, one job per behaviour)
-//   attack_research × N  → detection × N    (fan-in then fan-out)
-//   detection × N     → finalise           (fan-in)
-//   finalise                                 (singleton; marks session completed)
+//   preflight            → research              (singleton)
+//   research             → attack_research × N   (fan-out, one job per behaviour)
+//   attack_research × N  → opportunity_planning  (fan-in, singleton)
+//   opportunity_planning → detection × N         (fan-out per canonical opportunity)
+//   detection × N        → finalise              (fan-in)
+//   finalise                                       (singleton; marks session completed)
+//
+// The attack_research fan-out is LOAD-BEARING, not incidental. Supabase kills
+// an edge worker at ~400s, and the measured Sonnet generation rate here is
+// ~57 tokens/s (5,338 output tokens in 93s on a real research synthesis call).
+// That puts a hard ceiling of roughly 19K output tokens on ANY single model
+// call in this pipeline. Splitting the deep-dive work across one worker per
+// behaviour is what keeps every individual call under that ceiling while
+// still producing far more total output than one call ever could
+// (6,144 + N×8,192 ≈ 71K tokens for an 8-behaviour subject).
+//
+// 2026-07-29: this phase was briefly merged into `research` as a single
+// "Dossier Agent" call with maxTokens 32,768 (~575s of generation at the
+// measured rate). Every session failed with "reaper: worker exceeded
+// edge-function lifetime" — the call cannot finish inside one worker on any
+// subject. Reverted. Do not merge these phases again without first changing
+// the per-worker execution model.
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 import { RunContext, emit } from "./events.ts";
 import type { ToolContext } from "./tools/index.ts";
 import type { WebSearchResult } from "../../_shared/web-search.ts";
+import type { WebFetchResult } from "../../_shared/web-fetch.ts";
 import { runPreflight } from "./preflight.ts";
 import { runResearchAgent } from "./agents/research-agent.ts";
 import { runAttackResearcherForBehaviour } from "./agents/attack-researcher.ts";
@@ -34,9 +52,12 @@ import { runOpportunityPlanner, toDetectionOpportunity } from "./agents/opportun
 import {
   checkLibraryCoverage,
   generateDetectionForOpportunity,
-  refineDetectionViaActorCritic,
 } from "./agents/detection-engineer.ts";
-import { resolveQueryLanguage } from "./query-language.ts";
+// isDeployedCoverage / isLanguageRunnable are now DISPLAY helpers only — they
+// annotate the reused leaf, they no longer gate whether a rule is reused.
+import { isDeployedCoverage, isLanguageRunnable, adjudicateReuse } from "./coverage.ts";
+import { resolveQueryTarget, supportsDefenderSchemaValidation } from "./query-language.ts";
+import { flagCrossBehaviourDuplicates } from "./dedup.ts";
 import { loadKnowledgePack } from "./skills-loader.ts";
 import { buildActorCoverageSeed } from "./actor-coverage.ts";
 import {
@@ -45,9 +66,15 @@ import {
   findUnverifiedMitreIds,
 } from "./mitre-validator.ts";
 import { validateKqlAgainstDefenderSchema } from "./tools/defender-schema-lookup.ts";
+import { runDetectionValidators } from "./validators/index.ts";
+import { sizeAfterResearch, sizeAfterPlanning } from "./budget-policy.ts";
+import { summariseYield, deriveSessionStatus } from "./readiness.ts";
+import type { VendorSearchRecord } from "./tools/rule-repo-search.ts";
 import type {
   DetectionOpportunity,
+  AttackBehaviour,
   GeneratedDetection,
+  LibraryNearMatch,
   ResearchQueryLanguage,
   ThreatResearchTree,
 } from "./types.ts";
@@ -59,12 +86,14 @@ import type {
 interface JobRow {
   id: string;
   session_id: string;
+  /** 'qa' is retained ONLY so job rows from sessions that ran before the QA
+   *  agent was removed still type-check when replayed. Nothing enqueues it and
+   *  the dispatcher has no arm for it. */
   phase: 'preflight' | 'research' | 'attack_research' | 'opportunity_planning' | 'detection' | 'qa' | 'finalise';
-  /** For attack_research: just the behaviour_id (e.g. "b1").
+  /** For attack_research: the behaviour id (for example "b1").
    *  For detection: composite "{primary_behaviour_id}/{opportunity_id}"
    *  (e.g. "b1/o3") — detection is now per canonical opportunity, not
    *  per behaviour, since the Opportunity Planner runs upstream.
-   *  For qa: same composite format as detection.
    *  Null for singleton phases (preflight, research, opportunity_planning,
    *  finalise). */
   behaviour_id: string | null;
@@ -156,10 +185,34 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
   }
 
   const searchCache = new Map<string, WebSearchResult>();
-  const runCtx: RunContext = { supabase, sessionId: session.id, userId: session.user_id };
+  const fetchCache = new Map<string, WebFetchResult>();
+  // jobId keys the resumable conversation checkpoint: a reaper-reset retry
+  // claims the SAME job row, so the killed attempt's conversation is waiting
+  // for it instead of starting over from message zero.
+  const runCtx: RunContext = {
+    supabase,
+    sessionId: session.id,
+    userId: session.user_id,
+    jobStartedAt: start,
+    jobId,
+    phase: job.phase,
+  };
   // envContextCache starts undefined; populated lazily by executeTool on
   // the first environment_context call within this worker invocation.
-  const toolCtx: ToolContext = { supabase, userId: session.user_id, searchCache };
+  // vendorSearchLog is collected here, at the worker level, and persisted after
+  // the phase handler returns. Production had seven rule_repo_search calls with
+  // no recorded result, URL, or error — the tool's "not configured" answer went
+  // only into the model's context, so the session could substantiate neither
+  // that it found nothing nor that it never looked.
+  const vendorSearchLog: VendorSearchRecord[] = [];
+  const toolCtx: ToolContext = {
+    supabase,
+    userId: session.user_id,
+    searchCache,
+    fetchCache,
+    queryLanguage: resolveQueryTarget(session.environment_snapshot ?? null).language,
+    vendorSearchLog,
+  };
 
   // Hydrate tree (will mutate, then persist).
   const tree: ThreatResearchTree = (session.tree as ThreatResearchTree | null) ?? {
@@ -187,6 +240,9 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
       case 'research':
         await handleResearch(supabase, runCtx, toolCtx, session, tree);
         await markJobCompleted(supabase, job);
+        // Fan out one attack_research job per behaviour. Each gets its own
+        // fresh edge worker, which is what keeps every deep-dive call under
+        // the ~400s platform ceiling (see the header comment).
         await promote(
           supabase,
           session.id,
@@ -203,8 +259,7 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
         // Throttling: dispatch the next pending sibling so we keep ~2
         // concurrent in flight (Anthropic Tier-1 TPM safety net).
         await dispatchNextInPhase(supabase, session.id, 'attack_research');
-        // Fan-in to opportunity_planning (singleton). PR2: before detection
-        // fans out per-canonical-opportunity, the planner dedupes the
+        // Fan-in to opportunity_planning (singleton). The planner dedupes the
         // behaviour-level outputs into canonical detection opportunities.
         // promote() is a no-op if siblings are still running.
         await promote(
@@ -248,26 +303,10 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
         await markJobCompleted(supabase, job);
         await dispatchNextInPhase(supabase, session.id, 'detection');
         // Finalise gate: only fires when BOTH detection AND qa phases are
-        // terminal. The generic promote_phase(detection → finalise) is
-        // unsafe because qa jobs are enqueued by detection workers and may
-        // still be pending/running when the last detection completes.
-        // tr_promote_finalise_if_ready checks both phases atomically; the
-        // last worker (detection or qa, whichever finishes last) fires.
-        await promoteFinaliseIfReady(supabase, runCtx, session.id);
-        break;
-
-      case 'qa':
-        // Stand-alone QA pass on a single opportunity. behaviour_id is the
-        // composite "{behaviourId}/{opportunityId}" path. Auto-enqueued by
-        // handleDetection per opportunity (decoupled from detection-engineer
-        // worker so a worker death doesn't lose all in-flight QA).
-        if (!job.behaviour_id) throw new Error('qa job missing composite behaviour_id');
-        await handleQa(supabase, runCtx, toolCtx, session, tree, job.behaviour_id);
-        await markJobCompleted(supabase, job);
-        await dispatchNextInPhase(supabase, session.id, 'qa');
-        // Finalise gate (see detection branch above). The RPC is idempotent
-        // and uses an advisory lock so the parallel detection-side call
-        // can't race against this one.
+        // terminal. tr_promote_finalise_if_ready still counts a 'qa' phase
+        // that no longer produces jobs — with none enqueued its pending count
+        // is 0, so the gate turns purely on detection. Left in place so
+        // historical sessions mid-flight when QA was removed still finalise.
         await promoteFinaliseIfReady(supabase, runCtx, session.id);
         break;
 
@@ -296,6 +335,24 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
       payload: { job_id: job.id, behaviour_id: job.behaviour_id, attempt: job.attempt_count + 1 },
     });
   } finally {
+    // Persist vendor-search provenance regardless of how the job ended. A
+    // search that ran before the failure is still evidence of what was
+    // reviewed, and the not-configured case is exactly the one worth keeping —
+    // it is the difference between "found nothing" and "never looked".
+    //
+    // Written to its own append-only table, never onto the session tree: a
+    // read-modify-write of the tree would discard concurrent workers' detection
+    // and QA patches along with their provenance.
+    if (vendorSearchLog.length > 0) {
+      try {
+        await appendVendorSearchProvenance(
+          supabase, session.id, session.user_id, job, vendorSearchLog,
+        );
+      } catch (e) {
+        console.warn('[worker] vendor search provenance write failed:', (e as Error).message);
+      }
+    }
+
     // ALWAYS emit worker_exit, even on uncaught throws or partial state.
     // If we see this event, the worker reached the end of its body.
     // If we DON'T see it, the platform killed the isolate.
@@ -409,7 +466,7 @@ async function handleResearch(
   // Best-effort: a failure leaves the field absent; the engineer continues
   // with per-behaviour vector search alone.
   try {
-    tree.actor_coverage_seed = await buildActorCoverageSeed(supabase, out.subject);
+    tree.actor_coverage_seed = await buildActorCoverageSeed(supabase, out.subject, runCtx.userId);
     if (tree.actor_coverage_seed.length > 0) {
       await emit(runCtx, {
         agent: 'orchestrator',
@@ -425,21 +482,33 @@ async function handleResearch(
 
   // Stage-based budget. The initial cap covers the pre-opportunity phases:
   //   classifier (preflight):      1 call
-  //   research (singleton):        ~3-5 calls (iter cap 5)
-  //   attack_research × N:         ~3 calls each (iter cap 6, ~3 avg)
+  //   research (singleton):         up to 5 calls
+  //   attack_research x N:          up to 6 calls per independent worker
   //   opportunity_planning:        ~3-6 calls (iter cap 6, singleton)
   // handleOpportunityPlanning bumps the cap (via tr_bump_caps) once M
   // canonical opportunities are known, sizing for the detection + qa
   // per-opportunity work that follows.
   //
-  // Formula: 25 + 6*N (was 15+6*N, and before that 5+6*N — pre-fix, the headroom didn't cover
-  // retries on the four pre-opportunity phases together; e.g. one
-  // attack_research leaf retrying twice + a planner retry could exhaust
-  // the budget and starve the planner's final call). The extra 10 calls
-  // are cheap insurance for classifier/research/planner validation retries.
+  // 25 + 6*N retains retry headroom across research, the per-behaviour
+  // attack-research fan-out and planning. It is a ceiling, not a target.
   const N = out.behaviours.length;
-  const modelCap = Math.min(800, 25 + 6 * N);
-  const toolCap  = Math.min(800, 25 + 6 * N);
+  // Call caps are a RUNAWAY BACKSTOP now, not the spend control — tokens are
+  // (see budget-policy.ts). They are deliberately wide so the token budget is
+  // what binds.
+  //
+  // The old sizing (25 + 6N, so 73 for 8 behaviours) was the spend control, and
+  // it is why 199 agent failures read "model-call budget exhausted": a
+  // call-count cliff stopped work that was nowhere near its token budget, and
+  // whichever leaves happened to run last were the ones starved. Since a
+  // failed call also consumed a call, a flaky session tightened the cliff on
+  // itself.
+  //
+  // 3x the previous allowance keeps a genuine runaway bounded — an infinite
+  // agent loop still cannot spin forever — while making the cliff essentially
+  // unreachable in a healthy session.
+  const CALL_CAP_BACKSTOP_MULTIPLIER = 3;
+  const modelCap = Math.min(2000, (25 + 6 * N) * CALL_CAP_BACKSTOP_MULTIPLIER);
+  const toolCap  = Math.min(2000, (25 + 6 * N) * CALL_CAP_BACKSTOP_MULTIPLIER);
 
   await supabase
     .from('threat_research_sessions')
@@ -451,12 +520,146 @@ async function handleResearch(
       updated_at: new Date().toISOString(),
     })
     .eq('id', session.id);
+
+  // Token budget with per-phase floors. Call counts above stay as a secondary
+  // runaway guard, but they cannot bound spend — one 16K-token call costs
+  // ~50x a 300-token one, which is why bc5804b3 used 169 calls for 1.17M
+  // tokens while 048fdd12 used 28 for 165K.
+  //
+  // Floors matter more than the ceiling. detection and qa are sized here, on
+  // an ESTIMATE of opportunities, specifically so research and attack_research
+  // cannot spend that budget first. The planner re-sizes with the real count,
+  // and floors may only rise.
+  const budgets = sizeAfterResearch(N);
+  const { error: budgetErr } = await supabase.rpc('tr_set_phase_budgets', {
+    p_session_id: session.id,
+    p_token_cap:  budgets.tokenCap,
+    p_phases:     budgets.perPhase,
+  });
+  if (budgetErr) {
+    // Non-fatal: an unsized session falls back to the call caps, i.e. the
+    // previous behaviour. Losing a guard rail must not lose the run.
+    console.warn('[handleResearch] tr_set_phase_budgets failed:', budgetErr.message);
+  } else {
+    await emit(runCtx, {
+      agent: 'orchestrator',
+      event_type: 'preflight_completed',
+      message: budgets.capped
+        // Never let a session be quietly under-funded: one that dies two
+        // thirds of the way through is the exact failure being fixed, so say
+        // it up front rather than let it look like a mid-run crash.
+        ? `Token budget CAPPED: ${N} behaviours need more than the ${Math.round(budgets.tokenCap / 1000)}K ` +
+          `session ceiling, so every phase floor was scaled down. This session may not complete all leaves.`
+        : `Token budget: ${Math.round(budgets.tokenCap / 1000)}K total, ` +
+          `detection ${Math.round(budgets.perPhase.detection / 1000)}K reserved`,
+      payload: {
+        token_cap: budgets.tokenCap,
+        per_phase: budgets.perPhase,
+        behaviours: N,
+        capacity_limited: budgets.capped,
+      },
+    });
+  }
+}
+
+/** Append this worker's vendor-search attempts to the session tree.
+ *
+ *  Read-modify-write on `tree.vendor_search`, appending only. Several workers
+ *  search concurrently and each holds its own log, so replacing the field would
+ *  discard the others'. The read is deliberately narrow (one jsonb field) rather
+ *  than a full-tree round trip.
+ *
+ *  Best-effort by design: provenance is evidence about the run, and losing it
+ *  must never be the thing that fails the run. */
+async function appendVendorSearchProvenance(
+  supabase: SupabaseClient,
+  sessionId: string,
+  userId: string,
+  job: JobRow,
+  records: readonly VendorSearchRecord[],
+): Promise<void> {
+  // A plain INSERT. No read, so there is nothing to clobber.
+  //
+  // The first version of this read the whole session tree, appended to one
+  // field, and wrote the whole tree back. That is a data-loss bug, and the
+  // comment on it claimed the opposite: appending to one field of a whole-tree
+  // round trip still writes the whole tree. Two workers reading the same
+  // version would each write their own copy, losing the other's provenance AND
+  // any detection or QA leaf committed in between — the precise "work
+  // disappeared" failure this remediation exists to remove. Detection and QA
+  // leaves are patched concurrently by design; tr_patch_detection exists so
+  // they never need a full-tree write.
+  const { error } = await supabase
+    .from('threat_research_vendor_searches')
+    .insert(records.map(r => ({
+      session_id: sessionId,
+      user_id: userId,
+      phase: job.phase,
+      behaviour_id: job.behaviour_id,
+      query: r.query,
+      repositories: r.repositories,
+      results_found: r.results_found,
+      source_urls: r.source_urls,
+      error: r.error ?? null,
+      attempted_at: r.attempted_at,
+    })));
+  if (error) {
+    console.warn('[worker] vendor search provenance insert failed:', error.message);
+  }
+}
+
+/** A 1:1 behaviour→opportunity stand-in, used when the planner produced
+ *  nothing usable for a behaviour.
+ *
+ *  Shared by two callers with deliberately different scope: the whole-plan
+ *  degraded path (planner returned nothing at all) and the targeted rescue
+ *  (planner returned a good plan but left specific behaviours unaccounted for).
+ *  Extracted so those two cannot drift — the rescue exists precisely because
+ *  discarding a good plan to fix one gap loses the merges the planner is for. */
+function buildFallbackOpportunity(
+  b: AttackBehaviour,
+  queryLanguage: ResearchQueryLanguage,
+): DetectionOpportunity {
+  return {
+    id: 'o1',
+    title: b.title,
+    description: b.narrative_description,
+    observable_chain: b.artefacts,
+    telemetry: b.data_sources,
+    mitre_technique_ids: b.mitre_technique_ids,
+    tactic: b.tactic,
+    primary_behaviour_id: b.id,
+    source_behaviour_ids: [b.id],
+    variants: [],
+    detectability: 'siem',
+    detectability_rationale: 'Planner unavailable; defaulting to SIEM-detectable per behaviour-level data sources.',
+    detection: {
+      id: 'd_o1',
+      name: '',
+      description: '',
+      query_language: queryLanguage,
+      query: '',
+      mitre_technique_ids: b.mitre_technique_ids,
+      unverified_mitre_ids: [],
+      tactic: b.tactic,
+      suggested_severity: 'Medium',
+      suggested_detection_type: 'Detection',
+      feasibility: 'partial',
+      feasibility_notes: '',
+      citations: [],
+      covers_behaviour_ids: [b.id],
+      qa: null,
+      qa_error: null,
+      saved_detection_id: null,
+      archived: false,
+    },
+  };
 }
 
 /** Build the list of composite "{primary_behaviour_id}/{opportunity_id}"
  *  strings that the detection phase will fan out on. Called by the
- *  attack_research/opportunity_planning promote step after the planner has
- *  populated behaviour.opportunities[]. */
+ *  opportunity_planning promote step after the planner has populated
+ *  behaviour.opportunities[]. */
 function collectOpportunityCompositeIds(tree: ThreatResearchTree): string[] {
   const ids: string[] = [];
   for (const b of tree.behaviours) {
@@ -474,6 +677,9 @@ function collectOpportunityCompositeIds(tree: ThreatResearchTree): string[] {
   return ids;
 }
 
+/** One behaviour's offensive deep-dive. Runs as its OWN edge worker (one job
+ *  per behaviour), which is what keeps each call comfortably under the ~400s
+ *  platform ceiling — see the phase-progression note at the top of this file. */
 async function handleAttackResearch(
   supabase: SupabaseClient,
   runCtx: RunContext,
@@ -526,7 +732,8 @@ async function handleOpportunityPlanning(
     return;
   }
 
-  const queryLanguage = resolveQueryLanguage(session.environment_snapshot ?? null);
+  const { language: queryLanguage, product: queryProduct } =
+    resolveQueryTarget(session.environment_snapshot ?? null);
   const out = await runOpportunityPlanner(toolCtx, runCtx, tree.subject, tree.behaviours);
   if (!out) {
     // Planner failed. Don't blow up the session — fall back to a no-op:
@@ -558,43 +765,13 @@ async function handleOpportunityPlanning(
       },
     });
     for (const b of tree.behaviours) {
-      const fallbackOpp: DetectionOpportunity = {
-        id: 'o1',
-        title: b.title,
-        description: b.narrative_description,
-        observable_chain: b.artefacts,
-        telemetry: b.data_sources,
-        mitre_technique_ids: b.mitre_technique_ids,
-        tactic: b.tactic,
-        primary_behaviour_id: b.id,
-        source_behaviour_ids: [b.id],
-        variants: [],
-        detectability: 'siem',
-        detectability_rationale: 'Planner unavailable; defaulting to SIEM-detectable per behaviour-level data sources.',
-        detection: {
-          id: 'd_o1',
-          name: '',
-          description: '',
-          query_language: queryLanguage,
-          query: '',
-          mitre_technique_ids: b.mitre_technique_ids,
-          unverified_mitre_ids: [],
-          tactic: b.tactic,
-          suggested_severity: 'Medium',
-          suggested_detection_type: 'Detection',
-          feasibility: 'partial',
-          feasibility_notes: '',
-          citations: [],
-          covers_behaviour_ids: [b.id],
-          qa: null,
-          qa_error: null,
-          saved_detection_id: null,
-          archived: false,
-        },
-      };
-      b.opportunities = [fallbackOpp];
+      b.opportunities = [buildFallbackOpportunity(b, queryLanguage)];
       await patchBehaviour(supabase, session.id, b.id, { opportunities: b.opportunities });
     }
+    // patchBehaviour persists each fallback leaf but cannot write this
+    // top-level flag. Persist it so the UI banner and resume_session planner
+    // recovery path can observe degraded mode.
+    await persistTree(supabase, session.id, tree);
     return;
   }
 
@@ -631,6 +808,44 @@ async function handleOpportunityPlanning(
 
   const priority: Record<string, number> = { siem: 4, edr: 3, needs_telemetry: 2, not_detectable: 1 };
 
+  const excludedById = new Map(
+    (out.excluded_behaviours ?? []).map(e => [e.behaviour_id, e]),
+  );
+
+  // Targeted rescue. The validator rejects a plan that leaves a behaviour
+  // unaccounted for, so this only fires if the planner failed its retry too.
+  //
+  // Scoped deliberately to the MISSING behaviours. The existing
+  // `planner_degraded` path throws the whole plan away and rebuilds every
+  // behaviour 1:1 with no dedup — losing good merges to rescue one gap.
+  // Rescuing only what is missing keeps the planner's real work.
+  const accountedIds = new Set<string>();
+  for (const cop of out.opportunities) {
+    if (cop.primary_behaviour_id) accountedIds.add(cop.primary_behaviour_id);
+    for (const src of cop.source_behaviour_ids ?? []) accountedIds.add(src);
+  }
+  for (const id of excludedById.keys()) accountedIds.add(id);
+
+  const rescued = tree.behaviours.filter(b => !accountedIds.has(b.id));
+  if (rescued.length > 0) {
+    await emit(runCtx, {
+      agent: 'orchestrator',
+      event_type: 'planner_degraded',
+      message:
+        `PLANNER PARTIAL — ${rescued.length} of ${tree.behaviours.length} behaviour(s) ` +
+        `unaccounted for after retry (${rescued.map(b => b.id).join(', ')}); ` +
+        'generating 1:1 opportunities for those only. The rest of the plan is kept.',
+      payload: {
+        rescued_behaviour_ids: rescued.map(b => b.id),
+        planned_opportunities: out.opportunities.length,
+        excluded: [...excludedById.keys()],
+      },
+    });
+    for (const b of rescued) {
+      byPrimary.set(b.id, [buildFallbackOpportunity(b, queryLanguage)]);
+    }
+  }
+
   for (const b of tree.behaviours) {
     const opps = byPrimary.get(b.id) ?? [];
     const merged = bySource.get(b.id) ?? [];
@@ -638,11 +853,25 @@ async function handleOpportunityPlanning(
     b.merged_into_opportunity_ids = merged.map(m => m.ref);
 
     if (opps.length === 0 && merged.length === 0) {
-      // No canonical opportunity claims this behaviour as primary AND no
-      // opportunity includes it in source_behaviour_ids. Planner judged
-      // it not actionable.
+      // No opportunity claims this behaviour as primary and none references it
+      // as a source. Two very different situations, previously collapsed into
+      // one and both reported as a verdict:
+      //
+      //   - the planner EXCLUDED it and said why. That is a real judgement.
+      //   - the planner simply left it out. That is the absence of a judgement,
+      //     and stamping 'not_detectable' on it invented one.
+      //
+      // The validator now rejects the second case outright, so reaching here
+      // without an exclusion means the planner failed twice and the targeted
+      // fallback below could not rescue it. Say that, rather than claiming the
+      // behaviour cannot be detected.
+      const exclusion = excludedById.get(b.id);
       b.detectability = 'not_detectable';
-      b.detectability_rationale = 'Opportunity planner did not produce a detection opportunity for this behaviour.';
+      b.detectability_rationale = exclusion
+        ? `Planner excluded this behaviour: ${exclusion.reason}`
+        : 'No detection opportunity was produced for this behaviour and the planner ' +
+          'gave no reason. This is a gap in the plan, not a finding that the behaviour ' +
+          'is undetectable — re-run the planner for this behaviour.';
       b.artefacts_required = [];
     } else if (opps.length === 0 && merged.length > 0) {
       // Behaviour was merged into other behaviours' canonical opportunities.
@@ -696,10 +925,29 @@ async function handleOpportunityPlanning(
   // tax — both gone now.
   const oppCount = out.opportunities.length;
   if (oppCount > 0) {
+    // Re-size the token floors now that the real opportunity count is known.
+    // handleResearch estimated it (behaviours / 1.5) so detection and qa had a
+    // reservation before this phase could spend against it; this replaces the
+    // estimate with the measurement. tr_set_phase_budgets only ever RAISES a
+    // floor, so a planner that merged aggressively cannot retroactively starve
+    // a phase that has already begun spending.
+    const planned = sizeAfterPlanning(tree.behaviours.length, oppCount);
+    const { error: tokenBudgetErr } = await supabase.rpc('tr_set_phase_budgets', {
+      p_session_id: session.id,
+      p_token_cap:  planned.tokenCap,
+      p_phases:     planned.perPhase,
+    });
+    if (tokenBudgetErr) {
+      console.warn('[handleOpportunityPlanning] tr_set_phase_budgets failed:', tokenBudgetErr.message);
+    }
+
     const { error: bumpErr } = await supabase.rpc('tr_bump_caps', {
       p_session_id: session.id,
-      p_model_delta: 12 * oppCount,
-      p_tool_delta: 8 * oppCount,
+      // Same reasoning as the initial sizing: these are a runaway backstop, and
+      // the token floors installed just above are the real control. Sized so a
+      // detection or QA leaf cannot hit a call cliff while it still has tokens.
+      p_model_delta: 36 * oppCount,
+      p_tool_delta: 24 * oppCount,
     });
     if (bumpErr) {
       console.warn(`[handleOpportunityPlanning] tr_bump_caps failed:`, bumpErr.message);
@@ -730,7 +978,8 @@ async function handleDetection(
   const opp = behaviour.opportunities.find(o => o.id === opportunityId);
   if (!opp) throw new Error(`opportunity ${behaviourId}/${opportunityId} not in tree (planner missed it?)`);
 
-  const queryLanguage = resolveQueryLanguage(session.environment_snapshot ?? null);
+  const { language: queryLanguage, product: queryProduct } =
+    resolveQueryTarget(session.environment_snapshot ?? null);
 
   // Refresh the actor coverage seed at job start. The seed is built once
   // when Research completes, but a session can run for 30+ minutes — and
@@ -740,72 +989,136 @@ async function handleDetection(
   // Falls back to whatever's on the tree if rebuild fails.
   let actorCoverageSeed = tree.actor_coverage_seed ?? [];
   try {
-    actorCoverageSeed = await buildActorCoverageSeed(supabase, tree.subject);
+    actorCoverageSeed = await buildActorCoverageSeed(supabase, tree.subject, runCtx.userId);
   } catch (e) {
     console.warn('[handleDetection] actor coverage seed refresh failed:', (e as Error).message);
   }
 
-  // ── 1. Library coverage shortcut, AT OPPORTUNITY LEVEL (PR2). ────────────
+  // ── 1. Library reuse check, AT OPPORTUNITY LEVEL (PR2). ──────────────────
   // Pre-PR2 this searched the library by behaviour TITLE+NARRATIVE — too
   // broad, often missed actual coverage of specific detection observables.
   // Now we search by the canonical opportunity's observable chain +
-  // telemetry, which is the actual detection target. If a high-similarity
-  // match exists AND it's runnable in the user's current SIEM language,
-  // skip generation entirely.
+  // telemetry, which is the actual detection target. Any high-similarity
+  // match is reused as-is; see the reuse-first note below.
   const libMatch = await checkLibraryCoverage(toolCtx, behaviour, opp);
-  const matchedLanguageRunnable = (() => {
-    if (!libMatch) return false;
-    // Empty query_language means we couldn't determine the matched
-    // detection's language — be conservative and fall through to
-    // generation rather than veto with low confidence.
-    if (!libMatch.query_language) return false;
-    // Compare case-insensitively against the resolved env language. If
-    // the user's env doesn't resolve a SIEM language we still accept
-    // the match (better than failing closed).
-    return !queryLanguage || libMatch.query_language.toLowerCase() === queryLanguage.toLowerCase();
-  })();
-  if (libMatch && matchedLanguageRunnable) {
+  // REUSE-FIRST. If a rule already exists in the library, point this leaf at
+  // it and skip generation entirely — we do not rewrite what the user already
+  // has, especially when generation is the weakest stage in the pipeline.
+  //
+  // Status and query language are recorded for DISPLAY only. They describe
+  // where the rule lives and what it is written in; they do not decide whether
+  // it counts. The user reviews the complete set — existing and newly written —
+  // at the end of the research and chooses the action.
+  //
+  // This reverses the two gates added earlier (Production-only + language
+  // match). On a real run those excluded all 185 mshta rules in an 11,820-rule
+  // library, because no rule was simultaneously Production AND KQL — so the
+  // pipeline generated from scratch instead of reusing any of them.
+  // See Amendment 1 in docs/plans/2026-07-28-threat-research-remediation-plan.md.
+  // Adjudicate rather than reuse on sight. A hit replaces generation only when
+  // it overlaps on technique, has a runnable query, is written in this
+  // session's language, and is actually deployed. Otherwise it is shown as
+  // related coverage and the gap is still filled -- which is what makes the
+  // strictness safe: failing a condition costs the short-circuit, not the
+  // match. See adjudicateReuse in coverage.ts for why the earlier
+  // Production-AND-language gate was reverted and why this is not that.
+  const adjudication = adjudicateReuse({
+    opportunityMitreIds: opp.mitre_technique_ids,
+    match: libMatch,
+    targetLanguage: queryLanguage,
+    // The opportunity's declared detection surface. Without these the
+    // observable condition cannot be satisfied and every match falls through
+    // to generation -- safe, but it would make the gate inert.
+    opportunityObservableChain: opp.observable_chain,
+    opportunityTelemetry: opp.telemetry,
+  });
+
+  if (libMatch && adjudication.suppressGeneration) {
+    const deployed = isDeployedCoverage(libMatch);
+    const runnable = isLanguageRunnable(libMatch, queryLanguage);
     await emit(runCtx, {
       agent: 'detection-engineer',
       event_type: 'library_match_found',
-      message: `${opp.title} → already covered by "${libMatch.name}"`,
-      payload: { behaviour_id: behaviour.id, opportunity_id: opp.id, match: libMatch },
-    });
-    // Mark this OPPORTUNITY as covered (not the whole behaviour — other
-    // opportunities under the same behaviour may still need generation).
-    // The behaviour.library_match field stays null; UI surfaces per-opp
-    // coverage by reading detection.saved_detection_id + the
-    // library_match_found event log.
-    opp.detection.saved_detection_id = libMatch.existing_detection_id;
-    opp.detection.name = libMatch.name;
-    opp.detection.query_language = libMatch.query_language as ResearchQueryLanguage;
-    opp.detection.description = `Already covered by library detection "${libMatch.name}".`;
-    opp.detection.feasibility = 'covered';
-    opp.detection.feasibility_notes = `Library match (combined_score=${libMatch.combined_score.toFixed(2)})`;
-    await patchDetection(supabase, session.id, behaviour.id, opp.id, opp.detection.id, {
-      saved_detection_id: opp.detection.saved_detection_id,
-      name: opp.detection.name,
-      query_language: opp.detection.query_language,
-      description: opp.detection.description,
-      feasibility: opp.detection.feasibility,
-      feasibility_notes: opp.detection.feasibility_notes,
-    });
-    return;
-  }
-  // libMatch existed but couldn't run in the user's SIEM — emit the
-  // signal so the engineer knows there's a near-match worth referencing
-  // via covers_behaviour_ids, but proceed to generation in the user's
-  // actual language.
-  if (libMatch && !matchedLanguageRunnable) {
-    await emit(runCtx, {
-      agent: 'detection-engineer',
-      event_type: 'library_match_found',
-      message: `${opp.title} → near-match "${libMatch.name}" in ${libMatch.query_language || 'unknown SIEM'} (skipped: user's SIEM is ${queryLanguage})`,
+      message: `${opp.title} → reusing existing rule "${libMatch.name}" (${libMatch.status || 'unknown status'}, ${libMatch.query_language || 'unknown language'})`,
       payload: {
         behaviour_id: behaviour.id,
         opportunity_id: opp.id,
         match: libMatch,
-        skipped_reason: 'language_mismatch',
+        deployed,
+        runnable_in_session_language: runnable,
+        target_language: queryLanguage,
+      },
+    });
+    // Point this OPPORTUNITY's leaf at the existing rule. The leaf itself is
+    // unchanged in shape — saved_detection_id is what the UI already reads to
+    // render a reused leaf and link back to the library entry. reused_from_library
+    // distinguishes this from a user manually saving a freshly-generated
+    // detection — the UI's "Saved to library as a Draft" banner is wrong here
+    // (no user action happened, and the rule may already be Production/Testing).
+    opp.detection.saved_detection_id = libMatch.existing_detection_id;
+    opp.detection.reused_from_library = true;
+    opp.detection.name = libMatch.name;
+    opp.detection.query_language = (libMatch.query_language || queryLanguage) as ResearchQueryLanguage;
+    // Carry the rule body across so the leaf shows the actual query, not just
+    // a title. Without this a reused leaf renders an empty code block.
+    opp.detection.query = libMatch.detection_query ?? '';
+    opp.detection.description = `Existing library rule — no new detection was written for this opportunity.`;
+    // 'covered' only when the rule is both deployed and runnable here;
+    // otherwise 'partial'. Either way the rule is reused, never regenerated.
+    opp.detection.feasibility = deployed && runnable ? 'covered' : 'partial';
+    opp.detection.feasibility_notes = [
+      `Existing rule "${libMatch.name}"`,
+      `status ${libMatch.status || 'unknown'}`,
+      `language ${libMatch.query_language || 'unknown'}${runnable ? '' : ` (this session targets ${queryLanguage})`}`,
+      `match ${libMatch.combined_score.toFixed(2)}`,
+    ].join(' · ');
+    await patchDetection(supabase, session.id, behaviour.id, opp.id, opp.detection.id, {
+      saved_detection_id: opp.detection.saved_detection_id,
+      reused_from_library: true,
+      name: opp.detection.name,
+      query_language: opp.detection.query_language,
+      query: opp.detection.query,
+      description: opp.detection.description,
+      feasibility: opp.detection.feasibility,
+      feasibility_notes: opp.detection.feasibility_notes,
+      // Clear any verdict/error left over from a prior attempt on this
+      // opportunity (a failed generation now being retried and resolving via
+      // reuse instead). Without this a retry-into-reuse keeps showing a stale
+      // judgement alongside a brand-new query body.
+      qa: null,
+      qa_error: null,
+    });
+    return;
+  }
+  // Generation proceeds. A match may still exist here — it just did not earn
+  // the right to replace writing a new detection. Surfacing it as related
+  // coverage is the whole reason the adjudication can afford to be strict:
+  // the engineer sees the neighbouring rule, the user sees why it was not
+  // reused, and the gap still gets filled.
+  const nearMatch: LibraryNearMatch | null =
+    libMatch && adjudication.showAsRelatedCoverage
+      ? {
+          existing_detection_id: libMatch.existing_detection_id,
+          name: libMatch.name,
+          query_language: libMatch.query_language,
+          status: libMatch.status,
+          combined_score: libMatch.combined_score,
+          skipped_reason: adjudication.skippedReason ?? 'unknown',
+        } as LibraryNearMatch
+      : null;
+
+  if (nearMatch) {
+    await emit(runCtx, {
+      agent: 'detection-engineer',
+      event_type: 'library_match_found',
+      message: `${opp.title} → related rule "${libMatch!.name}" not reused ` +
+        `(${adjudication.skippedReason}); writing a new detection for this gap`,
+      payload: {
+        behaviour_id: behaviour.id,
+        opportunity_id: opp.id,
+        match: libMatch,
+        skipped_reason: adjudication.skippedReason,
+        conditions: adjudication.reasons,
         target_language: queryLanguage,
       },
     });
@@ -875,9 +1188,33 @@ async function handleDetection(
   // Post-step: validate emitted T-ids against the canonical mitre_techniques
   // table. Hallucinated ids surface via unverified_mitre_ids on the
   // GeneratedDetection so the UI can flag.
+  //
+  // The tactic-consistency half of this used to run in handleQa, on the
+  // post-revision detection. With no QA stage there is no revision and no
+  // second chance to catch it, so both checks run here on the one body that
+  // ships. A behaviour tagged `persistence` citing a technique whose canonical
+  // tactic is defense-evasion is mis-classified, and the user should see that
+  // whether or not anything reviewed the query.
   if (generated.mitre_technique_ids.length > 0) {
     const unverified = new Set(await findUnverifiedMitreIds(supabase, generated.mitre_technique_ids));
     generated.unverified_mitre_ids = generated.mitre_technique_ids.filter(id => unverified.has(id));
+    // Only verified ids can be checked for tactic consistency — a hallucinated
+    // id has no canonical tactic to compare against and is already flagged.
+    const verifiedIds = generated.mitre_technique_ids.filter(id => !unverified.has(id));
+    if (verifiedIds.length > 0) {
+      const tacticsByTechnique = await fetchTechniqueTactics(supabase, verifiedIds);
+      const inconsistent = filterTacticInconsistent(
+        verifiedIds, behaviour.tactic, tacticsByTechnique,
+      );
+      if (inconsistent.length > 0) {
+        // Recorded on the BEHAVIOUR, not the detection: the mismatch is between
+        // the behaviour's tactic and the technique's canonical one. Merge
+        // rather than overwrite so a retry can't drop an earlier flag.
+        const merged = new Set(behaviour.tactic_inconsistent_mitre_ids ?? []);
+        for (const id of inconsistent) merged.add(id);
+        behaviour.tactic_inconsistent_mitre_ids = Array.from(merged);
+      }
+    }
   }
 
   // Post-step: deterministic schema validation for Defender XDR KQL queries.
@@ -888,14 +1225,46 @@ async function handleDetection(
   // (wrong column name) mechanically — no LLM call, no extra latency
   // beyond one RPC roundtrip.
   //
-  // Only fires when query_language is KQL AND there's actually a query body.
-  // Non-KQL languages skip this entirely; we'll add per-language schemas
-  // later. Library-match short-circuits (saved_detection_id set) skip too —
-  // the matched detection's query isn't ours to validate.
+  // Gated on PRODUCT, not language. Microsoft Sentinel and Microsoft Defender
+  // XDR both write KQL, so gating on 'KQL' alone ran the Defender schema check
+  // over Sentinel queries: a correct query using SecurityEvent, SigninLogs or
+  // AuditLogs came back as "unknown table", the note landed in
+  // feasibility_notes, and QA — which is told to incorporate those findings —
+  // could then "repair" a working query into the wrong product's schema.
+  //
+  // There is no Sentinel schema table here, so a Sentinel query records the
+  // check as SKIPPED rather than receiving a fabricated verdict. Saying "not
+  // checked" is worth more than confidently saying the wrong thing, because
+  // the wrong thing is what got acted on.
+  //
+  // Library-match short-circuits (saved_detection_id set) still skip: the
+  // matched detection's query isn't ours to validate.
+  const canSchemaValidate = supportsDefenderSchemaValidation(queryProduct);
   if (
     generated.query_language === 'KQL' &&
     generated.query &&
-    !generated.saved_detection_id
+    !generated.saved_detection_id &&
+    !canSchemaValidate
+  ) {
+    await emit(runCtx, {
+      agent: 'detection-engineer',
+      event_type: 'schema_validation_completed',
+      message: `schema validation skipped — no schema available for ${queryProduct ?? 'unspecified product'}`,
+      payload: {
+        opportunity_id: opp.id,
+        behaviour_id: behaviour.id,
+        detection_id: generated.id,
+        skipped: true,
+        skipped_reason: queryProduct ? 'no_schema_for_product' : 'no_product_resolved',
+        product: queryProduct,
+      },
+    });
+  }
+  if (
+    generated.query_language === 'KQL' &&
+    generated.query &&
+    !generated.saved_detection_id &&
+    canSchemaValidate
   ) {
     const findings = await validateKqlAgainstDefenderSchema(supabase, generated.query);
     await emit(runCtx, {
@@ -926,9 +1295,20 @@ async function handleDetection(
     }
   }
 
+  // Post-step: deterministic (no-LLM) validators — telemetry feasibility,
+  // Sigma structural syntax, citation spot-check, MITRE ID/tactic
+  // consistency. Advisory only; never blocks the detection from shipping.
+  // Runs after the KQL schema check above so validator_findings and
+  // feasibility_notes both reflect the same final generated detection.
+  generated.validator_findings = await runDetectionValidators(supabase, runCtx.userId, opp, generated);
+
   // ── 3. Persist the detection. ───────────────────────────────────────────
+  // Carry the advisory near-match (if any) onto the leaf so the detail card
+  // can explain why a fresh query exists next to an adjacent library rule.
+  generated.library_near_match = nearMatch;
   opp.detection = generated;
   await patchDetection(supabase, session.id, behaviour.id, opp.id, opp.detection.id, {
+    library_near_match: generated.library_near_match,
     name: generated.name,
     description: generated.description,
     query: generated.query,
@@ -942,203 +1322,22 @@ async function handleDetection(
     feasibility_notes: generated.feasibility_notes,
     citations: generated.citations,
     covers_behaviour_ids: generated.covers_behaviour_ids,
+    validator_findings: generated.validator_findings,
+    // Written explicitly rather than left absent: a retry into this slot must
+    // clear any verdict a previous (pre-removal) attempt left behind, so the
+    // leaf never shows a stale judgement beside a fresh query.
     qa: null,
     qa_error: null,
   });
 
-  // ── 4. Enqueue ONE qa job for this opportunity. ─────────────────────────
-  // PR2: detection is now per-opportunity, so each detection job produces
-  // exactly one qa job — no fan-out from detection to qa.
-  const qaCompositeId = `${behaviour.id}/${opp.id}`;
-  // Reset any prior qa row with this composite id (retry_leaf path).
-  const { error: qaResetErr } = await supabase
-    .from('threat_research_jobs')
-    .update({
-      status: 'pending',
-      attempt_count: 0,
-      started_at: null,
-      completed_at: null,
-      failure_reason: null,
-    })
-    .eq('session_id', session.id)
-    .eq('phase', 'qa')
-    .eq('behaviour_id', qaCompositeId);
-  if (qaResetErr) {
-    console.warn(`[handleDetection] qa reset for ${qaCompositeId} failed:`, qaResetErr.message);
-  }
-
-  const { error: qaInsertErr } = await supabase
-    .from('threat_research_jobs')
-    .upsert(
-      [{ session_id: session.id, phase: 'qa' as const, behaviour_id: qaCompositeId }],
-      { onConflict: 'session_id,phase,behaviour_id', ignoreDuplicates: true },
-    );
-  if (qaInsertErr) {
-    // Non-fatal: detection content is already persisted at step 3. The
-    // user can manually trigger complete_qa to recover later.
-    console.warn(`[handleDetection] qa job enqueue for ${qaCompositeId} failed:`, qaInsertErr.message);
-  } else {
-    // Kick the dispatcher so the qa job starts immediately rather than
-    // waiting for the next cron tick.
-    await supabase.rpc('threat_research_dispatch_next_in_phase', {
-      p_session_id: session.id,
-      p_phase: 'qa',
-    }).then(() => {/* fire-and-forget */}, () => {/* swallow */});
-  }
-}
-
-/** Single-pass QA on one opportunity. Each qa job runs critiqueDetection
- *  ONCE, plus one engineer revision attempt if verdict='fail' (no
- *  re-critique on the revision). Patches the final detection (with
- *  verdict, concerns, history of length 1) back to the tree.
- *
- *  Wall-clock per job: ~1-3 min (1 QA call + 0-1 engineer revision call,
- *  each ~30-70s). Fits inside one edge-function invocation cleanly — no
- *  worker death mid-loop, no state lost on restart.
- *
- *  Previously this ran a 3-round actor-critic loop (up to 5 LLM calls
- *  per opp). The loop drove most of the architectural pain — workers
- *  dying mid-iteration, state lost on restart, tokens burned re-doing
- *  earlier rounds. Removed in favour of "trust Opus + critique once +
- *  one fix on failure". Tools used: engineer kit only; qa has no tools. */
-async function handleQa(
-  supabase: SupabaseClient,
-  runCtx: RunContext,
-  toolCtx: ToolContext,
-  session: { id: string; user_id: string; input_text: string; environment_snapshot: unknown },
-  tree: ThreatResearchTree,
-  compositeId: string,
-): Promise<void> {
-  const slash = compositeId.indexOf('/');
-  if (slash < 0) throw new Error(`qa job behaviour_id must be "{behaviourId}/{opportunityId}", got ${compositeId}`);
-  const behaviourId = compositeId.slice(0, slash);
-  const opportunityId = compositeId.slice(slash + 1);
-
-  const behaviour = tree.behaviours.find(b => b.id === behaviourId);
-  if (!behaviour) {
-    console.warn(`[handleQa] behaviour ${behaviourId} not in tree — skipping`);
-    return;
-  }
-  const opp = behaviour.opportunities.find(o => o.id === opportunityId);
-  if (!opp) {
-    console.warn(`[handleQa] opportunity ${behaviourId}/${opportunityId} not in tree — skipping`);
-    return;
-  }
-  // Idempotent: if QA already ran (re-dispatch race, manual retry), skip.
-  if (opp.detection.qa) return;
-
-  const queryLanguage = resolveQueryLanguage(session.environment_snapshot ?? null);
-  const pack = await loadKnowledgePack('detection-engineering');
-
-  // Refresh the actor coverage seed at qa-job start. Same rationale as in
-  // handleDetection: the cached tree.actor_coverage_seed can be 30+
-  // minutes stale by the time qa runs on a late opportunity. Pass to
-  // refineDetectionViaActorCritic so QA sees the same context the
-  // engineer was given (otherwise QA can mis-flag deliberately
-  // complementary detections as duplicates of the seed).
-  let actorCoverageSeed = tree.actor_coverage_seed ?? [];
-  if (tree.subject) {
-    try {
-      actorCoverageSeed = await buildActorCoverageSeed(supabase, tree.subject);
-    } catch (e) {
-      console.warn('[handleQa] actor coverage seed refresh failed:', (e as Error).message);
-    }
-  }
-
-  // refineDetectionViaActorCritic emits qa_refinement_started /
-  // qa_refinement_completed / qa_verdict events itself — no need to
-  // duplicate them here. Returns the REVISED detection with qa.iteration_*
-  // populated.
-  const refined = await refineDetectionViaActorCritic(
-    toolCtx, runCtx, behaviour, opp, queryLanguage, pack, actorCoverageSeed,
-  );
-
-  // Re-run BOTH MITRE post-steps on the revised detection: revisions can
-  // introduce new technique IDs the model hallucinates AND can introduce
-  // techniques whose canonical tactic doesn't match the parent behaviour's
-  // tactic. Without the consistency re-check, a revision could silently
-  // pivot the detection's MITRE coverage onto a different tactic from the
-  // behaviour it supposedly defends — the user would see a green "passed"
-  // detection that's actually mis-classified.
-  if (refined.mitre_technique_ids.length > 0) {
-    const unverified = new Set(await findUnverifiedMitreIds(supabase, refined.mitre_technique_ids));
-    refined.unverified_mitre_ids = refined.mitre_technique_ids.filter(id => unverified.has(id));
-    // Tactic consistency: only check IDs that exist in the canonical table
-    // (verified). Hallucinated ones are already flagged via unverified.
-    const verifiedIds = refined.mitre_technique_ids.filter(id => !unverified.has(id));
-    if (verifiedIds.length > 0) {
-      const tacticsByTechnique = await fetchTechniqueTactics(supabase, verifiedIds);
-      const inconsistent = filterTacticInconsistent(verifiedIds, behaviour.tactic, tacticsByTechnique);
-      if (inconsistent.length > 0) {
-        // Surface on the BEHAVIOUR (where tactic mismatch lives) rather
-        // than the detection — the detection's tactic field can be the
-        // detection's claimed tactic; the mismatch is between behaviour
-        // and the technique's canonical tactic. Merge with existing flags
-        // rather than overwriting; multiple revisions could accumulate.
-        const before = new Set(behaviour.tactic_inconsistent_mitre_ids ?? []);
-        for (const id of inconsistent) before.add(id);
-        behaviour.tactic_inconsistent_mitre_ids = Array.from(before);
-      }
-    }
-  }
-
-  // Detect feasibility pivots: if the revised detection's feasibility moved
-  // from covered/partial to uncovered, the BEHAVIOUR's detectability and
-  // artefacts_required (set in handleDetection) are stale. We don't have
-  // enough context to recompute them here (the engineer would have to be
-  // re-asked), but we can at least flag the inconsistency by appending a
-  // note to detectability_rationale so the canvas tile + leaf card reflect
-  // the late discovery. UI consumers should surface this distinctly.
-  const feasibilityPivot =
-    behaviour.detectability !== null
-    && behaviour.detectability !== undefined
-    && refined.feasibility === 'uncovered'
-    && (behaviour.detectability === 'siem' || behaviour.detectability === 'edr');
-  let behaviourPatch: Record<string, unknown> | null = null;
-  if (feasibilityPivot) {
-    const note = ' [QA revision flipped this opportunity to uncovered — telemetry assumed at engineering time may not be present.]';
-    const newRationale = (behaviour.detectability_rationale ?? '') + note;
-    behaviour.detectability_rationale = newRationale;
-    behaviourPatch = { detectability_rationale: newRationale };
-  }
+  // Persist the tactic-consistency flag raised above. It lives on the
+  // behaviour, so it needs its own patch — the detection patch above cannot
+  // carry it.
   if ((behaviour.tactic_inconsistent_mitre_ids ?? []).length > 0) {
-    behaviourPatch = {
-      ...(behaviourPatch ?? {}),
+    await patchBehaviour(supabase, session.id, behaviour.id, {
       tactic_inconsistent_mitre_ids: behaviour.tactic_inconsistent_mitre_ids,
-    };
+    });
   }
-  if (behaviourPatch) {
-    await patchBehaviour(supabase, session.id, behaviour.id, behaviourPatch);
-  }
-
-  // Mutate local tree for subsequent in-process reads.
-  opp.detection = refined;
-
-  // Patch the FULL revised detection back. Revision can change name, query,
-  // mitre_technique_ids, severity, etc. — not just qa.
-  //
-  // qa_error is patched alongside qa: when the pipeline failed mid-loop,
-  // refined.qa may be null AND refined.qa_error is set. When the loop
-  // completed normally, qa is set and qa_error is null. UIs use the two
-  // together to distinguish "QA judged this fails" (qa.verdict='fail',
-  // qa_error=null) from "QA never reached a verdict" (qa=null, qa_error set).
-  await patchDetection(supabase, session.id, behaviour.id, opp.id, opp.detection.id, {
-    name: refined.name,
-    description: refined.description,
-    query: refined.query,
-    query_language: refined.query_language,
-    mitre_technique_ids: refined.mitre_technique_ids,
-    unverified_mitre_ids: refined.unverified_mitre_ids,
-    tactic: refined.tactic,
-    suggested_severity: refined.suggested_severity,
-    suggested_detection_type: refined.suggested_detection_type,
-    feasibility: refined.feasibility,
-    feasibility_notes: refined.feasibility_notes,
-    citations: refined.citations,
-    covers_behaviour_ids: refined.covers_behaviour_ids,
-    qa: refined.qa,
-    qa_error: refined.qa_error,
-  });
 }
 
 /** Run async fn over items with a fixed pool size. Caller-side errors are
@@ -1178,8 +1377,6 @@ async function handleFinalise(
     .single();
   const totalMs = row?.created_at ? Date.now() - new Date(row.created_at).getTime() : 0;
 
-  await annotateFailedQaJobs(supabase, session.id, tree);
-
   // Cross-opportunity dedup (semantic fingerprint, PR3-lite). Catches
   // duplicates the Opportunity Planner missed.
   const dupCount = flagCrossBehaviourDuplicates(tree);
@@ -1196,10 +1393,6 @@ async function handleFinalise(
   let oppCount = 0;
   let detectionWithQuery = 0;
   let libraryMatchCount = 0;
-  let qaPass = 0;
-  let qaPassWithConcerns = 0;
-  let qaFail = 0;
-  let qaErrorCount = 0;
   let engineerFailedCount = 0;
   let duplicateFlagged = 0;
   let mergedBehaviourCount = 0;
@@ -1211,29 +1404,35 @@ async function handleFinalise(
       if (det.query && det.query.length > 0) detectionWithQuery++;
       if (det.saved_detection_id) libraryMatchCount++;
       if (det.qa_error === 'engineer_failed') engineerFailedCount++;
-      else if (det.qa_error) qaErrorCount++;
-      if (det.qa?.verdict === 'pass') qaPass++;
-      else if (det.qa?.verdict === 'pass_with_concerns') qaPassWithConcerns++;
-      else if (det.qa?.verdict === 'fail') qaFail++;
-      if (det.qa?.duplicate_of) duplicateFlagged++;
+      if (det.duplicate_of) duplicateFlagged++;
     }
   }
 
-  // Decide final session status. A session is only "completed" if at least
-  // ONE detection actually has a usable artefact: either an LLM-generated
-  // query that passed (or pass_with_concerns) QA, or a library_match that
-  // covers the opportunity. Otherwise the session ran the pipeline but
-  // produced no usable output — that's a failure, not a success, and
-  // downstream consumers querying status='completed' to mean "you have
-  // detections" need to be told the truth.
-  const usableDetections = libraryMatchCount + qaPass + qaPassWithConcerns;
-  const allDetectionsFailed = oppCount > 0 && usableDetections === 0;
-  const finalStatus: 'completed' | 'failed' = allDetectionsFailed ? 'failed' : 'completed';
-  const failureReason = allDetectionsFailed
-    ? `pipeline ran but produced no usable detections: ${engineerFailedCount} engineer_failed, ${qaErrorCount} qa_error, ${qaFail} qa_fail across ${oppCount} opportunit${oppCount === 1 ? 'y' : 'ies'}. Use the resume_session action to retry failed detection jobs after fixing the underlying cause.`
-    : null;
+  // Decide final session status from the shared readiness model rather than
+  // counting ad hoc here. Two failures came out of the old arithmetic, in
+  // opposite directions:
+  //
+  //   - a detection whose QA call ERRORED was discarded, though its query had
+  //     already been written and paid for. bc5804b3 wrote ten queries, hit six
+  //     QA errors, and delivered one.
+  //   - a run whose real work died could still report success on library
+  //     look-ups alone. 793cafab did exactly that on credit exhaustion and had
+  //     to be corrected by hand.
+  //
+  // `partial` is the state that was missing, and its absence is why the
+  // pipeline had to pick one of those two lies. It now means one thing only:
+  // some opportunities produced a query and some produced nothing.
+  const allDetections = tree.behaviours.flatMap(b => b.opportunities.map(o => o.detection));
+  const sessionYield = summariseYield(allDetections);
+  const finalStatus = deriveSessionStatus(sessionYield);
+  const failureReason = finalStatus === 'failed'
+    ? `pipeline ran but preserved no detections: ${engineerFailedCount} engineer_failed across ${oppCount} opportunit${oppCount === 1 ? 'y' : 'ies'}. Use the resume_session action to retry failed detection jobs after fixing the underlying cause.`
+    : finalStatus === 'partial'
+      // Not a failure, and deliberately not silent either.
+      ? `${sessionYield.productionCandidates} ready to review, ${sessionYield.drafts} could not be generated.`
+      : null;
 
-  await supabase
+  const { error: finaliseError } = await supabase
     .from('threat_research_sessions')
     .update({
       status: finalStatus,
@@ -1247,11 +1446,19 @@ async function handleFinalise(
       // tr_consume_budget — don't overwrite them here.
     })
     .eq('id', session.id);
+  if (finaliseError) {
+    throw new Error(`finalise session update: ${finaliseError.message}`);
+  }
 
   await emit(runCtx, {
     agent: 'orchestrator',
     event_type: finalStatus === 'failed' ? 'session_failed' : 'session_completed',
-    message: `${tree.behaviours.length} behaviours → ${oppCount} opportunities → ${detectionWithQuery} detections (${libraryMatchCount} library / ${qaPass} pass / ${qaPassWithConcerns} pass+concerns / ${qaFail} fail / ${qaErrorCount} qa_error / ${engineerFailedCount} engineer_failed)${allDetectionsFailed ? ' — SESSION FAILED: no usable detections' : ''}`,
+    // Lead with yield, because that is the question being asked. The
+    // breakdown follows for post-mortems.
+    message: `${tree.behaviours.length} behaviours → ${oppCount} opportunities → ` +
+      `${sessionYield.productionCandidates} ready / ${sessionYield.drafts} not usable` +
+      ` (${libraryMatchCount} library / ${engineerFailedCount} engineer_failed)` +
+      `${finalStatus === 'failed' ? ' — SESSION FAILED: nothing preserved' : ''}`,
     duration_ms: totalMs,
     payload: {
       // budget
@@ -1265,13 +1472,18 @@ async function handleFinalise(
       planner_status:   tree.planner_status ?? null,
       behaviours:       tree.behaviours.length,
       opportunities:    oppCount,
+      // Session yield, as first-class telemetry rather than something an
+      // analyst has to reconstruct from verdict counts. The "did this run
+      // achieve anything" question previously had no machine-readable answer,
+      // which is why the useful/hollow split had to be worked out by hand
+      // across sessions with differing tree shapes.
+      session_status:         finalStatus,
+      production_candidates:  sessionYield.productionCandidates,
+      drafts:                 sessionYield.drafts,
+      preserved:              sessionYield.preserved,
       // detection state breakdown
       detections_with_query: detectionWithQuery,
       library_matches:       libraryMatchCount,
-      qa_pass:               qaPass,
-      qa_pass_with_concerns: qaPassWithConcerns,
-      qa_fail:               qaFail,
-      qa_error_count:        qaErrorCount,
       engineer_failed_count: engineerFailedCount,
       merged_behaviours:     mergedBehaviourCount,
       duplicate_flagged:     duplicateFlagged,
@@ -1285,135 +1497,20 @@ async function handleFinalise(
 
 /** Full-tree write. ONLY safe for singleton-phase handlers (preflight,
  *  research, finalise) where exactly one worker is writing. NEVER use this
- *  in attack_research / detection — those are fan-out and must use
- *  patchBehaviour to avoid trampling sibling workers. */
+ *  in attack_research/detection/qa — those are fan-out and must use
+ *  patchBehaviour / patchDetection to avoid trampling sibling workers. */
 async function persistTree(
   supabase: SupabaseClient,
   sessionId: string,
   tree: ThreatResearchTree,
 ): Promise<void> {
-  await supabase
+  const { error } = await supabase
     .from('threat_research_sessions')
     .update({ tree, updated_at: new Date().toISOString() })
     .eq('id', sessionId);
-}
-
-/** Cross-opportunity duplicate detection finder. Runs at finalise time after
- *  all detection workers have committed their per-leaf patches. Catches
- *  anything the Opportunity Planner missed.
- *
- *  Pre-PR2 used exact-string name+query match. PR3-lite upgrades to a
- *  SEMANTIC FINGERPRINT that combines:
- *    1. normalized MITRE technique set (sorted, deduped) — catches "same
- *       T1003.001 different wording" duplicates
- *    2. canonical telemetry source set — catches "same Sysmon EID 10
- *       different field projections" duplicates
- *    3. extracted query tokens: table name, key field references,
- *       operator class — catches "same DeviceProcessEvents | where
- *       FileName contains 'mimikatz'" semantic duplicates that differ
- *       in formatting / aliasing
- *
- *  Two detections matching on (2 of 3) buckets are flagged as duplicates.
- *  The first occurrence wins canonicity; later ones get qa.duplicate_of set.
- *
- *  Mutates `tree` in place. Returns the number of duplicates flagged. */
-function flagCrossBehaviourDuplicates(tree: ThreatResearchTree): number {
-  type Fingerprint = {
-    mitre: string;       // sorted, joined technique ids
-    telemetry: string;   // sorted, normalized data source set
-    queryTokens: string; // sorted, normalized query token set
-  };
-  const seen = new Array<{ fp: Fingerprint; detectionId: string }>();
-  let flagged = 0;
-
-  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
-  const fingerprintQuery = (q: string): string => {
-    if (!q) return '';
-    // Strip inline comments and string literals — they're variable across
-    // detections that are otherwise semantically identical (e.g. different
-    // case styles, paraphrased rationales). Keep the structural tokens.
-    const stripped = q
-      .replace(/\/\/.*?$/gm, '')           // // line comments
-      .replace(/\/\*[\s\S]*?\*\//g, '')    // /* block comments */
-      .replace(/"[^"\n]*"/g, '"S"')        // double-quoted strings → placeholder
-      .replace(/'[^'\n]*'/g, "'S'")        // single-quoted strings → placeholder
-      .toLowerCase();
-    // Extract identifier-like tokens (table names, fields, operators).
-    // Sort+dedupe so reordering doesn't change the fingerprint.
-    const tokens = stripped.match(/[a-z_][a-z0-9_.]{2,}/g) ?? [];
-    return Array.from(new Set(tokens)).sort().join('|');
-  };
-  const fingerprintTelemetry = (det: GeneratedDetection, opp: DetectionOpportunity): string => {
-    const src = new Set<string>();
-    for (const t of opp.telemetry ?? []) src.add(norm(t));
-    // Pull common data-source hints from the query body too (e.g. "Sysmon
-    // EID 1", "DeviceProcessEvents", "process_creation").
-    const hints = (det.query || '').match(/\b(sysmon|deviceprocessevents|deviceloginevents|securityalert|signinlogs|networktraffic|auditd|powershell|wineventlog)[a-z0-9_.]*/gi) ?? [];
-    for (const h of hints) src.add(norm(h));
-    return Array.from(src).sort().join('|');
-  };
-  const fingerprintMitre = (det: GeneratedDetection): string => {
-    return Array.from(new Set(det.mitre_technique_ids.map(s => s.toUpperCase().trim()))).sort().join(',');
-  };
-
-  for (const b of tree.behaviours) {
-    for (const opp of b.opportunities) {
-      const det = opp.detection;
-      if (det.archived) continue;
-      if (!det.query) continue; // empty detection — skip (engineer_failed / library_match path)
-
-      const fp: Fingerprint = {
-        mitre: fingerprintMitre(det),
-        telemetry: fingerprintTelemetry(det, opp),
-        queryTokens: fingerprintQuery(det.query),
-      };
-      // Don't dedup against a fingerprint that's entirely empty.
-      if (!fp.mitre && !fp.telemetry && !fp.queryTokens) continue;
-
-      // Match against any prior fingerprint with at least 2 of 3 buckets
-      // identical. 2-of-3 catches semantic duplicates while tolerating
-      // legitimate variation (e.g. one might cite different MITRE if the
-      // engineer dropped a sub-technique tag).
-      const match = seen.find(({ fp: other }) => {
-        let hits = 0;
-        if (fp.mitre && fp.mitre === other.mitre) hits++;
-        if (fp.telemetry && fp.telemetry === other.telemetry) hits++;
-        if (fp.queryTokens && fp.queryTokens === other.queryTokens) hits++;
-        return hits >= 2;
-      });
-
-      if (!match) {
-        seen.push({ fp, detectionId: det.id });
-        continue;
-      }
-
-      // Flag the duplicate. Preserve any existing qa verdict — we're
-      // adding a concern, not overwriting the model's judgement.
-      const dupNote = `Semantic duplicate of detection ${match.detectionId} (fingerprint match across MITRE/telemetry/query tokens).`;
-      if (det.qa) {
-        det.qa.duplicate_of = match.detectionId;
-        if (!det.qa.concerns.some(c => c.startsWith('Semantic duplicate'))) {
-          det.qa.concerns = [...det.qa.concerns, dupNote];
-        }
-      } else {
-        // No qa block (the detection may have shipped with qa_error or
-        // never reached QA). Don't fabricate a verdict — just attach
-        // duplicate metadata via a sentinel block that the UI can
-        // surface separately from a real verdict.
-        det.qa = {
-          verdict: 'pass_with_concerns',
-          coverage_quality: 'acceptable',
-          concerns: [dupNote],
-          suggested_changes: [],
-          duplicate_of: match.detectionId,
-          iteration_history: [],
-          iteration_count: 0,
-        };
-      }
-      flagged++;
-    }
+  if (error) {
+    throw new Error(`persistTree ${sessionId}: ${error.message}`);
   }
-  return flagged;
 }
 
 /** Atomic merge of a JSONB patch into one behaviour. Concurrent-safe — use
@@ -1441,9 +1538,9 @@ async function patchBehaviour(
 }
 
 /** Atomic merge of a JSONB patch into one detection (deeper path). Used by
- *  handleDetection / handleQa to land each detection's state in the tree
- *  as soon as it's finalised — so a reaped worker preserves everything
- *  completed before kill. Verifies the detection id matches before merging. */
+ *  handleDetection to land each detection's state in the tree as soon as it's
+ *  finalised — so a reaped worker preserves everything completed before kill.
+ *  Verifies the detection id matches before merging. */
 async function patchDetection(
   supabase: SupabaseClient,
   sessionId: string,
@@ -1468,40 +1565,6 @@ async function patchDetection(
   }
 }
 
-/** Before finalise, make queue-level QA failures visible in the tree. A job
- *  can fail via the SQL reaper without running handleQa's normal
- *  qa_error patch path. If we leave those leaves as qa=null/qa_error=null,
- *  the UI reads as "still pending" even though the queue is terminal. */
-async function annotateFailedQaJobs(
-  supabase: SupabaseClient,
-  sessionId: string,
-  tree: ThreatResearchTree,
-): Promise<void> {
-  const { data: failedJobs, error } = await supabase
-    .from('threat_research_jobs')
-    .select('behaviour_id, failure_reason')
-    .eq('session_id', sessionId)
-    .eq('phase', 'qa')
-    .eq('status', 'failed');
-  if (error) {
-    console.warn('[finalise] failed to load failed QA jobs:', error.message);
-    return;
-  }
-
-  for (const job of failedJobs ?? []) {
-    const composite = String(job.behaviour_id ?? '');
-    const slash = composite.indexOf('/');
-    if (slash < 0) continue;
-    const behaviourId = composite.slice(0, slash);
-    const opportunityId = composite.slice(slash + 1);
-    const behaviour = tree.behaviours.find(b => b.id === behaviourId);
-    const opp = behaviour?.opportunities.find(o => o.id === opportunityId);
-    if (!opp || opp.detection.qa || opp.detection.qa_error) continue;
-    opp.detection.qa_error = job.failure_reason
-      ? `qa_job_failed: ${job.failure_reason}`
-      : 'qa_job_failed';
-  }
-}
 
 async function primeEnvironmentSnapshot(
   supabase: SupabaseClient,

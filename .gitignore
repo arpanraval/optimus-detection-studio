@@ -54,6 +54,10 @@ tempcon/
 # bun.lock is committed so CI, Vercel, and forks install identical, reproducible
 # dependency versions (an uncommitted lockfile let newer deps break type-check).
 package-lock.json
+# deno.lock is NOT committed: CI type-checks the edge functions with
+# `deno check --no-lock`, so a tracked lockfile would pin nothing CI reads
+# while churning on every local check.
+deno.lock
 
 # Windows artifacts
 nul

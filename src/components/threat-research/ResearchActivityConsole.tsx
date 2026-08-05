@@ -9,14 +9,17 @@ interface Props {
   onToggle: () => void;
 }
 
+// 'dossier' remains selectable for the short-lived merged-agent rollout;
+// current sessions emit the restored research + attack-researcher pair.
 const ALL_AGENTS: ResearchAgent[] = [
-  'orchestrator', 'preflight', 'research', 'attack-researcher',
+  'orchestrator', 'preflight', 'research', 'attack-researcher', 'dossier',
   'planner', 'detection-engineer', 'qa',
 ];
 
 const AGENT_LABEL: Record<ResearchAgent, string> = {
   orchestrator:        'Orch',
   preflight:           'Preflight',
+  dossier:             'Dossier',
   research:            'Research',
   'attack-researcher': 'Attack',
   planner:             'Planner',
@@ -27,6 +30,7 @@ const AGENT_LABEL: Record<ResearchAgent, string> = {
 const AGENT_DOT: Record<ResearchAgent, string> = {
   orchestrator:        'bg-surface-variant',
   preflight:           'bg-secondary',
+  dossier:             'bg-primary',
   research:            'bg-primary',
   'attack-researcher': 'bg-tertiary',
   planner:             'bg-secondary-container',

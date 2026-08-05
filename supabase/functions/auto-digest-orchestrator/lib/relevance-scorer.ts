@@ -6,7 +6,11 @@
  * the top N articles for digest generation.
  */
 
-import type { ClassificationResult, EnvironmentProfileRow } from './types.ts';
+import {
+  assertPhaseBudget,
+  type ClassificationResult,
+  type EnvironmentProfileRow,
+} from './types.ts';
 import { emit, type RunContext } from './events.ts';
 
 // ---------------------------------------------------------------------------
@@ -150,9 +154,12 @@ export async function rankAndSelect(
   classifiedIds: string[],
   maxArticles: number,
   envProfile: EnvironmentProfileRow | null,
+  deadlineMs?: number,
 ): Promise<string[]> {
   const { supabase } = ctx;
   if (classifiedIds.length === 0) return [];
+
+  assertPhaseBudget(deadlineMs, 'ranking');
 
   // 1. Fetch classified entries (with title/url so we can emit informative drop events)
   const { data: entries, error: fetchError } = await supabase
@@ -167,6 +174,8 @@ export async function rankAndSelect(
   }
 
   if (!entries || entries.length === 0) return [];
+
+  assertPhaseBudget(deadlineMs, 'ranking');
 
   // 2. Score each entry
   const scored = entries.map((entry: any) => {
@@ -194,12 +203,10 @@ export async function rankAndSelect(
     return bTime - aTime;
   });
 
-  // 4. Apply minimum-score floor. Articles with negative scores (industry
-  //    AND platform mismatch — actively irrelevant to the user's stack)
-  //    should never get digested even when the daily cap leaves slots
-  //    open. Without this floor, a low-volume run would burn AI calls on
-  //    junk just to fill the quota.
-  const RELEVANCE_FLOOR = 0;
+  // 4. Apply a positive minimum-score floor. A score of zero means that
+  //    relevance was not established; it is not a safe default for spending
+  //    an AI call or creating a production report.
+  const RELEVANCE_FLOOR = 1;
   const aboveFloor = scored.filter((s: any) => s.score >= RELEVANCE_FLOOR);
   const belowFloor = scored.filter((s: any) => s.score <  RELEVANCE_FLOOR);
 
@@ -215,6 +222,7 @@ export async function rankAndSelect(
   // digested — Stage 3 would say "no articles passed classification"
   // while Stage 4 happily processes them.
   for (const item of selected) {
+    assertPhaseBudget(deadlineMs, 'ranking');
     await supabase
       .from('threat_intel_feed_entries')
       .update({
@@ -243,6 +251,7 @@ export async function rankAndSelect(
   //    b) Below the relevance floor (negative score) — also stays
   //       'classified' so the user can see WHY it didn't make the cut.
   for (const item of overflow) {
+    assertPhaseBudget(deadlineMs, 'ranking');
     await emit(ctx, 'article_skipped_daily_limit', {
       feed_id: item.feed_id,
       feed_name: item.feed_name,
@@ -254,13 +263,23 @@ export async function rankAndSelect(
     });
   }
   for (const item of belowFloor) {
+    assertPhaseBudget(deadlineMs, 'ranking');
+    const { error: skipError } = await supabase
+      .from('threat_intel_feed_entries')
+      .update({
+        relevance_score: item.score,
+        digest_status: 'skipped',
+        skip_reason: `Below relevance floor (${item.score} < ${RELEVANCE_FLOOR})`,
+      })
+      .eq('id', item.id);
+    if (skipError) console.warn(`[relevance-scorer] failed to persist skip for ${item.id}: ${skipError.message}`);
     await emit(ctx, 'article_skipped_daily_limit', {
       feed_id: item.feed_id,
       feed_name: item.feed_name,
       article_id: item.id,
       article_title: item.title,
       article_url: item.url,
-      reason: `Below relevance floor (score ${item.score} < ${RELEVANCE_FLOOR}); industry/platform mismatch with your environment profile`,
+      reason: `Below relevance floor (score ${item.score} < ${RELEVANCE_FLOOR}); relevance was not established for this environment`,
       payload: { score: item.score, tags: item.tags, dropped_reason: 'below_floor' },
     });
   }

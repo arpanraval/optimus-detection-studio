@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { FeatureSlide, MockupFrame, FeatureCarousel } from '../shared/FeatureSlide';
 
 const ACCENT = '#783264';
 const TEAL = '#4D7C6F';
 const YELLOW = '#ca8a04';
 const GREEN = '#22c55e';
+const COVERED = '#1f5b4b'; // dark green covered cells, as in product
 
 /* ------------------------------------------------------------------ */
 /*  Shared tiny components                                             */
@@ -78,79 +79,274 @@ const CRITICAL_GAPS: Record<number, number[]> = {
 /*  Slide 1: Full Matrix                                               */
 /* ------------------------------------------------------------------ */
 
-export const FullMatrixMockup = () => (
-  <MockupFrame title="MITRE ATT&CK MATRIX" accent={TEAL}>
-    {/* Header bar */}
-    <div className="flex flex-wrap items-center gap-1.5 mb-3">
-      <span className="text-xs text-on-surface-variant font-medium">MITRE ATT&CK Matrix</span>
-      <Badge bg={`${YELLOW}25`} fg={`${YELLOW}dd`} border={`${YELLOW}40`}>V18.1</Badge>
-      <Btn>All Platforms <span className="text-outline ml-0.5">&#9662;</span></Btn>
-      <span className="mono text-[8px] px-2 py-1 rounded cursor-pointer" style={{ backgroundColor: `${ACCENT}20`, color: `${ACCENT}cc`, border: `1px solid ${ACCENT}40` }}>
-        Threat Intel <span className="text-outline ml-0.5">&#9662;</span>
-      </span>
-      <span className="flex items-center gap-1 mono text-[8px] text-on-surface-variant ml-1">
-        <span className="w-5 h-2.5 rounded-full bg-surface-container-high relative"><span className="absolute right-0.5 top-0.5 w-1.5 h-1.5 rounded-full bg-outline" /></span> Production Only
-      </span>
-      <span className="flex-1" />
-      <Btn>Show Subtechniques</Btn>
-      <Btn>Covered Only</Btn>
-      <Btn outline>Coverage Gaps</Btn>
-      <Btn>Full View</Btn>
-      <Btn>Import</Btn>
-      <Btn accent>Export</Btn>
-    </div>
+/* Matrix columns — abridged from the real product matrix (ATT&CK v18.1) */
+type MatrixCell = { t: string; cov?: string };
+const MATRIX: { name: string; count: number; cells: MatrixCell[] }[] = [
+  { name: 'RECONNAISSANCE', count: 11, cells: [
+    { t: 'Gather Victim Identity Information' }, { t: 'Gather Victim Network Information' }, { t: 'Gather Victim Org Information' },
+    { t: 'Search Open Websites/Domains' }, { t: 'Active Scanning', cov: '1' }, { t: 'Search Open Technical Databases' },
+    { t: 'Phishing for Information' }, { t: 'Search Closed Sources' }, { t: 'Search Threat Vendor Data' },
+  ]},
+  { name: 'RESOURCE DEVELOPMENT', count: 8, cells: [
+    { t: 'Acquire Infrastructure' }, { t: 'Compromise Infrastructure' }, { t: 'Establish Accounts' },
+    { t: 'Compromise Accounts' }, { t: 'Develop Capabilities' }, { t: 'Obtain Capabilities' },
+    { t: 'Stage Capabilities' }, { t: 'Acquire Access' },
+  ]},
+  { name: 'INITIAL ACCESS', count: 14, cells: [
+    { t: 'Valid Accounts', cov: '4' }, { t: 'Replication Through Removable Media' }, { t: 'External Remote Services', cov: '9+' },
+    { t: 'Drive-by Compromise' }, { t: 'Exploit Public-Facing Application', cov: '9+' }, { t: 'Spearphishing Attachment' },
+    { t: 'Supply Chain Compromise' }, { t: 'Phishing', cov: '9+' }, { t: 'Content Injection' },
+  ]},
+  { name: 'EXECUTION', count: 35, cells: [
+    { t: 'Windows Remote Management' }, { t: 'Service Execution' }, { t: 'Windows Management Instrumentation' },
+    { t: 'Scheduled Task/Job' }, { t: 'Rundll32' }, { t: 'PowerShell' },
+    { t: 'Native API' }, { t: 'Regsvr32' }, { t: 'Shared Modules' },
+  ]},
+  { name: 'PERSISTENCE', count: 71, cells: [
+    { t: 'Winlogon Helper DLL' }, { t: 'Port Monitors' }, { t: 'Accessibility Features' },
+    { t: 'Boot or Logon Initialization Scripts' }, { t: 'System Firmware' }, { t: 'New Service' },
+    { t: 'Registry Run Keys / Startup Folder' }, { t: 'Scheduled Task/Job' }, { t: 'Web Shell' },
+  ]},
+  { name: 'PRIVILEGE ESCALATION', count: 40, cells: [
+    { t: 'Port Monitors' }, { t: 'Accessibility Features' }, { t: 'Process Injection' },
+    { t: 'Exploitation for Privilege Escalation', cov: '2' }, { t: 'Valid Accounts', cov: '4' }, { t: 'Bypass User Account Control' },
+    { t: 'Account Manipulation', cov: '1' }, { t: 'Scheduled Task/Job' }, { t: 'Boot or Logon Initialization Scripts' },
+  ]},
+  { name: 'DEFENSE EVASION', count: 90, cells: [
+    { t: 'Direct Volume Access' }, { t: 'Binary Padding' }, { t: 'Rootkit' },
+    { t: 'Obfuscated Files or Information' }, { t: 'Masquerading' }, { t: 'Indicator Removal' },
+    { t: 'DLL Side-Loading' }, { t: 'Valid Accounts', cov: '4' }, { t: 'Rundll32' },
+  ]},
+  { name: 'CREDENTIAL ACCESS', count: 30, cells: [
+    { t: 'OS Credential Dumping', cov: '1' }, { t: 'Network Sniffing', cov: '1' }, { t: 'Input Capture' },
+    { t: 'Credentials in Files' }, { t: 'Brute Force' }, { t: 'Multi-Factor Authentication Interception' },
+    { t: 'Keychain' }, { t: 'Private Keys' }, { t: 'Hooking' },
+  ]},
+  { name: 'DISCOVERY', count: 35, cells: [
+    { t: 'System Service Discovery' }, { t: 'Application Window Discovery' }, { t: 'Query Registry' },
+    { t: 'Remote System Discovery' }, { t: 'Network Sniffing', cov: '1' }, { t: 'Process Discovery' },
+    { t: 'Security Software Discovery' }, { t: 'System Information Discovery', cov: '1' }, { t: 'File and Directory Discovery' },
+  ]},
+  { name: 'LATERAL MOVEMENT', count: 18, cells: [
+    { t: 'Remote Services' }, { t: 'Windows Remote Management' }, { t: 'Pass the Hash' },
+    { t: 'Remote Desktop Protocol' }, { t: 'Taint Shared Content' }, { t: 'Exploitation of Remote Services', cov: '1' },
+    { t: 'SSH Hijacking' }, { t: 'Pass the Ticket' }, { t: 'Web Session Cookie' },
+  ]},
+];
 
-    {/* Matrix grid */}
-    <div className="overflow-x-auto -mx-5 sm:-mx-8 px-5 sm:px-8">
-      <div className="flex gap-[3px] min-w-[700px]">
-        {TACTICS.map((tactic, ti) => {
-          const covMap = COVERAGE[ti] || {};
-          const critSet = new Set(CRITICAL_GAPS[ti] || []);
-          const showCount = Math.min(tactic.techniques.length, 7);
-          return (
-            <div key={tactic.name} className="flex-1 min-w-0">
-              {/* Column header */}
-              <div className="mono text-[6px] text-on-surface-variant mb-1 leading-tight truncate" title={tactic.name}>
-                {tactic.name} <span className="text-outline">({tactic.count})</span>
-              </div>
-              {/* Cells */}
-              {tactic.techniques.slice(0, showCount).map((tech, ri) => {
-                const detCount = covMap[ri];
-                const isCovered = detCount !== undefined;
-                const isCrit = critSet.has(ri);
-                const isHighlight = ti === 2 && ri === 2; // Exploit Public-Facing App highlighted
-                return (
-                  <div key={ri} className={`h-[18px] mb-[2px] rounded-sm flex items-center justify-between px-1 border ${
-                    isHighlight ? 'ring-1 ring-outline' : ''
-                  }`} style={{
-                    backgroundColor: isCrit ? `${ACCENT}25` : isCovered ? `${TEAL}30` : 'transparent',
-                    borderColor: isCrit ? `${ACCENT}35` : isCovered ? `${TEAL}20` : 'rgb(var(--md-sys-color-outline-variant))',
-                  }}>
-                    <span className={`mono text-[5.5px] truncate ${isCovered ? 'text-on-surface-variant' : isCrit ? `text-[${ACCENT}]` : 'text-outline'}`} style={isCrit ? { color: `${ACCENT}cc` } : undefined}>
-                      {tech}
-                    </span>
-                    {isCovered && <CovBadge n={detCount} />}
+// Popover cycle: technique hover card ↔ threat-intel filter dropdown
+type PopoverState = 'tech' | 'groups' | 'off';
+const POPOVER_SEQ: PopoverState[] = ['tech', 'tech', 'off', 'groups', 'groups', 'off'];
+
+const FILTER_GROUPS = [
+  { name: 'Kimsuky', gid: 'G0094', origin: 'North Korea', count: 109 },
+  { name: 'Lazarus Group', gid: 'G0032', origin: 'North Korea', count: 93 },
+  { name: 'APT28', gid: 'G0007', origin: 'Russian Federation', count: 91 },
+  { name: 'Mustang Panda', gid: 'G0129', origin: 'China', count: 85 },
+  { name: 'APT41', gid: 'G0096', origin: 'China', count: 82 },
+];
+
+export const FullMatrixMockup = () => {
+  const [lit, setLit] = useState(false);
+  const [pop, setPop] = useState<PopoverState>('off');
+  const ref = useRef<HTMLDivElement>(null);
+  const started = useRef(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const obs = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting && !started.current) {
+        started.current = true;
+        setLit(true);
+        let i = 0;
+        interval = setInterval(() => {
+          i = (i + 1) % POPOVER_SEQ.length;
+          setPop(POPOVER_SEQ[i]);
+        }, 2100);
+        setTimeout(() => setPop(POPOVER_SEQ[0]), 900);
+      }
+    }, { threshold: 0.25 });
+    obs.observe(el);
+    return () => { obs.disconnect(); if (interval) clearInterval(interval); };
+  }, []);
+
+  // Stagger index for covered-cell light-up
+  let covIdx = 0;
+
+  return (
+    <MockupFrame title="MITRE ATT&CK MATRIX" accent={COVERED}>
+      <div ref={ref}>
+        {/* Header bar */}
+        <div className="flex flex-wrap items-center gap-1.5 mb-3">
+          <span className="text-sm font-bold text-on-surface tracking-tight" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>MITRE ATT&CK Matrix</span>
+          <span className="mono text-[8px] px-1.5 py-0.5 rounded font-bold text-white" style={{ backgroundColor: ACCENT }}>V18.1</span>
+          <span className="mono text-[8px] px-2.5 py-1 rounded-full border border-outline-variant bg-surface-container-highest text-on-surface-variant cursor-default">⚙ All Platforms <span className="text-outline ml-0.5">&#9662;</span></span>
+          <span className={`mono text-[8px] px-2.5 py-1 rounded-full cursor-default transition-shadow duration-300 ${pop === 'groups' ? 'shadow-[0_0_0_2px_rgba(0,80,145,0.25)]' : ''}`}
+            style={{ backgroundColor: 'rgba(0,130,200,0.10)', color: '#005091', border: '1px solid rgba(0,130,200,0.25)' }}>
+            ⛉ Threat Intel <span className="ml-0.5">&#9662;</span>
+          </span>
+          <span className="flex items-center rounded-full border border-outline-variant bg-surface-container-low p-0.5">
+            <span className="mono text-[8px] px-2 py-0.5 rounded-full bg-surface-container-highest text-on-surface font-semibold shadow-sm">Production Only</span>
+            <span className="mono text-[8px] px-2 py-0.5 text-on-surface-variant">+ Development Library</span>
+          </span>
+          <span className="flex-1" />
+          <Btn>Show Subtechnique(s)</Btn>
+          <Btn outline>Covered Only</Btn>
+        </div>
+
+        {/* Matrix grid with popovers */}
+        <div className="relative">
+          <div className="overflow-x-auto -mx-5 sm:-mx-8 px-5 sm:px-8">
+            <div className="flex gap-1 min-w-[760px]">
+              {MATRIX.map((col, ci) => (
+                <div key={col.name} className="flex-1 min-w-0">
+                  {/* Column header card */}
+                  <div className="rounded-md border border-outline-variant bg-surface-container-highest px-1 py-1.5 mb-1 text-center">
+                    <div className="mono text-[6px] font-bold text-on-surface leading-tight truncate" title={col.name}>{col.name}</div>
+                    <div className="mono text-[5.5px] text-outline mt-0.5">{col.count} techniques</div>
                   </div>
-                );
-              })}
-              {tactic.techniques.length > showCount && (
-                <div className="mono text-[6px] text-outline text-center mt-0.5">+{tactic.techniques.length - showCount} more</div>
-              )}
+                  {/* Cells */}
+                  {col.cells.map((cell, ri) => {
+                    const isCovered = cell.cov !== undefined;
+                    const delay = isCovered ? covIdx++ * 90 : 0;
+                    const isAnchor = ci === 2 && ri === 4; // Exploit Public-Facing Application
+                    return (
+                      <div
+                        key={ri}
+                        className={`h-[20px] mb-[2px] rounded-[3px] flex items-center justify-between gap-0.5 px-1 border transition-colors duration-500 ${
+                          isAnchor && pop === 'tech' ? 'ring-2 ring-offset-1' : ''
+                        }`}
+                        style={{
+                          backgroundColor: isCovered && lit ? COVERED : 'rgb(var(--md-sys-color-surface-container-highest))',
+                          borderColor: isCovered && lit ? COVERED : 'rgb(var(--md-sys-color-outline-variant))',
+                          transitionDelay: `${delay}ms`,
+                          ...(isAnchor && pop === 'tech' ? { ['--tw-ring-color' as string]: `${ACCENT}55` } : {}),
+                        }}
+                      >
+                        <span className="text-[5.5px] leading-tight truncate transition-colors duration-500 font-medium" style={{ color: isCovered && lit ? '#ffffff' : 'rgb(var(--md-sys-color-on-surface-variant))', transitionDelay: `${delay}ms` }}>
+                          {cell.t}
+                        </span>
+                        {isCovered && (
+                          <span className="mono text-[5px] min-w-[11px] h-[11px] rounded-full flex items-center justify-center font-bold shrink-0 transition-opacity duration-500"
+                            style={{ backgroundColor: 'rgba(255,255,255,0.22)', color: '#fff', opacity: lit ? 1 : 0, transitionDelay: `${delay}ms` }}>
+                            {cell.cov}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
-          );
-        })}
-      </div>
-    </div>
+          </div>
 
-    {/* Legend */}
-    <div className="flex flex-wrap gap-4 mt-3 mono text-[8px]">
-      <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm" style={{ backgroundColor: `${TEAL}30`, border: `1px solid ${TEAL}20` }} /> <span className="text-on-surface-variant">Covered</span></span>
-      <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm" style={{ backgroundColor: `${ACCENT}25`, border: `1px solid ${ACCENT}35` }} /> <span className="text-on-surface-variant">Critical Gap</span></span>
-      <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm border border-outline-variant" /> <span className="text-on-surface-variant">Uncovered</span></span>
-      <span className="flex items-center gap-1.5"><CovBadge n={4} /> <span className="text-on-surface-variant">Detection count</span></span>
-    </div>
-  </MockupFrame>
-);
+          {/* ── Technique hover card (T1190) ── */}
+          <div
+            className={`absolute z-10 w-[240px] rounded-xl border border-outline-variant bg-surface-container-highest shadow-[0_16px_40px_-12px_rgba(15,18,30,0.25)] transition-all duration-400 ${
+              pop === 'tech' ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'
+            }`}
+            style={{ left: '22%', top: '38%' }}
+          >
+            <div className="px-3.5 pt-3 pb-2.5">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="mono text-[8px] font-bold px-1.5 py-0.5 rounded border" style={{ color: ACCENT, borderColor: `${ACCENT}40`, backgroundColor: `${ACCENT}0a` }}>T1190</span>
+                <span className="text-[8px] text-on-surface-variant">Initial Access</span>
+                <span className="mono text-[8px] font-bold px-1.5 py-0.5 rounded ml-auto" style={{ backgroundColor: `${ACCENT}12`, color: ACCENT }}>⛊ 61</span>
+              </div>
+              <div className="text-[11px] font-bold text-on-surface leading-snug mb-1">Exploit Public-Facing Application</div>
+              <div className="text-[7.5px] text-on-surface-variant mb-2">◉ 6 groups · ⚒ 5 tools · ⚑ 3 campaigns</div>
+
+              <div className="mono text-[6.5px] font-bold tracking-wider text-on-surface-variant mb-1">⛊ DETECTIONS</div>
+              <div className="space-y-1 mb-2">
+                {[
+                  { name: 'PaperCut NG Remote Web Access Atte…', tag: 'PROD', tone: TEAL },
+                  { name: 'AI Agents - No Authentication Required', tag: 'DRAFT', tone: '#8c8c96' },
+                  { name: 'Suspicious JetBrains TeamCity Child P…', tag: 'PROD', tone: TEAL },
+                ].map((d) => (
+                  <div key={d.name} className="flex items-center gap-1.5">
+                    <span className="w-1 h-1 rounded-full shrink-0" style={{ backgroundColor: d.tone }} />
+                    <span className="text-[7.5px] text-on-surface-variant flex-1 truncate">{d.name}</span>
+                    <span className="mono text-[6px] font-bold px-1 py-0.5 rounded" style={{ backgroundColor: `${d.tone}18`, color: d.tone }}>{d.tag}</span>
+                  </div>
+                ))}
+                <div className="text-[7px] text-outline pl-2.5">+58 more</div>
+              </div>
+
+              <div className="mono text-[6.5px] font-bold tracking-wider text-on-surface-variant mb-1">◉ GROUPS</div>
+              <div className="flex flex-wrap gap-1 mb-2">
+                {['BlackByte', 'GALLIUM', 'Kimsuky', 'Volt Typhoon', 'APT41', 'Salt Typhoon'].map((g) => (
+                  <span key={g} className="mono text-[6.5px] px-1.5 py-0.5 rounded border border-red-500/25 bg-red-500/5 text-red-500/90">{g}</span>
+                ))}
+              </div>
+
+              <div className="mono text-[6.5px] font-bold tracking-wider text-on-surface-variant mb-1">⚒ MALWARE & TOOLS</div>
+              <div className="flex flex-wrap gap-1">
+                {['COATHANGER', 'BOLDMOVE', 'Siloscape', 'ZxShell', 'Qilin'].map((m) => (
+                  <span key={m} className="mono text-[6.5px] px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/5 text-amber-600">{m}</span>
+                ))}
+              </div>
+            </div>
+            <div className="px-3.5 py-1.5 border-t border-outline-variant flex items-center justify-between">
+              <span className="text-[7px] text-on-surface-variant">Click for full details</span>
+              <span className="text-[8px] text-outline">›</span>
+            </div>
+          </div>
+
+          {/* ── Threat-intel filter dropdown ── */}
+          <div
+            className={`absolute z-10 w-[250px] rounded-xl border border-outline-variant bg-surface-container-highest shadow-[0_16px_40px_-12px_rgba(15,18,30,0.25)] transition-all duration-400 ${
+              pop === 'groups' ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'
+            }`}
+            style={{ left: '18%', top: '4%' }}
+          >
+            <div className="flex border-b border-outline-variant px-2 pt-2 gap-2">
+              {['GROUPS', 'CAMPAIGNS', 'SOFTWARE', 'ORIGIN'].map((tab, i) => (
+                <span key={tab} className={`mono text-[6.5px] font-bold pb-1.5 px-0.5 ${i === 0 ? 'text-on-surface border-b-2' : 'text-on-surface-variant'}`}
+                  style={i === 0 ? { borderColor: ACCENT } : undefined}>{tab}</span>
+              ))}
+            </div>
+            <div className="p-2.5">
+              <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border mb-2" style={{ borderColor: `${ACCENT}40` }}>
+                <span className="text-[8px] text-outline">⌕</span>
+                <span className="text-[8px] text-outline flex-1">Search groups…</span>
+                <span className="mono text-[6px] text-outline border border-outline-variant rounded px-1">ESC</span>
+              </div>
+              <div className="space-y-1.5">
+                {FILTER_GROUPS.map((g) => (
+                  <div key={g.name} className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-sm border border-outline-variant bg-surface-container-low shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-[8.5px] font-semibold text-on-surface">{g.name}</span>
+                      <span className="mono text-[6px] text-outline ml-1.5">{g.gid}</span>
+                      <div className="text-[6.5px] text-on-surface-variant">{g.origin}</div>
+                    </div>
+                    <span className="mono text-[8px] text-on-surface-variant tabular-nums">{g.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="px-3 py-1.5 border-t border-outline-variant">
+              <span className="mono text-[6.5px] text-outline">172 groups | 52 campaigns | 786 software</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Legend */}
+        <div className="flex flex-wrap gap-4 mt-3 mono text-[8px]">
+          <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm" style={{ backgroundColor: COVERED }} /> <span className="text-on-surface-variant">Covered</span></span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm border border-outline-variant bg-surface-container-highest" /> <span className="text-on-surface-variant">Uncovered</span></span>
+          <span className="flex items-center gap-1.5">
+            <span className="mono text-[5px] min-w-[11px] h-[11px] rounded-full flex items-center justify-center font-bold text-white" style={{ backgroundColor: COVERED }}>4</span>
+            <span className="text-on-surface-variant">Detection count</span>
+          </span>
+          <span className="ml-auto text-outline">199 of 356 techniques covered · production only</span>
+        </div>
+      </div>
+    </MockupFrame>
+  );
+};
 
 /* ------------------------------------------------------------------ */
 /*  Slide 2: Threat Actor Filter                                       */

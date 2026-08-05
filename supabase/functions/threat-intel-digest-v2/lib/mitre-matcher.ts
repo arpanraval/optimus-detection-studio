@@ -39,12 +39,30 @@ export async function performMitreMatching(
     // Validate technique IDs
     const techniqueIds = ttps.map(t => t.mitreId).filter(Boolean)
     if (techniqueIds.length > 0) {
-      const { data: techniques } = await supabaseClient
+      let { data: techniques } = await supabaseClient
         .from('mitre_objects')
         .select('stix_id, mitre_id, name, data')
         .eq('type', 'attack-pattern')
         .eq('deprecated', false)
         .in('mitre_id', techniqueIds)
+
+      if (!techniques || techniques.length === 0) {
+        const canonical = await supabaseClient
+          .from('mitre_techniques')
+          .select('id, mitre_id, name, tactics, data_sources, platforms')
+          .in('mitre_id', techniqueIds)
+        if (!canonical.error) {
+          techniques = (canonical.data || []).map((technique: any) => ({
+            stix_id: technique.id,
+            mitre_id: technique.mitre_id,
+            name: technique.name,
+            data: {
+              x_mitre_platforms: technique.platforms || [],
+              x_mitre_data_sources: technique.data_sources || [],
+            },
+          }))
+        }
+      }
 
       if (techniques) {
         result.matchedTechniques = techniques.map((t: any): TechniqueMatch => ({

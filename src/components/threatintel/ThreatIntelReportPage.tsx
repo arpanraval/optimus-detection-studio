@@ -36,6 +36,7 @@ import { FeasibilityEmptyState } from './FeasibilityEmptyState';
 import { RetryWithModelButton } from './RetryWithModelButton';
 import { StatCard, ThreatLevelIndicator, InlineActionButton, TTPMiniMatrix, TTPTacticList, IoCTable, RuleListSection, MitreMappingsBlock } from './shared';
 import type { TTPLike } from './shared';
+import { createStixBundle } from '../../lib/threatIntel/stix';
 
 // =============================================================================
 // TYPES
@@ -369,21 +370,7 @@ export const ThreatIntelReportPage: React.FC = () => {
   // Export IoCs as STIX 2.1
   const handleExportSTIX = useCallback(() => {
     if (!report) return;
-    const stixBundle = {
-      type: 'bundle',
-      id: `bundle--${report.id}`,
-      objects: report.iocs.map((ioc, i) => ({
-        type: 'indicator',
-        id: `indicator--${report.id}-${i}`,
-        created: report.createdAt,
-        modified: report.updatedAt,
-        name: `${ioc.type}: ${ioc.value}`,
-        pattern_type: 'stix',
-        pattern: getSTIXPattern(ioc),
-        valid_from: report.createdAt,
-        labels: [ioc.severity, ioc.category]
-      }))
-    };
+    const stixBundle = createStixBundle(report.iocs, report.createdAt);
     const blob = new Blob([JSON.stringify(stixBundle, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -534,6 +521,22 @@ export const ThreatIntelReportPage: React.FC = () => {
         rawUrl = rawUrl
           .replace('github.com', 'raw.githubusercontent.com')
           .replace('/blob/', '/');
+      }
+
+      let sourceUrl: URL;
+      try {
+        sourceUrl = new URL(rawUrl);
+      } catch {
+        throw new Error('Only valid HTTP(S) URLs can be fetched');
+      }
+      const sensitiveQueryKey = /(?:api[_-]?key|token|secret|password|passwd|credential|auth|signature|sig|access[_-]?token)/i;
+      if (
+        !['http:', 'https:'].includes(sourceUrl.protocol) ||
+        sourceUrl.username ||
+        sourceUrl.password ||
+        Array.from(sourceUrl.searchParams.keys()).some((key) => sensitiveQueryKey.test(key))
+      ) {
+        throw new Error('Credential-bearing URLs cannot be sent to the external reader');
       }
 
       // Use Jina Reader for reliable fetching (handles CORS, rate limits, etc.)
@@ -970,7 +973,10 @@ export const ThreatIntelReportPage: React.FC = () => {
     const gaps = ttps.filter(t => !t.hasExistingDetection).length;
     const covered = ttps.filter(t => t.hasExistingDetection).length;
     const coveragePercent = ttps.length ? Math.round((covered / ttps.length) * 100) : 0;
-    return { gaps, covered, coveragePercent };
+    const libraryCoveragePercent = report.libraryOverlapPercent === null
+      ? null
+      : report.libraryOverlapPercent ?? coveragePercent;
+    return { gaps, covered, coveragePercent, libraryCoveragePercent };
   }, [report]);
 
   const filteredIoCs = useMemo(() => {
@@ -1032,10 +1038,10 @@ export const ThreatIntelReportPage: React.FC = () => {
                 <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
                   {report.classification?.primaryType || 'Unknown'}
                 </span>
-                {/* Threat Group - Uses brick red per MITRE design system */}
-                {report.mitreMapping?.matchedGroups?.[0] && (
+                {/* Actor attribution is shown only when the evidence gate found attribution language. */}
+                {report.possibleActorMentions?.[0] && (
                   <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide rounded bg-[#A63D40]/10 text-[#A63D40] border border-[#A63D40]/20">
-                    {report.mitreMapping.matchedGroups[0].name}
+                    Possible actor: {report.possibleActorMentions[0]}
                   </span>
                 )}
               </div>
@@ -1165,15 +1171,24 @@ export const ThreatIntelReportPage: React.FC = () => {
           {activeTab === 'overview' && (
             <div className="space-y-8 animate-fade-in">
 
+              {report.outcome !== 'complete' && (
+                <div role='alert' className='rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-sm'>
+                  <div className='font-semibold'>Analysis requires review</div>
+                  <p>Outcome: {report.outcome || 'degraded'}; source quality: {report.sourceQuality || 'legacy_unverified'}. Automated findings must be verified before operational use.</p>
+                </div>
+              )}
+
               {/* Stats Row */}
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <StatCard
                   label="Detection Coverage"
                   value={(report.ttps?.length ?? 0) > 0
-                    ? `${stats.coveragePercent}%`
+                    ? stats.libraryCoveragePercent === null ? 'Unknown' : String(stats.libraryCoveragePercent) + '%'
                     : <span className="text-on-surface-variant/40">—</span>}
-                  color={stats.coveragePercent >= 70 ? 'text-green-400' : stats.coveragePercent >= 40 ? 'text-amber-400' : 'text-red-400'}
-                  progress={stats.coveragePercent}
+                  color={stats.libraryCoveragePercent === null
+                    ? 'text-on-surface-variant'
+                    : stats.libraryCoveragePercent >= 70 ? 'text-green-400' : stats.libraryCoveragePercent >= 40 ? 'text-amber-400' : 'text-red-400'}
+                  progress={stats.libraryCoveragePercent ?? undefined}
                 />
                 <StatCard label="TTPs Identified" value={report.ttps.length} color="text-purple-500" />
                 <StatCard

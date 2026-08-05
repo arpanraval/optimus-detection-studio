@@ -19,7 +19,7 @@ async function withRetry<T>(
   { maxAttempts = 3, baseDelay = 1000, timeout = 120_000 }: { maxAttempts?: number; baseDelay?: number; timeout?: number } = {}
 ): Promise<T> {
   // Per-attempt timeout was 30s — too tight for chat flows running large prompts
-  // through Claude Opus / GPT-5.4 (35–60s is normal for AI Query Generator).
+  // through Claude Opus / GPT-5.6 (35–60s is normal for AI Query Generator).
   // Bumped to 120s. Edge function default limit is 300s, so 3 attempts at 120s
   // + backoff still fits inside the platform budget.
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -76,75 +76,61 @@ export interface LLMModel {
 export const LLM_MODELS: LLMModel[] = [
   // Google Gemini models
   {
-    id: 'gemini-3.1-pro-preview',
-    name: 'Gemini 3.1 Pro',
+    id: 'gemini-3.6-flash',
+    name: 'Gemini 3.6 Flash',
     provider: 'google',
-    description: 'Most capable reasoning model, 1M context',
+    description: 'Latest general-purpose Gemini model',
     capabilities: { chat: true, tools: true, json: true }
   },
   {
-    id: 'gemini-3-flash-preview',
-    name: 'Gemini 3 Flash',
+    id: 'gemini-3.5-flash-lite',
+    name: 'Gemini 3.5 Flash-Lite',
     provider: 'google',
-    description: 'Fast multimodal with strong reasoning',
+    description: 'Fast, cost-effective text model',
     capabilities: { chat: true, tools: true, json: true }
   },
   {
-    id: 'gemini-3.1-flash-lite-preview',
-    name: 'Gemini 3.1 Flash Lite',
+    id: 'gemini-3.1-flash-lite-image',
+    name: 'Gemini 3.1 Flash-Lite Image',
     provider: 'google',
-    description: 'Lightweight and cost-effective',
-    capabilities: { chat: true, tools: true, json: true }
-  },
-  {
-    id: 'gemini-3-pro-image-preview',
-    name: 'Gemini 3 Pro Image',
-    provider: 'google',
-    description: 'Image generation from text prompts',
-    capabilities: { chat: true, tools: false, json: false }
+    description: 'Image generation and editing model',
+    capabilities: { chat: false, tools: false, json: false }
   },
   // OpenAI models
   {
-    id: 'gpt-5.4',
-    name: 'GPT-5.4',
+    id: 'gpt-5.6-sol',
+    name: 'GPT-5.6 Sol',
     provider: 'openai',
     description: 'Flagship model with reasoning',
     capabilities: { chat: true, tools: true, json: true }
   },
   {
-    id: 'gpt-5.4-mini',
-    name: 'GPT-5.4 Mini',
+    id: 'gpt-5.6-terra',
+    name: 'GPT-5.6 Terra',
     provider: 'openai',
     description: 'Balanced performance and cost',
     capabilities: { chat: true, tools: true, json: true }
   },
   {
-    id: 'gpt-5.4-nano',
-    name: 'GPT-5.4 Nano',
+    id: 'gpt-5.6-luna',
+    name: 'GPT-5.6 Luna',
     provider: 'openai',
     description: 'Fast and affordable',
     capabilities: { chat: true, tools: true, json: true }
   },
   // Anthropic models
   {
-    id: 'claude-opus-4-6',
-    name: 'Claude Opus 4.6',
+    id: 'claude-opus-5',
+    name: 'Claude Opus 5',
     provider: 'anthropic',
     description: 'Most intelligent, best for coding & agents',
     capabilities: { chat: true, tools: true, json: true }
   },
   {
-    id: 'claude-sonnet-4-6',
-    name: 'Claude Sonnet 4.6',
+    id: 'claude-sonnet-5',
+    name: 'Claude Sonnet 5',
     provider: 'anthropic',
     description: 'Balanced intelligence and speed',
-    capabilities: { chat: true, tools: true, json: true }
-  },
-  {
-    id: 'claude-haiku-4-5',
-    name: 'Claude Haiku 4.5',
-    provider: 'anthropic',
-    description: 'Fast and cost-effective',
     capabilities: { chat: true, tools: true, json: true }
   }
 ];
@@ -160,7 +146,7 @@ export function getModelsByProvider(provider: LLMProvider): LLMModel[] {
 }
 
 // Get default model
-export const DEFAULT_MODEL = 'gemini-3-flash-preview';
+export const DEFAULT_MODEL = 'gemini-3.6-flash';
 
 // ============================================================================
 // AI Service Interfaces

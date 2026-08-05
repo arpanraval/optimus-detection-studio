@@ -20,6 +20,23 @@ export interface AutoDigestJob {
   error?: string;
 }
 
+/** Keep each Edge invocation below the platform wall-clock limit. */
+export const PHASE_BUDGET_MS = 135_000;
+
+/** Raised when a phase reaches its cooperative wall-clock deadline. */
+export class PhaseBudgetExceeded extends Error {
+  constructor(public readonly phase: string) {
+    super(`Phase ${phase} exceeded its ${PHASE_BUDGET_MS}ms budget`);
+    this.name = 'PhaseBudgetExceeded';
+  }
+}
+
+export function assertPhaseBudget(deadlineMs: number | undefined, phase: string): void {
+  if (deadlineMs !== undefined && Date.now() >= deadlineMs) {
+    throw new PhaseBudgetExceeded(phase);
+  }
+}
+
 /** Tracks counts across all pipeline stages */
 export interface JobResultSummary {
   feeds_fetched: number;
@@ -56,6 +73,39 @@ export function emptyJobResult(): JobResultSummary {
     campaigns_updated: 0,
     errors: [],
   };
+}
+
+const JOB_RESULT_COUNTERS: Array<keyof Omit<JobResultSummary, 'errors'>> = [
+  'feeds_fetched',
+  'articles_harvested',
+  'articles_recovered',
+  'articles_classified',
+  'articles_passed_gate',
+  'articles_skipped',
+  'articles_resolved',
+  'articles_digested',
+  'articles_failed',
+  'campaigns_created',
+  'campaigns_updated',
+];
+
+/** Normalize legacy/partially initialized rows before a phase mutates them.
+ * Manual job creation historically stored only { reason: 'manual' }, which
+ * made missing counters serialize as null in result_summary. */
+export function normalizeJobResult(input: unknown): JobResultSummary {
+  const base = emptyJobResult();
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return base;
+
+  const source = input as Record<string, unknown>;
+  const normalized = { ...base, ...source } as unknown as JobResultSummary & Record<string, unknown>;
+  for (const key of JOB_RESULT_COUNTERS) {
+    const value = source[key];
+    normalized[key] = typeof value === 'number' && Number.isFinite(value) ? value : 0;
+  }
+  normalized.errors = Array.isArray(source.errors)
+    ? source.errors.filter((value): value is string => typeof value === 'string')
+    : [];
+  return normalized;
 }
 
 // ---------------------------------------------------------------------------

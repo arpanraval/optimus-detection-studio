@@ -161,9 +161,9 @@ export const ReportListingMockup = () => (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mono text-[9px] tracking-wider text-on-surface-variant mb-5 pb-4 border-b border-outline-variant">
       <span><span style={{ color: `${ACCENT}cc` }} className="font-bold">8</span> REPORTS</span>
       <span className="text-outline-variant">&middot;</span>
-      <span><span className="font-bold text-red-400/80">3</span> CRITICAL</span>
+      <span><span className="font-bold text-red-600">3</span> CRITICAL</span>
       <span className="text-outline-variant">&middot;</span>
-      <span><span className="font-bold text-orange-400/80">5</span> HIGH</span>
+      <span><span className="font-bold text-orange-600">5</span> HIGH</span>
       <span className="text-outline-variant">&middot;</span>
       <span><span style={{ color: `${ACCENT}cc` }} className="font-bold">116</span> TTPs</span>
       <span className="text-outline-variant">&middot;</span>

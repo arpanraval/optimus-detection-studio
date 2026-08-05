@@ -29,10 +29,10 @@ const QualityRing: React.FC<{ score: number; size?: number }> = ({ score, size =
 
 const SeverityBadge: React.FC<{ level: string }> = ({ level }) => {
   const colors: Record<string, { bg: string; text: string }> = {
-    CRITICAL: { bg: 'bg-red-500/15', text: 'text-red-400' },
-    HIGH: { bg: 'bg-orange-500/15', text: 'text-orange-400' },
-    MEDIUM: { bg: 'bg-amber-500/15', text: 'text-amber-400' },
-    LOW: { bg: 'bg-blue-400/15', text: 'text-blue-300' },
+    CRITICAL: { bg: 'bg-red-500/10', text: 'text-red-600' },
+    HIGH: { bg: 'bg-orange-500/10', text: 'text-orange-600' },
+    MEDIUM: { bg: 'bg-amber-500/10', text: 'text-amber-600' },
+    LOW: { bg: 'bg-blue-500/10', text: 'text-blue-600' },
   };
   const c = colors[level] ?? colors.LOW;
   return <span className={`mono text-[8px] px-1.5 py-0.5 rounded ${c.bg} ${c.text}`}>{level}</span>;
@@ -424,8 +424,8 @@ const BulkImportMockup = () => (
           <div className="space-y-2">
             {['Production Library', 'Development Library'].map((dest, i) => (
               <label key={dest} className="flex items-center gap-2.5 text-[11px] cursor-pointer">
-                <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${i === 1 ? 'border-blue-400/60' : 'border-outline'}`}>
-                  {i === 1 && <div className="w-1.5 h-1.5 rounded-full bg-blue-400/80" />}
+                <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${i === 1 ? 'border-blue-500' : 'border-outline'}`}>
+                  {i === 1 && <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
                 </div>
                 <span className={i === 1 ? 'text-on-surface-variant' : 'text-on-surface-variant'}>{dest}</span>
               </label>
@@ -438,8 +438,8 @@ const BulkImportMockup = () => (
           <div className="space-y-2">
             {['Skip Duplicates', 'Update Existing', 'Create New'].map((opt, i) => (
               <label key={opt} className="flex items-center gap-2.5 text-[11px] cursor-pointer">
-                <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${i === 0 ? 'border-blue-400/60' : 'border-outline'}`}>
-                  {i === 0 && <div className="w-1.5 h-1.5 rounded-full bg-blue-400/80" />}
+                <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${i === 0 ? 'border-blue-500' : 'border-outline'}`}>
+                  {i === 0 && <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
                 </div>
                 <span className={i === 0 ? 'text-on-surface-variant' : 'text-on-surface-variant'}>{opt}</span>
               </label>
@@ -526,7 +526,7 @@ const CompleteDetectionMockup = () => (
         <div className="grid grid-cols-2 gap-3">
           {[
             { label: 'STATUS', value: 'Draft', valueColor: 'text-on-surface-variant' },
-            { label: 'SEVERITY', value: 'Medium', valueColor: 'text-amber-400/70' },
+            { label: 'SEVERITY', value: 'Medium', valueColor: 'text-amber-600' },
           ].map(f => (
             <div key={f.label}>
               <label className="mono text-[8px] text-on-surface-variant tracking-wider block mb-1">{f.label}</label>

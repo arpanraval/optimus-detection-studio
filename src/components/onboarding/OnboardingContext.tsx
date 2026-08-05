@@ -9,20 +9,12 @@
  * that should not trigger re-renders on their own.
  */
 
-import React, {
-  createContext,
-  useContext,
-  useReducer,
-  useRef,
-  useCallback,
-  useEffect,
-} from 'react';
+import React, { createContext, useContext, useReducer, useRef, useCallback, useEffect } from 'react';
 
 import { GitHubFetcher } from '../../services/bulk-import/fetchers/GitHubFetcher';
 import { BulkImportJobManager } from '../../services/bulk-import/orchestrator/BulkImportJobManager';
 import type { ImportJobStatus, ImportProgress, ValidatedRule, ImportJobConfig } from '../../services/bulk-import/types';
-import { LIBRARY_PRODUCTION } from '../../constants/library';
-import { supabase } from '../../lib/supabaseClient';
+import { LIBRARY_DEVELOPMENT } from '../../constants/library';
 import { PipelineController } from './pipeline/PipelineController';
 import { useRegisterNavigationBlocker } from '../../context/NavigationBlockerContext';
 import { useGlobalImport } from '../../context/GlobalImportContext';
@@ -41,6 +33,8 @@ import type {
   PipelineStage,
   OfficialSource,
 } from './types';
+
+export const ONBOARDING_TARGET_LIBRARY = LIBRARY_DEVELOPMENT;
 import { OFFICIAL_SOURCES } from './types';
 
 // ============================================
@@ -63,17 +57,29 @@ interface OnboardingReducerState {
 type OnboardingAction =
   | { type: 'TOGGLE_SOURCE'; sourceId: string }
   | { type: 'SET_SOURCE_STATUS'; sourceId: string; status: SourceStatus }
-  | { type: 'SET_RECON_REPORT'; sourceId: string; reconReport: SourceState['reconReport']; folders: FolderInfo[] }
+  | {
+      type: 'SET_RECON_REPORT';
+      sourceId: string;
+      reconReport: SourceState['reconReport'];
+      folders: FolderInfo[];
+    }
   | { type: 'TOGGLE_FOLDER'; sourceId: string; folderPath: string }
   | { type: 'SELECT_ALL_FOLDERS'; sourceId: string }
   | { type: 'DESELECT_ALL_FOLDERS'; sourceId: string }
   | { type: 'SET_PHASE'; phase: OnboardingPhase }
   | { type: 'UPDATE_PROGRESS'; sourceId: string; progress: ImportProgress }
-  | { type: 'UPDATE_STAGE'; stage: PipelineStage; status: StageState['status']; counter?: number; secondaryCounter?: number }
+  | {
+      type: 'UPDATE_STAGE';
+      stage: PipelineStage;
+      status: StageState['status'];
+      counter?: number;
+      secondaryCounter?: number;
+    }
   | { type: 'UPDATE_STREAM'; stream: StreamState }
   | { type: 'UPDATE_LIVE_STATS'; liveStats: LiveStats }
   | { type: 'SET_ERROR'; sourceId: string; errorMessage: string }
-  | { type: 'RESET_SOURCE'; sourceId: string };
+  | { type: 'RESET_SOURCE'; sourceId: string }
+  | { type: 'RESET_AFTER_ABORT' };
 
 // ============================================
 // HELPERS
@@ -82,7 +88,7 @@ type OnboardingAction =
 function updateSourceInList(
   sources: SourceState[],
   sourceId: string,
-  updater: (source: SourceState) => SourceState
+  updater: (source: SourceState) => SourceState,
 ): SourceState[] {
   return sources.map((s) => (s.source.id === sourceId ? updater(s) : s));
 }
@@ -91,10 +97,7 @@ function updateSourceInList(
 // REDUCER
 // ============================================
 
-function onboardingReducer(
-  state: OnboardingReducerState,
-  action: OnboardingAction
-): OnboardingReducerState {
+function onboardingReducer(state: OnboardingReducerState, action: OnboardingAction): OnboardingReducerState {
   switch (action.type) {
     case 'TOGGLE_SOURCE':
       return {
@@ -132,9 +135,7 @@ function onboardingReducer(
         ...state,
         sources: updateSourceInList(state.sources, action.sourceId, (s) => ({
           ...s,
-          folders: s.folders.map((f) =>
-            f.path === action.folderPath ? { ...f, selected: !f.selected } : f
-          ),
+          folders: s.folders.map((f) => (f.path === action.folderPath ? { ...f, selected: !f.selected } : f)),
         })),
       };
 
@@ -164,7 +165,7 @@ function onboardingReducer(
         ...state,
         sources: updateSourceInList(state.sources, action.sourceId, (s) => ({
           ...s,
-          progress: action.progress,
+          progress: { ...action.progress },
           importedCount: action.progress.insertedRules,
           duplicateCount: action.progress.duplicateRules,
         })),
@@ -181,13 +182,13 @@ function onboardingReducer(
                 counter: action.counter ?? s.counter,
                 secondaryCounter: action.secondaryCounter ?? s.secondaryCounter,
               }
-            : s
+            : s,
         ),
       };
 
     case 'UPDATE_STREAM': {
       const existing = state.streams.findIndex(
-        (s) => s.sourceId === action.stream.sourceId && s.from === action.stream.from && s.to === action.stream.to
+        (s) => s.sourceId === action.stream.sourceId && s.from === action.stream.from && s.to === action.stream.to,
       );
       if (existing >= 0) {
         const newStreams = [...state.streams];
@@ -222,6 +223,21 @@ function onboardingReducer(
           errors: [],
           importedCount: 0,
           duplicateCount: 0,
+          errorMessage: undefined,
+        })),
+      };
+
+    case 'RESET_AFTER_ABORT':
+      return {
+        ...state,
+        phase: 'selection',
+        sources: state.sources.map((sourceState) => ({
+          ...sourceState,
+          status:
+            sourceState.selected && sourceState.folders.length > 0
+              ? ('ready' as SourceStatus)
+              : ('idle' as SourceStatus),
+          progress: undefined,
           errorMessage: undefined,
         })),
       };
@@ -271,12 +287,7 @@ function createInitialState(): OnboardingReducerState {
 // CONSOLE HELPER
 // ============================================
 
-function makeConsoleEntry(
-  sourceId: string,
-  sourceName: string,
-  message: string,
-  level: ConsoleLevel
-): ConsoleEntry {
+function makeConsoleEntry(sourceId: string, sourceName: string, message: string, level: ConsoleLevel): ConsoleEntry {
   return {
     id: crypto.randomUUID(),
     timestamp: new Date(),
@@ -343,10 +354,7 @@ function jobStatusToPipelineStage(jobStatus: ImportJobStatus): PipelineStage | n
  * as the folder name. Folders containing "deprecated" or "experimental" are
  * auto-deselected.
  */
-function extractFoldersFromRecon(
-  filePaths: string[],
-  basePath: string
-): FolderInfo[] {
+function extractFoldersFromRecon(filePaths: string[], basePath: string): FolderInfo[] {
   const prefix = basePath ? basePath + '/' : '';
   const folderMap = new Map<string, number>();
 
@@ -372,8 +380,7 @@ function extractFoldersFromRecon(
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([name, fileCount]) => {
       const lowerName = name.toLowerCase();
-      const shouldDeselect =
-        lowerName.includes('deprecated') || lowerName.includes('experimental');
+      const shouldDeselect = lowerName.includes('deprecated') || lowerName.includes('experimental');
 
       return {
         name,
@@ -394,8 +401,17 @@ function normalizePlatform(raw: string): string {
   if (lower === 'windows' || lower.includes('windows')) return 'Windows';
   if (lower === 'linux' || lower.includes('linux')) return 'Linux';
   if (lower === 'macos' || lower === 'macosx' || lower.includes('macos')) return 'macOS';
-  if (lower === 'aws' || lower === 'azure' || lower === 'gcp' || lower.includes('cloud') || lower === 'saas' || lower === 'iaas') return 'Cloud';
-  if (lower.includes('network') || lower.includes('firewall') || lower.includes('proxy') || lower.includes('dns')) return 'Network';
+  if (
+    lower === 'aws' ||
+    lower === 'azure' ||
+    lower === 'gcp' ||
+    lower.includes('cloud') ||
+    lower === 'saas' ||
+    lower === 'iaas'
+  )
+    return 'Cloud';
+  if (lower.includes('network') || lower.includes('firewall') || lower.includes('proxy') || lower.includes('dns'))
+    return 'Network';
   return 'Other';
 }
 
@@ -423,10 +439,17 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   /** Map of sourceId -> GitHubFetcher used during recon (mutable) */
   const fetchersRef = useRef<Map<string, GitHubFetcher>>(new Map());
 
+  /** Last activity milestone emitted for each source and pipeline phase. */
+  const progressMilestonesRef = useRef<Map<string, number>>(new Map());
+
   // ------------------------------------------
   // Navigation blocking during processing phase
   // ------------------------------------------
-  const isProcessing = state.phase === 'processing' || state.phase === 'confirming';
+  const isProcessing =
+    state.phase === 'processing' ||
+    state.phase === 'confirming' ||
+    state.phase === 'importing' ||
+    state.phase === 'embedding';
   useRegisterNavigationBlocker('onboarding-processing', isProcessing);
 
   // Block browser tab close / refresh during processing
@@ -445,12 +468,18 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     new PipelineController((animState) => {
       // Sync pipeline animation state into reducer
       for (const stage of animState.stages) {
-        dispatch({ type: 'UPDATE_STAGE', stage: stage.stage, status: stage.status, counter: stage.counter, secondaryCounter: stage.secondaryCounter });
+        dispatch({
+          type: 'UPDATE_STAGE',
+          stage: stage.stage,
+          status: stage.status,
+          counter: stage.counter,
+          secondaryCounter: stage.secondaryCounter,
+        });
       }
       for (const stream of animState.streams) {
         dispatch({ type: 'UPDATE_STREAM', stream });
       }
-    })
+    }),
   );
 
   // ------------------------------------------
@@ -460,7 +489,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     (sourceId: string, sourceName: string, message: string, level: ConsoleLevel) => {
       addConsoleEntry(makeConsoleEntry(sourceId, sourceName, message, level));
     },
-    [addConsoleEntry]
+    [addConsoleEntry],
   );
 
   // ------------------------------------------
@@ -517,8 +546,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     }
 
-    const avgQualityScore =
-      qualityScoreCount > 0 ? Math.round(qualityScoreSum / qualityScoreCount) : 0;
+    const avgQualityScore = qualityScoreCount > 0 ? Math.round(qualityScoreSum / qualityScoreCount) : 0;
 
     dispatch({
       type: 'UPDATE_LIVE_STATS',
@@ -537,12 +565,9 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // ------------------------------------------
   // Helper: find source in current state ref
   // ------------------------------------------
-  const findSource = useCallback(
-    (sourceId: string): OfficialSource | undefined => {
-      return OFFICIAL_SOURCES.find((s) => s.id === sourceId) as OfficialSource | undefined;
-    },
-    []
-  );
+  const findSource = useCallback((sourceId: string): OfficialSource | undefined => {
+    return OFFICIAL_SOURCES.find((s) => s.id === sourceId) as OfficialSource | undefined;
+  }, []);
 
   // ------------------------------------------
   // toggleSource
@@ -571,10 +596,17 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           .getRepoInfo(source.repoOwner, source.repoName)
           .then((repoInfo) => {
             if (!repoInfo) {
-              throw new Error(`Could not access repository: ${source.repoOwner}/${source.repoName}. Check network or GitHub rate limits.`);
+              throw new Error(
+                `Could not access repository: ${source.repoOwner}/${source.repoName}. Check network or GitHub rate limits.`,
+              );
             }
             const branch = repoInfo.defaultBranch;
-            logConsole(sourceId, source.shortName, `Detected branch: ${branch}, scanning ${source.basePath}/...`, 'info');
+            logConsole(
+              sourceId,
+              source.shortName,
+              `Detected branch: ${branch}, scanning ${source.basePath}/...`,
+              'info',
+            );
 
             const url = `https://github.com/${source.repoOwner}/${source.repoName}/tree/${branch}/${source.basePath}`;
             return fetcher.scanRepository(url);
@@ -603,14 +635,14 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 sourceId,
                 source.shortName,
                 `Scan found 0 matching files in ${source.basePath}/. The repo may use a different directory structure.`,
-                'warn'
+                'warn',
               );
             } else {
               logConsole(
                 sourceId,
                 source.shortName,
                 `Scan complete: ${reconReport.matchingFiles} files in ${folders.length} folders (${selectedCount} selected)`,
-                'ok'
+                'ok',
               );
             }
           })
@@ -641,35 +673,26 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       }
     },
-    [state.sources, findSource, logConsole]
+    [state.sources, findSource, logConsole],
   );
 
   // ------------------------------------------
   // toggleFolder
   // ------------------------------------------
-  const toggleFolder = useCallback(
-    (sourceId: string, folderPath: string) => {
-      dispatch({ type: 'TOGGLE_FOLDER', sourceId, folderPath });
-    },
-    []
-  );
+  const toggleFolder = useCallback((sourceId: string, folderPath: string) => {
+    dispatch({ type: 'TOGGLE_FOLDER', sourceId, folderPath });
+  }, []);
 
   // ------------------------------------------
   // selectAllFolders / deselectAllFolders
   // ------------------------------------------
-  const selectAllFolders = useCallback(
-    (sourceId: string) => {
-      dispatch({ type: 'SELECT_ALL_FOLDERS', sourceId });
-    },
-    []
-  );
+  const selectAllFolders = useCallback((sourceId: string) => {
+    dispatch({ type: 'SELECT_ALL_FOLDERS', sourceId });
+  }, []);
 
-  const deselectAllFolders = useCallback(
-    (sourceId: string) => {
-      dispatch({ type: 'DESELECT_ALL_FOLDERS', sourceId });
-    },
-    []
-  );
+  const deselectAllFolders = useCallback((sourceId: string) => {
+    dispatch({ type: 'DESELECT_ALL_FOLDERS', sourceId });
+  }, []);
 
   // ------------------------------------------
   // Wire callbacks for a BulkImportJobManager
@@ -705,7 +728,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             sourceId,
             sourceName,
             `Status: ${jobStatus}`,
-            jobStatus === 'failed' || jobStatus === 'cancelled' ? 'error' : 'info'
+            jobStatus === 'failed' || jobStatus === 'cancelled' ? 'error' : 'info',
           );
         },
 
@@ -723,6 +746,34 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             pipeline.onInsertProgress(progress.insertedRules, progress.totalRules);
           }
 
+          const current =
+            progress.phase === 'validating'
+              ? progress.validRules
+              : progress.phase === 'inserting'
+                ? progress.insertedRules
+                : progress.processedFiles;
+          const total =
+            progress.phase === 'validating' || progress.phase === 'inserting'
+              ? progress.totalRules
+              : progress.totalFiles;
+
+          if (total > 0) {
+            const milestone = Math.min(100, Math.floor((current / total) * 10) * 10);
+            const milestoneKey = `${sourceId}:${progress.phase}`;
+            const lastMilestone = progressMilestonesRef.current.get(milestoneKey);
+
+            if (lastMilestone === undefined || milestone > lastMilestone) {
+              progressMilestonesRef.current.set(milestoneKey, milestone);
+              const unit = progress.phase === 'validating' || progress.phase === 'inserting' ? 'rules' : 'files';
+              logConsole(
+                sourceId,
+                sourceName,
+                `${progress.phase}: ${current.toLocaleString()}/${total.toLocaleString()} ${unit}`,
+                'info',
+              );
+            }
+          }
+
           aggregateLiveStats();
         },
 
@@ -732,12 +783,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             sourceId,
             errorMessage: error.message,
           });
-          logConsole(
-            sourceId,
-            sourceName,
-            `Error [${error.code}]: ${error.message}`,
-            'error'
-          );
+          logConsole(sourceId, sourceName, `Error [${error.code}]: ${error.message}`, 'error');
         },
 
         onComplete: () => {
@@ -748,18 +794,15 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         },
       });
     },
-    [findSource, logConsole, aggregateLiveStats]
+    [findSource, logConsole, aggregateLiveStats],
   );
 
   // ------------------------------------------
   // Build source URL for selected folders
   // ------------------------------------------
-  const buildSourceUrl = useCallback(
-    (source: OfficialSource): string => {
-      return `https://github.com/${source.repoOwner}/${source.repoName}`;
-    },
-    []
-  );
+  const buildSourceUrl = useCallback((source: OfficialSource): string => {
+    return `https://github.com/${source.repoOwner}/${source.repoName}`;
+  }, []);
 
   // ------------------------------------------
   // Process a single source through the import pipeline
@@ -776,6 +819,9 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       const manager = new BulkImportJobManager();
       managersRef.current.set(source.id, manager);
+      for (const key of progressMilestonesRef.current.keys()) {
+        if (key.startsWith(`${source.id}:`)) progressMilestonesRef.current.delete(key);
+      }
 
       const sourceUrl = buildSourceUrl(source);
 
@@ -784,7 +830,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         sourceUrl,
         vendor: source.vendor,
         vendorFilter: [source.vendor],
-        targetLibrary: LIBRARY_PRODUCTION,
+        targetLibrary: ONBOARDING_TARGET_LIBRARY,
         duplicateStrategy: 'skip',
         githubPath: source.basePath,
         includePaths: selectedFolders.map((f) => f.path),
@@ -803,12 +849,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         const job = manager.getJob();
         const validCount = job?.rules.filter((r) => r.validation.isValid).length ?? 0;
-        logConsole(
-          source.id,
-          source.shortName,
-          `Preview ready: ${validCount} valid rules parsed for pre-check`,
-          'ok'
-        );
+        logConsole(source.id, source.shortName, `Preview ready: ${validCount} valid rules parsed for pre-check`, 'ok');
       } catch (err) {
         // FIX: Catch errors from runToPreview so they surface clearly
         const message = err instanceof Error ? err.message : 'Pipeline failed';
@@ -819,7 +860,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       return manager;
     },
-    [buildSourceUrl, wireManagerCallbacks, logConsole]
+    [buildSourceUrl, wireManagerCallbacks, logConsole],
   );
 
   // ------------------------------------------
@@ -830,7 +871,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     for (const [, manager] of managersRef.current) {
       const job = manager.getJob();
       if (!job || job.status === 'failed' || job.status === 'cancelled') continue;
-      
+
       // We want to pass ALL rules to the pre-check so it can show the full breakdown
       // (net_new vs updated vs duplicates), not just the ones that passed validation
       for (const rule of job.rules) {
@@ -846,9 +887,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const initializeOnboarding = useCallback(async () => {
     dispatch({ type: 'SET_PHASE', phase: 'processing' });
 
-    const selectedSources = state.sources.filter(
-      (s) => s.selected && s.folders.some((f) => f.selected)
-    );
+    const selectedSources = state.sources.filter((s) => s.selected && s.folders.some((f) => f.selected));
 
     if (selectedSources.length === 0) {
       logConsole('system', 'System', 'No sources with selected folders to import', 'warn');
@@ -856,17 +895,10 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return;
     }
 
-    logConsole(
-      'system',
-      'System',
-      `Starting onboarding for ${selectedSources.length} source(s)...`,
-      'info'
-    );
+    logConsole('system', 'System', `Starting onboarding for ${selectedSources.length} source(s)...`, 'info');
 
     // Phase 1: Run all sources through fetch/parse/validate in parallel
-    const results = await Promise.allSettled(
-      selectedSources.map((sourceState) => processSource(sourceState))
-    );
+    const results = await Promise.allSettled(selectedSources.map((sourceState) => processSource(sourceState)));
 
     // Log any rejected promises
     for (let i = 0; i < results.length; i++) {
@@ -888,12 +920,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return;
     }
 
-    logConsole(
-      'system',
-      'System',
-      `Processing complete: ${totalParsed} rules ready for pre-check`,
-      'ok'
-    );
+    logConsole('system', 'System', `Processing complete: ${totalParsed} rules ready for pre-check`, 'ok');
 
     // Final stats aggregation
     aggregateLiveStats();
@@ -909,7 +936,10 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // getValidatedRulesForImport — Collect validated rules + combined job config
   // for handoff to GlobalImportContext.confirmAndImport()
   // ------------------------------------------
-  const getValidatedRulesForImport = useCallback((): { rules: ValidatedRule[]; jobConfig: ImportJobConfig } => {
+  const getValidatedRulesForImport = useCallback((): {
+    rules: ValidatedRule[];
+    jobConfig: ImportJobConfig;
+  } => {
     const allRules: ValidatedRule[] = [];
     let combinedVendor: string | undefined;
 
@@ -932,8 +962,9 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const jobConfig: ImportJobConfig = {
       sourceType: 'github',
       vendor: (combinedVendor as ImportJobConfig['vendor']) ?? 'mixed',
-      targetLibrary: LIBRARY_PRODUCTION,
+      targetLibrary: ONBOARDING_TARGET_LIBRARY,
       duplicateStrategy: 'skip',
+      returnRoute: '/onboarding',
     };
 
     return { rules: allRules, jobConfig };
@@ -942,17 +973,23 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // ------------------------------------------
   // syncImportProgress — Allow UI to sync global import progress to visual pipeline
   // ------------------------------------------
-  const syncImportProgress = useCallback((inserted: number, total: number) => {
-    // If we've started inserting, transition pipeline appropriately
-    if (inserted > 0 || total > 0) {
-      pipelineRef.current.onNormalizeProgress(total); // Normalize happens right before store
-      pipelineRef.current.onInsertStart('system');
-      pipelineRef.current.onInsertProgress(inserted, total);
-      
-      if (inserted === total && total > 0) {
-        pipelineRef.current.onAllComplete();
-      }
+  const syncImportProgress = useCallback((progress: ImportProgress) => {
+    if (progress.phase === 'embedding') {
+      dispatch({ type: 'SET_PHASE', phase: 'embedding' });
+      return;
     }
+
+    if (progress.phase === 'inserting' && progress.totalRules > 0) {
+      dispatch({ type: 'SET_PHASE', phase: 'importing' });
+      pipelineRef.current.onNormalizeProgress(progress.totalRules);
+      pipelineRef.current.onInsertStart('system');
+      pipelineRef.current.onInsertProgress(progress.insertedRules, progress.totalRules);
+    }
+  }, []);
+
+  const completeImportPipeline = useCallback(() => {
+    pipelineRef.current.onAllComplete();
+    dispatch({ type: 'SET_PHASE', phase: 'complete' });
   }, []);
 
   // ------------------------------------------
@@ -989,38 +1026,16 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       logConsole(sourceId, source.shortName, 'Retrying...', 'info');
       dispatch({ type: 'SET_SOURCE_STATUS', sourceId, status: 'fetching' });
 
-      const manager = await processSource({
+      await processSource({
         ...sourceState,
         status: 'idle',
         errors: [],
         errorMessage: undefined,
       });
 
-      if (!manager) return;
-
-      // Execute insert
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        logConsole(sourceId, source.shortName, 'Authentication required', 'error');
-        return;
-      }
-
-      const job = manager.getJob();
-      if (!job || job.status === 'failed') return;
-
-      const selectedRules = job.rules.filter((r) => r.selected);
-      if (selectedRules.length > 0) {
-        try {
-          await manager.executeImport(selectedRules, user.id);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : 'Insert failed';
-          logConsole(sourceId, source.shortName, `Retry insert failed: ${message}`, 'error');
-        }
-      }
-
       aggregateLiveStats();
     },
-    [state.sources, findSource, processSource, logConsole, aggregateLiveStats]
+    [state.sources, findSource, processSource, logConsole, aggregateLiveStats],
   );
 
   // ------------------------------------------
@@ -1054,11 +1069,8 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     }
 
-    // FIX: Reset pipeline animation state so visual doesn't stay in processing
     pipelineRef.current.reset();
-
-    // FIX: Reset phase to selection so user can start over
-    dispatch({ type: 'SET_PHASE', phase: 'selection' });
+    dispatch({ type: 'RESET_AFTER_ABORT' });
   }, [findSource, logConsole]);
 
   // ------------------------------------------
@@ -1087,11 +1099,8 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     getValidatedRulesForImport,
     resetPhase,
     syncImportProgress,
+    completeImportPipeline,
   };
 
-  return (
-    <OnboardingContext.Provider value={contextValue}>
-      {children}
-    </OnboardingContext.Provider>
-  );
+  return <OnboardingContext.Provider value={contextValue}>{children}</OnboardingContext.Provider>;
 };

@@ -20,6 +20,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 import { handleCorsPreflight, corsErrorResponse, corsJsonResponse } from "../_shared/cors.ts";
 import { checkRateLimit } from "../_shared/rate-limiter.ts";
 import { runJob } from "./lib/orchestrator.ts";
+import { isSupportedSiem, SUPPORTED_SIEM_PLATFORMS } from "./lib/query-language.ts";
 
 const MAX_INPUT_LEN = 1000;
 
@@ -136,6 +137,46 @@ serve(async (req: Request) => {
         return corsErrorResponse(`input_text exceeds ${MAX_INPUT_LEN} characters`, req, 400);
       }
 
+      // Optional caller-chosen SIEM. Without it, resolveQueryLanguage falls
+      // back to Sigma whenever the user has no environment profile — silently,
+      // with no prompt — so a first-time user asking for ClickFix detections
+      // got Sigma instead of the KQL they can actually run. The New Research
+      // modal now asks; this validates the answer.
+      const siemPlatform = typeof body?.siem_platform === 'string' ? body.siem_platform.trim() : '';
+      if (siemPlatform && !isSupportedSiem(siemPlatform)) {
+        return corsErrorResponse(
+          `Unsupported siem_platform "${siemPlatform}". Expected one of: ${SUPPORTED_SIEM_PLATFORMS.join(', ')}.`,
+          req,
+          400,
+        );
+      }
+
+      // Build the environment snapshot up front when a SIEM was chosen, with
+      // that platform FIRST in siem_platforms — resolveQueryLanguage takes the
+      // first entry that maps to a language, and ResearchHeader's
+      // "X only · N uncovered" badge reads the same slot, so ordering here
+      // makes both correct for free.
+      //
+      // handlePreflight only calls primeEnvironmentSnapshot when
+      // environment_snapshot is still null, so writing it at insert time
+      // preserves the choice with no orchestrator change.
+      let environmentSnapshot: Record<string, unknown> | null = null;
+      if (siemPlatform) {
+        // Same column set primeEnvironmentSnapshot selects, so the snapshot
+        // shape is identical whichever path populated it. RLS ("Users can read
+        // own environment profile") scopes this to the caller.
+        const { data: envProfile } = await userClient
+          .from('environment_profiles')
+          .select('siem_platforms, log_sources, edr_tools, custom_log_sources, cloud_platforms, industry, crown_jewels')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        const existing: string[] = Array.isArray(envProfile?.siem_platforms) ? envProfile.siem_platforms : [];
+        environmentSnapshot = {
+          ...(envProfile ?? {}),
+          siem_platforms: [siemPlatform, ...existing.filter((s: string) => s !== siemPlatform)],
+        };
+      }
+
       // Initial tree shape so the detail page can render between row insert
       // and the preflight worker's first persistTree() call. Includes
       // tactic_summary:[] to match the server-side ThreatResearchTree type
@@ -155,6 +196,9 @@ serve(async (req: Request) => {
           input_text: inputText,
           status: 'pending',
           tree: initialTree,
+          // null when no SIEM was chosen — preflight then primes it from the
+          // profile exactly as before.
+          environment_snapshot: environmentSnapshot,
         })
         .select('id')
         .single();
@@ -198,6 +242,22 @@ serve(async (req: Request) => {
       const behaviourId = typeof body?.behaviour_id === 'string' ? body.behaviour_id : '';
       if (!sessionId || !behaviourId) return corsErrorResponse('session_id and behaviour_id are required', req, 400);
 
+      // retry_leaf enqueues a `detection` job, and handleDetection requires a
+      // composite "{behaviour}/{opportunity}" id — it throws on a bare one.
+      // A behaviour with NO opportunities cannot be fixed here in any case:
+      // the missing artefact is an opportunity, and only the Opportunity
+      // Planner produces those. Reject explicitly instead of enqueuing a job
+      // that is guaranteed to throw, and name the action that does work.
+      if (!behaviourId.includes('/')) {
+        return corsErrorResponse(
+          `behaviour_id must be a composite "{behaviour}/{opportunity}" leaf id, got "${behaviourId}". ` +
+          `A behaviour with no opportunities needs the Opportunity Planner to run again — ` +
+          `use action=resume_session for that session instead.`,
+          req,
+          400,
+        );
+      }
+
       // Verify ownership via the user-scoped client (RLS).
       const { data: ownedSession } = await userClient
         .from('threat_research_sessions')
@@ -211,8 +271,8 @@ serve(async (req: Request) => {
       // behaviour — which by definition is the case for a Retry. So we
       // UPDATE in place when a row exists, INSERT only when there's no
       // prior row. Mirrors resume_session's update-then-dispatch pattern.
-      // Also reset any stale qa rows for this behaviour so the cascade
-      // re-runs QA on the regenerated detections (D2 fix).
+      // Legacy 'qa' rows are resolved further down so they cannot block the
+      // finalise gate — nothing dispatches that phase any more.
       const { data: existing, error: existingErr } = await adminClient
         .from('threat_research_jobs')
         .select('id')
@@ -255,24 +315,18 @@ serve(async (req: Request) => {
         jobId = newJob.id;
       }
 
-      // Reset any qa rows for this behaviour back to pending so the
-      // detection→qa cascade re-runs after regeneration. Without this,
-      // existing qa rows in 'failed'/'completed' state block new dispatch
-      // (composite ids 'b3/o1' etc collide with pre-retry rows).
-      const { error: qaResetErr } = await adminClient
+      // Any 'qa' rows left over from a session that ran before the QA agent
+      // was removed are resolved rather than reset: nothing will ever pick
+      // them up again, and leaving them non-terminal would block
+      // tr_promote_finalise_if_ready forever.
+      const { error: qaResolveErr } = await adminClient
         .from('threat_research_jobs')
-        .update({
-          status: 'pending',
-          attempt_count: 0,
-          started_at: null,
-          completed_at: null,
-          failure_reason: null,
-        })
+        .update({ status: 'completed', completed_at: new Date().toISOString(), failure_reason: null })
         .eq('session_id', sessionId)
         .eq('phase', 'qa')
-        .like('behaviour_id', `${behaviourId}/%`);
-      if (qaResetErr) {
-        console.warn('[entry] retry_leaf qa-reset failed (non-fatal):', qaResetErr.message);
+        .neq('status', 'completed');
+      if (qaResolveErr) {
+        console.warn('[entry] retry_leaf legacy qa-resolve failed (non-fatal):', qaResolveErr.message);
       }
 
       // Restore session to 'running' so the dispatcher cascade doesn't
@@ -288,9 +342,9 @@ serve(async (req: Request) => {
       // entire cap (the common case — that's why we're retrying) will
       // instantly hit consumeBudget's allowed:false path on the FIRST model
       // call and emit qa_error: 'model_budget_exhausted' in milliseconds.
-      // Sizing for single-pass QA: one retry = ~3 engineer calls + 1-2 QA
-      // calls + 0-1 revision calls ≈ 6 model calls + ~6 tool calls. We bump
-      // by 10/8 to give ~50% headroom in case the first attempt also dies.
+      // Sizing: one retry = ~3 engineer calls ≈ 3 model calls + ~4 tool
+      // calls now that no QA or revision pass follows. We keep the 10/8 bump
+      // for generous headroom in case the first attempt also dies.
       // The tr_bump_caps RPC caps absolute ceiling at 2000/2000 so a
       // misbehaving caller can't run the meter up indefinitely.
       const { error: bumpErr } = await adminClient.rpc('tr_bump_caps', {
@@ -448,11 +502,11 @@ serve(async (req: Request) => {
       // typical reason jobs failed in the first place); resuming without a
       // bump means every retry's first model call instantly trips
       // consumeBudget and emits qa_error: 'model_budget_exhausted' before
-      // the worker even loads its prompt. Sizing for single-pass QA:
-      // 10 model + 8 tool per retried job covers one full single-pass
-      // detection+qa (~6 model + ~6 tool) plus ~50% headroom for one
-      // worker death. Planner reset re-runs the planner and cascades to
-      // detection + qa for every behaviour — but handleOpportunityPlanning
+      // the worker even loads its prompt. Sizing: 10 model + 8 tool per
+      // retried job comfortably covers one detection pass (~3 model + ~4
+      // tool) with headroom for a worker death. Planner reset re-runs the
+      // planner and cascades to detection for every behaviour — but
+      // handleOpportunityPlanning
       // bumps its own caps when it fans out, so we only need to cover the
       // planner call itself (~5 model + ~5 tool). The RPC's hard ceiling
       // (2000/2000) prevents runaway accumulation.
@@ -483,75 +537,6 @@ serve(async (req: Request) => {
       }
 
       return corsJsonResponse({ ok: true, retried, planner_reset: plannerReset }, req);
-    }
-
-    // ──────────────────────────────────────────────────────────────────────
-    // Complete QA on a session. Scans tree.behaviours[*].opportunities and
-    // enqueues a `qa` phase job per opportunity that has detection.qa==null.
-    // Each qa job processes ONE opportunity (~10-30s) and patches the result.
-    // Used to recover sessions where handleDetection persisted opportunities
-    // but never reached the QA emit (worker died mid-loop). Uses no Tavily —
-    // QA tools are feasibility_lookup, environment_context, library_search.
-    // ──────────────────────────────────────────────────────────────────────
-    if (req.method === 'POST' && action === 'complete_qa') {
-      let body: any;
-      try { body = await req.json(); } catch { return corsErrorResponse('Invalid JSON body', req, 400); }
-      const sessionId = typeof body?.session_id === 'string' ? body.session_id : '';
-      if (!sessionId) return corsErrorResponse('session_id is required', req, 400);
-
-      const { data: ownedSession } = await userClient
-        .from('threat_research_sessions')
-        .select('id, tree')
-        .eq('id', sessionId)
-        .maybeSingle();
-      if (!ownedSession) return corsErrorResponse('Session not found', req, 404);
-
-      const tree = (ownedSession as { tree: unknown }).tree as
-        | { behaviours?: Array<{ id: string; opportunities?: Array<{ id: string; detection?: { qa?: unknown } }> }> }
-        | null;
-      const candidates: string[] = [];
-      for (const b of tree?.behaviours ?? []) {
-        for (const o of b.opportunities ?? []) {
-          if (o.detection && (o.detection.qa === null || o.detection.qa === undefined)) {
-            candidates.push(`${b.id}/${o.id}`);
-          }
-        }
-      }
-
-      if (candidates.length === 0) {
-        return corsJsonResponse({ ok: true, enqueued: 0, message: 'No opportunities awaiting QA' }, req);
-      }
-
-      // Insert one qa job per candidate. ON CONFLICT DO NOTHING so re-running
-      // complete_qa is idempotent — duplicate (session_id, phase, behaviour_id)
-      // hits the unique index and silently skips.
-      const rows = candidates.map(compositeId => ({
-        session_id: sessionId, phase: 'qa', behaviour_id: compositeId,
-      }));
-      const { error: insertErr } = await adminClient
-        .from('threat_research_jobs')
-        .upsert(rows, { onConflict: 'session_id,phase,behaviour_id', ignoreDuplicates: true });
-      if (insertErr) {
-        console.error('[entry] complete_qa insert failed:', insertErr.message);
-        return corsErrorResponse('Failed to enqueue qa jobs', req, 500);
-      }
-
-      // Restore session to 'running' so the dispatcher cascade keeps firing.
-      // Only flips when currently failed/cancelled — running stays running.
-      await adminClient
-        .from('threat_research_sessions')
-        .update({ status: 'running', failure_reason: null, completed_at: null, updated_at: new Date().toISOString() })
-        .eq('id', sessionId)
-        .in('status', ['failed', 'cancelled']);
-
-      // Dispatch the first qa job. Cron picks up the rest within a minute,
-      // and each completing qa job dispatches the next via dispatchNextInPhase.
-      await adminClient.rpc('threat_research_dispatch_next_in_phase', {
-        p_session_id: sessionId,
-        p_phase: 'qa',
-      });
-
-      return corsJsonResponse({ ok: true, enqueued: candidates.length }, req);
     }
 
     return corsErrorResponse('Bad request', req, 400);

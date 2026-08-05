@@ -147,20 +147,20 @@ ${JSON.stringify(batch.map(d => ({
       {
         userId,
         feature: 'optimus-tool-call',
-        model: 'gemini-2.0-flash',
+        model: 'gemini-3.5-flash-lite',
         provider: 'google',
         category: 'llm',
         metadata: { tool: 'ransomware_readiness', step: 'ai_evaluation' },
       },
       async () => {
         const response = await fetch(
-          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey },
             body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { temperature: 0.1, maxOutputTokens: 4000, responseMimeType: 'application/json' },
+              generationConfig: { maxOutputTokens: 4000, responseMimeType: 'application/json' },
             }),
           }
         );
@@ -231,20 +231,20 @@ Return ONLY valid JSON with keys "executive_summary" and "recommendations" (both
       {
         userId,
         feature: 'optimus-tool-call',
-        model: 'gemini-2.0-flash',
+        model: 'gemini-3.5-flash-lite',
         provider: 'google',
         category: 'llm',
         metadata: { tool: 'ransomware_readiness', step: 'summary_and_recommendations' },
       },
       async () => {
         const response = await fetch(
-          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey },
             body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { temperature: 0.3, maxOutputTokens: 3000, responseMimeType: 'application/json' },
+              generationConfig: { maxOutputTokens: 3000, responseMimeType: 'application/json' },
             }),
           }
         );

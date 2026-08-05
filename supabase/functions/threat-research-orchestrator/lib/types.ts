@@ -10,7 +10,10 @@ export type ResearchInputClassification =
 
 export type ResearchAgent =
   | 'orchestrator' | 'preflight'
-  | 'research' | 'attack-researcher' | 'planner' | 'detection-engineer' | 'qa';
+  // 'dossier' is retained only for events written during the short-lived
+  // 2026-07-29 rollout. New sessions emit research + attack-researcher.
+  | 'dossier' | 'research' | 'attack-researcher'
+  | 'planner' | 'detection-engineer' | 'qa';
 
 export type ResearchEventType =
   | 'agent_started' | 'agent_iteration' | 'agent_tool_call' | 'agent_narration'
@@ -18,6 +21,12 @@ export type ResearchEventType =
   | 'preflight_started' | 'preflight_completed'
   | 'behaviour_created' | 'opportunity_created' | 'detection_generated'
   | 'qa_verdict' | 'qa_refinement_started' | 'qa_refinement_completed'
+  /** A QA revision failed deterministic revalidation, so the earlier version
+   *  stayed active. Emitted because shipping v1 while the version tab says v2
+   *  is the answer must be visible, not inferred. `event_type` has no CHECK
+   *  constraint (only `agent` does -- the 'dossier' lesson), so this needs no
+   *  migration; `agent: 'qa'` is already permitted. */
+  | 'qa_revision_rejected'
   | 'session_completed' | 'session_cancelled' | 'session_failed' | 'job_failed'
   | 'tool_call' | 'tool_cache_hit'
   | 'library_match_found' | 'attack_research_completed'
@@ -99,31 +108,43 @@ export interface ResearchSubject {
 }
 
 export interface PreflightSummary {
-  /** Number of detections in the user's library whose hybrid (vector +
-   *  keyword) match against the raw input scored above the floor. NOT a
-   *  coverage measure — these are just detections that are TEXTUALLY similar
-   *  to the input. Surfaced informationally so the user knows the library
-   *  has *something* in this neighbourhood. */
+  /** ALWAYS 0. VESTIGIAL — read nothing into it.
+   *
+   *  This once counted library detections textually similar to the raw input.
+   *  The search was removed (see the preflight.ts header) because at phase 0
+   *  there are no behaviours to match against and no similarity floor, so the
+   *  number was noise wearing the costume of a measurement.
+   *
+   *  Kept only so the 31 persisted sessions still parse. A meaningful early
+   *  coverage inventory has to run AFTER research, where behaviours exist to
+   *  match on; it is not this field. Do not populate it to make a UI look
+   *  informed — 0 is the honest value for a search that does not happen. */
   library_hits: number;
-  /** Distinct MITRE technique IDs MENTIONED in the matching library
-   *  detections' tags. Does NOT mean the user has coverage of those
-   *  techniques — a low-quality or archived detection mentioning T1059 is
-   *  still mentioned here. UI must label this honestly ("mentioned in
-   *  matching detections", not "covered"). */
+  /** ALWAYS []. VESTIGIAL — see library_hits. */
   techniques_seen_in_hits: string[];
   skipped: boolean;
   ran_at: string;
 }
 
 /** When the Detection Engineer finds an existing detection in the user's
- *  library that already covers a behaviour (combined_score >= 0.6 by default;
- *  THREAT_RESEARCH_LIBRARY_MATCH_THRESHOLD overrides), it sets `library_match`
- *  on the behaviour and skips generation entirely. The UI renders the leaf
- *  with a sage-green glow and a link to the existing detection. */
+ *  library for an opportunity (score threshold plus MITRE overlap), the leaf
+ *  is pointed at that rule via `saved_detection_id` and generation is skipped.
+ *  Status and language affect the coverage label, not the reuse decision. */
 export interface LibraryMatch {
   existing_detection_id: string;
   name: string;
   query_language: string;
+  /** Lifecycle status of the matched library detection ('Production', 'Draft',
+   *  'Deprecated', ...). DISPLAY ONLY — it tells the user where the rule lives
+   *  and feeds the 'covered' vs 'partial' label, but it never decides whether
+   *  the technique-matched rule is reused. */
+  status: string;
+  /** The existing rule's query body, so a reused leaf can render the actual
+   *  rule instead of an empty code block. Empty when the row has no query. */
+  detection_query: string;
+  /** Technique ids on the existing rule. Reuse requires overlap with the
+   *  canonical opportunity when that opportunity is mapped. */
+  mitre_technique_ids: string[];
   combined_score: number;
   semantic_score: number;
   keyword_score: number;
@@ -146,11 +167,41 @@ export interface QaIteration {
   diff_from_previous: string | null;
 }
 
+export type ResearchSeverity = 'Critical' | 'High' | 'Medium' | 'Low' | 'Informational';
+export type ResearchDetectionType = 'Detection' | 'Hunting';
+
+/** QA's proposed correction to a detection's CLASSIFICATION, as opposed to its
+ *  query.
+ *
+ *  The rubric has always asked QA two questions it had no way to answer: is
+ *  this really a Detection or a Hunt, and is the severity right. With only a
+ *  verdict and a prose concerns array to answer in, the single channel that
+ *  actually changed anything was `fail` -- which spends a generation rewriting
+ *  a query whose only defect was the label attached to it. Session 30afda88
+ *  did exactly that to an `ago(30d)` retro-hunt: the query was correct, the
+ *  lookback made it unschedulable, and the pipeline destroyed it rather than
+ *  calling it a hunt.
+ *
+ *  Both fields are optional and independently applied: QA may correct the type
+ *  without opining on severity. Values are clamped to these unions server-side
+ *  at parse time (validateQaResult), so an unrecognised string is dropped
+ *  rather than written onto the detection. */
+export interface QaMetadataPatch {
+  suggested_detection_type?: ResearchDetectionType;
+  suggested_severity?: ResearchSeverity;
+}
+
 export interface QaResult {
   verdict: QaVerdict;
   coverage_quality: QaCoverageQuality;
   concerns: string[];
   suggested_changes: string[];
+  /**
+   * Reclassification QA proposes instead of failing the query. Null when QA
+   * had nothing to correct, or when the model emitted values outside the
+   * enums. Optional so the sessions persisted before this contract still load.
+   */
+  metadata_patch?: QaMetadataPatch | null;
   /**
    * The id of an existing library or research detection this candidate
    * duplicates. NEVER set by the QA agent — dedup is the responsibility of
@@ -171,6 +222,59 @@ export interface QaResult {
   iteration_count: number;
 }
 
+/** One candidate query for a detection.
+ *
+ *  Detections used to hold a single mutable `query`. When QA returned `fail`
+ *  the engineer's revision REPLACED it, with no second critique and only a
+ *  fenced-block parser between the model and the shipped artefact. A wrong
+ *  fail therefore destroyed the better detector, irreversibly.
+ *
+ *  The realistic case is not exotic. A broad, useful primitive --
+ *
+ *    DeviceProcessEvents | where FileName =~ "mshta.exe"
+ *    | where ProcessCommandLine has_any ("http://", "https://")
+ *
+ *  -- can be "improved" into remote-MSHTA AND explorer parent AND PowerShell
+ *  child AND network event. Higher fidelity, and it now detects exactly one
+ *  ClickFix chain while missing generic remote MSHTA abuse. The original was
+ *  the better detection primitive and there was no way back to it.
+ *
+ *  Both are kept now, and the analyst chooses. Automatic QA revision is a
+ *  PROPOSAL, never a destructive overwrite. */
+export interface DetectionCandidateVersion {
+  /** 1-based. Version 1 is always the engineer's initial generation. */
+  version: number;
+  query: string;
+  source: 'generated' | 'qa_revision';
+  created_at: string;
+  /** The verdict that prompted this version. Null on version 1, which
+   *  predates any critique. */
+  prompted_by_verdict?: QaVerdict | null;
+  /** Result of re-running the DETERMINISTIC validators against this body.
+   *
+   *  This exists because a QA revision used to ship with no second check of any
+   *  kind, and it became the active version automatically. So the body that
+   *  reached the analyst was the one nothing had ever validated, while the body
+   *  that HAD been validated sat behind a tab. A wrong `fail` could therefore
+   *  replace a working query with a broken one and nothing would notice.
+   *
+   *  Deterministic only -- unknown schema columns, Sigma syntax. Not a model
+   *  opinion: re-critiquing with a model would cost another call per revision
+   *  and could not be trusted to be right about the thing it just got wrong. */
+  validation?: CandidateValidation | null;
+}
+
+/** Outcome of the deterministic checks for one candidate body. */
+export interface CandidateValidation {
+  /** Whether the checks actually ran. False on the 31 legacy sessions and
+   *  wherever no validator was wired, so "no problems" is never confused with
+   *  "not looked at". */
+  checked: boolean;
+  /** Problems that can be recomputed from the query text plus the schema.
+   *  Empty means clean. */
+  problems: string[];
+}
+
 export interface GeneratedDetection {
   id: string;
   name: string;
@@ -181,8 +285,11 @@ export interface GeneratedDetection {
   /** Subset of mitre_technique_ids that aren't in mitre_techniques. UI flags. */
   unverified_mitre_ids: string[];
   tactic: MitreTacticName;
-  suggested_severity: 'Critical' | 'High' | 'Medium' | 'Low' | 'Informational';
-  suggested_detection_type: 'Detection' | 'Hunting';
+  /** Named aliases rather than inline unions so QaMetadataPatch is provably
+   *  assignable here: a reclassification QA proposes cannot drift out of the
+   *  set of values the detection can actually hold. */
+  suggested_severity: ResearchSeverity;
+  suggested_detection_type: ResearchDetectionType;
   feasibility: FeasibilityVerdict;
   feasibility_notes: string;
   citations: ResearchCitation[];
@@ -199,8 +306,84 @@ export interface GeneratedDetection {
    *  This is a pipeline state, not a detection-quality verdict. Don't conflate
    *  with qa.verdict='fail'. */
   qa_error: string | null;
+  /** True when QA returned `fail` and the engineer applied its suggested
+   *  changes. The `qa` block still holds the ORIGINAL failing verdict -- that
+   *  is the last judgement anything actually made, and inventing a passing one
+   *  would be fabrication -- but it no longer describes the query that
+   *  shipped. This flag marks that gap so the detection derives as
+   *  `revised_unverified` / `needs_review` rather than being read as broken
+   *  and then excluded from the session's usable count: punished twice for
+   *  having been repaired. */
+  revised_after_fail?: boolean | null;
+  /** Every candidate query produced for this detection, oldest first. A
+   *  revision APPENDS; it never overwrites. Optional so the 31 sessions
+   *  persisted before versioning still load. */
+  candidate_versions?: DetectionCandidateVersion[];
+  /** Which version `query` currently mirrors. Readers that only understand
+   *  `query` keep working unchanged; readers that understand versions can
+   *  offer the analyst the alternative. */
+  active_version?: number;
+  /** Set by the finalise cross-opportunity dedup pass when this detection is a
+   *  semantic duplicate of another AND has no `qa` block to annotate. The
+   *  duplicate signal has to live somewhere that is not `qa`, because
+   *  synthesising a qa block here would mean inventing a verdict the QA agent
+   *  never gave — which the UI then renders as if QA had passed the detection.
+   *  When `qa` IS present, the duplicate is recorded on `qa.duplicate_of`
+   *  instead. Readers should check both. */
+  duplicate_of?: string | null;
+  /** A library detection that scored above the match threshold but did NOT
+   *  count as coverage, so generation went ahead anyway. Persisted on the leaf
+   *  (rather than left in the event log) so the detail card can explain why the
+   *  user is looking at a freshly-written query when their library already has
+   *  something adjacent. Null/absent when there was no near-match. */
+  library_near_match?: LibraryNearMatch | null;
   saved_detection_id: string | null;
+  /** True when `saved_detection_id` was set by the reuse-first short-circuit
+   *  (Amendment 1) pointing this leaf at an existing library rule, rather
+   *  than by the user saving a freshly-generated detection this session.
+   *  Distinguishes "already had this" from "you just saved this" — without
+   *  it the UI's "Saved to library as a Draft" banner is wrong for a reused
+   *  Production/Testing rule the user never touched. Optional for back-
+   *  compat with sessions persisted before this field existed. */
+  reused_from_library?: boolean;
   archived: boolean;
+  /** Findings from the deterministic (non-LLM) validators run after
+   *  generation: telemetry-feasibility, sigma-syntax, citation-check. Keyed
+   *  by validator name, value is a human-readable finding string. Absent or
+   *  empty means all validators ran clean (or didn't apply to this
+   *  detection's query_language). Advisory only — never blocks a detection
+   *  from shipping. */
+  validator_findings?: Record<string, string>;
+}
+
+/** Why a scoring library match was not treated as coverage.
+ *
+ *  CURRENTLY UNREACHABLE. Under reuse-first (Amendment 1) every match above
+ *  the threshold is reused, so no near-match is ever constructed. The type is
+ *  retained because sessions persisted before that change still carry
+ *  `library_near_match` on their leaves and the UI must keep rendering them. */
+/** Why a library hit did not replace generating a new detection. All four
+ *  are shown to the user, because "there is a rule for this but it is a Draft"
+ *  and "there is a rule for this but it is written in SPL" are different
+ *  problems with different fixes. */
+export type LibraryNearMatchReason =
+  | 'not_deployed'
+  | 'language_mismatch'
+  | 'no_query_body'
+  | 'technique_mismatch'
+  /** Right technique, deployed, runnable here -- but it watches different
+   *  telemetry, so it covers a different detection surface. */
+  | 'different_observables';
+
+export interface LibraryNearMatch {
+  existing_detection_id: string;
+  name: string;
+  status: string;
+  query_language: string;
+  combined_score: number;
+  skipped_reason: LibraryNearMatchReason;
+  /** The session's target query language, for rendering "yours is KQL". */
+  target_language: string;
 }
 
 export interface DetectionOpportunity {
@@ -289,8 +472,8 @@ export interface AttackBehaviour {
    *  from a sourced one downstream. */
   unsourced: boolean;
 
-  /** The Attack Researcher's per-behaviour offensive deep dive. Filled by
-   *  Phase 2 (one Attack Researcher invocation per behaviour). */
+  /** The per-behaviour offensive deep dive. Filled by the Attack Researcher
+   *  phase, one independently budgeted invocation per behaviour. */
   deep_dive: AttackResearchDeepDive | null;
 
   /** When set, the user's library already covers this behaviour and the

@@ -14,8 +14,10 @@ You will need:
 
 - A **Supabase project** — the free tier is fine ([dashboard](https://supabase.com/dashboard)).
 - A **Gemini API key** for the full AI experience. Optimus uses Gemini for
-  embeddings and semantic search; OpenAI and Anthropic can be added as optional
-  generation providers.
+  embeddings and semantic search.
+- An **Anthropic API key** if you want Threat Research or Detection Finetuning —
+  both run on Anthropic models. OpenAI can be added as an optional generation
+  provider.
 - Command-line tools: **Bun** (≥ 1.3), the **Supabase CLI**, and the Postgres client **`psql`**.
 
 Install the tools:
@@ -120,7 +122,6 @@ Set your project URL and anon key (from step 2):
 ```env
 VITE_SUPABASE_URL=https://YOUR_REF.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
-VITE_APP_ENV=development
 ```
 
 ---
@@ -131,33 +132,56 @@ VITE_APP_ENV=development
 bun run setup
 ```
 
-This links your project, applies [`supabase/schema.sql`](supabase/schema.sql),
-deploys all **19 edge functions**, and prints the exact secrets command. When it
-asks for your **database connection string**, paste the URI from step 2.
+This is the single end-to-end installer. It walks through eight steps and
+tells you exactly what happened at each one:
 
-Non-interactive (CI / scripts): export `SUPABASE_DB_URL="postgresql://..."` first
-and the prompt is skipped entirely.
+1. checks prerequisites (bun, Supabase CLI, psql)
+2. reads `.env.local` and asks for your **database connection string** (the URI from step 2)
+3. links your Supabase project
+4. applies [`supabase/schema.sql`](supabase/schema.sql) — 62 tables, RLS policies,
+   functions, triggers, the realtime publication, seed data (CI-verified to
+   apply on an empty database)
+5. deploys all **19 edge functions**
+6. sets your edge-function secrets — prompts for your Gemini / Anthropic keys
+   (Enter to skip any) and **auto-generates** `INTEGRATION_ENCRYPTION_KEY`
+7. enables **Threat Research & background automation** — asks for your
+   service-role key, stores it in Supabase Vault, and schedules the pg_cron
+   jobs (see step 6a below for why this matters)
+8. runs the install doctor (`bun run setup:check`) and prints a per-step
+   summary: what completed, what was skipped, what failed and how to fix it
 
-Result: 62 tables, RLS policies, functions, triggers, the realtime publication,
-and seed data — a schema that's CI-verified to apply on an empty database.
+**Safe to re-run.** Every step detects what is already done and skips it — if
+something fails halfway (network, wrong connection string, missing key), fix
+it and run `bun run setup` again; only the missing pieces are redone. Secrets
+that are already set are never overwritten, and an existing
+`INTEGRATION_ENCRYPTION_KEY` is never regenerated.
+
+Non-interactive (CI / scripts): export `SUPABASE_DB_URL="postgresql://..."`
+(plus optionally `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, and
+`SUPABASE_SERVICE_ROLE_KEY`) and every prompt is skipped.
 
 Prefer to run the steps by hand?
 ```bash
 supabase link --project-ref YOUR_REF
 psql "YOUR_DB_CONNECTION_STRING" -v ON_ERROR_STOP=1 -f supabase/schema.sql
 supabase functions deploy
+# then: secrets (step 6) and background automation (step 6a)
 ```
 
 > **`schema.sql` targets a Supabase database.** It relies on objects Supabase
 > provisions for every project — the `auth` schema, the `anon` / `authenticated`
 > / `service_role` roles, and the `supabase_realtime` publication. Applying it to
 > a plain (non-Supabase) Postgres fails with `ERROR: schema "auth" does not exist`.
-> Point it at a Supabase project. (The `supabase/migrations/` folder is historical
-> reference only — `schema.sql` is the single source of truth.)
+> Point it at a Supabase project. `schema.sql` is the single source of truth for
+> fresh databases; `bun run setup` also applies the forward migrations needed by
+> existing installations.
 
 ---
 
 ## 6. Set edge-function secrets
+
+> `bun run setup` (step 6) already prompts for these and sets them for you —
+> use this section as a reference, or to add/change secrets later.
 
 At minimum for the full core experience, set Gemini plus an encryption key:
 
@@ -181,10 +205,11 @@ supabase secrets set `
 | Secret | Required | Purpose |
 |---|---|---|
 | `GEMINI_API_KEY` | yes | Gemini generation plus embeddings / semantic search |
-| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | optional | alternate generation providers |
-| `INTEGRATION_ENCRYPTION_KEY` | yes (for SIEM integrations) | AES-GCM key for stored credentials — generate with `bun -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` |
-| `TAVILY_API_KEY` | optional | threat-intel web search |
-| `FINETUNE_AGENT_ID` / `FINETUNE_ENVIRONMENT_ID` | optional | managed-agent detection finetuning; create them with `ANTHROPIC_API_KEY=... bun scripts/setup-finetune-agent.ts` |
+| `ANTHROPIC_API_KEY` | yes, for Threat Research + Detection Finetuning | powers every Threat Research agent and the managed finetuning agent; also usable as a generation provider. Without it those two features return errors / never start. |
+| `INTEGRATION_ENCRYPTION_KEY` | yes (for SIEM integrations) | AES-GCM key for stored credentials — `bun run setup` generates it; **never rotate it once integrations are stored** |
+| `OPENAI_API_KEY` | optional | alternate generation provider |
+| `TAVILY_API_KEY` | optional | web search for Threat Research + the agent's `web_search` tool (degrades gracefully if unset) |
+| `FINETUNE_AGENT_ID` / `FINETUNE_ENVIRONMENT_ID` | optional | managed-agent detection finetuning — see [Detection Finetuning](#6b-optional-detection-finetuning-hosted-agent) below |
 | `RESEND_API_KEY` / `DEMO_NOTIFY_EMAIL` | optional | demo-request notification emails |
 | `ALLOWED_ORIGINS` / `SITE_URL` | optional | CORS allowlist + email links |
 
@@ -192,6 +217,71 @@ supabase secrets set `
 auto-injected into edge functions by Supabase — do **not** set them yourself. The
 CLI rejects any secret name starting with `SUPABASE_` ("Env name cannot start with
 SUPABASE_"), so there is nothing to do here.
+
+> **Deploying a fork publicly?** `supabase/config.toml` auth settings only apply
+> to the local Docker stack — they are **not** pushed to your hosted project.
+> Set your app's URL under **Authentication → URL Configuration** in the
+> dashboard, and add your origin to the `ALLOWED_ORIGINS` secret.
+
+---
+
+## 6a. Threat Research & background automation
+
+**Required for the Threat Research feature** — this is the most commonly missed
+step. When you start a research session, the app dispatches its agent jobs
+through `pg_net`, authenticating with a service-role key stored in **Supabase
+Vault**; a pg_cron dispatcher recovers any dispatch that fails. If Vault and
+the cron jobs aren't configured, sessions sit at *pending* forever with no
+error message.
+
+`bun run setup` (step 7) configures all of it when you paste your service-role
+key (Dashboard → Settings → API → `service_role`). To do it by hand instead,
+open [`supabase/optional-scheduled-jobs.sql`](supabase/optional-scheduled-jobs.sql),
+fill in your project ref and service-role key, and run it in the Supabase SQL
+Editor.
+
+What it sets up:
+
+- `pg_cron` + `pg_net` extensions
+- Vault secrets `tr_supabase_url` / `tr_service_role_key`
+- the `app.settings.*` database settings used by some auto-digest paths
+- four cron jobs: `threat-research-dispatcher` (every minute),
+  `auto-digest-watchdog`, `auto-digest-scheduler`, `ai_usage_rollup`
+
+Threat Research also needs the `ANTHROPIC_API_KEY` secret (step 6). The
+scheduled auto-digest and AI-usage rollup parts are genuinely optional — manual
+"Run Now" digests work without them.
+
+`bun run setup:check` verifies all of this and warns if anything is missing.
+
+---
+
+## 6b. Optional: Detection Finetuning (hosted agent)
+
+Detection Finetuning runs on an **Anthropic Managed Agent** (a hosted agent on
+Anthropic's infrastructure) that investigates noisy Microsoft Defender XDR
+detections and returns measured refinement ladders. It is optional, and it has
+real prerequisites — skip this section unless you use Defender XDR:
+
+1. **An Anthropic API key with Managed Agents access** (`managed-agents` beta).
+   Set it as the `ANTHROPIC_API_KEY` secret (step 6).
+2. **Provision the agent once:**
+   ```bash
+   ANTHROPIC_API_KEY=... bun scripts/setup-finetune-agent.ts
+   ```
+   Use the **same** Anthropic account/key as the secret — the edge function
+   creates sessions on that account. The script prints two IDs; set them:
+   ```bash
+   supabase secrets set FINETUNE_AGENT_ID=... FINETUNE_ENVIRONMENT_ID=...
+   ```
+   > The script is **not idempotent**: re-running it creates a second agent and
+   > environment under the same names. If a run fails partway, delete the
+   > orphaned resources in the Anthropic console before retrying.
+3. **A connected Microsoft Defender XDR integration** (in-app: SIEM → add
+   Defender XDR), which itself requires `INTEGRATION_ENCRYPTION_KEY` (step 6).
+   The agent measures its query refinements against your Defender tenant's
+   Advanced Hunting data — without a Defender integration the feature has
+   nothing to run against.
 
 ---
 
@@ -226,11 +316,12 @@ the first account yourself:
 ## 8. Verify
 
 ```bash
-bun run setup:check   # env, Supabase reachability, deployed functions
+bun run setup:check   # env, Supabase reachability, deployed functions, secrets
 ```
 
-For the deep schema checks (table counts, extensions, seed, MITRE import), pass
-your connection string so it can query the database directly:
+For the deep checks (table counts, extensions, seed, MITRE import, and the
+Threat Research plumbing — Vault secrets + cron jobs), pass your connection
+string so it can query the database directly:
 
 ```bash
 SUPABASE_DB_URL="postgresql://..." bun run setup:check
@@ -251,11 +342,6 @@ bun run test
 bun run build
 ```
 
-> **Optional — background automation.** To enable scheduled processing (AI-usage
-> rollups, threat-research dispatch, auto-digest), apply
-> [`supabase/optional-scheduled-jobs.sql`](supabase/optional-scheduled-jobs.sql)
-> after filling in your own project ref and service-role key.
-
 ---
 
 ## Troubleshooting
@@ -272,3 +358,7 @@ bun run build
 | `secrets set` says `Env name cannot start with SUPABASE_` | Expected — `SUPABASE_*` values are auto-injected into edge functions. Don't set them (step 6). |
 | Browser console: CORS error calling `functions/v1/...` | The app is running on an origin outside the default allowlist (`localhost:5173`, `localhost:3000`, `127.0.0.1:5173`). Add yours: `supabase secrets set ALLOWED_ORIGINS=http://your-origin`. |
 | `supabase login` impossible (headless/CI) | Export `SUPABASE_ACCESS_TOKEN=sbp_...` (personal access token) instead — see step 1. |
+| Threat Research session stuck at *pending* forever | The background-automation step was skipped: Vault secrets / pg_net / the dispatcher cron are missing (step 6a). Re-run `bun run setup` and provide your service-role key, then check with `bun run setup:check`. Also confirm the `ANTHROPIC_API_KEY` secret is set. |
+| Detection Finetuning returns "Finetuning agent is not provisioned" | `FINETUNE_AGENT_ID` / `FINETUNE_ENVIRONMENT_ID` secrets not set — run the provisioning script (step 6b). |
+| Detection Finetuning 500s with agent IDs set | `ANTHROPIC_API_KEY` secret missing, or set to a key from a *different* Anthropic account than the one that provisioned the agent, or the account lacks Managed Agents (beta) access. A working Defender XDR integration is also required. |
+| Setup died halfway — is it safe to re-run? | Yes. `bun run setup` skips completed steps (applied schema, existing secrets, deployed functions) and only redoes what's missing. If the *schema apply* itself failed partway, reset the database (Dashboard → Settings → Database → Reset) and re-run. |

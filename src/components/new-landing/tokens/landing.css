@@ -310,6 +310,64 @@
   animation: shake-error 0.5s ease-in-out;
 }
 
+/* ═══ Hero Flow Scene ═══ */
+
+@keyframes hfs-flow-dash {
+  to { stroke-dashoffset: -24; }
+}
+.landing-root .hfs-flow-line {
+  stroke-dasharray: 4 8;
+  animation: hfs-flow-dash 1.4s linear infinite;
+}
+
+@keyframes hfs-core-pulse {
+  0%, 100% { opacity: 0.92; }
+  50% { opacity: 1; filter: drop-shadow(0 0 14px rgba(120, 50, 100, 0.45)); }
+}
+.landing-root .hfs-core-pulse {
+  animation: hfs-core-pulse 3.4s ease-in-out infinite;
+}
+
+/* Floating capability panels — slow independent bob */
+@keyframes hfs-bob {
+  from { transform: translateY(0); }
+  to { transform: translateY(-9px); }
+}
+.landing-root .hfs-float {
+  animation: hfs-bob 5.5s ease-in-out infinite alternate;
+  transform-box: fill-box;
+}
+.landing-root .hfs-float-1 { animation-delay: 0s; }
+.landing-root .hfs-float-2 { animation-delay: 1.4s; animation-duration: 6.5s; }
+.landing-root .hfs-float-3 { animation-delay: 2.6s; animation-duration: 6s; }
+
+/* Lattice / surface-tile shimmer */
+@keyframes hfs-lattice {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+.landing-root .hfs-lattice-dot { animation: hfs-lattice 3.6s ease-in-out infinite; }
+.landing-root .hfs-lat-0 { animation-delay: 0s; }
+.landing-root .hfs-lat-1 { animation-delay: 0.9s; }
+.landing-root .hfs-lat-2 { animation-delay: 1.8s; }
+.landing-root .hfs-lat-3 { animation-delay: 2.7s; }
+
+@keyframes hfs-caption-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.landing-root .hfs-caption { animation: hfs-caption-in 0.5s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-root .hfs-flow-line,
+  .landing-root .hfs-core-pulse,
+  .landing-root .hfs-float,
+  .landing-root .hfs-lattice-dot,
+  .landing-root .hfs-caption {
+    animation: none;
+  }
+}
+
 /* custom scrollbar for mockups */
 .landing-root ::-webkit-scrollbar {
   width: 4px;

@@ -1,10 +1,27 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
 import { useToast } from '../../hooks/useToast';
-import { saveDetectionFromLeaf, archiveLeaf, unarchiveLeaf, completeQa } from '../../lib/threatResearchService';
+import { useSigmaConverter } from '../../hooks/useSigmaConverter';
+import { saveDetectionFromLeaf, archiveLeaf, unarchiveLeaf } from '../../lib/threatResearchService';
 import { routeHelpers } from '../../router/routes';
-import type { ThreatResearchSession, AttackBehaviour, DetectionOpportunity } from '../../types/threatResearch';
+import { Section, CitationList } from './shared';
+import type {
+  ThreatResearchSession, AttackBehaviour, DetectionOpportunity, LibraryNearMatch,
+  GeneratedDetection,
+} from '../../types/threatResearch';
+
+/** A few common conversion targets — not every backend SUPPORTED_BACKENDS
+ *  lists, just the ones a Sigma-output session is most likely to need.
+ *  `id` is the pysigma backend id (SigmaConverterService.convert's `target`
+ *  param), NOT the ResearchQueryLanguage the rest of this feature uses. */
+const SIGMA_CONVERT_TARGETS: { id: string; label: string }[] = [
+  { id: 'kusto',   label: 'KQL (Sentinel / Defender)' },
+  { id: 'splunk',  label: 'Splunk SPL' },
+  { id: 'lucene',  label: 'Elasticsearch (Lucene)' },
+  { id: 'eql',     label: 'Elasticsearch (EQL)' },
+  { id: 'esql',    label: 'Elasticsearch (ES|QL)' },
+];
 
 interface Props {
   session: ThreatResearchSession;
@@ -33,12 +50,25 @@ const FEASIBILITY_STYLE: Record<string, string> = {
 
 export function DetectionLeafCard({ session, behaviour, opportunity, onClose, onMutated }: Props) {
   const { showToast } = useToast();
-  const det = opportunity.detection;
+  const stored = opportunity.detection;
   const [busy, setBusy] = useState(false);
-  // Acknowledgement gate for saving a QA-failed detection. Resets when the
-  // user opens a different leaf because the component remounts.
-  const [confirmFailedSave, setConfirmFailedSave] = useState(false);
-
+  // Which candidate version the analyst has chosen, null = whatever the
+  // pipeline made active.
+  //
+  // This lives HERE rather than inside QueryVersions because it has to reach
+  // handleSave. When it was local to that component, picking v1 changed only
+  // what was displayed: the save still sent `det`, whose `query` mirrors the
+  // active version, so the analyst read v1, pressed Save, and stored v2. An
+  // affordance that looks like a choice and is not one is worse than no
+  // affordance.
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+  const det = useMemo<GeneratedDetection>(() => {
+    const versions = stored.candidate_versions ?? [];
+    if (selectedVersion === null || versions.length < 2) return stored;
+    const picked = versions.find(v => v.version === selectedVersion);
+    if (!picked) return stored;
+    return { ...stored, query: picked.query, active_version: picked.version };
+  }, [stored, selectedVersion]);
   // Resizable / collapsible panel state
   const [width, setWidth] = useState<number>(() => {
     const stored = typeof window !== 'undefined' ? Number(localStorage.getItem(PANEL_STORAGE_KEY)) : NaN;
@@ -121,19 +151,6 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
     }
   }
 
-  async function handleRetryQa() {
-    setBusy(true);
-    try {
-      const { enqueued } = await completeQa(session.id);
-      showToast('info', enqueued > 0 ? `Queued QA for ${enqueued} detection${enqueued === 1 ? '' : 's'}` : 'No QA work to queue');
-      onMutated();
-    } catch (e) {
-      showToast('error', e instanceof Error ? e.message : 'QA retry failed');
-    } finally {
-      setBusy(false);
-    }
-  }
-
   // Collapsed: just a thin rail with an expand button.
   if (collapsed) {
     return (
@@ -197,7 +214,14 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
         {det.saved_detection_id && (
           <div className="flex items-center gap-2 rounded-md bg-tertiary-container px-3 py-2 text-sm text-on-tertiary-container">
             <Icon name="check-circle" size={16} />
-            Saved to library as a Draft.
+            {det.reused_from_library
+              // reused_from_library means the reuse-first short-circuit
+              // pointed this leaf at an existing rule — no user action
+              // happened, and the rule may already be Production/Testing,
+              // not a Draft. The "Saved to library as a Draft" copy below
+              // is wrong for this case.
+              ? 'Already in your library — matched to an existing rule, not generated this session.'
+              : 'Saved to library as a Draft.'}
           </div>
         )}
 
@@ -207,10 +231,13 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
 
         <Section title="Verdict">
           <div className="flex flex-wrap items-center gap-2 text-xs">
+            {/* Sessions that ran before the QA agent was removed still carry a
+                verdict. It is shown as the historical record it is — nothing
+                writes one now, and nothing reads one to decide anything. */}
             {det.qa && (
               <>
                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${VERDICT_STYLE[det.qa.verdict]}`}>
-                  QA: {det.qa.verdict.replace(/_/g, ' ')}
+                  QA (archived): {det.qa.verdict.replace(/_/g, ' ')}
                 </span>
                 <span className="inline-flex items-center rounded-full bg-surface-variant px-2 py-0.5 font-medium text-on-surface-variant">
                   Coverage: {det.qa.coverage_quality}
@@ -231,12 +258,14 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
                 )}
               </>
             )}
-            {!det.qa && det.qa_error && (
+            {/* Semantic duplicate found by the finalise dedup pass. Recorded on
+                the detection, never on a synthesised verdict. */}
+            {det.duplicate_of && (
               <span
-                className="inline-flex items-center rounded-full bg-surface-variant px-2 py-0.5 font-medium text-on-surface-variant"
-                title={`QA pipeline did not produce a verdict (${det.qa_error}). The detection itself is still valid — retry to re-run QA.`}
+                className="inline-flex items-center rounded-full bg-tertiary-container px-2 py-0.5 font-medium text-on-tertiary-container"
+                title={`Semantic duplicate of detection ${det.duplicate_of} (fingerprint match across MITRE / telemetry / query tokens), found by the finalise dedup pass.`}
               >
-                QA: didn&apos;t run
+                Duplicate of {det.duplicate_of}
               </span>
             )}
             <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${FEASIBILITY_STYLE[det.feasibility]}`}>
@@ -252,6 +281,7 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
           {det.feasibility_notes && (
             <div className="mt-2 text-xs text-on-surface-variant">{det.feasibility_notes}</div>
           )}
+          {det.library_near_match && <LibraryNearMatchNote match={det.library_near_match} />}
           {det.qa && det.qa.concerns.length > 0 && (
             <div className="mt-3">
               <div className="mb-1 text-xs font-semibold text-on-surface">Concerns</div>
@@ -274,9 +304,11 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
         </Section>
 
         <Section title={`Query (${det.query_language})`}>
-          <pre className="overflow-x-auto rounded-md bg-surface-container-highest px-3 py-2.5 text-xs text-on-surface">
-            <code>{det.query}</code>
-          </pre>
+          <QueryVersions
+            det={stored}
+            selected={selectedVersion}
+            onSelect={setSelectedVersion}
+          />
         </Section>
 
         <Section title="MITRE">
@@ -325,16 +357,7 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
         </Section>
 
         <Section title="Citations">
-          <ul className="space-y-1.5">
-            {det.citations.length === 0
-              ? <li className="text-xs italic text-on-surface-variant">No citations.</li>
-              : det.citations.map((c, i) => (
-                <li key={i} className="text-xs">
-                  <a href={c.url} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">{c.source}</a>
-                  <span className="text-on-surface"> — {c.claim}</span>
-                </li>
-              ))}
-          </ul>
+          <CitationList citations={det.citations} />
         </Section>
 
         {det.covers_behaviour_ids.length > 1 && (
@@ -346,70 +369,36 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
         )}
       </div>
 
-      {/* Footer: QA-fail detections are guarded behind a confirmation toggle
-          rather than just disabled — analysts may legitimately want to save
-          a flagged detection for manual review. The default-off state stops
-          accidental ship of broken queries. */}
       <Footer
         det={det}
         busy={busy}
-        confirmFailedSave={confirmFailedSave}
-        setConfirmFailedSave={setConfirmFailedSave}
         onSave={handleSave}
         onArchive={handleArchive}
         onUnarchive={handleUnarchive}
-        onRetryQa={handleRetryQa}
       />
     </aside>
   );
 }
 
 function Footer({
-  det, busy, confirmFailedSave, setConfirmFailedSave, onSave, onArchive, onUnarchive, onRetryQa,
+  det, busy, onSave, onArchive, onUnarchive,
 }: {
   det: DetectionOpportunity['detection'];
   busy: boolean;
-  confirmFailedSave: boolean;
-  setConfirmFailedSave: (v: boolean) => void;
   onSave: () => void;
   onArchive: () => void;
   onUnarchive: () => void;
-  onRetryQa: () => void;
 }) {
-  const qaFailed = det.qa?.verdict === 'fail';
-  const qaMissing = !det.saved_detection_id && !det.qa;
-  const saveBlocked = (qaFailed && !confirmFailedSave) || qaMissing;
+  // Save is gated on nothing but the mechanics of saving.
+  //
+  // It used to be gated on a QA verdict existing, and on acknowledging a `fail`
+  // via a checkbox. With the QA agent removed `det.qa` is always null, so that
+  // first condition would have disabled Save permanently — turning "the user
+  // decides what to keep" into "the user can keep nothing". Deciding is the
+  // whole point of this panel: the query, its citations, the schema notes and
+  // any near-match are all on screen above.
   return (
     <div className="border-t border-outline-variant px-5 py-3">
-      {qaMissing && (
-        <div className="mb-2 flex items-start justify-between gap-3 rounded-md bg-surface-variant px-3 py-2 text-xs text-on-surface-variant">
-          <span>
-            <span className="font-medium text-on-surface">QA verdict required.</span>{' '}
-            {det.qa_error
-              ? `The QA pipeline stopped with ${det.qa_error}. Retry QA before saving.`
-              : 'QA is still pending. Wait for the verdict before saving.'}
-          </span>
-          {det.qa_error && (
-            <Button variant="tonal" color="primary" size="sm" onClick={onRetryQa} disabled={busy}>
-              Retry QA
-            </Button>
-          )}
-        </div>
-      )}
-      {qaFailed && !det.saved_detection_id && (
-        <label className="mb-2 flex items-start gap-2 text-xs text-on-surface-variant">
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={confirmFailedSave}
-            onChange={(e) => setConfirmFailedSave(e.target.checked)}
-          />
-          <span>
-            <span className="font-medium text-error">QA flagged this detection as failing.</span>{' '}
-            Review the concerns above before saving. Tick to acknowledge and enable Save.
-          </span>
-        </label>
-      )}
       <div className="flex items-center gap-2">
         {det.saved_detection_id ? (
           <Button
@@ -419,7 +408,7 @@ function Footer({
             View in Library
           </Button>
         ) : (
-          <Button onClick={onSave} disabled={busy || det.archived || saveBlocked}>
+          <Button onClick={onSave} disabled={busy || det.archived}>
             {busy ? 'Saving...' : 'Save to Library'}
           </Button>
         )}
@@ -433,11 +422,112 @@ function Footer({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+/** Convert-and-copy for Sigma-language detections. SigmaConverterService is
+ *  a Pyodide WASM worker — booting it loads a full Python + sigma-cli
+ *  runtime in-browser, which is real cost (several seconds) that shouldn't
+ *  happen just because a leaf card opened. useSigmaConverter() is only
+ *  called (and the worker only created) inside SigmaConvertRunner, which
+ *  itself only mounts after the user explicitly clicks Convert — the idle
+ *  state below never touches the hook. */
+function SigmaConvertSection({ query }: { query: string }) {
+  const [target, setTarget] = useState(SIGMA_CONVERT_TARGETS[0].id);
+  const [running, setRunning] = useState(false);
+
+  if (running) {
+    return (
+      <SigmaConvertRunner
+        query={query}
+        target={target}
+        targetLabel={SIGMA_CONVERT_TARGETS.find(t => t.id === target)?.label ?? target}
+        onDone={() => setRunning(false)}
+      />
+    );
+  }
+
   return (
-    <div>
-      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">{title}</div>
-      {children}
+    <div className="mt-2 flex items-center gap-2">
+      <select
+        value={target}
+        onChange={e => setTarget(e.target.value)}
+        className="rounded-md border border-outline-variant bg-surface px-2 py-1 text-xs text-on-surface"
+        aria-label="Convert target"
+      >
+        {SIGMA_CONVERT_TARGETS.map(t => (
+          <option key={t.id} value={t.id}>{t.label}</option>
+        ))}
+      </select>
+      <Button variant="outlined" size="sm" onClick={() => setRunning(true)}>
+        <Icon name="file-code" size={12} />
+        Convert &amp; Copy
+      </Button>
+    </div>
+  );
+}
+
+function SigmaConvertRunner({
+  query, target, targetLabel, onDone,
+}: {
+  query: string;
+  target: string;
+  targetLabel: string;
+  onDone: () => void;
+}) {
+  const { showToast } = useToast();
+  const { isReady, convert } = useSigmaConverter();
+  const startedRef = useRef(false);
+
+  useEffect(() => {
+    if (!isReady || startedRef.current) return;
+    startedRef.current = true;
+    (async () => {
+      const result = await convert(query, target);
+      if (!result || result.error) {
+        showToast('error', `Conversion to ${targetLabel} failed: ${result?.error ?? 'unknown error'}`);
+      } else {
+        try {
+          await navigator.clipboard.writeText(result.query);
+          showToast('success', `Converted to ${targetLabel} and copied to clipboard`);
+        } catch {
+          showToast('info', `Converted to ${targetLabel}, but clipboard write was blocked — check browser permissions`);
+        }
+      }
+      onDone();
+    })();
+  }, [isReady, convert, query, target, targetLabel, onDone, showToast]);
+
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      <Button variant="outlined" size="sm" disabled>
+        <Icon name="loader" size={12} className="animate-spin" />
+        {isReady ? 'Converting…' : 'Loading converter…'}
+      </Button>
+    </div>
+  );
+}
+
+/** Explains why a new query exists next to an adjacent library rule. The
+ *  library search deliberately matches across every status so near-matches
+ *  stay visible; only deployed rules in the session's language suppress
+ *  generation. Without this note the decision lived solely in the event log,
+ *  and the user just saw a duplicate-looking detection with no explanation. */
+function LibraryNearMatchNote({ match }: { match: LibraryNearMatch }) {
+  const isLanguage = match.skipped_reason === 'language_mismatch';
+  const reason = isLanguage
+    ? `it targets ${match.query_language || 'another SIEM'} and this session targets ${match.target_language}`
+    : `it is ${match.status || 'not deployed'}, so it isn't detecting anything yet`;
+  return (
+    <div className="mt-2 rounded-md border border-outline-variant bg-surface-container px-3 py-2 text-xs text-on-surface-variant">
+      <span className="font-medium text-on-surface">Not counted as coverage.</span>{' '}
+      Your library has{' '}
+      <a
+        href={`/library/detections/${match.existing_detection_id}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-medium text-primary hover:underline"
+      >
+        {match.name}
+      </a>{' '}
+      (similarity {match.combined_score.toFixed(2)}), but {reason}. A new detection was written instead.
     </div>
   );
 }
@@ -448,6 +538,85 @@ function Section({ title, children }: { title: string; children: React.ReactNode
  *  revisions and whether the revision actually addressed each concern.
  *  Hidden when there's ≤1 entry (only the initial QA pass with no
  *  revisions to compare against). */
+/** Query body, with the version history when QA revised it.
+ *
+ *  A QA `fail` triggers one engineer revision and no second critique. That
+ *  revision used to REPLACE the query, so a wrong fail silently destroyed the
+ *  better detector: a broad `mshta.exe` + http primitive becomes a four-
+ *  condition ClickFix-only query -- higher fidelity, far worse recall, and no
+ *  way back.
+ *
+ *  Both versions are kept now, so this shows both and lets the analyst read
+ *  QA's reasoning between them. The revision is a proposal; the choice is
+ *  theirs. Sessions persisted before versioning have no candidate_versions and
+ *  render exactly as before. */
+function QueryVersions({
+  det, selected, onSelect,
+}: {
+  det: GeneratedDetection;
+  /** null = show whatever the pipeline made active. Owned by the parent so the
+   *  choice reaches Save. */
+  selected: number | null;
+  onSelect: (version: number) => void;
+}) {
+  const versions = det.candidate_versions ?? [];
+
+  const active = det.active_version ?? (versions.length || 1);
+  const shown = selected ?? active;
+  const shownVersion = versions.find(v => v.version === shown);
+  const body = shownVersion?.query ?? det.query;
+  const shownValidation = shownVersion?.validation ?? null;
+
+  return (
+    <>
+      {versions.length > 1 && (
+        <div className="mb-2 flex flex-wrap items-center gap-1.5">
+          {versions.map(v => (
+            <button
+              key={v.version}
+              type="button"
+              onClick={() => onSelect(v.version)}
+              className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
+                v.version === shown
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-outline-variant text-on-surface-variant hover:text-on-surface'
+              }`}
+            >
+              v{v.version}
+              {v.source === 'generated' ? ' · original' : ' · QA revision'}
+              {v.version === active ? ' · active' : ''}
+              {v.validation?.checked && v.validation.problems.length > 0 ? ' · ✗' : ''}
+            </button>
+          ))}
+          <span className="text-[11px] text-on-surface-variant">
+            {shown === active
+              ? 'Saving stores this version.'
+              : `Saving stores v${shown}, not the active v${active}.`}
+          </span>
+        </div>
+      )}
+      {shownValidation?.checked && shownValidation.problems.length > 0 && (
+        <div className="mb-2 rounded-md border border-error/40 bg-error-container/40 px-2.5 py-1.5 text-[11px] text-on-error-container">
+          <span className="font-semibold">Schema check failed on this version:</span>{' '}
+          {shownValidation.problems.join('; ')}
+        </div>
+      )}
+      {versions.length > 1 && !shownValidation?.checked && (
+        <div className="mb-2 text-[11px] text-tertiary">
+          No schema is available for this product, so neither version was
+          re-checked. Compare them before saving.
+        </div>
+      )}
+      <pre className="overflow-x-auto rounded-md bg-surface-container-highest px-3 py-2.5 text-xs text-on-surface">
+        <code>{body}</code>
+      </pre>
+      {det.query_language === 'Sigma' && body.trim() && (
+        <SigmaConvertSection query={body} />
+      )}
+    </>
+  );
+}
+
 function RevisionHistory({
   history,
 }: {

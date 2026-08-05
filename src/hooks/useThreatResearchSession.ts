@@ -201,7 +201,13 @@ export function useThreatResearchSession(sessionId: string | null): UseThreatRes
     const pollHandle = setInterval(() => {
       if (cancelled || activeSessionRef.current !== sessionId) return;
       const current = statusRef.current;
-      if (current && (current === 'completed' || current === 'failed' || current === 'cancelled')) return;
+      // 'partial' is terminal too. Omitting it would leave the UI polling a
+      // finished session forever — the session ends, the work is done, and the
+      // page keeps hitting the database every interval with nothing to learn.
+      if (current && (
+        current === 'completed' || current === 'partial' ||
+        current === 'failed' || current === 'cancelled'
+      )) return;
       void refetch();
     }, POLL_INTERVAL_MS);
 

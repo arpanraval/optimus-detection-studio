@@ -9,9 +9,20 @@ import type {
   GeneratedDetection,
 } from '../types/threatResearch';
 
-export async function startThreatResearch(input_text: string): Promise<{ session_id: string }> {
+/** Start a research session.
+ *
+ *  `siem_platform` pins the output query language. Without it the orchestrator
+ *  resolves the language from the user's environment profile and falls back to
+ *  Sigma when there isn't one — silently, which is how first-time users ended
+ *  up with Sigma rules for a SIEM that can't run them. The New Research modal
+ *  requires a choice whenever the profile doesn't already resolve a SIEM.
+ *  Must be one of SIEM_TO_QUERY_LANGUAGES' keys; the server re-validates. */
+export async function startThreatResearch(
+  input_text: string,
+  siem_platform?: string,
+): Promise<{ session_id: string }> {
   const { data, error } = await supabase.functions.invoke('threat-research-orchestrator', {
-    body: { input_text },
+    body: siem_platform ? { input_text, siem_platform } : { input_text },
   });
   if (error) throw error;
   if (!data?.session_id) throw new Error('Failed to start research session');
@@ -25,9 +36,15 @@ export async function cancelThreatResearch(session_id: string): Promise<void> {
   if (error) throw error;
 }
 
-/** Re-run the Detection Engineer for one behaviour. Used by the "Retry"
+/** Re-run the Detection Engineer for ONE opportunity. Used by the "Retry"
  *  button on a failed leaf. Inserts a fresh detection job; handleDetection
- *  is idempotent and overwrites prior partial state. */
+ *  is idempotent and overwrites prior partial state.
+ *
+ *  `behaviour_id` must be the composite "{behaviour}/{opportunity}" leaf id.
+ *  The orchestrator rejects a bare behaviour id with a 400: a behaviour with
+ *  no opportunities can't be fixed here at all, because the missing artefact
+ *  is an opportunity and only the Opportunity Planner produces those — that
+ *  case needs resumeFailedSession instead. */
 export async function retryDetectionLeaf(session_id: string, behaviour_id: string): Promise<void> {
   const { error } = await supabase.functions.invoke('threat-research-orchestrator?action=retry_leaf', {
     body: { session_id, behaviour_id },
@@ -43,19 +60,6 @@ export async function resumeFailedSession(session_id: string): Promise<{ retried
   });
   if (error) throw error;
   return { retried: typeof data?.retried === 'number' ? data.retried : 0 };
-}
-
-/** Enqueue one qa-phase job per opportunity in this session that still has
- *  detection.qa==null. Each job runs critiqueDetection on a single
- *  opportunity and patches the verdict — no Tavily, bounded Anthropic cost,
- *  fits worker lifetime cleanly. Idempotent: safe to invoke multiple times,
- *  already-QA'ed opportunities are skipped. */
-export async function completeQa(session_id: string): Promise<{ enqueued: number }> {
-  const { data, error } = await supabase.functions.invoke('threat-research-orchestrator?action=complete_qa', {
-    body: { session_id },
-  });
-  if (error) throw error;
-  return { enqueued: typeof data?.enqueued === 'number' ? data.enqueued : 0 };
 }
 
 /** Cursor-paginated session list. Pass `before` = the created_at of the

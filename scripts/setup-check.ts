@@ -8,7 +8,8 @@
  *     reachable with your anon key.
  *   • Deep (if psql + SUPABASE_DB_URL are available): confirms the schema fully
  *     materialised — 62 tables, required extensions, the signup trigger, seed
- *     data, and whether the MITRE knowledge base has been imported.
+ *     data, whether the MITRE knowledge base has been imported, and the
+ *     Threat Research plumbing (pg_cron/pg_net, Vault secrets, cron jobs).
  *
  * Set SUPABASE_DB_URL to your connection string to enable the deep checks:
  *   SUPABASE_DB_URL="postgresql://..." bun run setup:check
@@ -41,6 +42,22 @@ function psqlScalar(dbUrl: string, query: string): string | null {
   const r = spawnSync('psql', [dbUrl, '-tAc', query], { encoding: 'utf8', timeout: 20_000 });
   if (r.status !== 0) return null;
   return (r.stdout || '').trim();
+}
+/** Parse `supabase ... list` output: prefers `-o json` (array or {secrets:[...]}), falls back to table rows. */
+function parseCliNames(stdout: string): Set<string> {
+  const names = new Set<string>();
+  const raw = (stdout || '').trim();
+  try {
+    const j = JSON.parse(raw);
+    const arr = Array.isArray(j) ? j : Array.isArray(j?.secrets) ? j.secrets : [];
+    for (const e of arr) if (typeof e?.name === 'string') names.add(e.name);
+    return names;
+  } catch { /* not JSON — fall through to table parsing */ }
+  for (const line of raw.split('\n')) {
+    const name = line.split(/[|│]/)[0]?.trim();
+    if (name && name !== 'NAME' && /^[A-Z][A-Z0-9_]*$/.test(name)) names.add(name);
+  }
+  return names;
 }
 
 async function main() {
@@ -80,6 +97,29 @@ async function main() {
     else if (Number(tables) === 62) pass('public tables', `${tables}/62`);
     else fail('unexpected table count', `${tables}, expected 62`);
 
+    const autoDigestColumns = psqlScalar(dbUrl, `
+      select count(*)
+        from information_schema.columns
+       where table_schema = 'public'
+         and table_name = 'auto_digest_jobs'
+         and column_name in ('active_entry_id', 'heartbeat_at')
+    `);
+    if (Number(autoDigestColumns) === 2) pass('auto-digest watchdog columns', 'active_entry_id + heartbeat_at');
+    else fail('auto-digest watchdog columns missing', `${autoDigestColumns ?? 0}/2 — run bun run setup`);
+
+    const watchdogDefinition = psqlScalar(dbUrl, `
+      select count(*)
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public'
+         and p.oid = 'public.auto_digest_watchdog()'::regprocedure
+         and pg_get_functiondef(p.oid) like '%active_entry_id%'
+         and pg_get_functiondef(p.oid) like '%heartbeat_at%'
+         and pg_get_functiondef(p.oid) like '%digest_failed%'
+    `);
+    if (Number(watchdogDefinition) === 1) pass('auto-digest watchdog function', 'heartbeat-aware recovery');
+    else fail('auto-digest watchdog function outdated', 'run bun run setup');
+
     const ext = psqlScalar(dbUrl, "select string_agg(extname,',' order by extname) from pg_extension where extname in ('vector','pg_trgm','pgcrypto','uuid-ossp')");
     if (ext && ['vector', 'pg_trgm', 'pgcrypto'].every((e) => ext.includes(e)))
       pass('required extensions', ext);
@@ -97,6 +137,24 @@ async function main() {
 
     const rt = psqlScalar(dbUrl, "select count(*) from pg_publication_tables where pubname='supabase_realtime'");
     if (Number(rt) >= 8) pass('realtime publication', `${rt} tables`); else warn('realtime tables missing', `${rt}/8`);
+
+    // ── Threat Research & background automation ──
+    // The in-app Threat Research feature dispatches jobs over pg_net using a
+    // service-role key stored in Vault. Without these, sessions stall in
+    // "pending" forever with no visible error.
+    head('Threat Research & automation');
+    const autoExt = psqlScalar(dbUrl, "select string_agg(extname,',' order by extname) from pg_extension where extname in ('pg_cron','pg_net')") ?? '';
+    if (autoExt.includes('pg_cron') && autoExt.includes('pg_net')) pass('pg_cron + pg_net enabled');
+    else warn('pg_cron/pg_net not enabled', `found: ${autoExt || 'none'} — run bun run setup (step 7) or supabase/optional-scheduled-jobs.sql`);
+
+    const vaultSecrets = psqlScalar(dbUrl, "select count(*) from vault.secrets where name in ('tr_supabase_url','tr_service_role_key')");
+    if (Number(vaultSecrets) === 2) pass('Vault secrets (tr_supabase_url, tr_service_role_key)');
+    else warn('Vault secrets missing — Threat Research sessions will stall in pending', `${vaultSecrets ?? 0}/2 — run bun run setup (step 7) or supabase/optional-scheduled-jobs.sql`);
+
+    const cronJobs = psqlScalar(dbUrl, "select count(*) from cron.job where jobname in ('ai_usage_rollup','threat-research-dispatcher','auto-digest-watchdog','auto-digest-scheduler','auto-digest-queue-consumer')");
+    if (Number(cronJobs) === 5) pass('scheduled jobs (dispatcher, watchdog, digest, rollup, queue)', '5/5');
+    else if (cronJobs === null) warn('cron jobs not readable (pg_cron missing?)', 'run bun run setup (step 7)');
+    else warn('scheduled jobs missing', `${cronJobs}/4 — Threat Research recovery + scheduled digests off; run bun run setup (step 7)`);
   }
 
   // ── Edge functions ──
@@ -104,13 +162,25 @@ async function main() {
   const supa = has('supabase') ? ['supabase', []] as const : has('npx', ['supabase']) ? ['npx', ['supabase']] as const : has('bunx', ['supabase']) ? ['bunx', ['supabase']] as const : null;
   if (!supa) warn('supabase CLI not found — skipping function check');
   else {
-    const r = spawnSync(supa[0], [...supa[1], 'functions', 'list'], { encoding: 'utf8', timeout: 15_000 });
+    const r = spawnSync(supa[0], [...supa[1], 'functions', 'list', '-o', 'json'], { encoding: 'utf8', timeout: 15_000 });
     if (r.error && (r.error as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
       warn('function check timed out', 'run `supabase functions list` after `supabase link`');
     } else if (r.status !== 0) warn('could not list functions', 'run `supabase link` first');
     else {
-      const deployed = (r.stdout || '').split('\n').filter((l) => /\S/.test(l)).length - 1; // minus header
+      const deployed = parseCliNames(r.stdout || '').size;
       if (deployed >= 19) pass('edge functions deployed', `${deployed}`); else warn('some edge functions not deployed', `${deployed}/19 — run \`supabase functions deploy\``);
+    }
+
+    const sr = spawnSync(supa[0], [...supa[1], 'secrets', 'list', '-o', 'json'], { encoding: 'utf8', timeout: 15_000 });
+    if (sr.status !== 0) warn('could not list edge-function secrets', 'run `supabase link` first');
+    else {
+      const names = parseCliNames(sr.stdout || '');
+      if (names.has('GEMINI_API_KEY')) pass('GEMINI_API_KEY set');
+      else warn('GEMINI_API_KEY not set', 'semantic search / playbooks / digest degraded — supabase secrets set GEMINI_API_KEY=...');
+      if (names.has('INTEGRATION_ENCRYPTION_KEY')) pass('INTEGRATION_ENCRYPTION_KEY set');
+      else warn('INTEGRATION_ENCRYPTION_KEY not set', 'SIEM integrations will not work — bun run setup generates one');
+      if (names.has('ANTHROPIC_API_KEY')) pass('ANTHROPIC_API_KEY set');
+      else warn('ANTHROPIC_API_KEY not set', 'Threat Research + Detection Finetuning need it — supabase secrets set ANTHROPIC_API_KEY=...');
     }
   }
 

@@ -6,33 +6,33 @@
  * User confirms what to import, then import begins.
  */
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Button } from '../ui/Button';
 import type { PreCheckSummary } from '../../services/bulk-import/types';
 
 interface ImportPreCheckProps {
   summary: PreCheckSummary;
   sourceName: string;
-  onConfirm: (config: {
-    importNetNew: boolean;
-    updateExisting: boolean;
-    forceUnchanged: boolean;
-  }) => void;
+  destinationLabel: string;
+  onConfirm: (config: { importNetNew: boolean; updateExisting: boolean; forceUnchanged: boolean }) => void;
   onCancel: () => void;
 }
 
 export function ImportPreCheck({
   summary,
   sourceName,
+  destinationLabel,
   onConfirm,
   onCancel,
 }: ImportPreCheckProps): React.JSX.Element {
   const [forceAll, setForceAll] = useState(false);
   const [visible, setVisible] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   // Trigger slide-up on mount
   useEffect(() => {
     const frame = requestAnimationFrame(() => setVisible(true));
+    dialogRef.current?.focus();
     return () => cancelAnimationFrame(frame);
   }, []);
 
@@ -48,7 +48,7 @@ export function ImportPreCheck({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onCancel]);
 
-  const actionCount = summary.netNew.length + summary.updatedUpstream.length;
+  const actionCount = summary.netNew.length;
   const unchangedCount = summary.unchanged.length;
   const rejectCount = summary.hardRejects.length;
 
@@ -66,7 +66,7 @@ export function ImportPreCheck({
   const handleConfirm = () => {
     onConfirm({
       importNetNew: true,
-      updateExisting: true,
+      updateExisting: false,
       forceUnchanged: forceAll,
     });
   };
@@ -78,10 +78,14 @@ export function ImportPreCheck({
         opacity: visible ? 1 : 0,
         transition: 'opacity 250ms ease-out',
       }}
-      onClick={onCancel}
       role="presentation"
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="import-precheck-title"
+        tabIndex={-1}
         className="max-w-md w-full mx-4 flex flex-col overflow-hidden bg-surface-container/80 backdrop-blur-xl rounded-xl border border-outline-variant/20 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
         style={{
@@ -92,16 +96,22 @@ export function ImportPreCheck({
       >
         {/* Header */}
         <div className="flex items-center gap-2 px-4 pt-3 pb-2 shrink-0">
-          <h3 className="text-[13px] font-medium text-on-surface">
+          <h3 id="import-precheck-title" className="text-[13px] font-medium text-on-surface">
             Import Pre-Check
           </h3>
           <span className="text-[10px] text-on-surface-variant">
-            {summary.totalScanned.toLocaleString()} scanned
+            {sourceName} · {summary.totalScanned.toLocaleString()} scanned
           </span>
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-4 pb-3" style={{ maxHeight: '40vh' }}>
+          <div className="mb-2 rounded-lg border border-tertiary/20 bg-tertiary-container/15 p-2">
+            <p className="text-[10px] font-medium text-on-surface">Destination: {destinationLabel}</p>
+            <p className="mt-0.5 text-[9px] text-on-surface-variant">
+              Imported vendor rules stay out of Production until they are reviewed and promoted.
+            </p>
+          </div>
           {/* Two-column grid */}
           <div className="grid grid-cols-2 gap-2 mb-2">
             <div className="p-2 rounded-lg bg-surface-container-high/50">
@@ -111,12 +121,14 @@ export function ImportPreCheck({
               <div className="flex flex-col gap-0.5">
                 <Row label="Net new" count={summary.netNew.length} indicator={<GreenCheck />} />
                 <Row
-                  label="Updated"
+                  label="Changed upstream"
                   count={summary.updatedUpstream.length}
                   indicator={<BlueArrow />}
-                  detail={Object.entries(updateFieldCounts)
-                    .map(([f, c]) => `${f} (${c})`)
-                    .join(', ') || 'Will update in-place'}
+                  detail={
+                    Object.entries(updateFieldCounts)
+                      .map(([f, c]) => `${f} (${c})`)
+                      .join(', ') || 'Skipped for review'
+                  }
                 />
                 <Row label="Unchanged" count={unchangedCount} indicator={<GraySkip />} />
               </div>
@@ -131,11 +143,14 @@ export function ImportPreCheck({
                 {summary.netNew.length > 0 && (
                   <Row
                     label="Quality warnings"
-                    count={summary.netNew.filter(r =>
-                      !r.incomingRule.mitreAttackIds?.length ||
-                      !r.incomingRule.description ||
-                      (r.incomingRule.description?.length || 0) < 20
-                    ).length}
+                    count={
+                      summary.netNew.filter(
+                        (r) =>
+                          !r.incomingRule.mitreAttackIds?.length ||
+                          !r.incomingRule.description ||
+                          (r.incomingRule.description?.length || 0) < 20,
+                      ).length
+                    }
                     indicator={<AmberWarning />}
                   />
                 )}
@@ -147,7 +162,7 @@ export function ImportPreCheck({
           {/* Info messages */}
           {unchangedCount > 0 && actionCount > 0 && (
             <p className="text-[10px] text-on-surface-variant mb-1">
-              {unchangedCount.toLocaleString()} identical skipped. {actionCount.toLocaleString()} need action.
+              {unchangedCount.toLocaleString()} identical skipped. {actionCount.toLocaleString()} net new ready.
             </p>
           )}
           {unchangedCount > 0 && actionCount === 0 && (
@@ -158,8 +173,12 @@ export function ImportPreCheck({
             </div>
           )}
           {rejectCount > 0 && (
+            <p className="text-[10px] text-on-surface-variant mb-1">{rejectCount} rejected (no detection query).</p>
+          )}
+          {summary.updatedUpstream.length > 0 && (
             <p className="text-[10px] text-on-surface-variant mb-1">
-              {rejectCount} rejected (no detection query).
+              {summary.updatedUpstream.length.toLocaleString()} existing rules changed upstream and will be skipped.
+              Review their differences before updating them.
             </p>
           )}
 
@@ -171,7 +190,7 @@ export function ImportPreCheck({
                   onClick={() => setForceAll(true)}
                   className="text-[10px] text-on-surface-variant hover:text-on-surface cursor-pointer transition-colors"
                 >
-                  Force import all {summary.totalScanned.toLocaleString()} including duplicates...
+                  Create duplicates for {unchangedCount.toLocaleString()} unchanged rules...
                 </button>
               ) : (
                 <div className="p-2 rounded-lg bg-error/5 border border-error/20">
@@ -183,7 +202,7 @@ export function ImportPreCheck({
                       Cancel
                     </Button>
                     <Button color="error" variant="text" size="sm" onClick={handleConfirm}>
-                      Import all {summary.totalScanned.toLocaleString()}
+                      Import {(actionCount + unchangedCount).toLocaleString()} rules
                     </Button>
                   </div>
                 </div>
@@ -202,7 +221,7 @@ export function ImportPreCheck({
               Import {actionCount.toLocaleString()} rules
             </Button>
           )}
-          {actionCount === 0 && unchangedCount > 0 && !forceAll && (
+          {actionCount === 0 && !forceAll && (
             <Button color="primary" variant="filled" size="sm" leadingIcon="check" onClick={onCancel}>
               Done
             </Button>
@@ -230,7 +249,13 @@ function BlueArrow() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0">
       <circle cx="7" cy="7" r="6" fill="rgba(59,130,246,0.15)" stroke="rgba(59,130,246,0.5)" strokeWidth="1" />
-      <path d="M5 9V5h4M5 5l4 4" stroke="rgb(59,130,246)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M5 9V5h4M5 5l4 4"
+        stroke="rgb(59,130,246)"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -247,7 +272,13 @@ function GraySkip() {
 function AmberWarning() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0">
-      <path d="M7 1.5L13 12H1L7 1.5z" fill="rgba(245,158,11,0.15)" stroke="rgba(245,158,11,0.5)" strokeWidth="1" strokeLinejoin="round" />
+      <path
+        d="M7 1.5L13 12H1L7 1.5z"
+        fill="rgba(245,158,11,0.15)"
+        stroke="rgba(245,158,11,0.5)"
+        strokeWidth="1"
+        strokeLinejoin="round"
+      />
       <path d="M7 6v2.5" stroke="rgb(245,158,11)" strokeWidth="1.5" strokeLinecap="round" />
       <circle cx="7" cy="10.5" r="0.75" fill="rgb(245,158,11)" />
     </svg>
@@ -281,9 +312,7 @@ function Row({
       <span className="text-[11px] text-on-surface">{count.toLocaleString()}</span>
       <span className="text-[11px] text-on-surface-variant truncate">{label}</span>
       {detail && (
-        <span className="text-[9px] text-on-surface-variant/70 truncate ml-auto hidden lg:block">
-          {detail}
-        </span>
+        <span className="text-[9px] text-on-surface-variant/70 truncate ml-auto hidden lg:block">{detail}</span>
       )}
     </div>
   );

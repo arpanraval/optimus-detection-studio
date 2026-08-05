@@ -1,15 +1,64 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '../Icon';
-import { CoverageImpactBadge } from './coverage/CoverageImpactBadge';
 import { ROUTES } from '../../router/routes';
 import type { ThreatResearchSession } from '../../types/threatResearch';
+import type { JobPhase } from '../../hooks/useThreatResearchJobs';
+
+export type ResearchView = 'canvas' | 'list' | 'research';
 
 interface Props {
   session: ThreatResearchSession;
-  view: 'canvas' | 'list';
-  onViewChange: (v: 'canvas' | 'list') => void;
+  view: ResearchView;
+  onViewChange: (v: ResearchView) => void;
+  /** Most-advanced phase with any job row, from useThreatResearchJobs.
+   *  Drives the "Phase X of 7" indicator. Undefined/null hides it — there's
+   *  nothing to show before the first job exists, or once a session has
+   *  already ended (its badge value would just be stale). */
+  currentPhase?: JobPhase | null;
 }
+
+/** Display stages in pipeline order — one entry per real job phase.
+ *  attack_research is a genuine fan-out phase (one job per behaviour); it is
+ *  load-bearing for staying under the edge-worker ceiling — see the
+ *  phase-progression note in lib/orchestrator.ts. */
+const PHASE_STAGES: { phases: JobPhase[]; label: string }[] = [
+  { phases: ['preflight'], label: 'Classifying input' },
+  { phases: ['research'], label: 'Researching the threat' },
+  { phases: ['attack_research'], label: 'Per-behaviour deep dive' },
+  { phases: ['opportunity_planning'], label: 'Planning detection opportunities' },
+  { phases: ['detection'], label: 'Writing detections' },
+  { phases: ['qa'], label: 'QA review' },
+  { phases: ['finalise'], label: 'Finalising' },
+];
+
+function stageIndex(phase: JobPhase | null | undefined): number {
+  if (!phase) return -1;
+  return PHASE_STAGES.findIndex(s => s.phases.includes(phase));
+}
+
+/** "Phase X of 7: <label>" chip. Only rendered while a session is still
+ *  actively progressing — see the render-site guard in ResearchHeader. */
+function PhaseIndicator({ phase }: { phase: JobPhase | null | undefined }) {
+  const idx = stageIndex(phase);
+  if (idx < 0) return null;
+  const stage = PHASE_STAGES[idx];
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary ring-1 ring-inset ring-primary/25"
+      title={`Phase ${idx + 1} of ${PHASE_STAGES.length}: ${stage.label}`}
+    >
+      <Icon name="loader" size={10} className="animate-spin" />
+      Phase {idx + 1}/{PHASE_STAGES.length} · {stage.label}
+    </span>
+  );
+}
+
+const VIEWS: { id: ResearchView; label: string; title: string }[] = [
+  { id: 'canvas',   label: 'Canvas',   title: 'Behaviour → opportunity → detection tree' },
+  { id: 'list',     label: 'List',     title: 'Every detection with its QA state' },
+  { id: 'research', label: 'Research', title: 'Threat profile, kill-chain walk and per-behaviour deep dives' },
+];
 
 const STATUS_STYLE: Record<string, string> = {
   pending:    'bg-on-surface/5 text-on-surface-variant ring-1 ring-inset ring-on-surface/10',
@@ -27,7 +76,7 @@ const CLASSIFICATION_LABEL: Record<string, string> = {
   concept:    'Concept',
 };
 
-export function ResearchHeader({ session, view, onViewChange }: Props) {
+export function ResearchHeader({ session, view, onViewChange, currentPhase }: Props) {
   const subject = session.tree.subject;
   const title = subject?.subject ?? session.input_text;
 
@@ -67,6 +116,9 @@ export function ResearchHeader({ session, view, onViewChange }: Props) {
                 {CLASSIFICATION_LABEL[session.input_classification] ?? session.input_classification}
               </span>
             )}
+            {(session.status === 'pending' || session.status === 'running') && (
+              <PhaseIndicator phase={currentPhase} />
+            )}
             {otherSiems.length > 0 && targetedSiem && (
               <span
                 className="inline-flex items-center gap-1 rounded-full bg-ext-amber/10 px-2 py-0.5 text-xs font-medium text-ext-amber ring-1 ring-inset ring-ext-amber/30"
@@ -76,7 +128,13 @@ export function ResearchHeader({ session, view, onViewChange }: Props) {
                 {targetedSiem} only · {otherSiems.length} uncovered
               </span>
             )}
-            <CoverageImpactBadge impact={session.coverage_impact} />
+            {/* CoverageImpactBadge is hidden until coverage_impact is real.
+                finalise writes a hardcoded `coverage_impact: 0` (see
+                lib/orchestrator.ts, the session-completion update), so the
+                badge has only ever rendered a placeholder — presented with the
+                same authority as the budget badges next to it. Showing "0%
+                coverage impact" for every session is worse than showing
+                nothing. Restore this when finalise computes the number. */}
             <BudgetBadge
               used={session.model_calls_used}
               cap={session.model_call_cap}
@@ -91,18 +149,17 @@ export function ResearchHeader({ session, view, onViewChange }: Props) {
         </div>
 
         <div className="inline-flex rounded-full border border-outline-variant bg-surface p-1">
-          <button
-            onClick={() => onViewChange('canvas')}
-            className={`rounded-full px-4 py-1 text-sm font-medium transition-colors ${view === 'canvas' ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:text-on-surface'}`}
-          >
-            Canvas
-          </button>
-          <button
-            onClick={() => onViewChange('list')}
-            className={`rounded-full px-4 py-1 text-sm font-medium transition-colors ${view === 'list' ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:text-on-surface'}`}
-          >
-            List
-          </button>
+          {VIEWS.map(v => (
+            <button
+              key={v.id}
+              onClick={() => onViewChange(v.id)}
+              title={v.title}
+              aria-pressed={view === v.id}
+              className={`rounded-full px-4 py-1 text-sm font-medium transition-colors ${view === v.id ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:text-on-surface'}`}
+            >
+              {v.label}
+            </button>
+          ))}
         </div>
       </div>
     </header>

@@ -39,6 +39,8 @@ import {
   ProcessingStage,
   DEFAULT_MODEL
 } from './lib/types.ts'
+import { DEFAULT_PROMPT_TEMPLATES } from './lib/default-prompts.ts'
+import { applyEvidenceQualityGate, actorHasAttributionEvidence, namesAreCompatible } from './lib/evidence-quality.ts'
 
 // =============================================================================
 // STAGE EXECUTION HELPER
@@ -112,8 +114,10 @@ serve(async (req: Request) => {
       options = {},
       retrySection,
       existingReport,
-      promptTemplates
+      promptTemplates: requestedPromptTemplates,
+      reportId: requestedReportId
     } = body
+    const promptTemplates = { ...DEFAULT_PROMPT_TEMPLATES, ...(requestedPromptTemplates ?? {}) }
 
     let supabaseClient
     let user: { id: string }
@@ -173,6 +177,30 @@ serve(async (req: Request) => {
 
     // For retry, we need either existing content or ability to re-fetch
     const isRetry = !!retrySection && !!existingReport
+    if (!isRetry && options.autoDigest !== true) {
+      const { data: digestSettings } = await supabaseClient
+        .from('auto_digest_settings')
+        .select('max_articles_per_day')
+        .eq('user_id', user.id)
+        .maybeSingle()
+      const dailyLimit = Math.max(1, Math.min(100, Number(digestSettings?.max_articles_per_day ?? 3)))
+      const { data: quotaGranted, error: quotaError } = await supabaseClient.rpc(
+        'reserve_auto_digest_article_quota',
+        { p_user_id: user.id, p_requested: 1, p_daily_limit: dailyLimit }
+      )
+      if (quotaError) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Daily article quota could not be reserved', code: 'DAILY_QUOTA_UNAVAILABLE', retryable: true }),
+          { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+      if (Number(quotaGranted) < 1) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Daily article quota exhausted', code: 'DAILY_ARTICLE_QUOTA_EXCEEDED', retryable: false }),
+          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+    }
 
     if (!isRetry) {
       if (sourceType === 'url' && !url) {
@@ -225,7 +253,7 @@ serve(async (req: Request) => {
     const mapToMitre = options.mapToMitre !== false
     const findLibrary = options.findLibraryMatches !== false
 
-    const reportId = isRetry ? existingReport!.id : `report_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+    const reportId = isRetry ? existingReport!.id : requestedReportId || `report_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
     let reportContent = ''
     let fetchMetadata: any = {}
 
@@ -237,7 +265,7 @@ serve(async (req: Request) => {
         reportContent = existingReport!.rawContent
         console.log(`Using existing raw content for retry: ${reportContent.length} chars`)
       } else if (existingReport!.sourceUrl) {
-        const fetchResult = await executeStage('fetch', async () => fetchContent(existingReport!.sourceUrl!))
+        const fetchResult = await executeStage('fetch', async () => fetchContent(existingReport!.sourceUrl!, { extractionMethod: options.extractionMethod }))
         if (!fetchResult.success) {
           return new Response(
             JSON.stringify({ success: false, error: `Failed to re-fetch: ${fetchResult.error}` }),
@@ -253,7 +281,7 @@ serve(async (req: Request) => {
         )
       }
     } else if (sourceType === 'url' && url) {
-      const fetchResult = await executeStage('fetch', async () => fetchContent(url))
+      const fetchResult = await executeStage('fetch', async () => fetchContent(url, { extractionMethod: options.extractionMethod }))
       if (!fetchResult.success) {
         return new Response(
           JSON.stringify({ success: false, error: `Failed to fetch: ${fetchResult.error}` }),
@@ -283,6 +311,15 @@ serve(async (req: Request) => {
     }
     let libraryMatches: LibraryMatch[] = isRetry ? existingReport!.libraryMatches : []
     let sectionErrors: Record<string, string> = isRetry ? { ...existingReport!.sectionErrors } : {}
+    let qualityWarnings: string[] = isRetry ? [...(existingReport!.qualityWarnings || [])] : []
+    let sourceQuality = isRetry ? existingReport!.sourceQuality : undefined
+    let sourceContentLength = isRetry ? existingReport!.sourceContentLength : undefined
+    let sourceContentHash = isRetry ? existingReport!.sourceContentHash : undefined
+    let fetchedUrl = isRetry ? existingReport!.fetchedUrl : undefined
+    sourceQuality = fetchMetadata.sourceQuality || sourceQuality
+    sourceContentLength = fetchMetadata.sourceContentLength || reportContent.length
+    sourceContentHash = fetchMetadata.sourceContentHash || sourceContentHash
+    fetchedUrl = fetchMetadata.fetchedUrl || fetchedUrl || (sourceType === 'url' ? url : undefined)
 
     const aiCtx = { userId: user.id, feature: 'threat-intel-digest' as const }
 
@@ -441,10 +478,40 @@ serve(async (req: Request) => {
       )
       if (mitreResult.success) {
         mitreMapping = mitreResult.data!
-        delete sectionErrors.mitre
+        const validatedIds = new Set(mitreMapping.matchedTechniques.filter((technique: any) => technique.isValid).map((technique: any) => technique.mitreId))
+        const canonicalNames = new Map(mitreMapping.matchedTechniques.map((technique: any) => [technique.mitreId, technique.techniqueName]))
+        const invalidTaxonomyIds = new Set<string>()
+        ttps = ttps.map((ttp: any) => validatedIds.has(ttp.mitreId)
+          ? namesAreCompatible(ttp.techniqueName, canonicalNames.get(ttp.mitreId))
+            ? { ...ttp, provenance: 'validated', validationState: 'validated' }
+            : (() => {
+              invalidTaxonomyIds.add(ttp.mitreId)
+              return { ...ttp, provenance: 'rejected', validationState: 'rejected' }
+            })()
+          : (() => {
+            invalidTaxonomyIds.add(ttp.mitreId)
+            return { ...ttp, validationState: 'rejected', provenance: 'rejected' }
+          })())
+        if (invalidTaxonomyIds.size > 0) {
+          sectionErrors.mitre = `${invalidTaxonomyIds.size} extracted technique(s) failed canonical ATT&CK ID/name validation`
+          qualityWarnings.push(sectionErrors.mitre)
+        } else {
+          delete sectionErrors.mitre
+        }
       } else {
         sectionErrors.mitre = mitreResult.error || 'Unknown error'
       }
+    }
+
+    const evidenceGate = applyEvidenceQualityGate(reportContent, ttps, iocs, rules)
+    sourceQuality = evidenceGate.sourceQuality
+    sourceContentLength = evidenceGate.sourceContentLength
+    qualityWarnings = [...new Set([...qualityWarnings, ...evidenceGate.warnings])]
+    ttps = evidenceGate.ttps
+    iocs = evidenceGate.iocs
+    rules = evidenceGate.rules
+    if (qualityWarnings.length > 0) {
+      sectionErrors.evidence = 'One or more extracted facts require source-evidence review'
     }
 
     // Stage 8: Library coverage (DB)
@@ -452,7 +519,7 @@ serve(async (req: Request) => {
     if (shouldRunLibrary && findLibrary && ttps.length > 0) {
       console.log('=== Stage 8: Library coverage (DB) ===')
       const libraryResult = await executeStage('library', () =>
-        findLibraryMatches(ttps, mitreMapping, supabaseClient)
+        findLibraryMatches(ttps, mitreMapping, supabaseClient, user.id, options.includeOwnedDevelopmentDetections === true)
       )
       if (libraryResult.success) {
         libraryMatches = libraryResult.data!
@@ -463,6 +530,16 @@ serve(async (req: Request) => {
     }
 
     // Persist coverage analysis to analysis_reports for trend tracking
+    const extractedTechniqueIds = new Set(ttps.map((ttp: any) => ttp.mitreId).filter(Boolean))
+    const validatedTechniqueIds = new Set((mitreMapping?.matchedTechniques || []).filter((technique: any) => technique.isValid).map((technique: any) => technique.mitreId))
+    const coveredTechniqueIds = new Set(libraryMatches.flatMap((match: any) => match.matchedTTPs || []))
+    const libraryOverlapPercent = extractedTechniqueIds.size > 0
+      ? Math.round((Array.from(coveredTechniqueIds).filter(id => extractedTechniqueIds.has(id)).length / extractedTechniqueIds.size) * 100)
+      : null
+    const validatedOverlapPercent = validatedTechniqueIds.size > 0
+      ? Math.round((Array.from(coveredTechniqueIds).filter(id => validatedTechniqueIds.has(id)).length / validatedTechniqueIds.size) * 100)
+      : null
+    const overlapCalculatedAt = new Date().toISOString()
     if (libraryMatches.length > 0) {
       try {
         // Find previous threat_digest_coverage report for trend linking
@@ -512,6 +589,20 @@ serve(async (req: Request) => {
       }
     }
 
+    const reportOutcome = (!summary || !classification || Boolean(sectionErrors.summary) || Boolean(sectionErrors.classification) || Boolean(sectionErrors.ttps))
+      ? 'failed'
+      : Object.keys(sectionErrors).length > 0 ? 'partial' : 'complete';
+    const skippedSections = new Set<string>();
+    if (!extractIoCs) skippedSections.add('iocs');
+    if (!extractRules) skippedSections.add('rules');
+    if (!mapToMitre || ttps.length === 0) skippedSections.add('mitre');
+    if (!findLibrary || ttps.length === 0) skippedSections.add('library');
+    const sectionOutcomes: NonNullable<ThreatReport['sectionOutcomes']> = Object.fromEntries(
+      ['summary', 'classification', 'ttps', 'iocs', 'rules', 'mitre', 'library'].map((section) => [
+        section,
+        sectionErrors[section] ? 'failed' : skippedSections.has(section) ? 'skipped' : section === 'summary' && !summary ? 'failed' : section === 'classification' && !classification ? 'failed' : 'succeeded',
+      ]),
+    ) as NonNullable<ThreatReport['sectionOutcomes']>;
     // Assemble report
     const report: ThreatReport = {
       id: reportId,
@@ -528,18 +619,30 @@ serve(async (req: Request) => {
       rules,
       mitreMapping,
       libraryMatches,
-      processingStage: ProcessingStage.Complete,
+      coveragePercent: libraryOverlapPercent,
+      libraryOverlapPercent,
+      validatedOverlapPercent,
+      overlapCalculatedAt,
+      outcome: reportOutcome,
+      sectionOutcomes,
+      processingStage: reportOutcome === 'complete' ? ProcessingStage.Complete : ProcessingStage.Error,
       processingDurationMs: Date.now() - startTime,
       sectionErrors: Object.keys(sectionErrors).length > 0 ? sectionErrors : undefined,
       lastRetrySection: isRetry ? retrySection : undefined,
-      lastRetryTime: isRetry ? new Date().toISOString() : undefined
+      lastRetryTime: isRetry ? new Date().toISOString() : undefined,
+      sourceQuality,
+      sourceContentLength,
+      sourceContentHash,
+      fetchedUrl,
+      qualityWarnings,
+      possibleActorMentions: (mitreMapping?.matchedGroups || []).map((group: any) => group.name).filter((name: string) => name && actorHasAttributionEvidence(reportContent, name)),
     }
 
     console.log('=== COMPLETED in ' + (Date.now() - startTime) + 'ms ===')
     console.log('Summary: ' + ttps.length + ' TTPs, ' + iocs.length + ' IoCs, ' + rules.length + ' rules')
 
     return new Response(
-      JSON.stringify({ success: true, report, processingTimeMs: Date.now() - startTime }),
+      JSON.stringify({ success: reportOutcome === 'complete', outcome: reportOutcome, error: reportOutcome === 'failed' ? 'Required extraction stages failed' : undefined, report, processingTimeMs: Date.now() - startTime }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 

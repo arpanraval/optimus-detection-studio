@@ -8,8 +8,10 @@ import { useThreatResearchEvents } from '../../hooks/useThreatResearchEvents';
 import { useThreatResearchJobs } from '../../hooks/useThreatResearchJobs';
 import { cancelThreatResearch, resumeFailedSession, retryDetectionLeaf } from '../../lib/threatResearchService';
 import { ResearchHeader } from '../../components/threat-research/ResearchHeader';
+import type { ResearchView } from '../../components/threat-research/ResearchHeader';
 import { ResearchCanvas } from '../../components/threat-research/ResearchCanvas';
 import { ResearchList } from '../../components/threat-research/ResearchList';
+import { ResearchDossier } from '../../components/threat-research/ResearchDossier';
 import { ResearchActivityConsole } from '../../components/threat-research/ResearchActivityConsole';
 import { DetectionLeafCard } from '../../components/threat-research/DetectionLeafCard';
 import { ROUTES } from '../routes';
@@ -56,9 +58,62 @@ export function ThreatResearchDetailPage() {
     () => deriveActiveBehaviourIds(jobs.byLeaf, jobs.attackResearchActive),
     [jobs.byLeaf, jobs.attackResearchActive],
   );
-  const [view, setView] = useState<'canvas' | 'list'>('canvas');
+  const [view, setView] = useState<ResearchView>('canvas');
   const [activityOpen, setActivityOpen] = useState(false);
   const [selected, setSelected] = useState<{ behaviour: AttackBehaviour; opportunity: DetectionOpportunity } | null>(null);
+
+  // One derivation for both banner placements. They were duplicated, and each
+  // handled exactly 'failed' and 'cancelled' — so a 'partial' session rendered
+  // NO outcome at all: the run ended, produced usable detections plus some
+  // needing review, and the page said nothing. Deriving once means a new
+  // terminal state cannot be handled in one place and silently dropped in the
+  // other.
+  const outcome = useMemo((): {
+    label: string;
+    detail: string;
+    icon: string;
+    tone: string;
+    canResume: boolean;
+    resumeLabel: string;
+  } | null => {
+    switch (session?.status) {
+      case 'failed':
+        return {
+          label: 'Failed.',
+          detail: session.failure_reason ?? 'no reason',
+          icon: 'alert-triangle',
+          tone: 'text-error',
+          canResume: true,
+          resumeLabel: 'Resume from failures',
+        };
+      case 'cancelled':
+        return {
+          label: 'Cancelled.',
+          detail: session.failure_reason ?? 'no reason',
+          icon: 'x-circle',
+          tone: 'text-on-surface-variant',
+          canResume: true,
+          resumeLabel: 'Resume',
+        };
+      case 'partial':
+        // Deliberately not styled as an error. The session did its job; some
+        // of the output needs a human before it can ship, and saying so is the
+        // point of the state existing.
+        return {
+          label: 'Finished — some detections need review.',
+          detail: session.failure_reason ?? '',
+          icon: 'alert-circle',
+          // text-tertiary, not text-error: this is an outcome needing
+          // attention, not a fault. (There is no `warning` token in the M3
+          // palette this app uses — tertiary is the attention colour.)
+          tone: 'text-tertiary',
+          canResume: false,
+          resumeLabel: 'Resume',
+        };
+      default:
+        return null;
+    }
+  }, [session?.status, session?.failure_reason]);
 
   if (permissionsLoading) return null;
   if (!hasRole('owner')) return <Navigate to="/" replace />;
@@ -109,10 +164,14 @@ export function ThreatResearchDetailPage() {
     }
   }
 
-  async function handleRetryLeaf(behaviourId: string) {
+  /** Per-leaf retry. `compositeId` is always "{behaviour}/{opportunity}" — the
+   *  orchestrator rejects a bare behaviour id with a 400, because the detection
+   *  job it enqueues is scoped to one opportunity. Behaviours with no
+   *  opportunities use handleResume instead. */
+  async function handleRetryLeaf(compositeId: string) {
     if (!session) return;
     try {
-      await retryDetectionLeaf(session.id, behaviourId);
+      await retryDetectionLeaf(session.id, compositeId);
       showToast('info', 'Retry queued');
       await refetch();
     } catch (e) {
@@ -127,7 +186,7 @@ export function ThreatResearchDetailPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <ResearchHeader session={session} view={view} onViewChange={setView} />
+      <ResearchHeader session={session} view={view} onViewChange={setView} currentPhase={jobs.currentPhase} />
 
       {/* Planner-degraded banner. ext-amber wash matches the design
           system's Warning / Medium-severity treatment. */}
@@ -146,9 +205,12 @@ export function ThreatResearchDetailPage() {
         </div>
       )}
 
-      {/* List view: inline status banner row above the table — full width,
-          no overlap. */}
-      {view === 'list' && (
+      {/* List and Research views: inline status banner row — full width,
+          no overlap. Canvas gets its own floating chrome below instead.
+          Research previously had NO status chrome at all — a user parked
+          there during a live run had no Cancel/Resume affordance and no
+          progress signal. */}
+      {(view === 'list' || view === 'research') && (
         <div className="flex flex-wrap items-center gap-2 border-b border-outline-variant bg-surface px-6 py-3">
           {(session.status === 'pending' || session.status === 'running') && (
             <div className="inline-flex items-center gap-2 rounded-full border border-outline-variant bg-surface-container px-3 py-1 text-sm text-on-surface">
@@ -160,18 +222,16 @@ export function ThreatResearchDetailPage() {
               <Button variant="text" color="surface" size="sm" onClick={handleCancel}>Cancel</Button>
             </div>
           )}
-          {(session.status === 'failed' || session.status === 'cancelled') && (
+          {outcome && (
             <div className="inline-flex items-center gap-2 rounded-full border border-outline-variant bg-surface-container px-3 py-1 text-sm">
-              <Icon
-                name={session.status === 'failed' ? 'alert-triangle' : 'x-circle'}
-                size={14}
-                className={`flex-shrink-0 ${session.status === 'failed' ? 'text-error' : 'text-on-surface-variant'}`}
-              />
+              <Icon name={outcome.icon} size={14} className={`flex-shrink-0 ${outcome.tone}`} />
               <span className="text-on-surface">
-                <span className="font-medium">{session.status === 'failed' ? 'Failed.' : 'Cancelled.'}</span>{' '}
-                <span className="text-on-surface-variant">{session.failure_reason ?? 'no reason'}</span>
+                <span className="font-medium">{outcome.label}</span>{' '}
+                <span className="text-on-surface-variant">{outcome.detail}</span>
               </span>
-              <Button variant="tonal" color="primary" size="sm" onClick={handleResume}>Resume</Button>
+              {outcome.canResume && (
+                <Button variant="tonal" color="primary" size="sm" onClick={handleResume}>Resume</Button>
+              )}
             </div>
           )}
         </div>
@@ -187,11 +247,6 @@ export function ThreatResearchDetailPage() {
               status={session.status}
               activeBehaviourIds={activeBehaviourIds}
               onLeafClick={(b, o) => setSelected({ behaviour: b, opportunity: o })}
-              onLibraryMatchClick={(b) => {
-                if (b.library_match) {
-                  window.open(`/library/detections/${b.library_match.existing_detection_id}`, '_blank');
-                }
-              }}
             />
 
             {/* Floating chrome stack — ONLY on the canvas view. */}
@@ -206,20 +261,18 @@ export function ThreatResearchDetailPage() {
                   <Button variant="text" color="surface" size="sm" onClick={handleCancel}>Cancel</Button>
                 </div>
               )}
-              {(session.status === 'failed' || session.status === 'cancelled') && (
+              {outcome && (
                 <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-outline-variant bg-surface px-4 py-2 shadow-sm">
-                  <Icon
-                    name={session.status === 'failed' ? 'alert-triangle' : 'x-circle'}
-                    size={14}
-                    className={`flex-shrink-0 ${session.status === 'failed' ? 'text-error' : 'text-on-surface-variant'}`}
-                  />
+                  <Icon name={outcome.icon} size={14} className={`flex-shrink-0 ${outcome.tone}`} />
                   <span className="text-sm text-on-surface">
-                    <span className="font-medium">{session.status === 'failed' ? 'Failed.' : 'Cancelled.'}</span>{' '}
-                    <span className="text-on-surface-variant">{session.failure_reason ?? 'no reason'}</span>
+                    <span className="font-medium">{outcome.label}</span>{' '}
+                    <span className="text-on-surface-variant">{outcome.detail}</span>
                   </span>
-                  <Button variant="tonal" color="primary" size="sm" onClick={handleResume}>
-                    {session.status === 'failed' ? 'Resume from failures' : 'Resume'}
-                  </Button>
+                  {outcome.canResume && (
+                    <Button variant="tonal" color="primary" size="sm" onClick={handleResume}>
+                      {outcome.resumeLabel}
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
@@ -230,6 +283,8 @@ export function ThreatResearchDetailPage() {
               onToggle={() => setActivityOpen(o => !o)}
             />
           </>
+        ) : view === 'research' ? (
+          <ResearchDossier tree={tree} />
         ) : (
           <ResearchList
             session={session}
@@ -239,6 +294,7 @@ export function ThreatResearchDetailPage() {
             sessionFailed={session.status === 'failed'}
             onLeafClick={(b, o) => setSelected({ behaviour: b, opportunity: o })}
             onRetryLeaf={handleRetryLeaf}
+            onResumeSession={handleResume}
             onMutated={refetch}
           />
         )}

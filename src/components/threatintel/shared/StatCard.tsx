@@ -8,7 +8,16 @@ interface StatCardProps {
   progress?: number;
 }
 
-export const StatCard: React.FC<StatCardProps> = ({ label, value, subtext, color = 'text-on-surface', progress }) => (
+export const StatCard: React.FC<StatCardProps> = ({ label: rawLabel, value, subtext, color = 'text-on-surface', progress }) => {
+  const label = rawLabel === 'Detection Coverage'
+    ? 'Library TTP overlap'
+    : rawLabel === 'Detection Gaps'
+      ? 'Techniques without mapped detections'
+      : rawLabel === 'Rules Extracted'
+        ? 'Candidate queries found'
+        : rawLabel;
+
+  return (
   <div className="bg-surface-container border border-outline-variant/30 rounded-xl p-6 flex flex-col justify-center items-center text-center h-40 relative overflow-hidden hover:border-primary/20 transition-colors">
     <p className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-2">{label}</p>
     <span className={`text-5xl font-mono font-bold tracking-tighter ${color}`}>{value}</span>
@@ -22,4 +31,5 @@ export const StatCard: React.FC<StatCardProps> = ({ label, value, subtext, color
       </div>
     )}
   </div>
-);
+  );
+};

@@ -1,28 +1,32 @@
 import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import dagre from 'dagre';
 import { Icon } from '../Icon';
+import { isDetectionSaved } from './shared';
 import type {
   ThreatResearchTree,
   AttackBehaviour,
   DetectionOpportunity,
   MitreTacticName,
+  ResearchStatus,
 } from '../../types/threatResearch';
 
 interface Props {
   tree: ThreatResearchTree;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  /** Use the shared ResearchStatus rather than restating the union: a local
+   *  copy silently went stale when 'partial' was added, and the only reason it
+   *  surfaced is that tsc happened to check this file. */
+  status: ResearchStatus;
   /** Behaviours with an agent currently running on them; renders an active
    *  pulse on their tile + descendants. Derived from the events stream. */
   activeBehaviourIds?: ReadonlySet<string>;
   onLeafClick: (behaviour: AttackBehaviour, opportunity: DetectionOpportunity) => void;
-  onLibraryMatchClick: (behaviour: AttackBehaviour) => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Node model
 // ─────────────────────────────────────────────────────────────────────────────
 
-type NodeKind = 'subject' | 'tactic' | 'behaviour' | 'opportunity' | 'detection' | 'library_match';
+type NodeKind = 'subject' | 'tactic' | 'behaviour' | 'opportunity' | 'detection';
 
 type NodeState =
   | 'default' // idle, has content
@@ -47,7 +51,7 @@ interface CanvasNode {
   hasChildren: boolean;
   /** For state derivation at render time. */
   behaviourId?: string;
-  /** Click handler payload (only set on detection / library_match). */
+  /** Click handler payload (only set on detection nodes). */
   behaviour?: AttackBehaviour;
   opportunity?: DetectionOpportunity;
   /** Computed by dagre. */
@@ -95,14 +99,18 @@ function tacticLabel(t: MitreTacticName): string {
 
 function detectionState(det: DetectionOpportunity['detection'], behaviourActive: boolean): NodeState {
   if (det.archived) return 'archived';
-  if (det.qa?.verdict === 'fail') return 'fail';
-  // qa_error is a pipeline failure (QA never returned a verdict). Distinct
-  // from 'fail' (a real verdict) — UI must render the two differently so
-  // operators know whether QA judged the detection or never ran. When
-  // qa is null AND qa_error is set, this is the case.
-  if (!det.qa && det.qa_error) return 'qa_error';
-  if (!det.qa) return behaviourActive ? 'active' : 'pending';
-  return 'default';
+  // Checked first, same precedence as ResearchList's resolveRowState — a saved
+  // detection (user-saved, or reuse-first pointing the leaf at an existing
+  // library rule) is terminal.
+  if (isDetectionSaved(det)) return 'covered';
+  // Generation failure is the only terminal-bad state. Note this must be
+  // checked BEFORE the query test, because a failed leaf has no query either.
+  if (det.qa_error === 'engineer_failed') return 'qa_error';
+  // A query exists: the node is done and waiting on the user. Keyed on the
+  // artefact rather than on det.qa, which is now always null — reading it here
+  // would have frozen every node at 'pending' forever.
+  if (det.query && det.query.trim().length > 0) return 'default';
+  return behaviourActive ? 'active' : 'pending';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -175,30 +183,36 @@ function buildLayout(
 
     for (const b of behaviours) {
       const bActive = activeBehaviourIds.has(b.id);
-      // State derivation order matters: active beats verdict, library match
-      // beats engineer verdict, terminal verdicts (engineer_failed,
-      // not_detectable, needs_telemetry) beat the generic empty-opps pending
-      // state. Without these distinct states the canvas treated "engineer
-      // crashed, retry available" identically to "no signal exists" — the
-      // most actionable failure mode was hidden.
-      const bState: NodeState = b.library_match
-        ? 'covered'
-        : bActive
-          ? 'active'
-          : b.detectability === 'engineer_failed'
-            ? 'engineer_failed'
-            : b.detectability === 'not_detectable'
-              ? 'not_detectable'
-              : b.detectability === 'needs_telemetry'
-                ? 'needs_telemetry'
-                : b.opportunities.length === 0
-                  ? 'pending'
-                  : 'default';
+      // State derivation order matters: active beats verdict, terminal
+      // verdicts (not_detectable, needs_telemetry) beat the generic
+      // empty-opps pending state.
+      //
+      // 'engineer_failed' used to have a branch here keyed off
+      // b.detectability, but the Opportunity Planner's VALID_DETECTABILITY
+      // never emits it (only siem/edr/needs_telemetry/not_detectable) and
+      // nothing else assigns it — permanently dead, removed rather than
+      // left unreachable.
+      //
+      // A behaviour-level b.library_match branch also used to live here,
+      // gating on a field that is never assigned anywhere in the
+      // orchestrator (dead by design note, not by accident — see
+      // orchestrator.ts's handleDetection comment). "Covered" is decided at
+      // the OPPORTUNITY level via detection.saved_detection_id
+      // (detectionState() above), which every opportunity node already
+      // reflects correctly — no behaviour-level shortcut is needed.
+      const bState: NodeState = bActive
+        ? 'active'
+        : b.detectability === 'not_detectable'
+          ? 'not_detectable'
+          : b.detectability === 'needs_telemetry'
+            ? 'needs_telemetry'
+            : b.opportunities.length === 0
+              ? 'pending'
+              : 'default';
       // Subtitle precedence on behaviour tiles:
       //   merged-only (no own opps, has merged_into) → "merged into N
       //     opportunit(y/ies)" — surface the planner's clustering decision
       //     so users don't think the behaviour was dropped
-      //   library_match → name of the matched library detection
       //   otherwise → no subtitle (label uses both lines)
       const mergedCount = b.merged_into_opportunity_ids?.length ?? 0;
       const ownOppCount = b.opportunities.length;
@@ -214,11 +228,11 @@ function buildLayout(
         subtitle: behaviourSubtitle,
         state: bState,
         // Show children only when there's actually something to expand to.
-        // engineer_failed / not_detectable / needs_telemetry leaves are
-        // terminal — chevron would offer nothing. Merged-only behaviours
-        // also have no children (their detections live under sibling
-        // behaviours via covers_behaviour_ids).
-        hasChildren: !!b.library_match || b.opportunities.length > 0,
+        // not_detectable / needs_telemetry leaves are terminal — chevron
+        // would offer nothing. Merged-only behaviours also have no children
+        // (their detections live under sibling behaviours via
+        // covers_behaviour_ids).
+        hasChildren: b.opportunities.length > 0,
         behaviourId: b.id,
         behaviour: b,
         x: 0,
@@ -230,35 +244,13 @@ function buildLayout(
 
       if (collapsed.has(b.id)) continue;
 
-      // Library match shortcut — single terminal child, no opps.
-      if (b.library_match) {
-        const lmId = `${b.id}/library_match`;
-        nodes.push({
-          id: lmId,
-          parentId: b.id,
-          kind: 'library_match',
-          label: 'Already in library',
-          subtitle: b.library_match.name,
-          state: 'covered',
-          hasChildren: false,
-          behaviourId: b.id,
-          behaviour: b,
-          x: 0,
-          y: 0,
-        });
-        g.setNode(lmId, { width: NODE_W, height: NODE_H });
-        edges.push({ from: b.id, to: lmId, state: 'covered' });
-        g.setEdge(b.id, lmId);
-        continue;
-      }
-
       for (const o of b.opportunities) {
         const oId = `${b.id}/${o.id}`;
         const oState: NodeState = o.detection.archived
           ? 'archived'
-          : o.detection.qa?.verdict === 'fail'
+          : o.detection.qa_error === 'engineer_failed'
             ? 'fail'
-            : bActive && !o.detection.qa
+            : bActive && !(o.detection.query && o.detection.query.trim())
               ? 'active'
               : 'default';
         nodes.push({
@@ -283,18 +275,23 @@ function buildLayout(
         const det = o.detection;
         const dId = `${oId}/${det.id}`;
         const dState = detectionState(det, bActive);
-        // Subtitle precedence (most-specific first):
-        //   qa_error → "QA didn't run" (recoverable pipeline failure)
-        //   qa verdict → "<verdict> · saved" (real verdict from completed QA)
-        //   active → "in review…"
-        //   neither → "qa pending"
-        const sub = det.qa_error
-          ? "QA didn't run"
-          : det.qa
-            ? `${det.qa.verdict.replace(/_/g, ' ')}${det.saved_detection_id ? ' · saved' : ''}`
-            : bActive
-              ? 'in review…'
-              : 'qa pending';
+        // Subtitle precedence (most-specific first), matching
+        // detectionState()'s precedence above:
+        //   saved (user-saved, or reuse-first)  → "in library"
+        //   engineer_failed                     → "generation failed"
+        //   has a query                         → "ready to review"
+        //   behaviour still running             → "writing…"
+        //   otherwise                           → "queued"
+        const hasQuery = !!det.query && det.query.trim().length > 0;
+        const sub = isDetectionSaved(det)
+          ? 'in library'
+          : det.qa_error === 'engineer_failed'
+            ? 'generation failed'
+            : hasQuery
+              ? 'ready to review'
+              : bActive
+                ? 'writing…'
+                : 'queued';
         nodes.push({
           id: dId,
           parentId: oId,
@@ -355,7 +352,7 @@ const EMPTY_ACTIVE_SET: ReadonlySet<string> = new Set();
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function ResearchCanvas({ tree, status, activeBehaviourIds, onLeafClick, onLibraryMatchClick }: Props) {
+export function ResearchCanvas({ tree, status, activeBehaviourIds, onLeafClick }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeIds = activeBehaviourIds ?? EMPTY_ACTIVE_SET;
 
@@ -604,7 +601,7 @@ export function ResearchCanvas({ tree, status, activeBehaviourIds, onLeafClick, 
     for (const b of tree.behaviours) tactics.add(b.tactic);
     for (const t of tactics) ids.add(`tactic/${t}`);
     for (const b of tree.behaviours) {
-      if (b.library_match || b.opportunities.length > 0) ids.add(b.id);
+      if (b.opportunities.length > 0) ids.add(b.id);
       for (const o of b.opportunities) ids.add(`${b.id}/${o.id}`);
     }
     return ids;
@@ -672,13 +669,10 @@ export function ResearchCanvas({ tree, status, activeBehaviourIds, onLeafClick, 
             // visible and crash-safe.
             const detBehaviour = n.kind === 'detection' ? n.behaviour : null;
             const detOpportunity = n.kind === 'detection' ? n.opportunity : null;
-            const libBehaviour = n.kind === 'library_match' ? n.behaviour : null;
             const onClick: (() => void) | undefined =
               detBehaviour && detOpportunity
                 ? () => onLeafClick(detBehaviour, detOpportunity)
-                : libBehaviour
-                  ? () => onLibraryMatchClick(libBehaviour)
-                  : undefined;
+                : undefined;
             return (
               <NodeTile
                 key={n.id}
@@ -871,7 +865,6 @@ function tileIcon(node: CanvasNode): string {
   //   help-circle       — needs telemetry the env doesn't have
   //   search            — defender-side detection opportunities
   //   shield-check      — verified, generated detections
-  //   clipboard-check   — already-in-library matches
   switch (node.kind) {
     case 'subject':
       return 'threat-actor';
@@ -886,8 +879,6 @@ function tileIcon(node: CanvasNode): string {
       return 'search';
     case 'detection':
       return 'shield-check';
-    case 'library_match':
-      return 'clipboard-check';
   }
 }
 

@@ -46,6 +46,8 @@ export interface BatchInsertOptions {
   onCheckpoint?: (checkpoint: CheckpointData) => void;
   /** Resume from checkpoint */
   resumeFromCheckpoint?: CheckpointData;
+  /** Cooperative cancellation check, evaluated before and after every batch. */
+  shouldAbort?: () => boolean;
 }
 
 const DEFAULT_OPTIONS: BatchInsertOptions = {
@@ -75,10 +77,7 @@ export class BatchInserter {
    * Pre-flight check: Verify user has permission to write detections
    * Call this BEFORE starting a large import job
    */
-  async checkPermissions(
-    userId: string,
-    targetLibrary: LibraryType
-  ): Promise<ImportPermissionCheckResult> {
+  async checkPermissions(userId: string, targetLibrary: LibraryType): Promise<ImportPermissionCheckResult> {
     try {
       // Call the database function for permission check
       const { data, error } = await supabase.rpc('check_detection_write_permission', {
@@ -105,7 +104,7 @@ export class BatchInserter {
    */
   private async fallbackPermissionCheck(
     userId: string,
-    targetLibrary: LibraryType
+    targetLibrary: LibraryType,
   ): Promise<ImportPermissionCheckResult> {
     try {
       // Check user profile for role
@@ -181,15 +180,12 @@ export class BatchInserter {
     const fallbackResult = await this.fallbackRollback(jobId, userId);
 
     if (!fallbackResult.success && rpcError) {
-      console.warn(
-        'rollback_bulk_import: RPC failed and fallback also failed.',
-        { rpcError, fallbackError: fallbackResult.error }
-      );
+      console.warn('rollback_bulk_import: RPC failed and fallback also failed.', {
+        rpcError,
+        fallbackError: fallbackResult.error,
+      });
     } else if (rpcError) {
-      console.info(
-        'rollback_bulk_import: RPC failed, fallback DELETE succeeded.',
-        { rpcError }
-      );
+      console.info('rollback_bulk_import: RPC failed, fallback DELETE succeeded.', { rpcError });
     }
 
     return fallbackResult;
@@ -224,11 +220,7 @@ export class BatchInserter {
 
       // Verify permissions
       if (job.user_id !== userId) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', userId)
-          .single();
+        const { data: profile } = await supabase.from('profiles').select('role').eq('id', userId).single();
 
         if (!profile || !['owner', 'admin'].includes(profile.role)) {
           return {
@@ -297,10 +289,7 @@ export class BatchInserter {
   /**
    * Insert multiple detections in batches with checkpointing
    */
-  async insertAll(
-    detections: Partial<Detection>[],
-    options: BatchInsertOptions = {}
-  ): Promise<ImportJobResult> {
+  async insertAll(detections: Partial<Detection>[], options: BatchInsertOptions = {}): Promise<ImportJobResult> {
     const opts = { ...DEFAULT_OPTIONS, ...options };
     const startTime = Date.now();
 
@@ -342,8 +331,14 @@ export class BatchInserter {
     const skippedRules: ImportJobResult['skippedRules'] = [];
 
     const totalBatches = Math.ceil(detections.length / opts.batchSize!);
+    let cancelled = false;
 
     for (let batchNum = startBatch; batchNum < totalBatches; batchNum++) {
+      if (opts.shouldAbort?.()) {
+        cancelled = true;
+        break;
+      }
+
       const start = batchNum * opts.batchSize!;
       const end = Math.min(start + opts.batchSize!, detections.length);
       const batch = detections.slice(start, end);
@@ -399,6 +394,11 @@ export class BatchInserter {
         });
       }
 
+      if (opts.shouldAbort?.()) {
+        cancelled = true;
+        break;
+      }
+
       // Delay between batches to avoid overwhelming the database
       if (batchNum < totalBatches - 1 && opts.batchDelay! > 0) {
         await this.delay(opts.batchDelay!);
@@ -408,8 +408,8 @@ export class BatchInserter {
     const duration = Date.now() - startTime;
 
     return {
-      success: failedRules.length === 0,
-      totalProcessed: detections.length,
+      success: !cancelled && failedRules.length === 0,
+      totalProcessed: insertedIds.length + failedRules.length,
       successCount: insertedIds.length,
       failureCount: failedRules.length,
       skipCount: skippedRules.length,
@@ -419,6 +419,7 @@ export class BatchInserter {
       skippedRules,
       duration,
       mitreCoverageAdded: 0, // Will be calculated separately
+      cancelled,
     };
   }
 
@@ -433,7 +434,7 @@ export class BatchInserter {
       insertedIds: string[];
       successCount: number;
       failureCount: number;
-    }
+    },
   ): Promise<void> {
     try {
       await supabase
@@ -455,10 +456,7 @@ export class BatchInserter {
   /**
    * Insert a single batch of detections
    */
-  private async insertBatch(
-    detections: Partial<Detection>[],
-    options: BatchInsertOptions
-  ): Promise<BatchResult> {
+  private async insertBatch(detections: Partial<Detection>[], options: BatchInsertOptions): Promise<BatchResult> {
     if (!options.bulkImportId) {
       throw new Error('CRITICAL: Cannot insert batch without bulkImportId. Job record must be created first.');
     }
@@ -471,10 +469,7 @@ export class BatchInserter {
 
     try {
       // Attempt batch insert
-      const { data, error } = await supabase
-        .from('detections')
-        .insert(records)
-        .select('id');
+      const { data, error } = await supabase.from('detections').insert(records).select('id');
 
       if (error) {
         // Batch failed - retry individually if enabled
@@ -539,7 +534,7 @@ export class BatchInserter {
    */
   private async insertSingle(
     detection: Partial<Detection>,
-    options: BatchInsertOptions
+    options: BatchInsertOptions,
   ): Promise<{ success: boolean; id?: string; error?: string }> {
     let lastError: string | undefined;
 
@@ -547,11 +542,7 @@ export class BatchInserter {
       try {
         const record = this.prepareForInsert(detection, options.bulkImportId!);
 
-        const { data, error } = await supabase
-          .from('detections')
-          .insert([record])
-          .select('id')
-          .single();
+        const { data, error } = await supabase.from('detections').insert([record]).select('id').single();
 
         if (error) {
           lastError = error.message;
@@ -578,12 +569,11 @@ export class BatchInserter {
    * Prepare a detection record for database insertion
    * Includes bulk_import_id for audit trail and vendor_metadata for lossless import
    */
-  private prepareForInsert(
-    detection: Partial<Detection>,
-    bulkImportId: string
-  ): Record<string, unknown> {
+  private prepareForInsert(detection: Partial<Detection>, bulkImportId: string): Record<string, unknown> {
     if (!bulkImportId) {
-      throw new Error('CRITICAL: bulk_import_id is required for every detection insert. Cannot insert without rollback tracking.');
+      throw new Error(
+        'CRITICAL: bulk_import_id is required for every detection insert. Cannot insert without rollback tracking.',
+      );
     }
 
     const now = new Date().toISOString();

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ROUTES } from '../router/routes';
 import { Icon } from './Icon';
 import { ModelSelector } from './ModelSelector';
-import { generateAIChat, AIFunctionCall, DEFAULT_MODEL } from '../lib/aiService';
+import { generateAIChat, AIFunctionCall, DEFAULT_MODEL, getModelById } from '../lib/aiService';
 import { truncateHistory } from '../lib/ai/chat-history';
 import { useTheme } from '../context/ThemeContext';
 import { useToast } from '../hooks/useToast';
@@ -111,7 +111,7 @@ const saveIndex = (s: SessionSummary[]) => localStorage.setItem(SESSIONS_INDEX_K
 const loadSession = (id: string): ChatSession | null => {
     try {
         const s = JSON.parse(localStorage.getItem(SESSION_PREFIX + id) || 'null');
-        if (s && !s.model) s.model = DEFAULT_MODEL; // Backward compatibility
+        if (s && (!s.model || !getModelById(s.model))) s.model = DEFAULT_MODEL;
         return s;
     } catch { return null; }
 };

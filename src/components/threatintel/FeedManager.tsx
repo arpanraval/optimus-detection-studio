@@ -176,12 +176,12 @@ const FeedModal: React.FC<{
                 placeholder="collection-uuid"
               />
               <Input
-                label="Username (optional)"
+                label={initialData ? 'Username (leave blank to keep saved credential)' : 'Username (optional)'}
                 value={form.taxii_username}
                 onChange={(e) => setForm(f => ({ ...f, taxii_username: e.target.value }))}
               />
               <Input
-                label="Password (optional)"
+                label={initialData ? 'Password (leave blank to keep saved credential)' : 'Password (optional)'}
                 type="password"
                 value={form.taxii_password}
                 onChange={(e) => setForm(f => ({ ...f, taxii_password: e.target.value }))}
@@ -231,8 +231,10 @@ export const FeedManager: React.FC<FeedManagerProps> = ({
       feedData.taxii_config = {
         api_root: form.taxii_api_root || form.url,
         collection_id: form.taxii_collection_id,
-        ...(form.taxii_username && { username: form.taxii_username }),
-        ...(form.taxii_password && { password: form.taxii_password }),
+      };
+      feedData.taxii_credentials = {
+        username: form.taxii_username || undefined,
+        password: form.taxii_password || undefined,
       };
     }
     await addFeed(feedData);
@@ -250,8 +252,10 @@ export const FeedManager: React.FC<FeedManagerProps> = ({
       updates.taxii_config = {
         api_root: form.taxii_api_root || form.url,
         collection_id: form.taxii_collection_id,
-        ...(form.taxii_username && { username: form.taxii_username }),
-        ...(form.taxii_password && { password: form.taxii_password }),
+      };
+      updates.taxii_credentials = {
+        username: form.taxii_username || undefined,
+        password: form.taxii_password || undefined,
       };
     }
     await updateFeed(editingFeed.id, updates);
@@ -281,8 +285,8 @@ export const FeedManager: React.FC<FeedManagerProps> = ({
     schedule_cron: editingFeed.schedule_cron,
     taxii_collection_id: editingFeed.taxii_config?.collection_id || '',
     taxii_api_root: editingFeed.taxii_config?.api_root || '',
-    taxii_username: editingFeed.taxii_config?.username || '',
-    taxii_password: editingFeed.taxii_config?.password || '',
+    taxii_username: '',
+    taxii_password: '',
   } : undefined;
 
   if (isLoading) {

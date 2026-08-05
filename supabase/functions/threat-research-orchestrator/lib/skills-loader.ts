@@ -12,19 +12,19 @@
 import { PACK_CONTENT as THREAT_CLASSIFICATION_PACK } from '../../_shared/skills/threat-classification/SKILL.ts';
 import { PACK_CONTENT as ADVERSARY_RESEARCH_PACK }   from '../../_shared/skills/adversary-research-methodology/SKILL.ts';
 import { PACK_CONTENT as DETECTION_ENGINEERING_PACK } from '../../_shared/skills/detection-engineering/SKILL.ts';
-import { PACK_CONTENT as QUERY_QA_PACK }              from '../../_shared/skills/query-qa/SKILL.ts';
 
+// The 'query-qa' pack is deliberately not wired up. It fed the QA agent, which
+// was removed; the pack files remain under _shared/skills/query-qa/ so the
+// decision stays reversible without reconstructing prompt content.
 export type KnowledgePackName =
   | 'threat-classification'
   | 'adversary-research-methodology'
-  | 'detection-engineering'
-  | 'query-qa';
+  | 'detection-engineering';
 
 const PACKS: Record<KnowledgePackName, string> = {
   'threat-classification':           THREAT_CLASSIFICATION_PACK,
   'adversary-research-methodology':  ADVERSARY_RESEARCH_PACK,
   'detection-engineering':           DETECTION_ENGINEERING_PACK,
-  'query-qa':                        QUERY_QA_PACK,
 };
 
 /**

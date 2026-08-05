@@ -196,10 +196,12 @@ CREATE TABLE IF NOT EXISTS public.auto_digest_jobs (
   started_at timestamp with time zone,
   completed_at timestamp with time zone,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
+  heartbeat_at timestamp with time zone,
   result_summary jsonb,
   error text,
   phase text,
-  pending_entry_ids jsonb NOT NULL DEFAULT '[]'::jsonb
+  pending_entry_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+  active_entry_id uuid
 );
 CREATE TABLE IF NOT EXISTS public.auto_digest_run_events (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -222,11 +224,11 @@ CREATE TABLE IF NOT EXISTS public.auto_digest_settings (
   is_enabled boolean NOT NULL DEFAULT false,
   schedule_hour_utc integer NOT NULL DEFAULT 6,
   max_articles_per_day integer NOT NULL DEFAULT 3,
-  ai_model text NOT NULL DEFAULT 'gemini-3-flash-preview'::text,
+  ai_model text NOT NULL DEFAULT 'gemini-3.6-flash'::text,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
-  classification_model text DEFAULT 'gemini-3-flash-preview'::text,
-  digest_model text DEFAULT 'gemini-3-flash-preview'::text,
+  classification_model text DEFAULT 'gemini-3.6-flash'::text,
+  digest_model text DEFAULT 'gemini-3.6-flash'::text,
   prompt_templates jsonb
 );
 CREATE TABLE IF NOT EXISTS public.batch_embedding_jobs (
@@ -933,6 +935,19 @@ CREATE TABLE IF NOT EXISTS public.threat_research_jobs (
   started_at timestamp with time zone,
   completed_at timestamp with time zone
 );
+CREATE TABLE IF NOT EXISTS public.threat_research_job_checkpoints (
+  job_id uuid NOT NULL,
+  session_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  agent text NOT NULL,
+  schema_version integer NOT NULL,
+  iteration integer NOT NULL,
+  restore_count integer NOT NULL DEFAULT 0,
+  messages jsonb NOT NULL,
+  bytes integer NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS public.threat_research_sessions (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
@@ -954,7 +969,32 @@ CREATE TABLE IF NOT EXISTS public.threat_research_sessions (
   current_phase text,
   model_calls_used integer NOT NULL DEFAULT 0,
   model_call_cap integer,
-  tool_call_cap integer
+  tool_call_cap integer,
+  aborted_at timestamp with time zone,
+  abort_reason text,
+  token_cap integer,
+  tokens_reserved integer NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS public.threat_research_vendor_searches (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  session_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  phase text,
+  behaviour_id text,
+  query text NOT NULL,
+  repositories text[] NOT NULL DEFAULT '{}'::text[],
+  results_found integer NOT NULL DEFAULT 0,
+  source_urls text[] NOT NULL DEFAULT '{}'::text[],
+  error text,
+  attempted_at timestamp with time zone NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS public.threat_research_phase_budgets (
+  session_id uuid NOT NULL,
+  phase text NOT NULL,
+  token_cap integer NOT NULL,
+  tokens_used integer NOT NULL DEFAULT 0,
+  tokens_reserved integer NOT NULL DEFAULT 0,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS public.user_dashboards (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -1130,13 +1170,20 @@ ALTER TABLE public.threat_intel_reports ADD CONSTRAINT threat_intel_reports_revi
 ALTER TABLE public.threat_intel_reports ADD CONSTRAINT threat_intel_reports_source_check CHECK ((source = ANY (ARRAY['manual'::text, 'auto'::text])));
 ALTER TABLE public.threat_intel_reports ADD CONSTRAINT report_review_note_max_length CHECK ((char_length(review_note) <= 2000));
 ALTER TABLE public.threat_intel_reports ADD CONSTRAINT threat_intel_reports_pkey PRIMARY KEY (id);
-ALTER TABLE public.threat_research_events ADD CONSTRAINT threat_research_events_agent_check CHECK ((agent = ANY (ARRAY['orchestrator'::text, 'preflight'::text, 'research'::text, 'attack-researcher'::text, 'planner'::text, 'detection-engineer'::text, 'qa'::text])));
+ALTER TABLE public.threat_research_events ADD CONSTRAINT threat_research_events_agent_check CHECK ((agent = ANY (ARRAY['orchestrator'::text, 'preflight'::text, 'dossier'::text, 'research'::text, 'attack-researcher'::text, 'planner'::text, 'detection-engineer'::text, 'qa'::text])));
 ALTER TABLE public.threat_research_events ADD CONSTRAINT threat_research_events_pkey PRIMARY KEY (id);
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_pkey PRIMARY KEY (id);
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_session_id_phase_behaviour_id_key UNIQUE (session_id, phase, behaviour_id);
+ALTER TABLE public.threat_research_job_checkpoints ADD CONSTRAINT threat_research_job_checkpoints_pkey PRIMARY KEY (job_id);
+ALTER TABLE public.threat_research_job_checkpoints ADD CONSTRAINT trjc_job_fk FOREIGN KEY (job_id) REFERENCES public.threat_research_jobs(id) ON DELETE CASCADE;
+ALTER TABLE public.threat_research_job_checkpoints ADD CONSTRAINT trjc_session_fk FOREIGN KEY (session_id) REFERENCES public.threat_research_sessions(id) ON DELETE CASCADE;
+ALTER TABLE public.threat_research_vendor_searches ADD CONSTRAINT threat_research_vendor_searches_pkey PRIMARY KEY (id);
+ALTER TABLE public.threat_research_vendor_searches ADD CONSTRAINT trvs_session_fk FOREIGN KEY (session_id) REFERENCES public.threat_research_sessions(id) ON DELETE CASCADE;
+ALTER TABLE public.threat_research_phase_budgets ADD CONSTRAINT threat_research_phase_budgets_pkey PRIMARY KEY (session_id, phase);
+ALTER TABLE public.threat_research_phase_budgets ADD CONSTRAINT trpb_session_fk FOREIGN KEY (session_id) REFERENCES public.threat_research_sessions(id) ON DELETE CASCADE;
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_phase_check CHECK ((phase = ANY (ARRAY['preflight'::text, 'research'::text, 'attack_research'::text, 'opportunity_planning'::text, 'detection'::text, 'qa'::text, 'finalise'::text])));
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text])));
-ALTER TABLE public.threat_research_sessions ADD CONSTRAINT threat_research_sessions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text, 'cancelled'::text])));
+ALTER TABLE public.threat_research_sessions ADD CONSTRAINT threat_research_sessions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'partial'::text, 'failed'::text, 'cancelled'::text])));
 ALTER TABLE public.threat_research_sessions ADD CONSTRAINT threat_research_sessions_pkey PRIMARY KEY (id);
 ALTER TABLE public.user_dashboards ADD CONSTRAINT user_dashboards_pkey PRIMARY KEY (id);
 ALTER TABLE public.user_invitations ADD CONSTRAINT team_invitations_pkey PRIMARY KEY (id);
@@ -1156,6 +1203,7 @@ ALTER TABLE public.auto_digest_campaign_articles ADD CONSTRAINT auto_digest_camp
 ALTER TABLE public.auto_digest_campaigns ADD CONSTRAINT auto_digest_campaigns_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 ALTER TABLE public.auto_digest_campaigns ADD CONSTRAINT auto_digest_campaigns_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES auth.users(id) ON DELETE SET NULL;
 ALTER TABLE public.auto_digest_jobs ADD CONSTRAINT auto_digest_jobs_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.auto_digest_jobs ADD CONSTRAINT auto_digest_jobs_active_entry_id_fkey FOREIGN KEY (active_entry_id) REFERENCES public.threat_intel_feed_entries(id) ON DELETE SET NULL;
 ALTER TABLE public.auto_digest_run_events ADD CONSTRAINT auto_digest_run_events_user_id_fkey FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE SET NULL;
 ALTER TABLE public.auto_digest_run_events ADD CONSTRAINT auto_digest_run_events_job_id_fkey FOREIGN KEY (job_id) REFERENCES auto_digest_jobs(id) ON DELETE CASCADE;
 ALTER TABLE public.auto_digest_settings ADD CONSTRAINT auto_digest_settings_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
@@ -1690,23 +1738,37 @@ BEGIN
 END;
 $function$;
 CREATE OR REPLACE FUNCTION public.auto_digest_watchdog()
- RETURNS void
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
+  RETURNS void
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+ AS $function$
 DECLARE
   v_now timestamptz := now();
   v_threshold timestamptz := v_now - interval '20 minutes';
   v_stuck RECORD;
   v_recovered_count int;
+  v_row_count int;
 BEGIN
   FOR v_stuck IN
-    SELECT id, user_id, pending_entry_ids
+    SELECT id, user_id, pending_entry_ids, active_entry_id, heartbeat_at, started_at
       FROM public.auto_digest_jobs
      WHERE status = 'processing'
-       AND started_at < v_threshold
+       AND COALESCE(heartbeat_at, started_at) < v_threshold
   LOOP
     v_recovered_count := 0;
+
+    -- 1. Recover the currently active entry to digest_failed if present
+    IF v_stuck.active_entry_id IS NOT NULL THEN
+      UPDATE public.threat_intel_feed_entries
+         SET digest_status = 'digest_failed',
+             extract_error = 'watchdog: job hung/terminated during processing'
+       WHERE id = v_stuck.active_entry_id
+         AND digest_status IN ('queued', 'digesting');
+      GET DIAGNOSTICS v_row_count = ROW_COUNT;
+      v_recovered_count := v_recovered_count + v_row_count;
+    END IF;
+
+    -- 2. Recover pending entries back to classified
     IF v_stuck.pending_entry_ids IS NOT NULL
        AND jsonb_typeof(v_stuck.pending_entry_ids) = 'array'
        AND jsonb_array_length(v_stuck.pending_entry_ids) > 0 THEN
@@ -1720,28 +1782,35 @@ BEGIN
          AND e.user_id = v_stuck.user_id
          AND e.digest_status IN ('digesting', 'queued')
          AND e.classification IS NOT NULL;
-      GET DIAGNOSTICS v_recovered_count = ROW_COUNT;
+      GET DIAGNOSTICS v_row_count = ROW_COUNT;
+      v_recovered_count := v_recovered_count + v_row_count;
     END IF;
 
-    -- Belt-and-suspenders: any entry stuck in 'digesting'/'queued' for this
-    -- user beyond the threshold gets recovered too, even if pending_entry_ids
-    -- is somehow out of sync. Only revert if classification still present.
+    -- 3. Belt-and-suspenders: any entry stuck in 'digesting'/'queued' gets recovered to classified
     UPDATE public.threat_intel_feed_entries e
        SET digest_status = 'classified'
      WHERE e.user_id = v_stuck.user_id
        AND e.digest_status IN ('digesting', 'queued')
        AND e.classification IS NOT NULL
-       AND e.fetched_at < v_threshold;
+       AND e.fetched_at < v_threshold
+       AND (v_stuck.active_entry_id IS NULL OR e.id <> v_stuck.active_entry_id);
+    GET DIAGNOSTICS v_row_count = ROW_COUNT;
+    v_recovered_count := v_recovered_count + v_row_count;
 
     UPDATE public.auto_digest_jobs
        SET status       = 'failed',
+           phase        = NULL,
+           active_entry_id = NULL,
+           pending_entry_ids = '[]'::jsonb,
+           heartbeat_at = v_now,
            completed_at = v_now,
            error        = format(
              'watchdog: stuck in processing for %s min; recovered %s orphaned entries',
-             EXTRACT(EPOCH FROM (v_now - started_at))::int / 60,
+             EXTRACT(EPOCH FROM (v_now - v_stuck.started_at))::int / 60,
              v_recovered_count
            )
-     WHERE id = v_stuck.id;
+     WHERE id = v_stuck.id
+       AND status = 'processing';
   END LOOP;
 END;
 $function$;
@@ -3090,7 +3159,7 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
-CREATE OR REPLACE FUNCTION public.hybrid_search_detections(p_query text, p_query_embedding vector, p_semantic_weight double precision DEFAULT 0.5, p_keyword_weight double precision DEFAULT 0.5, p_limit integer DEFAULT 25, p_status text DEFAULT NULL::text, p_severity text DEFAULT NULL::text)
+CREATE OR REPLACE FUNCTION public.hybrid_search_detections(p_query text, p_query_embedding vector, p_semantic_weight double precision DEFAULT 0.5, p_keyword_weight double precision DEFAULT 0.5, p_limit integer DEFAULT 25, p_status text DEFAULT NULL::text, p_severity text DEFAULT NULL::text, p_user_id uuid DEFAULT NULL::uuid)
  RETURNS TABLE(detection_id text, name text, description text, mitre_ids text[], status text, severity text, semantic_score double precision, keyword_score double precision, combined_score double precision)
  LANGUAGE plpgsql
 AS $function$
@@ -3142,6 +3211,10 @@ begin
   where
     (p_status is null or d.status = p_status)
     and (p_severity is null or d.severity = p_severity)
+    and (
+      d.library_type = 'production'
+      or (d.library_type = 'development' and (d.visibility = 'shared' or d.user_id = p_user_id))
+    )
   order by c.total_score desc
   limit p_limit;
 end;
@@ -3902,12 +3975,15 @@ CREATE OR REPLACE FUNCTION public.threat_research_dispatcher()
  RETURNS void
  LANGUAGE plpgsql
  SECURITY DEFINER
+ SET search_path = public, extensions
 AS $function$
 DECLARE
   v_now timestamptz := now();
   v_grp RECORD;
   v_dispatched uuid;
 BEGIN
+  -- 1. Hard-kill exhausted-retry running jobs. The Supabase edge worker is
+  --    killed at 400 s, so nothing legitimate is still alive at 480 s.
   UPDATE public.threat_research_jobs
      SET status         = 'failed',
          failure_reason = COALESCE(failure_reason, 'reaper: worker exceeded edge-function lifetime'),
@@ -3915,23 +3991,28 @@ BEGIN
    WHERE status     = 'running'
      AND attempt_count >= 3
      AND (
-       (phase IN ('preflight','finalise')                                  AND started_at < v_now - interval '6 minutes')
-       OR (phase IN ('research','attack_research','opportunity_planning','detection') AND started_at < v_now - interval '15 minutes')
-       OR (phase = 'qa'                                                     AND started_at < v_now - interval '35 minutes')
+       (phase IN ('preflight','finalise')                                  AND started_at < v_now - interval '240 seconds')
+       OR (phase IN ('research','attack_research','opportunity_planning','detection') AND started_at < v_now - interval '480 seconds')
+       OR (phase = 'qa'                                                     AND started_at < v_now - interval '480 seconds')
      );
 
+  -- 2. Reset still-retryable stuck running jobs. 450 s = the 400 s platform
+  --    ceiling plus headroom for clock skew and cron granularity. Kept below
+  --    the hard-kill threshold so a job always gets its retries first.
   UPDATE public.threat_research_jobs
      SET status     = 'pending',
          started_at = NULL
    WHERE status     = 'running'
      AND attempt_count < 3
      AND (
-       (phase IN ('preflight','finalise')                                  AND started_at < v_now - interval '4 minutes')
-       OR (phase IN ('research','attack_research')                         AND started_at < v_now - interval '10 minutes')
-       OR (phase IN ('opportunity_planning','detection')                   AND started_at < v_now - interval '12 minutes')
-       OR (phase = 'qa'                                                    AND started_at < v_now - interval '25 minutes')
+       (phase IN ('preflight','finalise')                                  AND started_at < v_now - interval '240 seconds')
+       OR (phase IN ('research','attack_research')                         AND started_at < v_now - interval '450 seconds')
+       OR (phase IN ('opportunity_planning','detection')                   AND started_at < v_now - interval '450 seconds')
+       OR (phase = 'qa'                                                    AND started_at < v_now - interval '450 seconds')
      );
 
+  -- 3. Mark sessions failed when all their jobs have terminated AND at
+  --    least one failed.
   UPDATE public.threat_research_sessions s
      SET status         = 'failed',
          failure_reason = COALESCE(
@@ -3954,6 +4035,7 @@ BEGIN
         WHERE j.session_id = s.id AND j.status IN ('pending','running')
      );
 
+  -- 4. Dispatch stranded pending jobs.
   FOR v_grp IN
       SELECT DISTINCT session_id, phase
         FROM public.threat_research_jobs
@@ -4084,10 +4166,23 @@ BEGIN
    RETURNING j.id, j.session_id, j.phase, j.behaviour_id, j.status, j.attempt_count, j.failure_reason;
 END;
 $function$;
-CREATE OR REPLACE FUNCTION public.tr_consume_budget(p_session_id uuid, p_tool_calls integer DEFAULT 0, p_model_calls integer DEFAULT 0, p_tokens integer DEFAULT 0)
+-- Drop the pre-token four-argument signature. Postgres identifies a function
+-- by its full argument list, so leaving it in place would give a
+-- four-argument call two equally valid candidates and fail as ambiguous.
+DROP FUNCTION IF EXISTS public.tr_consume_budget(uuid, integer, integer, integer);
+CREATE OR REPLACE FUNCTION public.tr_consume_budget(
+  p_session_id     uuid,
+  p_tool_calls     integer DEFAULT 0,
+  p_model_calls    integer DEFAULT 0,
+  p_tokens         integer DEFAULT 0,
+  p_phase          text    DEFAULT NULL,
+  p_tokens_reserve integer DEFAULT 0,
+  p_tokens_release integer DEFAULT 0
+)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
+ SET search_path TO 'public', 'extensions'
 AS $function$
 DECLARE
   v_tool int;
@@ -4095,20 +4190,90 @@ DECLARE
   v_tokens int;
   v_cap_tool int;
   v_cap_model int;
+  v_token_cap int;
+  v_tokens_reserved int;
+  v_aborted_at timestamptz;
+  v_abort_reason text;
+  v_phase_cap int;
+  v_phase_used int;
+  v_phase_reserved int;
   c_default_tool  constant int := 30;
   c_default_model constant int := 40;
 BEGIN
+  -- Every parameter is a quantity consumed or reserved. A negative value would
+  -- run the accounting backwards and hand out budget that was never earned.
+  IF COALESCE(p_tool_calls, 0)     < 0
+     OR COALESCE(p_model_calls, 0) < 0
+     OR COALESCE(p_tokens, 0)      < 0
+     OR COALESCE(p_tokens_reserve, 0) < 0
+     OR COALESCE(p_tokens_release, 0) < 0 THEN
+    RETURN jsonb_build_object(
+      'allowed', false,
+      'reason', 'negative budget arguments are not permitted'
+    );
+  END IF;
   SELECT COALESCE(tool_calls_used, 0),
          COALESCE(model_calls_used, 0),
          COALESCE(total_tokens, 0),
          COALESCE(tool_call_cap,  c_default_tool),
-         COALESCE(model_call_cap, c_default_model)
-    INTO v_tool, v_model, v_tokens, v_cap_tool, v_cap_model
+         COALESCE(model_call_cap, c_default_model),
+         token_cap,
+         COALESCE(tokens_reserved, 0),
+         aborted_at,
+         abort_reason
+    INTO v_tool, v_model, v_tokens, v_cap_tool, v_cap_model,
+         v_token_cap, v_tokens_reserved, v_aborted_at, v_abort_reason
     FROM public.threat_research_sessions
    WHERE id = p_session_id
    FOR UPDATE;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('allowed', false, 'reason', 'session not found');
+  END IF;
+
+  -- Before the caps: an aborted session stops regardless of remaining budget.
+  IF v_aborted_at IS NOT NULL THEN
+    RETURN jsonb_build_object(
+      'allowed', false,
+      'aborted', true,
+      'reason', COALESCE(v_abort_reason, 'session aborted'),
+      'tool_used', v_tool, 'tool_cap', v_cap_tool,
+      'model_used', v_model, 'model_cap', v_cap_model,
+      'tokens_used', v_tokens
+    );
+  END IF;
+
+  -- Session token gate. Counts in-flight reservations so concurrent workers
+  -- cannot each pass and then collectively overspend.
+  IF p_tokens_reserve > 0 AND v_token_cap IS NOT NULL
+     AND v_tokens + v_tokens_reserved + p_tokens_reserve > v_token_cap THEN
+    RETURN jsonb_build_object(
+      'allowed', false,
+      'reason', format('token cap reached (%s used + %s reserved + %s requested > %s)',
+                       v_tokens, v_tokens_reserved, p_tokens_reserve, v_token_cap),
+      'tokens_used', v_tokens, 'token_cap', v_token_cap,
+      'tokens_reserved', v_tokens_reserved,
+      'tool_used', v_tool, 'tool_cap', v_cap_tool,
+      'model_used', v_model, 'model_cap', v_cap_model
+    );
+  END IF;
+
+  -- Phase gate. A phase without a row is unbudgeted and passes.
+  IF p_phase IS NOT NULL AND p_tokens_reserve > 0 THEN
+    SELECT token_cap, tokens_used, tokens_reserved
+      INTO v_phase_cap, v_phase_used, v_phase_reserved
+      FROM public.threat_research_phase_budgets
+     WHERE session_id = p_session_id AND phase = p_phase
+     FOR UPDATE;
+    IF FOUND AND v_phase_used + v_phase_reserved + p_tokens_reserve > v_phase_cap THEN
+      RETURN jsonb_build_object(
+        'allowed', false,
+        'reason', format('phase token cap reached for %s (%s used + %s reserved + %s requested > %s)',
+                         p_phase, v_phase_used, v_phase_reserved, p_tokens_reserve, v_phase_cap),
+        'phase', p_phase,
+        'phase_tokens_used', v_phase_used, 'phase_token_cap', v_phase_cap,
+        'tokens_used', v_tokens, 'token_cap', v_token_cap
+      );
+    END IF;
   END IF;
 
   IF p_tool_calls > 0 AND v_tool + p_tool_calls > v_cap_tool THEN
@@ -4133,8 +4298,19 @@ BEGIN
   UPDATE public.threat_research_sessions
      SET tool_calls_used  = COALESCE(tool_calls_used,  0) + p_tool_calls,
          model_calls_used = COALESCE(model_calls_used, 0) + p_model_calls,
-         total_tokens     = COALESCE(total_tokens,     0) + p_tokens
+         total_tokens     = COALESCE(total_tokens,     0) + p_tokens,
+         -- GREATEST(0, ...) so a double settle, or a settle whose reserve was
+         -- lost with a killed worker, cannot drive the counter negative and
+         -- silently hand out free budget.
+         tokens_reserved  = GREATEST(0, COALESCE(tokens_reserved, 0) + p_tokens_reserve - p_tokens_release)
    WHERE id = p_session_id;
+
+  IF p_phase IS NOT NULL AND (p_tokens <> 0 OR p_tokens_reserve <> 0 OR p_tokens_release <> 0) THEN
+    UPDATE public.threat_research_phase_budgets
+       SET tokens_used     = tokens_used + p_tokens,
+           tokens_reserved = GREATEST(0, tokens_reserved + p_tokens_reserve - p_tokens_release)
+     WHERE session_id = p_session_id AND phase = p_phase;
+  END IF;
 
   v_tool   := v_tool   + p_tool_calls;
   v_model  := v_model  + p_model_calls;
@@ -4144,11 +4320,117 @@ BEGIN
     'allowed', true,
     'tool_used', v_tool, 'tool_cap', v_cap_tool,
     'model_used', v_model, 'model_cap', v_cap_model,
-    'tokens_used', v_tokens
+    'tokens_used', v_tokens, 'token_cap', v_token_cap
   );
 END;
 $function$;
-CREATE OR REPLACE FUNCTION public.tr_find_actor_tagged_detections(p_aliases text[], p_limit integer DEFAULT 200)
+
+REVOKE ALL ON FUNCTION public.tr_consume_budget(uuid, integer, integer, integer, text, integer, integer)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.tr_consume_budget(uuid, integer, integer, integer, text, integer, integer)
+  TO service_role;
+
+-- Restated so this migration is self-sufficient.
+REVOKE ALL ON FUNCTION public.tr_set_phase_budgets(uuid, integer, jsonb)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.tr_set_phase_budgets(uuid, integer, jsonb) TO service_role;
+
+REVOKE ALL ON FUNCTION public.tr_abort_session(uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.tr_abort_session(uuid, text) TO service_role;
+
+COMMENT ON FUNCTION public.tr_consume_budget(uuid, integer, integer, integer, text, integer, integer) IS
+  'Atomic budget check-and-spend for a threat-research session. SECURITY DEFINER, service-role only: it validates no caller identity, so end-user execution must stay revoked. Any future signature change must re-apply these grants -- DROP discards the ACL and Supabase default privileges re-grant anon/authenticated.';
+
+CREATE OR REPLACE FUNCTION public.tr_set_phase_budgets(
+  p_session_id uuid,
+  p_token_cap  integer,
+  p_phases     jsonb          -- {"detection": 300000, "qa": 120000, ...}
+)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_phase text;
+  v_cap   int;
+  v_count int := 0;
+BEGIN
+  UPDATE public.threat_research_sessions
+     SET token_cap  = p_token_cap,
+         updated_at = now()
+   WHERE id = p_session_id;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'session not found');
+  END IF;
+
+  FOR v_phase, v_cap IN SELECT key, value::int FROM jsonb_each_text(p_phases) LOOP
+    INSERT INTO public.threat_research_phase_budgets (session_id, phase, token_cap)
+    VALUES (p_session_id, v_phase, v_cap)
+    ON CONFLICT (session_id, phase) DO UPDATE
+      -- Re-sizing may only raise a floor. Lowering one mid-session could
+      -- retroactively starve a phase that has already spent against it.
+      SET token_cap = GREATEST(public.threat_research_phase_budgets.token_cap, EXCLUDED.token_cap);
+    v_count := v_count + 1;
+  END LOOP;
+
+  RETURN jsonb_build_object('ok', true, 'phases', v_count, 'token_cap', p_token_cap);
+END;
+$function$;
+REVOKE EXECUTE ON FUNCTION public.tr_set_phase_budgets(uuid, integer, jsonb) FROM PUBLIC, anon, authenticated;
+CREATE OR REPLACE FUNCTION public.tr_abort_session(p_session_id uuid, p_reason text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_already   timestamptz;
+  v_cancelled int := 0;
+BEGIN
+  -- Idempotent: several workers hit the same account-scoped provider failure
+  -- within the same second, so the first to arrive wins.
+  SELECT aborted_at INTO v_already
+    FROM public.threat_research_sessions
+   WHERE id = p_session_id
+   FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('aborted', false, 'reason', 'session not found');
+  END IF;
+
+  IF v_already IS NOT NULL THEN
+    RETURN jsonb_build_object('aborted', true, 'already_aborted', true);
+  END IF;
+
+  UPDATE public.threat_research_sessions
+     SET aborted_at     = now(),
+         abort_reason   = p_reason,
+         status         = 'failed',
+         failure_reason = p_reason,
+         completed_at   = now(),
+         updated_at     = now()
+   WHERE id = p_session_id;
+
+  -- Fail everything not yet started; running jobs stop cooperatively at their
+  -- next tr_consume_budget call.
+  UPDATE public.threat_research_jobs
+     SET status         = 'failed',
+         failure_reason = COALESCE(failure_reason, p_reason),
+         completed_at   = now()
+   WHERE session_id = p_session_id
+     AND status     = 'pending';
+  GET DIAGNOSTICS v_cancelled = ROW_COUNT;
+
+  RETURN jsonb_build_object(
+    'aborted', true,
+    'already_aborted', false,
+    'pending_jobs_cancelled', v_cancelled
+  );
+END;
+$function$;
+REVOKE EXECUTE ON FUNCTION public.tr_abort_session(uuid, text) FROM PUBLIC, anon, authenticated;
+CREATE OR REPLACE FUNCTION public.tr_find_actor_tagged_detections(p_aliases text[], p_limit integer DEFAULT 200, p_user_id uuid DEFAULT NULL::uuid)
  RETURNS TABLE(id text, name text, severity text, mitre_technique_ids text[], matching_aliases text[])
  LANGUAGE sql
  STABLE
@@ -4161,6 +4443,10 @@ AS $function$
     ARRAY(SELECT DISTINCT t FROM unnest(d.tags) t WHERE t = ANY(p_aliases))::text[] AS matching_aliases
   FROM public.detections d
   WHERE d.tags && p_aliases
+    AND (
+      d.library_type = 'production'
+      OR (d.library_type = 'development' AND (d.visibility = 'shared' OR d.user_id = p_user_id))
+    )
   ORDER BY d."updatedDate" DESC NULLS LAST
   LIMIT p_limit;
 $function$;
@@ -4198,12 +4484,25 @@ CREATE OR REPLACE FUNCTION public.tr_patch_detection(p_session_id uuid, p_behavi
  RETURNS boolean
  LANGUAGE plpgsql
  SECURITY DEFINER
+ SET search_path = public, extensions
 AS $function$
 DECLARE
   v_b_idx int;
   v_o_idx int;
   v_existing_det_id text;
 BEGIN
+  -- HARDENING: end-user callers must own the session. Service-role
+  -- (orchestrator) calls carry no JWT subject, so auth.uid() is NULL and the
+  -- check is skipped. SECURITY DEFINER bypasses RLS, so this is the only
+  -- thing standing between an authenticated caller and another user's tree.
+  IF (SELECT auth.uid()) IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM public.threat_research_sessions s
+        WHERE s.id = p_session_id AND s.user_id = (SELECT auth.uid())
+     ) THEN
+    RETURN false;
+  END IF;
+
   SELECT (idx - 1)::int INTO v_b_idx
     FROM public.threat_research_sessions s,
          jsonb_array_elements(s.tree->'behaviours') WITH ORDINALITY AS arr(item, idx)
@@ -4235,6 +4534,14 @@ BEGIN
   RETURN true;
 END;
 $function$;
+-- tr_patch_detection's in-body ownership guard skips when auth.uid() IS NULL,
+-- which is how the service-role worker calls it. anon also presents no JWT
+-- subject, so anon MUST NOT hold EXECUTE or the guard is trivially bypassed.
+-- tr_patch_behaviour has no in-body guard at all and is worker-only.
+REVOKE EXECUTE ON FUNCTION public.tr_patch_detection(uuid, text, text, text, jsonb) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.tr_patch_detection(uuid, text, text, text, jsonb) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.tr_patch_behaviour(uuid, text, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT  EXECUTE ON FUNCTION public.tr_patch_behaviour(uuid, text, jsonb) TO service_role;
 CREATE OR REPLACE FUNCTION public.tr_promote_finalise_if_ready(p_session_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -5436,6 +5743,40 @@ ALTER TABLE public.threat_intel_report_detections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.threat_intel_reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.threat_research_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.threat_research_jobs ENABLE ROW LEVEL SECURITY;
+-- Checkpoints hold the full model conversation: the user's environment
+-- profile, their library rule bodies, intermediate agent reasoning. RLS on
+-- with NO policies denies every non-service role; the orchestrator uses the
+-- service role, which bypasses RLS. Deliberately not exposed to Realtime.
+ALTER TABLE public.threat_research_job_checkpoints ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.threat_research_job_checkpoints FROM PUBLIC, anon, authenticated;
+-- Phase budgets are readable by the owning user so the UI can show remaining
+-- spend; only the orchestrator (service role) writes them.
+-- Append-only vendor-search provenance. Deliberately NOT on the session tree:
+-- several workers search concurrently, and a read-modify-write of the tree
+-- would discard both their provenance and any detection/QA leaf patched
+-- between the read and the write.
+ALTER TABLE public.threat_research_vendor_searches ENABLE ROW LEVEL SECURITY;
+-- `authenticated` too: Supabase default privileges grant it ALL on new public
+-- tables, so revoking only PUBLIC and anon left INSERT/UPDATE/DELETE/TRUNCATE
+-- in place. RLS denies the first three (no policy for them); TRUNCATE is not
+-- subject to RLS, so only the grant closes it.
+REVOKE ALL ON TABLE public.threat_research_vendor_searches FROM PUBLIC, anon, authenticated;
+DROP POLICY IF EXISTS trvs_self_select ON public.threat_research_vendor_searches;
+CREATE POLICY trvs_self_select ON public.threat_research_vendor_searches
+  FOR SELECT TO authenticated
+  USING (user_id = (SELECT auth.uid()));
+GRANT SELECT ON TABLE public.threat_research_vendor_searches TO authenticated;
+ALTER TABLE public.threat_research_phase_budgets ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.threat_research_phase_budgets FROM PUBLIC, anon;
+DROP POLICY IF EXISTS trpb_self_select ON public.threat_research_phase_budgets;
+CREATE POLICY trpb_self_select ON public.threat_research_phase_budgets
+  FOR SELECT TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM public.threat_research_sessions s
+     WHERE s.id = threat_research_phase_budgets.session_id
+       AND s.user_id = (SELECT auth.uid())
+  ));
+GRANT SELECT ON TABLE public.threat_research_phase_budgets TO authenticated;
 ALTER TABLE public.threat_research_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_dashboards ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_invitations ENABLE ROW LEVEL SECURITY;
@@ -5715,17 +6056,17 @@ CREATE POLICY tre_self_select ON public.threat_research_events AS PERMISSIVE FOR
 CREATE POLICY "service role only" ON public.threat_research_jobs AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
 CREATE POLICY trj_admin_select ON public.threat_research_jobs AS PERMISSIVE FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
    FROM profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text]))))));
+  WHERE ((profiles.id = ( SELECT auth.uid() AS uid)) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text]))))));
 CREATE POLICY trj_self_select ON public.threat_research_jobs AS PERMISSIVE FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
    FROM threat_research_sessions s
-  WHERE ((s.id = threat_research_jobs.session_id) AND (s.user_id = auth.uid())))));
+  WHERE ((s.id = threat_research_jobs.session_id) AND (s.user_id = ( SELECT auth.uid() AS uid))))));
 CREATE POLICY trs_admin_select ON public.threat_research_sessions AS PERMISSIVE FOR SELECT TO public USING ((EXISTS ( SELECT 1
    FROM profiles
   WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['owner'::text, 'admin'::text]))))));
-CREATE POLICY trs_self_delete ON public.threat_research_sessions AS PERMISSIVE FOR DELETE TO public USING ((user_id = auth.uid()));
-CREATE POLICY trs_self_insert ON public.threat_research_sessions AS PERMISSIVE FOR INSERT TO public WITH CHECK ((user_id = auth.uid()));
-CREATE POLICY trs_self_select ON public.threat_research_sessions AS PERMISSIVE FOR SELECT TO public USING ((user_id = auth.uid()));
-CREATE POLICY trs_self_update ON public.threat_research_sessions AS PERMISSIVE FOR UPDATE TO public USING ((user_id = auth.uid()));
+CREATE POLICY trs_self_delete ON public.threat_research_sessions AS PERMISSIVE FOR DELETE TO authenticated USING ((user_id = ( SELECT auth.uid() AS uid)));
+CREATE POLICY trs_self_insert ON public.threat_research_sessions AS PERMISSIVE FOR INSERT TO authenticated WITH CHECK ((user_id = ( SELECT auth.uid() AS uid)));
+CREATE POLICY trs_self_select ON public.threat_research_sessions AS PERMISSIVE FOR SELECT TO authenticated USING ((user_id = ( SELECT auth.uid() AS uid)));
+CREATE POLICY trs_self_update ON public.threat_research_sessions AS PERMISSIVE FOR UPDATE TO authenticated USING ((user_id = ( SELECT auth.uid() AS uid))) WITH CHECK ((user_id = ( SELECT auth.uid() AS uid)));
 CREATE POLICY "Users can create their own dashboards" ON public.user_dashboards AS PERMISSIVE FOR INSERT TO public WITH CHECK ((auth.uid() = user_id));
 CREATE POLICY "Users can delete their own dashboards" ON public.user_dashboards AS PERMISSIVE FOR DELETE TO public USING ((auth.uid() = user_id));
 CREATE POLICY "Users can update their own dashboards" ON public.user_dashboards AS PERMISSIVE FOR UPDATE TO public USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
@@ -7752,3 +8093,1274 @@ REVOKE EXECUTE ON FUNCTION public.is_global_admin(uuid) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.is_global_admin_or_lead(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.is_global_admin(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.is_global_admin_or_lead(uuid) TO authenticated, service_role;
+
+-- ============================================================
+-- Auto-digest durable queue snapshot (additive)
+-- ============================================================
+ALTER TABLE public.auto_digest_jobs
+  ADD COLUMN IF NOT EXISTS outcome text,
+  ADD COLUMN IF NOT EXISTS cancellation_requested boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS cancellation_requested_at timestamptz,
+  ADD COLUMN IF NOT EXISTS cancelled_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS phase_started_at timestamptz,
+  ADD COLUMN IF NOT EXISTS queue_message_id bigint;
+ALTER TABLE public.auto_digest_jobs DROP CONSTRAINT IF EXISTS auto_digest_jobs_status_check;
+ALTER TABLE public.auto_digest_jobs ADD CONSTRAINT auto_digest_jobs_status_check CHECK (
+  status = ANY (ARRAY['pending','processing','completed','partial','failed','timeout_partial','cancelled']::text[])
+);
+ALTER TABLE public.auto_digest_jobs ADD CONSTRAINT auto_digest_jobs_outcome_check CHECK (
+  outcome IS NULL OR outcome = ANY (ARRAY['complete','partial','failed','cancelled']::text[])
+);
+ALTER TABLE public.auto_digest_jobs ADD CONSTRAINT auto_digest_jobs_id_user_id_key UNIQUE (id, user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS auto_digest_jobs_one_active_per_user
+  ON public.auto_digest_jobs (user_id) WHERE status IN ('pending','processing');
+
+CREATE TABLE IF NOT EXISTS public.auto_digest_job_entries (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id uuid NOT NULL,
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  feed_entry_id uuid NOT NULL REFERENCES public.threat_intel_feed_entries(id) ON DELETE CASCADE,
+  report_id text REFERENCES public.threat_intel_reports(id) ON DELETE SET NULL,
+  phase text NOT NULL DEFAULT 'digesting' CHECK (phase IN ('harvest','classify','rank','digest','story_link','finalize')),
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','succeeded','failed','skipped','quarantined','retained_previous')),
+  attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  max_attempts integer NOT NULL DEFAULT 3 CHECK (max_attempts BETWEEN 1 AND 10),
+  lease_expires_at timestamptz,
+  heartbeat_at timestamptz,
+  started_at timestamptz,
+  completed_at timestamptz,
+  last_error_code text,
+  last_error text,
+  quarantined_at timestamptz,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT auto_digest_job_entries_job_owner_fkey FOREIGN KEY (job_id, user_id)
+    REFERENCES public.auto_digest_jobs(id, user_id) ON DELETE CASCADE,
+  CONSTRAINT auto_digest_job_entries_job_entry_key UNIQUE (job_id, feed_entry_id)
+);
+CREATE INDEX IF NOT EXISTS auto_digest_job_entries_claim_idx
+  ON public.auto_digest_job_entries (status, lease_expires_at, created_at);
+CREATE INDEX IF NOT EXISTS auto_digest_job_entries_user_idx
+  ON public.auto_digest_job_entries (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS auto_digest_job_entries_feed_entry_idx
+  ON public.auto_digest_job_entries (feed_entry_id);
+CREATE INDEX IF NOT EXISTS auto_digest_job_entries_job_owner_idx
+  ON public.auto_digest_job_entries (job_id, user_id);
+CREATE INDEX IF NOT EXISTS auto_digest_job_entries_report_idx
+  ON public.auto_digest_job_entries (report_id);
+CREATE INDEX IF NOT EXISTS auto_digest_jobs_active_entry_idx
+  ON public.auto_digest_jobs (active_entry_id);
+CREATE INDEX IF NOT EXISTS auto_digest_jobs_cancelled_by_idx
+  ON public.auto_digest_jobs (cancelled_by);
+CREATE INDEX IF NOT EXISTS auto_digest_campaign_articles_report_idx
+  ON public.auto_digest_campaign_articles (report_id);
+CREATE INDEX IF NOT EXISTS auto_digest_campaigns_reviewed_by_idx
+  ON public.auto_digest_campaigns (reviewed_by);
+ALTER TABLE public.auto_digest_job_entries ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.threat_intel_feed_entries
+  ADD COLUMN IF NOT EXISTS canonical_url text,
+  ADD COLUMN IF NOT EXISTS content_hash text,
+  ADD COLUMN IF NOT EXISTS source_feed_ids uuid[] NOT NULL DEFAULT '{}'::uuid[],
+  ADD COLUMN IF NOT EXISTS source_count integer NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS last_modified timestamptz;
+ALTER TABLE public.threat_intel_feeds
+  ADD COLUMN IF NOT EXISTS etag text,
+  ADD COLUMN IF NOT EXISTS last_modified text,
+  ADD COLUMN IF NOT EXISTS fetch_attempts integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS consecutive_failures integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS last_http_status integer,
+  ADD COLUMN IF NOT EXISTS last_discovered_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS last_duplicate_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS last_accepted_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS next_retry_at timestamptz;
+ALTER TABLE public.threat_intel_reports
+  ADD COLUMN IF NOT EXISTS outcome text NOT NULL DEFAULT 'complete',
+  ADD COLUMN IF NOT EXISTS section_outcomes jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS library_overlap_percent integer,
+  ADD COLUMN IF NOT EXISTS validated_overlap_percent integer,
+  ADD COLUMN IF NOT EXISTS deployment_readiness_percent integer,
+  ADD COLUMN IF NOT EXISTS overlap_calculated_at timestamptz,
+  ADD COLUMN IF NOT EXISTS content_hash text,
+  ADD COLUMN IF NOT EXISTS canonical_url text,
+  ADD COLUMN IF NOT EXISTS fetched_url text,
+  ADD COLUMN IF NOT EXISTS model_provider text,
+  ADD COLUMN IF NOT EXISTS model_version text,
+  ADD COLUMN IF NOT EXISTS prompt_version text,
+  ADD COLUMN IF NOT EXISTS pipeline_version text,
+  ADD COLUMN IF NOT EXISTS attack_version text,
+  ADD COLUMN IF NOT EXISTS extraction_started_at timestamptz,
+  ADD COLUMN IF NOT EXISTS extraction_completed_at timestamptz;
+
+DROP POLICY IF EXISTS "Users read own digest jobs" ON public.auto_digest_jobs;
+CREATE POLICY auto_digest_jobs_select_own ON public.auto_digest_jobs FOR SELECT TO authenticated USING ((select auth.uid()) = user_id);
+CREATE POLICY auto_digest_jobs_service_all ON public.auto_digest_jobs FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Users manage own digest settings" ON public.auto_digest_settings;
+CREATE POLICY auto_digest_settings_own ON public.auto_digest_settings FOR ALL TO authenticated USING ((select auth.uid()) = user_id) WITH CHECK ((select auth.uid()) = user_id);
+DROP POLICY IF EXISTS "Users manage own feed entries" ON public.threat_intel_feed_entries;
+DROP POLICY IF EXISTS "Users see own feed entries" ON public.threat_intel_feed_entries;
+CREATE POLICY threat_intel_feed_entries_select_own ON public.threat_intel_feed_entries FOR SELECT TO authenticated USING ((select auth.uid()) = user_id);
+CREATE POLICY threat_intel_feed_entries_insert_own ON public.threat_intel_feed_entries FOR INSERT TO authenticated WITH CHECK ((select auth.uid()) = user_id);
+CREATE POLICY threat_intel_feed_entries_update_own ON public.threat_intel_feed_entries FOR UPDATE TO authenticated USING ((select auth.uid()) = user_id) WITH CHECK ((select auth.uid()) = user_id);
+CREATE POLICY threat_intel_feed_entries_delete_own ON public.threat_intel_feed_entries FOR DELETE TO authenticated USING ((select auth.uid()) = user_id);
+CREATE POLICY threat_intel_feed_entries_service_all ON public.threat_intel_feed_entries FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Users manage own feeds" ON public.threat_intel_feeds;
+CREATE POLICY threat_intel_feeds_own ON public.threat_intel_feeds FOR ALL TO authenticated USING ((select auth.uid()) = user_id) WITH CHECK ((select auth.uid()) = user_id);
+CREATE POLICY threat_intel_feeds_service_all ON public.threat_intel_feeds FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY auto_digest_job_entries_select_own ON public.auto_digest_job_entries FOR SELECT TO authenticated USING ((select auth.uid()) = user_id);
+CREATE POLICY auto_digest_job_entries_service_all ON public.auto_digest_job_entries FOR ALL TO service_role USING (true) WITH CHECK (true);
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, TRIGGER, REFERENCES ON public.auto_digest_jobs FROM anon, authenticated;
+REVOKE TRUNCATE, TRIGGER, REFERENCES ON public.auto_digest_job_entries FROM anon, authenticated;
+REVOKE TRUNCATE, TRIGGER, REFERENCES ON public.threat_intel_feed_entries FROM anon, authenticated;
+REVOKE TRUNCATE, TRIGGER, REFERENCES ON public.threat_intel_feeds FROM anon, authenticated;
+
+-- Queue RPC projections kept in the canonical snapshot; pgmq delivery is
+-- enabled by the durable-queue migration when the extension is available.
+CREATE OR REPLACE FUNCTION public.request_auto_digest_job(
+  p_user_id uuid DEFAULT auth.uid(), p_reason text DEFAULT 'manual'
+) RETURNS TABLE(job_id uuid, status text, created boolean)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions, pg_catalog AS $$
+DECLARE v_job public.auto_digest_jobs%ROWTYPE;
+BEGIN
+  IF p_user_id IS NULL THEN RAISE EXCEPTION 'Authentication required' USING ERRCODE = '28000'; END IF;
+  IF p_user_id IS DISTINCT FROM auth.uid() AND current_user NOT IN ('postgres','supabase_admin')
+     AND COALESCE(auth.role(), '') <> 'service_role' THEN
+    RAISE EXCEPTION 'Cannot create a digest job for another user' USING ERRCODE = '42501';
+  END IF;
+  INSERT INTO public.auto_digest_jobs (user_id, status, result_summary)
+  VALUES (p_user_id, 'pending', jsonb_build_object('reason', COALESCE(p_reason, 'manual')))
+  ON CONFLICT (user_id) WHERE auto_digest_jobs.status IN ('pending','processing') DO NOTHING
+  RETURNING * INTO v_job;
+  IF v_job.id IS NULL THEN
+    SELECT j.* INTO v_job FROM public.auto_digest_jobs AS j
+     WHERE j.user_id = p_user_id AND j.status IN ('pending','processing')
+     ORDER BY j.created_at DESC LIMIT 1;
+    RETURN QUERY SELECT v_job.id, v_job.status, false; RETURN;
+  END IF;
+  RETURN QUERY SELECT v_job.id, v_job.status, true;
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.cancel_auto_digest_job(p_job_id uuid, p_reason text DEFAULT 'Cancelled by user')
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions, pg_catalog AS $$
+DECLARE v_uid uuid := auth.uid(); v_job public.auto_digest_jobs%ROWTYPE;
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'Authentication required' USING ERRCODE = '28000'; END IF;
+  UPDATE public.auto_digest_jobs SET status = 'cancelled', outcome = 'cancelled', phase = NULL,
+    cancellation_requested = true, cancellation_requested_at = now(), cancelled_by = v_uid,
+    completed_at = COALESCE(completed_at, now()), error = COALESCE(p_reason, 'Cancelled by user'),
+    active_entry_id = NULL, pending_entry_ids = '[]'::jsonb
+   WHERE id = p_job_id AND user_id = v_uid AND status IN ('pending','processing') RETURNING * INTO v_job;
+  IF v_job.id IS NULL THEN RETURN jsonb_build_object('ok', false, 'code', 'JOB_NOT_ACTIVE'); END IF;
+  UPDATE public.auto_digest_job_entries SET status = 'skipped', last_error_code = 'CANCELLED',
+    last_error = COALESCE(p_reason, 'Cancelled by user'), completed_at = now(), updated_at = now()
+   WHERE job_id = p_job_id AND status IN ('pending','running');
+  RETURN jsonb_build_object('ok', true, 'code', 'CANCELLED', 'job_id', p_job_id);
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.claim_auto_digest_entry(p_job_id uuid, p_entry_id uuid, p_lease_seconds integer DEFAULT 300)
+RETURNS SETOF public.auto_digest_job_entries LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, extensions, pg_catalog AS $$
+BEGIN
+  RETURN QUERY UPDATE public.auto_digest_job_entries e SET status = 'running', attempt_count = e.attempt_count + 1,
+    started_at = COALESCE(e.started_at, now()), heartbeat_at = now(),
+    lease_expires_at = now() + make_interval(secs => GREATEST(30, p_lease_seconds)), updated_at = now()
+   FROM public.auto_digest_jobs j
+   WHERE e.feed_entry_id = p_entry_id AND e.job_id = p_job_id AND j.id = e.job_id AND j.status = 'processing'
+     AND NOT j.cancellation_requested AND e.status = 'pending' AND e.attempt_count < e.max_attempts
+   RETURNING e.*;
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.complete_auto_digest_entry(
+  p_entry_id uuid, p_status text, p_report_id text DEFAULT NULL,
+  p_error_code text DEFAULT NULL, p_error text DEFAULT NULL
+) RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, extensions, pg_catalog AS $$
+DECLARE v_status text := CASE WHEN p_status IN ('succeeded','failed','skipped','quarantined','retained_previous') THEN p_status ELSE 'failed' END;
+BEGIN
+  UPDATE public.auto_digest_job_entries SET status = v_status, report_id = COALESCE(p_report_id, report_id),
+    last_error_code = p_error_code, last_error = p_error, completed_at = now(),
+    lease_expires_at = NULL, heartbeat_at = now(), updated_at = now()
+   WHERE id = p_entry_id AND status IN ('running','pending');
+  RETURN FOUND;
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.finalize_auto_digest_job(p_job_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions, pg_catalog AS $$
+DECLARE v_total int; v_success int; v_failed int; v_quarantined int; v_outcome text; v_status text;
+BEGIN
+  SELECT count(*)::int, count(*) FILTER (WHERE status = 'succeeded')::int,
+    count(*) FILTER (WHERE status = 'failed')::int, count(*) FILTER (WHERE status = 'quarantined')::int
+    INTO v_total, v_success, v_failed, v_quarantined FROM public.auto_digest_job_entries WHERE job_id = p_job_id;
+  IF EXISTS (SELECT 1 FROM public.auto_digest_jobs WHERE id = p_job_id AND (status = 'cancelled' OR cancellation_requested)) THEN
+    v_outcome := 'cancelled'; v_status := 'cancelled';
+  ELSIF v_total = 0 OR (v_failed = 0 AND v_quarantined = 0) THEN
+    v_outcome := 'complete'; v_status := 'completed';
+  ELSIF v_success > 0 THEN v_outcome := 'partial'; v_status := 'partial';
+  ELSE v_outcome := 'failed'; v_status := 'failed'; END IF;
+  UPDATE public.auto_digest_jobs SET status = v_status, outcome = v_outcome, phase = NULL, completed_at = now(),
+    active_entry_id = NULL, pending_entry_ids = '[]'::jsonb WHERE id = p_job_id AND status = 'processing';
+  RETURN jsonb_build_object('job_id', p_job_id, 'status', v_status, 'outcome', v_outcome, 'entries_total', v_total, 'entries_succeeded', v_success, 'entries_failed', v_failed, 'entries_quarantined', v_quarantined);
+END; $$;
+
+GRANT EXECUTE ON FUNCTION public.request_auto_digest_job(uuid, text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.cancel_auto_digest_job(uuid, text) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.claim_auto_digest_entry(uuid, uuid, integer) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.complete_auto_digest_entry(uuid, text, text, text, text) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.finalize_auto_digest_job(uuid) FROM PUBLIC, anon, authenticated;
+-- Shared daily article reservations for scheduled and manual digest runs.
+CREATE TABLE IF NOT EXISTS public.auto_digest_daily_quota (
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  quota_date date NOT NULL,
+  reserved_articles integer NOT NULL DEFAULT 0 CHECK (reserved_articles >= 0),
+  completed_articles integer NOT NULL DEFAULT 0 CHECK (completed_articles >= 0),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, quota_date)
+);
+
+ALTER TABLE public.auto_digest_daily_quota ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS auto_digest_daily_quota_select_own ON public.auto_digest_daily_quota;
+CREATE POLICY auto_digest_daily_quota_select_own ON public.auto_digest_daily_quota
+  FOR SELECT TO authenticated USING ((select auth.uid()) = user_id);
+DROP POLICY IF EXISTS auto_digest_daily_quota_service_all ON public.auto_digest_daily_quota;
+CREATE POLICY auto_digest_daily_quota_service_all ON public.auto_digest_daily_quota
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+REVOKE ALL ON public.auto_digest_daily_quota FROM anon, authenticated;
+GRANT SELECT ON public.auto_digest_daily_quota TO authenticated;
+GRANT ALL ON public.auto_digest_daily_quota TO service_role;
+
+CREATE OR REPLACE FUNCTION public.reserve_auto_digest_article_quota(
+  p_user_id uuid,
+  p_requested integer,
+  p_daily_limit integer
+)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_day date := (now() AT TIME ZONE 'UTC')::date;
+  v_limit integer := greatest(0, least(coalesce(p_daily_limit, 0), 100));
+  v_requested integer := greatest(0, least(coalesce(p_requested, 0), 100));
+  v_reserved integer;
+  v_granted integer;
+  v_jwt_role text := coalesce(
+    auth.jwt() ->> 'role',
+    current_setting('request.jwt.claim.role', true),
+    ''
+  );
+BEGIN
+  IF auth.uid() IS DISTINCT FROM p_user_id AND v_jwt_role <> 'service_role' THEN
+    RAISE EXCEPTION 'not authorized' USING errcode = '42501';
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(hashtextextended(p_user_id::text || ':' || v_day::text, 0));
+  INSERT INTO public.auto_digest_daily_quota (user_id, quota_date)
+  VALUES (p_user_id, v_day)
+  ON CONFLICT (user_id, quota_date) DO NOTHING;
+
+  SELECT reserved_articles INTO v_reserved
+    FROM public.auto_digest_daily_quota
+   WHERE user_id = p_user_id AND quota_date = v_day
+   FOR UPDATE;
+
+  v_granted := least(v_requested, greatest(0, v_limit - coalesce(v_reserved, 0)));
+  UPDATE public.auto_digest_daily_quota
+     SET reserved_articles = reserved_articles + v_granted, updated_at = now()
+   WHERE user_id = p_user_id AND quota_date = v_day;
+  RETURN v_granted;
+END;
+$$;
+
+-- Recover rows stranded by a failed ranking phase before pending_entry_ids
+-- was persisted. Never touch a user's queued rows while that user has an
+-- active job.
+UPDATE public.threat_intel_feed_entries e
+   SET digest_status = 'classified'
+ WHERE e.digest_status = 'queued'
+   AND NOT EXISTS (
+     SELECT 1
+       FROM public.auto_digest_jobs j
+      WHERE j.user_id = e.user_id
+        AND j.status IN ('pending', 'processing')
+   );
+
+-- Canonical tenant-policy and foreign-key-index parity for digest intelligence tables.
+CREATE INDEX IF NOT EXISTS threat_intel_feed_entries_auto_digest_report_idx
+  ON public.threat_intel_feed_entries (auto_digest_report_id);
+CREATE INDEX IF NOT EXISTS threat_intel_feed_entries_campaign_idx
+  ON public.threat_intel_feed_entries (campaign_id);
+CREATE INDEX IF NOT EXISTS threat_intel_reports_campaign_idx
+  ON public.threat_intel_reports (campaign_id);
+
+DO $$
+BEGIN
+  EXECUTE format('DROP POLICY IF EXISTS %I ON public.auto_digest_campaigns', 'Users manage own campaigns');
+  EXECUTE format('DROP POLICY IF EXISTS %I ON public.auto_digest_campaign_articles', 'Users manage own campaign articles');
+  EXECUTE format('DROP POLICY IF EXISTS %I ON public.threat_intel_reports', 'Users can view own reports');
+  EXECUTE format('DROP POLICY IF EXISTS %I ON public.threat_intel_reports', 'Users can create own reports');
+  EXECUTE format('DROP POLICY IF EXISTS %I ON public.threat_intel_reports', 'Users can update own reports');
+  EXECUTE format('DROP POLICY IF EXISTS %I ON public.threat_intel_reports', 'Users can delete own reports');
+END $$;
+
+CREATE POLICY auto_digest_campaigns_authenticated_all
+  ON public.auto_digest_campaigns
+  FOR ALL TO authenticated
+  USING ((SELECT auth.uid()) = user_id)
+  WITH CHECK ((SELECT auth.uid()) = user_id);
+CREATE POLICY auto_digest_campaigns_service_all
+  ON public.auto_digest_campaigns
+  FOR ALL TO service_role
+  USING (true)
+  WITH CHECK (true);
+
+CREATE POLICY auto_digest_campaign_articles_authenticated_all
+  ON public.auto_digest_campaign_articles
+  FOR ALL TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM public.auto_digest_campaigns c
+    WHERE c.id = auto_digest_campaign_articles.campaign_id
+      AND c.user_id = (SELECT auth.uid())
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM public.auto_digest_campaigns c
+    WHERE c.id = auto_digest_campaign_articles.campaign_id
+      AND c.user_id = (SELECT auth.uid())
+  ));
+CREATE POLICY auto_digest_campaign_articles_service_all
+  ON public.auto_digest_campaign_articles
+  FOR ALL TO service_role
+  USING (true)
+  WITH CHECK (true);
+
+CREATE POLICY threat_intel_reports_authenticated_select
+  ON public.threat_intel_reports
+  FOR SELECT TO authenticated
+  USING ((SELECT auth.uid()) = user_id);
+CREATE POLICY threat_intel_reports_authenticated_insert
+  ON public.threat_intel_reports
+  FOR INSERT TO authenticated
+  WITH CHECK ((SELECT auth.uid()) = user_id);
+CREATE POLICY threat_intel_reports_authenticated_update
+  ON public.threat_intel_reports
+  FOR UPDATE TO authenticated
+  USING ((SELECT auth.uid()) = user_id)
+  WITH CHECK ((SELECT auth.uid()) = user_id);
+CREATE POLICY threat_intel_reports_authenticated_delete
+  ON public.threat_intel_reports
+  FOR DELETE TO authenticated
+  USING ((SELECT auth.uid()) = user_id);
+CREATE POLICY threat_intel_reports_service_all
+  ON public.threat_intel_reports
+  FOR ALL TO service_role
+  USING (true)
+  WITH CHECK (true);
+
+-- Additive digest evidence-quality metadata. Legacy rows intentionally remain
+-- readable and are marked legacy_unverified until reprocessed.
+ALTER TABLE public.threat_intel_feed_entries
+  ADD COLUMN IF NOT EXISTS source_quality text NOT NULL DEFAULT 'legacy_unverified',
+  ADD COLUMN IF NOT EXISTS source_content_hash text;
+ALTER TABLE public.threat_intel_reports
+  ADD COLUMN IF NOT EXISTS source_quality text NOT NULL DEFAULT 'legacy_unverified',
+  ADD COLUMN IF NOT EXISTS source_content_length integer,
+  ADD COLUMN IF NOT EXISTS source_content_hash text,
+  ADD COLUMN IF NOT EXISTS quality_warnings jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS possible_actor_mentions jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+REVOKE ALL ON FUNCTION public.reserve_auto_digest_article_quota(uuid, integer, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.reserve_auto_digest_article_quota(uuid, integer, integer) TO authenticated, service_role;
+-- Durable queue consumer and phase recovery follow-up.
+-- This migration is additive and keeps the legacy job-row fallback intact.
+
+ALTER TABLE public.auto_digest_jobs
+  ADD COLUMN IF NOT EXISTS phase_attempt_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS phase_lease_expires_at timestamptz,
+  ADD COLUMN IF NOT EXISTS phase_claim_token uuid;
+
+CREATE OR REPLACE FUNCTION public.claim_auto_digest_phase(
+  p_job_id uuid,
+  p_phase text,
+  p_lease_seconds integer DEFAULT 180
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_catalog
+AS $$
+BEGIN
+  IF current_user NOT IN ('postgres', 'supabase_admin')
+     AND current_setting('request.jwt.claim.role', true) <> 'service_role' THEN
+    RAISE EXCEPTION 'claim_auto_digest_phase is internal only' USING ERRCODE = '42501';
+  END IF;
+
+  UPDATE public.auto_digest_jobs
+     SET phase_started_at = COALESCE(phase_started_at, now()),
+         phase_lease_expires_at = now() + make_interval(secs => GREATEST(60, p_lease_seconds)),
+         phase_claim_token = gen_random_uuid(),
+         heartbeat_at = now(),
+         phase_attempt_count = phase_attempt_count + 1
+   WHERE id = p_job_id
+     AND status = 'processing'
+     AND phase = p_phase
+     AND NOT cancellation_requested
+     AND (phase_lease_expires_at IS NULL OR phase_lease_expires_at < now());
+
+  RETURN FOUND;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.request_auto_digest_job(
+  p_user_id uuid DEFAULT auth.uid(),
+  p_reason text DEFAULT 'manual'
+)
+RETURNS TABLE(job_id uuid, status text, created boolean)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_catalog
+AS $$
+DECLARE
+  v_job public.auto_digest_jobs%ROWTYPE;
+  v_message_id bigint;
+BEGIN
+  IF p_user_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required' USING ERRCODE = '28000';
+  END IF;
+  IF p_user_id IS DISTINCT FROM auth.uid()
+     AND current_user NOT IN ('postgres', 'supabase_admin')
+     AND current_setting('request.jwt.claim.role', true) <> 'service_role' THEN
+    RAISE EXCEPTION 'Cannot create a digest job for another user' USING ERRCODE = '42501';
+  END IF;
+
+  INSERT INTO public.auto_digest_jobs (user_id, status, outcome, result_summary)
+  VALUES (p_user_id, 'pending', NULL, jsonb_build_object('reason', COALESCE(p_reason, 'manual')))
+  ON CONFLICT (user_id) WHERE auto_digest_jobs.status IN ('pending', 'processing') DO NOTHING
+  RETURNING * INTO v_job;
+
+  IF v_job.id IS NULL THEN
+    SELECT j.* INTO v_job
+      FROM public.auto_digest_jobs AS j
+     WHERE j.user_id = p_user_id AND j.status IN ('pending', 'processing')
+     ORDER BY j.created_at DESC
+     LIMIT 1;
+    RETURN QUERY SELECT v_job.id, v_job.status, false;
+    RETURN;
+  END IF;
+
+  v_message_id := public.auto_digest_enqueue(
+    'run_job',
+    v_job.id,
+    NULL,
+    jsonb_build_object('reason', COALESCE(p_reason, 'manual'))
+  );
+  UPDATE public.auto_digest_jobs
+     SET queue_message_id = v_message_id
+   WHERE id = v_job.id;
+
+  RETURN QUERY SELECT v_job.id, v_job.status, true;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.complete_auto_digest_entry(
+  p_entry_id uuid,
+  p_status text,
+  p_report_id text DEFAULT NULL,
+  p_error_code text DEFAULT NULL,
+  p_error text DEFAULT NULL
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_catalog
+AS $$
+DECLARE
+  v_entry public.auto_digest_job_entries%ROWTYPE;
+  v_status text;
+  v_retry boolean := false;
+  v_message_id bigint;
+BEGIN
+  SELECT * INTO v_entry
+    FROM public.auto_digest_job_entries
+   WHERE id = p_entry_id
+   FOR UPDATE;
+  IF NOT FOUND OR v_entry.status NOT IN ('running', 'pending') THEN
+    RETURN false;
+  END IF;
+
+  v_status := CASE
+    WHEN p_status IN ('succeeded', 'skipped', 'retained_previous') THEN p_status
+    WHEN p_status = 'failed' AND v_entry.attempt_count < v_entry.max_attempts THEN 'pending'
+    WHEN p_status IN ('failed', 'quarantined') THEN 'quarantined'
+    ELSE 'failed'
+  END;
+  v_retry := v_status = 'pending';
+
+  UPDATE public.auto_digest_job_entries
+     SET status = v_status,
+         report_id = COALESCE(p_report_id, report_id),
+         last_error_code = p_error_code,
+         last_error = p_error,
+         quarantined_at = CASE WHEN v_status = 'quarantined' THEN now() ELSE quarantined_at END,
+         completed_at = CASE WHEN v_retry THEN NULL ELSE now() END,
+         lease_expires_at = NULL,
+         heartbeat_at = now(),
+         updated_at = now()
+   WHERE id = p_entry_id;
+
+  IF v_retry THEN
+    UPDATE public.auto_digest_jobs
+       SET pending_entry_ids = jsonb_build_array(v_entry.feed_entry_id) ||
+         COALESCE(pending_entry_ids, '[]'::jsonb),
+           phase = 'digesting',
+           phase_lease_expires_at = NULL,
+           phase_started_at = NULL,
+           phase_attempt_count = 0,
+           heartbeat_at = now()
+     WHERE id = v_entry.job_id
+       AND status = 'processing'
+       AND NOT cancellation_requested;
+    v_message_id := public.auto_digest_enqueue(
+      'run_phase', v_entry.job_id, p_entry_id, jsonb_build_object('phase', 'digesting')
+    );
+    UPDATE public.auto_digest_jobs
+       SET queue_message_id = COALESCE(v_message_id, queue_message_id)
+     WHERE id = v_entry.job_id;
+  END IF;
+
+  RETURN true;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.finalize_auto_digest_job(p_job_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_catalog
+AS $$
+DECLARE
+  v_total integer;
+  v_success integer;
+  v_failed integer;
+  v_quarantined integer;
+  v_skipped integer;
+  v_active integer;
+  v_outcome text;
+  v_status text;
+BEGIN
+  SELECT count(*)::integer,
+         count(*) FILTER (WHERE status = 'succeeded')::integer,
+         count(*) FILTER (WHERE status = 'failed')::integer,
+         count(*) FILTER (WHERE status = 'quarantined')::integer,
+         count(*) FILTER (WHERE status IN ('skipped', 'retained_previous'))::integer,
+         count(*) FILTER (WHERE status IN ('pending', 'running'))::integer
+    INTO v_total, v_success, v_failed, v_quarantined, v_skipped, v_active
+    FROM public.auto_digest_job_entries
+   WHERE job_id = p_job_id;
+
+  IF EXISTS (
+    SELECT 1 FROM public.auto_digest_jobs
+     WHERE id = p_job_id AND (status = 'cancelled' OR cancellation_requested)
+  ) THEN
+    v_outcome := 'cancelled';
+    v_status := 'cancelled';
+  ELSIF v_active > 0 THEN
+    RETURN jsonb_build_object('job_id', p_job_id, 'status', 'processing', 'outcome', NULL,
+      'entries_total', v_total, 'entries_active', v_active);
+  ELSIF v_total = 0 OR (v_failed = 0 AND v_quarantined = 0) THEN
+    v_outcome := 'complete';
+    v_status := 'completed';
+  ELSIF v_success > 0 OR v_skipped > 0 THEN
+    v_outcome := 'partial';
+    v_status := 'partial';
+  ELSE
+    v_outcome := 'failed';
+    v_status := 'failed';
+  END IF;
+
+  UPDATE public.auto_digest_jobs
+     SET status = v_status,
+         outcome = v_outcome,
+         phase = NULL,
+         phase_started_at = NULL,
+         phase_lease_expires_at = NULL,
+         completed_at = now(),
+         heartbeat_at = now(),
+         active_entry_id = NULL,
+         pending_entry_ids = '[]'::jsonb
+   WHERE id = p_job_id AND status = 'processing';
+
+  RETURN jsonb_build_object('job_id', p_job_id, 'status', v_status, 'outcome', v_outcome,
+    'entries_total', v_total, 'entries_succeeded', v_success,
+    'entries_failed', v_failed, 'entries_quarantined', v_quarantined,
+    'entries_skipped', v_skipped);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.auto_digest_watchdog()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_catalog
+AS $$
+DECLARE
+  v_job record;
+  v_message_id bigint;
+BEGIN
+  UPDATE public.auto_digest_job_entries
+     SET status = CASE WHEN attempt_count >= max_attempts THEN 'quarantined' ELSE 'pending' END,
+         quarantined_at = CASE WHEN attempt_count >= max_attempts THEN now() ELSE quarantined_at END,
+         last_error_code = CASE WHEN attempt_count >= max_attempts THEN 'POISON_ARTICLE' ELSE 'LEASE_EXPIRED' END,
+         last_error = CASE WHEN attempt_count >= max_attempts
+           THEN 'Retry limit exceeded; article quarantined'
+           ELSE 'Worker lease expired; returned to queue' END,
+         lease_expires_at = NULL,
+         completed_at = CASE WHEN attempt_count >= max_attempts THEN now() ELSE NULL END,
+         updated_at = now()
+   WHERE status = 'running' AND lease_expires_at < now();
+
+  FOR v_job IN
+    SELECT id, phase, phase_attempt_count
+      FROM public.auto_digest_jobs
+     WHERE status = 'processing'
+       AND phase IS NOT NULL
+       AND COALESCE(heartbeat_at, started_at) < now() - CASE phase
+         WHEN 'harvesting' THEN interval '10 minutes'
+         WHEN 'classifying' THEN interval '10 minutes'
+         WHEN 'ranking' THEN interval '5 minutes'
+         WHEN 'digesting' THEN interval '5 minutes'
+         ELSE interval '10 minutes'
+       END
+     FOR UPDATE SKIP LOCKED
+  LOOP
+    IF v_job.phase_attempt_count >= 3 THEN
+      UPDATE public.auto_digest_jobs
+         SET status = 'failed', outcome = 'failed', phase = NULL,
+             completed_at = now(), heartbeat_at = now(),
+             phase_lease_expires_at = NULL,
+             error = COALESCE(error, 'watchdog: phase retry limit exceeded')
+       WHERE id = v_job.id;
+    ELSE
+      UPDATE public.auto_digest_jobs
+         SET phase_attempt_count = phase_attempt_count + 1,
+             phase_lease_expires_at = NULL,
+             phase_started_at = NULL,
+             heartbeat_at = now(),
+             error = 'watchdog: phase lease expired; requeued'
+       WHERE id = v_job.id;
+      v_message_id := public.auto_digest_enqueue(
+        'run_phase', v_job.id, NULL, jsonb_build_object('phase', v_job.phase)
+      );
+      UPDATE public.auto_digest_jobs
+         SET queue_message_id = COALESCE(v_message_id, queue_message_id)
+       WHERE id = v_job.id;
+    END IF;
+  END LOOP;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.claim_auto_digest_phase(uuid, text, integer) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.claim_auto_digest_phase(uuid, text, integer) FROM PUBLIC, anon, authenticated;
+
+
+-- Feed ingestion consolidation and protected TAXII metadata.
+ALTER TABLE public.threat_intel_feeds
+  ADD COLUMN IF NOT EXISTS taxii_api_root text,
+  ADD COLUMN IF NOT EXISTS taxii_collection_id text,
+  ADD COLUMN IF NOT EXISTS taxii_credential_id uuid REFERENCES public.integration_credentials(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS max_items_per_fetch integer NOT NULL DEFAULT 200;
+
+ALTER TABLE public.integration_credentials ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.integration_credentials FROM anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.integration_credentials TO service_role;
+DROP POLICY IF EXISTS integration_credentials_owner_select ON public.integration_credentials;
+DROP POLICY IF EXISTS integration_credentials_owner_write ON public.integration_credentials;
+CREATE POLICY integration_credentials_owner_select
+  ON public.integration_credentials FOR SELECT TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM public.integrations i
+     WHERE i.id = integration_id AND i.user_id = (select auth.uid())
+  ));
+CREATE POLICY integration_credentials_owner_write
+  ON public.integration_credentials FOR ALL TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM public.integrations i
+     WHERE i.id = integration_id AND i.user_id = (select auth.uid())
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM public.integrations i
+     WHERE i.id = integration_id AND i.user_id = (select auth.uid())
+  ));
+
+-- Remove legacy credential values from the browser-readable feed config. New
+-- credentials are written through the backend to integration_credentials.
+UPDATE public.threat_intel_feeds
+   SET taxii_config = COALESCE(taxii_config, '{}'::jsonb)
+     - 'username' - 'password' - 'token' - 'api_key'
+ WHERE taxii_config IS NOT NULL
+   AND (taxii_config ? 'username' OR taxii_config ? 'password' OR taxii_config ? 'token' OR taxii_config ? 'api_key');
+
+CREATE OR REPLACE FUNCTION public.ingest_threat_intel_feed_entry(
+  p_user_id uuid,
+  p_feed_id uuid,
+  p_external_id text,
+  p_title text,
+  p_content text,
+  p_url text,
+  p_published_at timestamptz,
+  p_canonical_url text,
+  p_content_hash text
+)
+RETURNS TABLE(entry_id uuid, created boolean)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_catalog
+AS $$
+DECLARE
+  v_existing public.threat_intel_feed_entries%ROWTYPE;
+  v_key text := COALESCE(p_canonical_url, p_content_hash, p_external_id);
+BEGIN
+  IF p_user_id IS NULL OR p_feed_id IS NULL OR v_key IS NULL OR v_key = '' THEN
+    RAISE EXCEPTION 'Feed entry requires owner, feed, and deduplication key' USING ERRCODE = '22023';
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(hashtext('feed-entry:' || p_user_id::text || ':' || v_key));
+
+  SELECT * INTO v_existing
+    FROM public.threat_intel_feed_entries e
+   WHERE e.user_id = p_user_id
+     AND (
+       (p_canonical_url IS NOT NULL AND e.canonical_url = p_canonical_url)
+       OR (p_content_hash IS NOT NULL AND e.content_hash = p_content_hash)
+       OR (p_external_id IS NOT NULL AND e.external_id = p_external_id)
+     )
+   ORDER BY e.fetched_at ASC
+   LIMIT 1
+   FOR UPDATE;
+
+  IF FOUND THEN
+    UPDATE public.threat_intel_feed_entries e
+       SET title = COALESCE(NULLIF(e.title, ''), NULLIF(p_title, ''), e.title),
+           content = COALESCE(NULLIF(e.content, ''), p_content, e.content),
+           url = COALESCE(e.url, p_url),
+           published_at = COALESCE(e.published_at, p_published_at),
+           canonical_url = COALESCE(e.canonical_url, p_canonical_url),
+           content_hash = COALESCE(e.content_hash, p_content_hash),
+           source_feed_ids = ARRAY(
+             SELECT DISTINCT source_id
+               FROM unnest(COALESCE(e.source_feed_ids, '{}'::uuid[]) || ARRAY[p_feed_id]) AS source_id
+           ),
+           source_count = cardinality(ARRAY(
+             SELECT DISTINCT source_id
+               FROM unnest(COALESCE(e.source_feed_ids, '{}'::uuid[]) || ARRAY[p_feed_id]) AS source_id
+           )),
+           fetched_at = now()
+     WHERE e.id = v_existing.id;
+    RETURN QUERY SELECT v_existing.id, false;
+    RETURN;
+  END IF;
+
+  INSERT INTO public.threat_intel_feed_entries (
+    feed_id, user_id, external_id, title, content, url, published_at,
+    digest_status, canonical_url, content_hash, source_feed_ids, source_count
+  )
+  VALUES (
+    p_feed_id, p_user_id, p_external_id, COALESCE(NULLIF(p_title, ''), 'Untitled'),
+    p_content, p_url, p_published_at, 'harvested', p_canonical_url,
+    p_content_hash, ARRAY[p_feed_id], 1
+  )
+  RETURNING id INTO v_existing.id;
+
+  RETURN QUERY SELECT v_existing.id, true;
+EXCEPTION WHEN unique_violation THEN
+  SELECT * INTO v_existing
+    FROM public.threat_intel_feed_entries e
+   WHERE e.user_id = p_user_id
+     AND (
+       (p_canonical_url IS NOT NULL AND e.canonical_url = p_canonical_url)
+       OR (p_content_hash IS NOT NULL AND e.content_hash = p_content_hash)
+       OR (p_external_id IS NOT NULL AND e.external_id = p_external_id)
+     )
+   LIMIT 1;
+  IF v_existing.id IS NULL THEN RAISE; END IF;
+  RETURN QUERY SELECT v_existing.id, false;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.ingest_threat_intel_feed_entry(uuid, uuid, text, text, text, text, timestamptz, text, text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.ingest_threat_intel_feed_entry(uuid, uuid, text, text, text, text, timestamptz, text, text)
+  TO service_role;
+-- Atomic auto-digest report persistence. Analyst-owned review fields are not
+-- part of the update set and therefore survive automated refreshes.
+CREATE OR REPLACE FUNCTION public.upsert_auto_digest_report(
+  p_report_id text,
+  p_user_id uuid,
+  p_source_url text,
+  p_payload jsonb
+)
+RETURNS TABLE(report_id text)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_catalog
+AS $$
+DECLARE
+  v_target_id text := p_report_id;
+  v_existing_id text;
+  v_payload jsonb := COALESCE(p_payload, '{}'::jsonb);
+BEGIN
+  IF p_user_id IS NULL OR (auth.uid() IS DISTINCT FROM p_user_id
+      AND current_setting('request.jwt.claim.role', true) <> 'service_role') THEN
+    RAISE EXCEPTION 'not authorized' USING errcode = '42501';
+  END IF;
+  IF p_report_id IS NULL OR p_report_id = '' THEN
+    RAISE EXCEPTION 'report id is required' USING errcode = '22023';
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(hashtextextended(p_user_id::text || ':' || COALESCE(p_source_url, ''), 0));
+  IF p_source_url IS NOT NULL THEN
+    SELECT id INTO v_existing_id
+      FROM public.threat_intel_reports
+     WHERE user_id = p_user_id AND source = 'auto' AND source_article_url = p_source_url
+     ORDER BY created_at ASC
+     LIMIT 1
+     FOR UPDATE;
+    v_target_id := COALESCE(v_existing_id, p_report_id);
+  END IF;
+  v_payload := jsonb_set(v_payload, '{id}', to_jsonb(v_target_id), true);
+
+  INSERT INTO public.threat_intel_reports (
+    id, user_id, name, source_type, source_url, raw_content_preview, summary,
+    classification, ttps, iocs, rules, mitre_mapping, library_matches,
+    processing_stage, outcome, section_outcomes, section_errors, report_title,
+    threat_level, attack_type, attribution, organization, ttp_count, ioc_count,
+    rule_count, coverage_percent, source, source_feed_name, source_article_url,
+    relevance_score, library_overlap_percent, validated_overlap_percent,
+    deployment_readiness_percent, overlap_calculated_at
+  ) VALUES (
+    v_target_id, p_user_id, v_payload->>'name', v_payload->>'source_type',
+    v_payload->>'source_url', v_payload->>'raw_content_preview', v_payload->'summary',
+    v_payload->'classification', COALESCE(v_payload->'ttps', '[]'::jsonb),
+    COALESCE(v_payload->'iocs', '[]'::jsonb), COALESCE(v_payload->'rules', '[]'::jsonb),
+    v_payload->'mitre_mapping', v_payload->'library_matches', v_payload->>'processing_stage',
+    v_payload->>'outcome', COALESCE(v_payload->'section_outcomes', '{}'::jsonb),
+    v_payload->'section_errors', v_payload->>'report_title', v_payload->>'threat_level',
+    v_payload->>'attack_type', v_payload->>'attribution', v_payload->>'organization',
+    COALESCE((v_payload->>'ttp_count')::integer, 0), COALESCE((v_payload->>'ioc_count')::integer, 0),
+    COALESCE((v_payload->>'rule_count')::integer, 0), (v_payload->>'coverage_percent')::integer,
+    COALESCE(v_payload->>'source', 'auto'), v_payload->>'source_feed_name',
+    v_payload->>'source_article_url', (v_payload->>'relevance_score')::numeric,
+    (v_payload->>'library_overlap_percent')::integer, (v_payload->>'validated_overlap_percent')::integer,
+    (v_payload->>'deployment_readiness_percent')::integer, (v_payload->>'overlap_calculated_at')::timestamptz
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name, source_type = EXCLUDED.source_type, source_url = EXCLUDED.source_url,
+    raw_content_preview = EXCLUDED.raw_content_preview, summary = EXCLUDED.summary,
+    classification = EXCLUDED.classification, ttps = EXCLUDED.ttps, iocs = EXCLUDED.iocs,
+    rules = EXCLUDED.rules, mitre_mapping = EXCLUDED.mitre_mapping, library_matches = EXCLUDED.library_matches,
+    processing_stage = EXCLUDED.processing_stage, outcome = EXCLUDED.outcome,
+    section_outcomes = EXCLUDED.section_outcomes, section_errors = EXCLUDED.section_errors,
+    report_title = EXCLUDED.report_title, threat_level = EXCLUDED.threat_level,
+    attack_type = EXCLUDED.attack_type, attribution = EXCLUDED.attribution,
+    organization = EXCLUDED.organization, ttp_count = EXCLUDED.ttp_count,
+    ioc_count = EXCLUDED.ioc_count, rule_count = EXCLUDED.rule_count,
+    coverage_percent = EXCLUDED.coverage_percent, source = EXCLUDED.source,
+    source_feed_name = EXCLUDED.source_feed_name, source_article_url = EXCLUDED.source_article_url,
+    relevance_score = EXCLUDED.relevance_score, library_overlap_percent = EXCLUDED.library_overlap_percent,
+    validated_overlap_percent = EXCLUDED.validated_overlap_percent,
+    deployment_readiness_percent = EXCLUDED.deployment_readiness_percent,
+    overlap_calculated_at = EXCLUDED.overlap_calculated_at, updated_at = now();
+
+  RETURN QUERY SELECT v_target_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.upsert_auto_digest_report(text, uuid, text, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.upsert_auto_digest_report(text, uuid, text, jsonb) TO service_role;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'threat_intel_feeds_taxii_credential_id_fkey'
+       AND conrelid = 'public.threat_intel_feeds'::regclass
+  ) THEN
+    ALTER TABLE public.threat_intel_feeds
+      ADD CONSTRAINT threat_intel_feeds_taxii_credential_id_fkey
+      FOREIGN KEY (taxii_credential_id) REFERENCES public.integration_credentials(id) ON DELETE SET NULL;
+  END IF;
+END;
+$$;
+
+ALTER TABLE public.threat_intel_feeds
+  DROP CONSTRAINT IF EXISTS threat_intel_feeds_max_items_per_fetch_check;
+ALTER TABLE public.threat_intel_feeds
+  ADD CONSTRAINT threat_intel_feeds_max_items_per_fetch_check
+  CHECK (max_items_per_fetch BETWEEN 1 AND 200);
+ALTER TABLE public.auto_digest_campaigns
+  ADD COLUMN IF NOT EXISTS ai_link_rationale text,
+  ADD COLUMN IF NOT EXISTS ai_link_confidence text,
+  ADD COLUMN IF NOT EXISTS story_decision_version text;
+
+ALTER TABLE public.auto_digest_campaigns
+  DROP CONSTRAINT IF EXISTS auto_digest_campaigns_ai_link_confidence_check;
+ALTER TABLE public.auto_digest_campaigns
+  ADD CONSTRAINT auto_digest_campaigns_ai_link_confidence_check
+  CHECK (ai_link_confidence IS NULL OR ai_link_confidence IN ('high', 'medium', 'low'));
+-- A persisted report can be partial even when its article entry completed.
+-- Keep the run outcome degraded when the phase result contains section errors.
+CREATE OR REPLACE FUNCTION public.finalize_auto_digest_job(p_job_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_catalog
+AS $$
+DECLARE
+  v_total integer;
+  v_success integer;
+  v_failed integer;
+  v_quarantined integer;
+  v_skipped integer;
+  v_active integer;
+  v_has_errors boolean;
+  v_outcome text;
+  v_status text;
+BEGIN
+  SELECT count(*)::integer,
+         count(*) FILTER (WHERE status = 'succeeded')::integer,
+         count(*) FILTER (WHERE status = 'failed')::integer,
+         count(*) FILTER (WHERE status = 'quarantined')::integer,
+         count(*) FILTER (WHERE status IN ('skipped', 'retained_previous'))::integer,
+         count(*) FILTER (WHERE status IN ('pending', 'running'))::integer
+    INTO v_total, v_success, v_failed, v_quarantined, v_skipped, v_active
+    FROM public.auto_digest_job_entries
+   WHERE job_id = p_job_id;
+
+  SELECT jsonb_array_length(COALESCE(result_summary->'errors', '[]'::jsonb)) > 0
+    INTO v_has_errors
+    FROM public.auto_digest_jobs
+   WHERE id = p_job_id;
+
+  IF EXISTS (SELECT 1 FROM public.auto_digest_jobs WHERE id = p_job_id AND (status = 'cancelled' OR cancellation_requested)) THEN
+    v_outcome := 'cancelled'; v_status := 'cancelled';
+  ELSIF v_active > 0 THEN
+    RETURN jsonb_build_object('job_id', p_job_id, 'status', 'processing', 'outcome', NULL, 'entries_active', v_active);
+  ELSIF (v_total = 0 AND NOT COALESCE(v_has_errors, false))
+     OR (v_failed = 0 AND v_quarantined = 0 AND NOT COALESCE(v_has_errors, false)) THEN
+    v_outcome := 'complete'; v_status := 'completed';
+  ELSIF v_success > 0 OR v_skipped > 0 OR COALESCE(v_has_errors, false) THEN
+    v_outcome := 'partial'; v_status := 'partial';
+  ELSE
+    v_outcome := 'failed'; v_status := 'failed';
+  END IF;
+
+  UPDATE public.auto_digest_jobs
+     SET status = v_status, outcome = v_outcome, phase = NULL,
+         phase_started_at = NULL, phase_lease_expires_at = NULL,
+         completed_at = now(), heartbeat_at = now(), active_entry_id = NULL,
+         pending_entry_ids = '[]'::jsonb
+   WHERE id = p_job_id AND status = 'processing';
+  RETURN jsonb_build_object('job_id', p_job_id, 'status', v_status, 'outcome', v_outcome,
+    'entries_total', v_total, 'entries_succeeded', v_success, 'entries_failed', v_failed,
+    'entries_quarantined', v_quarantined, 'entries_skipped', v_skipped);
+END;
+$$;
+
+-- Mark a feed entry processed only after its persisted report belongs to the same user.
+CREATE OR REPLACE FUNCTION public.complete_feed_entry_processing(
+  p_entry_id uuid,
+  p_report_id text
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_catalog
+AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_entry_user_id uuid;
+  v_report_user_id uuid;
+BEGIN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required' USING ERRCODE = '28000';
+  END IF;
+
+  SELECT user_id INTO v_entry_user_id
+    FROM public.threat_intel_feed_entries
+   WHERE id = p_entry_id
+   FOR UPDATE;
+  IF v_entry_user_id IS NULL OR v_entry_user_id IS DISTINCT FROM v_user_id THEN
+    RAISE EXCEPTION 'Feed entry not found' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT user_id INTO v_report_user_id
+    FROM public.threat_intel_reports
+   WHERE id = p_report_id;
+  IF v_report_user_id IS NULL OR v_report_user_id IS DISTINCT FROM v_user_id THEN
+    RAISE EXCEPTION 'Persisted report not found' USING ERRCODE = '42501';
+  END IF;
+
+  UPDATE public.threat_intel_feed_entries
+     SET is_processed = true,
+         auto_digest_report_id = p_report_id
+   WHERE id = p_entry_id AND user_id = v_user_id;
+  RETURN FOUND;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.complete_feed_entry_processing(uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.complete_feed_entry_processing(uuid, text) TO authenticated, service_role;
+
+
+-- Final effective definitions for linked-database lint repairs. These
+-- overrides keep the snapshot aligned with the deployed database after the
+-- historical team/workspace objects were removed.
+CREATE OR REPLACE FUNCTION public.cleanup_user_data(target_user_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions', 'pg_catalog'
+AS $function$
+DECLARE owner_user_id uuid;
+BEGIN
+  SELECT id INTO owner_user_id FROM public.profiles WHERE role = 'owner' AND id <> target_user_id LIMIT 1;
+  IF owner_user_id IS NULL THEN SELECT id INTO owner_user_id FROM public.profiles WHERE id <> target_user_id LIMIT 1; END IF;
+  DELETE FROM public.activity_log WHERE user_id = target_user_id;
+  DELETE FROM public.user_notifications WHERE user_id = target_user_id;
+  DELETE FROM public.detection_comments WHERE user_id = target_user_id;
+  DELETE FROM public.detection_reviews WHERE reviewer_id = target_user_id OR requested_by = target_user_id;
+  UPDATE public.detections SET assigned_to = NULL WHERE assigned_to = target_user_id;
+  IF owner_user_id IS NOT NULL THEN UPDATE public.detections SET user_id = owner_user_id WHERE user_id = target_user_id;
+  ELSE DELETE FROM public.detections WHERE user_id = target_user_id; END IF;
+  DELETE FROM public.profiles WHERE id = target_user_id;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.get_user_permissions(p_team_id uuid DEFAULT NULL::uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions', 'pg_catalog'
+AS $function$
+DECLARE v_current_user uuid := auth.uid(); v_role text; v_is_global_admin boolean;
+BEGIN
+  SELECT COALESCE(role, 'viewer'), role IN ('owner','admin')
+    INTO v_role, v_is_global_admin
+    FROM public.profiles WHERE id = v_current_user;
+  RETURN jsonb_build_object(
+    'user_id', v_current_user,
+    'team_id', p_team_id,
+    'role', COALESCE(v_role, 'viewer'),
+    'is_global_admin', COALESCE(v_is_global_admin, false),
+    'permissions', CASE COALESCE(v_role, 'viewer')
+      WHEN 'owner' THEN jsonb_build_object('detection_create', true, 'detection_edit_any', true, 'detection_delete_any', true, 'team_manage', true, 'user_manage', true, 'user_invite', true, 'assign', true, 'review', true, 'publish_approve', true, 'view_activity', true, 'export_bulk', true)
+      WHEN 'admin' THEN jsonb_build_object('detection_create', true, 'detection_edit_any', true, 'detection_delete_any', true, 'user_manage', true, 'user_invite', true, 'assign', true, 'review', true, 'publish_approve', true, 'view_activity', true, 'export_bulk', true)
+      WHEN 'lead' THEN jsonb_build_object('detection_create', true, 'detection_edit_any', true, 'assign', true, 'review', true, 'view_activity', true)
+      WHEN 'analyst' THEN jsonb_build_object('detection_create', true, 'detection_edit_assigned', true, 'detection_delete_own', true, 'request_review', true)
+      ELSE jsonb_build_object('detection_view', true, 'comment', true)
+    END
+  );
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.auto_digest_scheduler()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions', 'pg_catalog'
+AS $function$
+DECLARE v_hour integer := extract(hour from now() at time zone 'UTC')::integer; v_user record;
+BEGIN
+  FOR v_user IN
+    SELECT user_id FROM public.auto_digest_settings
+     WHERE is_enabled = true AND schedule_hour_utc = v_hour
+  LOOP
+    PERFORM public.request_auto_digest_job(v_user.user_id, 'scheduled');
+  END LOOP;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.get_coverage_summary(p_platform text DEFAULT NULL::text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions', 'pg_catalog'
+AS $function$
+DECLARE v_total_techniques int; v_covered_techniques int; v_total_detections bigint; v_production_detections bigint;
+BEGIN
+  SELECT count(*), count(*) FILTER (WHERE is_covered), sum(detection_count), sum(production_count)
+    INTO v_total_techniques, v_covered_techniques, v_total_detections, v_production_detections
+    FROM public.mv_coverage_stats s
+   WHERE s.is_subtechnique = false AND (p_platform IS NULL OR EXISTS (
+     SELECT 1 FROM public.detections d
+      WHERE s.technique_id = ANY(COALESCE(d."mitreAttackIds", '{}'::text[]))
+        AND p_platform = ANY(COALESCE(d.platforms, '{}'::text[]))
+   ));
+  RETURN jsonb_build_object('summary', jsonb_build_object(
+    'total_techniques', coalesce(v_total_techniques, 0),
+    'covered_techniques', coalesce(v_covered_techniques, 0),
+    'coverage_percent', CASE WHEN coalesce(v_total_techniques, 0) > 0 THEN round((v_covered_techniques::numeric / v_total_techniques) * 100) ELSE 0 END,
+    'total_detections', coalesce(v_total_detections, 0),
+    'production_detections', coalesce(v_production_detections, 0)
+  ), 'by_tactic', '[]'::jsonb, 'top_covered', '[]'::jsonb, 'critical_gaps', '[]'::jsonb);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.get_threat_actor_coverage(p_actor_stix_id text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions', 'pg_catalog'
+AS $function$
+DECLARE v_actor jsonb; v_covered_techniques jsonb; v_gaps jsonb; v_total int; v_covered int;
+BEGIN
+  SELECT jsonb_build_object('name', name, 'mitreId', mitre_id, 'stixId', stix_id,
+    'aliases', coalesce(data->'aliases', '[]'::jsonb), 'description', coalesce(data->>'description', ''))
+    INTO v_actor FROM public.mitre_objects WHERE stix_id = p_actor_stix_id;
+  IF v_actor IS NULL THEN RETURN jsonb_build_object('error', 'Threat actor not found'); END IF;
+  WITH actor_techniques AS (
+    SELECT DISTINCT mo.mitre_id, mo.name FROM public.mitre_relationships mr
+    JOIN public.mitre_objects mo ON mr.target_ref = mo.stix_id
+    WHERE mr.source_ref = p_actor_stix_id AND mr.relationship_type = 'uses' AND mo.type = 'attack-pattern'
+  ), detection_coverage AS (
+    SELECT at.mitre_id, at.name, count(d.id) AS detection_count
+    FROM actor_techniques at LEFT JOIN public.detections d ON at.mitre_id = ANY(d."mitreAttackIds")
+    GROUP BY at.mitre_id, at.name
+  )
+  SELECT count(*), count(*) FILTER (WHERE detection_count > 0),
+    jsonb_agg(jsonb_build_object('id', mitre_id, 'name', name, 'detectionCount', detection_count) ORDER BY detection_count DESC) FILTER (WHERE detection_count > 0),
+    jsonb_agg(jsonb_build_object('id', mitre_id, 'name', name, 'reason', 'Uncovered technique used by ' || (v_actor->>'name')) ORDER BY mitre_id) FILTER (WHERE detection_count = 0)
+    INTO v_total, v_covered, v_covered_techniques, v_gaps FROM detection_coverage;
+  RETURN jsonb_build_object('actor', v_actor, 'coverage', jsonb_build_object(
+    'total', coalesce(v_total, 0), 'covered', coalesce(v_covered, 0),
+    'percent', CASE WHEN coalesce(v_total, 0) > 0 THEN round((v_covered::numeric / v_total) * 100) ELSE 0 END
+  ), 'coveredTechniques', coalesce(v_covered_techniques, '[]'::jsonb), 'gaps', coalesce(v_gaps, '[]'::jsonb));
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.upsert_rate_limit(p_key text, p_window_start timestamptz, p_max_requests integer)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions', 'pg_catalog'
+AS $function$
+DECLARE v_count int;
+BEGIN
+  IF p_max_requests IS NULL OR p_max_requests < 1 THEN
+    RAISE EXCEPTION 'p_max_requests must be positive' USING ERRCODE = '22023';
+  END IF;
+  INSERT INTO public.rate_limits (key, request_count, window_start)
+  VALUES (p_key, 1, date_trunc('minute', p_window_start))
+  ON CONFLICT (key, window_start)
+  DO UPDATE SET request_count = public.rate_limits.request_count + 1
+  RETURNING request_count INTO v_count;
+  RETURN v_count;
+END;
+$function$;
+
+
+-- Canonical snapshot override for the deployed report provenance upsert.
+-- Persist the provenance fields already present on threat_intel_reports.
+-- Analyst-owned review fields remain intentionally outside the update set.
+CREATE OR REPLACE FUNCTION public.upsert_auto_digest_report(
+  p_report_id text,
+  p_user_id uuid,
+  p_source_url text,
+  p_payload jsonb
+)
+RETURNS TABLE(report_id text)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_catalog
+AS $$
+DECLARE
+  v_target_id text := p_report_id;
+  v_existing_id text;
+  v_payload jsonb := COALESCE(p_payload, '{}'::jsonb);
+BEGIN
+  IF p_user_id IS NULL OR (auth.uid() IS DISTINCT FROM p_user_id
+      AND current_setting('request.jwt.claim.role', true) <> 'service_role') THEN
+    RAISE EXCEPTION 'not authorized' USING errcode = '42501';
+  END IF;
+  IF p_report_id IS NULL OR p_report_id = '' THEN
+    RAISE EXCEPTION 'report id is required' USING errcode = '22023';
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(hashtextextended(p_user_id::text || ':' || COALESCE(p_source_url, ''), 0));
+  IF p_source_url IS NOT NULL THEN
+    SELECT id INTO v_existing_id
+      FROM public.threat_intel_reports
+     WHERE user_id = p_user_id AND source = 'auto' AND source_article_url = p_source_url
+     ORDER BY created_at ASC
+     LIMIT 1
+     FOR UPDATE;
+    v_target_id := COALESCE(v_existing_id, p_report_id);
+  END IF;
+  v_payload := jsonb_set(v_payload, '{id}', to_jsonb(v_target_id), true);
+
+  INSERT INTO public.threat_intel_reports (
+    id, user_id, name, source_type, source_url, raw_content_preview, summary,
+    classification, ttps, iocs, rules, mitre_mapping, library_matches,
+    processing_stage, outcome, section_outcomes, section_errors, report_title,
+    threat_level, attack_type, attribution, organization, ttp_count, ioc_count,
+    rule_count, coverage_percent, source, source_feed_name, source_article_url,
+    relevance_score, library_overlap_percent, validated_overlap_percent,
+    deployment_readiness_percent, overlap_calculated_at, content_hash,
+    canonical_url, fetched_url, model_provider, model_version, prompt_version,
+    pipeline_version, attack_version, extraction_started_at, extraction_completed_at,
+    source_quality, source_content_length, source_content_hash, quality_warnings,
+    possible_actor_mentions
+  ) VALUES (
+    v_target_id, p_user_id, v_payload->>'name', v_payload->>'source_type',
+    v_payload->>'source_url', v_payload->>'raw_content_preview', v_payload->'summary',
+    v_payload->'classification', COALESCE(v_payload->'ttps', '[]'::jsonb),
+    COALESCE(v_payload->'iocs', '[]'::jsonb), COALESCE(v_payload->'rules', '[]'::jsonb),
+    v_payload->'mitre_mapping', v_payload->'library_matches', v_payload->>'processing_stage',
+    v_payload->>'outcome', COALESCE(v_payload->'section_outcomes', '{}'::jsonb),
+    v_payload->'section_errors', v_payload->>'report_title', v_payload->>'threat_level',
+    v_payload->>'attack_type', v_payload->>'attribution', v_payload->>'organization',
+    COALESCE((v_payload->>'ttp_count')::integer, 0), COALESCE((v_payload->>'ioc_count')::integer, 0),
+    COALESCE((v_payload->>'rule_count')::integer, 0), (v_payload->>'coverage_percent')::integer,
+    COALESCE(v_payload->>'source', 'auto'), v_payload->>'source_feed_name',
+    v_payload->>'source_article_url', (v_payload->>'relevance_score')::numeric,
+    (v_payload->>'library_overlap_percent')::integer, (v_payload->>'validated_overlap_percent')::integer,
+    (v_payload->>'deployment_readiness_percent')::integer, (v_payload->>'overlap_calculated_at')::timestamptz,
+    v_payload->>'content_hash', v_payload->>'canonical_url', v_payload->>'fetched_url',
+    v_payload->>'model_provider', v_payload->>'model_version', v_payload->>'prompt_version',
+    v_payload->>'pipeline_version', v_payload->>'attack_version',
+    (v_payload->>'extraction_started_at')::timestamptz,
+    (v_payload->>'extraction_completed_at')::timestamptz,
+    COALESCE(v_payload->>'source_quality', 'legacy_unverified'),
+    (v_payload->>'source_content_length')::integer,
+    v_payload->>'source_content_hash',
+    COALESCE(v_payload->'quality_warnings', '[]'::jsonb),
+    COALESCE(v_payload->'possible_actor_mentions', '[]'::jsonb)
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name, source_type = EXCLUDED.source_type, source_url = EXCLUDED.source_url,
+    raw_content_preview = EXCLUDED.raw_content_preview, summary = EXCLUDED.summary,
+    classification = EXCLUDED.classification, ttps = EXCLUDED.ttps, iocs = EXCLUDED.iocs,
+    rules = EXCLUDED.rules, mitre_mapping = EXCLUDED.mitre_mapping, library_matches = EXCLUDED.library_matches,
+    processing_stage = EXCLUDED.processing_stage, outcome = EXCLUDED.outcome,
+    section_outcomes = EXCLUDED.section_outcomes, section_errors = EXCLUDED.section_errors,
+    report_title = EXCLUDED.report_title, threat_level = EXCLUDED.threat_level,
+    attack_type = EXCLUDED.attack_type, attribution = EXCLUDED.attribution,
+    organization = EXCLUDED.organization, ttp_count = EXCLUDED.ttp_count,
+    ioc_count = EXCLUDED.ioc_count, rule_count = EXCLUDED.rule_count,
+    coverage_percent = EXCLUDED.coverage_percent, source = EXCLUDED.source,
+    source_feed_name = EXCLUDED.source_feed_name, source_article_url = EXCLUDED.source_article_url,
+    relevance_score = EXCLUDED.relevance_score, library_overlap_percent = EXCLUDED.library_overlap_percent,
+    validated_overlap_percent = EXCLUDED.validated_overlap_percent,
+    deployment_readiness_percent = EXCLUDED.deployment_readiness_percent,
+    overlap_calculated_at = EXCLUDED.overlap_calculated_at, content_hash = EXCLUDED.content_hash,
+    canonical_url = EXCLUDED.canonical_url, fetched_url = EXCLUDED.fetched_url,
+    model_provider = EXCLUDED.model_provider, model_version = EXCLUDED.model_version,
+    prompt_version = EXCLUDED.prompt_version, pipeline_version = EXCLUDED.pipeline_version,
+    attack_version = EXCLUDED.attack_version, extraction_started_at = EXCLUDED.extraction_started_at,
+    extraction_completed_at = EXCLUDED.extraction_completed_at,
+    source_quality = EXCLUDED.source_quality, source_content_length = EXCLUDED.source_content_length,
+    source_content_hash = EXCLUDED.source_content_hash, quality_warnings = EXCLUDED.quality_warnings,
+    possible_actor_mentions = EXCLUDED.possible_actor_mentions, updated_at = now();
+
+  RETURN QUERY SELECT v_target_id;
+END;
+$$;

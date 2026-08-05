@@ -9,6 +9,7 @@
 
 import type { FetchResult } from './types.ts'
 import { validateUrl, validateRedirect } from '../../_shared/url-validator.ts'
+import { classifySourceQuality } from './evidence-quality.ts'
 
 /**
  * Maximum number of redirects to follow
@@ -18,7 +19,46 @@ const MAX_REDIRECTS = 5
 /**
  * Fetch timeout in milliseconds
  */
+const MAX_RESPONSE_CHARS = 5_000_000;
 const FETCH_TIMEOUT = 30000
+const SENSITIVE_QUERY_KEY = /^(?:api[_-]?key|token|secret|password|passwd|credential|auth|signature|sig|access[_-]?token)$/i
+
+async function contentHash(content: string): Promise<string> {
+  const bytes = new TextEncoder().encode(content)
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+async function addContentMetadata(result: FetchResult, fetchedUrl: string): Promise<FetchResult> {
+  const sourceContent = result.content || ''
+  return {
+    ...result,
+    metadata: {
+      ...(result.metadata || {}),
+      sourceQuality: classifySourceQuality(sourceContent),
+      sourceContentLength: sourceContent.length,
+      sourceContentHash: await contentHash(sourceContent),
+      fetchedUrl,
+    },
+  }
+}
+
+function hasSensitiveQueryParameters(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl)
+    return [...parsed.searchParams.keys()].some((key) => SENSITIVE_QUERY_KEY.test(key))
+  } catch {
+    return true
+  }
+}
+
+function redactSensitiveQueryParameters(rawUrl: string): string {
+  const parsed = new URL(rawUrl)
+  for (const key of [...parsed.searchParams.keys()]) {
+    if (SENSITIVE_QUERY_KEY.test(key)) parsed.searchParams.delete(key)
+  }
+  return parsed.toString()
+}
 
 /**
  * Fetches content from a URL using Jina Reader with fallback to direct fetch.
@@ -26,7 +66,7 @@ const FETCH_TIMEOUT = 30000
  *
  * Includes SSRF protection to block requests to internal/private networks.
  */
-export async function fetchContent(url: string): Promise<FetchResult> {
+export async function fetchContent(url: string, options: { extractionMethod?: string } = {}): Promise<FetchResult> {
   // Validate URL before any fetch operation (SSRF protection)
   const urlValidation = validateUrl(url)
   if (!urlValidation.valid) {
@@ -34,12 +74,18 @@ export async function fetchContent(url: string): Promise<FetchResult> {
   }
 
   const safeUrl = urlValidation.sanitizedUrl!
-  console.log(`URL validated: ${safeUrl}`)
+  console.log('URL validated for article fetch')
 
+  const requestedJina = options.extractionMethod === 'jina_reader';
+  const useJina = requestedJina && !hasSensitiveQueryParameters(safeUrl);
+  if (requestedJina && !useJina) {
+    console.warn('Jina Reader disabled for a URL containing sensitive query parameters')
+  }
+  if (useJina) {
   // Try Jina Reader first - it handles JS rendering
   // Note: Jina Reader is a trusted external service, we validate the input URL
-  const jinaUrl = `https://r.jina.ai/${safeUrl}`
-  console.log(`Fetching via Jina Reader: ${jinaUrl}`)
+  const jinaUrl = 'https://r.jina.ai/' + redactSensitiveQueryParameters(safeUrl)
+  console.log('Fetching article via opted-in Jina Reader')
 
   try {
     const jinaResponse = await fetch(jinaUrl, {
@@ -52,6 +98,7 @@ export async function fetchContent(url: string): Promise<FetchResult> {
 
     if (jinaResponse.ok) {
       const markdown = await jinaResponse.text()
+      if (markdown.length > MAX_RESPONSE_CHARS) throw new Error('Jina response exceeds decompressed size limit')
       console.log(`Jina Reader response: ${markdown.length} chars`)
 
       if (markdown && markdown.length > 1000) {
@@ -60,20 +107,21 @@ export async function fetchContent(url: string): Promise<FetchResult> {
         // Extract title from markdown (first # heading)
         const titleMatch = markdown.match(/^#\s+(.+)$/m)
 
-        return {
+        return await addContentMetadata({
           content: markdown,
           title: titleMatch?.[1]?.trim(),
           metadata: {}
-        }
+        }, safeUrl)
       }
     }
     console.log('Jina Reader returned insufficient content, falling back to direct fetch')
-  } catch (e) {
-    console.log('Jina Reader failed, falling back to direct fetch:', e)
+  } catch (_e) {
+    console.warn('Jina Reader failed, falling back to direct fetch')
   }
 
+  }
   // Fallback to direct fetch with manual redirect handling for SSRF protection
-  return await fetchWithSafeRedirects(safeUrl)
+  return await addContentMetadata(await fetchWithSafeRedirects(safeUrl), safeUrl)
 }
 
 /**
@@ -112,7 +160,7 @@ async function fetchWithSafeRedirects(url: string, redirectCount: number = 0): P
       throw new Error(`Redirect blocked: ${redirectValidation.error}`)
     }
 
-    console.log(`Following redirect ${redirectCount + 1}: ${absoluteRedirectUrl}`)
+    console.log(`Following redirect ${redirectCount + 1}`)
     return await fetchWithSafeRedirects(redirectValidation.sanitizedUrl!, redirectCount + 1)
   }
 
@@ -120,9 +168,12 @@ async function fetchWithSafeRedirects(url: string, redirectCount: number = 0): P
     throw new Error(`Failed to fetch URL: ${response.status} ${response.statusText}`)
   }
 
-  console.log(`Direct fetch success: ${url}`)
+  const advertisedLength = Number(response.headers.get('content-length') || 0)
+  if (advertisedLength > MAX_RESPONSE_CHARS) throw new Error('Response exceeds declared size limit')
+  console.log('Direct fetch succeeded')
   const html = await response.text()
   console.log(`HTML length: ${html.length} chars`)
+  if (html.length > MAX_RESPONSE_CHARS) throw new Error('Response exceeds decompressed size limit')
 
   return parseHTML(html)
 }

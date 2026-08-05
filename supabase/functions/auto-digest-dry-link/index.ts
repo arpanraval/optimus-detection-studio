@@ -28,7 +28,6 @@ import { handleCorsPreflight, corsJsonResponse, corsErrorResponse } from '../_sh
 const DEFAULT_STORY_WINDOW_DAYS = 7;
 const MAX_CANDIDATES = 15;
 const AI_TIMEOUT_MS = 20_000;
-const AI_TEMPERATURE = 0.1;
 const AI_MAX_TOKENS = 1200;
 
 const SYSTEM_PROMPT = `You decide whether a NEW threat intelligence article covers the SAME SPECIFIC STORY as any of the RECENT articles listed.
@@ -93,7 +92,7 @@ serve(async (req: Request) => {
     const untilIso: string | null = typeof body?.until === 'string' ? body.until : null;
     const windowDays: number = Math.min(30, Math.max(1, Number(body?.window_days ?? DEFAULT_STORY_WINDOW_DAYS)));
     const linkWindowMs = windowDays * 24 * 60 * 60 * 1000;
-    const model: string = String(body?.model ?? 'gemini-3-flash-preview');
+    const model: string = String(body?.model ?? 'gemini-3.6-flash');
 
     // 1. Resolve target user — if not supplied, use the single enabled
     //    auto-digest user. The dry-run is intentionally scoped to one user
@@ -362,7 +361,6 @@ async function callGemini(model: string, userPrompt: string): Promise<{ matches:
       { role: 'user', parts: [{ text: `${SYSTEM_PROMPT}\n\n${userPrompt}` }] },
     ],
     generationConfig: {
-      temperature: AI_TEMPERATURE,
       maxOutputTokens: AI_MAX_TOKENS,
       responseMimeType: 'application/json',
     },

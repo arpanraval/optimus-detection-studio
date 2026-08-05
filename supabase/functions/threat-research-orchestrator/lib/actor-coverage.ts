@@ -90,10 +90,16 @@ async function enrichAliasesViaMitre(
 }
 
 /** Build the actor-tagged coverage seed for one session. Returns [] when
- *  the subject has no usable actor field (e.g. CVE-only inputs). */
+ *  the subject has no usable actor field (e.g. CVE-only inputs).
+ *
+ *  userId scopes development-library rows to the caller (or shared ones) —
+ *  required because this runs on the service-role client, which bypasses
+ *  RLS entirely; tr_find_actor_tagged_detections re-implements that check
+ *  itself using p_user_id. */
 export async function buildActorCoverageSeed(
   supabase: SupabaseClient,
   subject: ResearchSubject,
+  userId: string,
   limit = 200,
 ): Promise<ActorCoverageSeedItem[]> {
   // Source aliases: prefer intel_summary.actor; fall back to subject.subject
@@ -113,6 +119,7 @@ export async function buildActorCoverageSeed(
   const { data, error } = await supabase.rpc('tr_find_actor_tagged_detections', {
     p_aliases: aliases,
     p_limit: limit,
+    p_user_id: userId,
   });
   if (error) {
     console.warn('[actor-coverage] tr_find_actor_tagged_detections failed:', error.message);

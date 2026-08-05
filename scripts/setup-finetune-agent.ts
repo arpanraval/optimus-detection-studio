@@ -118,7 +118,7 @@ async function main() {
   console.log('Creating agent…');
   const agent = await post('/v1/agents', {
     name: 'Detection Finetuning Agent',
-    model: 'claude-opus-4-7',
+    model: 'claude-opus-5',
     system: SYSTEM_PROMPT,
     tools: [RUN_HUNTING_QUERY_TOOL, SUBMIT_LADDER_TOOL],
   });

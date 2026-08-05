@@ -363,7 +363,7 @@ async function logUsage(admin: SupabaseClient, run: Record<string, unknown>, usa
   const { error: insErr } = await admin.from('ai_usage_events').insert({
     user_id: run.user_id,
     feature: 'detection-finetune',
-    model: 'claude-opus-4-7',
+    model: 'claude-opus-5',
     provider: 'anthropic',
     category: 'llm',
     input_tokens: usage.input_tokens,

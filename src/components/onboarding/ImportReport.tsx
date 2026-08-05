@@ -1,146 +1,154 @@
-/**
- * ImportReport
- *
- * Post-import summary showing what was imported, updated, skipped.
- * Links to library for enrichment of low-quality rules.
- * Offers rollback option with honest verification.
- */
-
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import type { ImportJobResult, PreCheckSummary } from '../../services/bulk-import/types';
+import type { ImportJobResult, ImportProgress, PreCheckSummary } from '../../services/bulk-import/types';
+
+export interface ImportSelectionSummary {
+  netNewImported: number;
+  forcedDuplicates: number;
+  unchangedSkipped: number;
+  changedUpstreamSkipped: number;
+}
 
 interface ImportReportProps {
   result: ImportJobResult;
+  progress?: ImportProgress | null;
   preCheckSummary?: PreCheckSummary | null;
+  selection: ImportSelectionSummary;
+  destinationLabel: string;
   jobId: string;
   onRollback: () => Promise<void>;
-  onDone: () => void;
+  onDone: (destination?: string) => void;
 }
 
 export function ImportReport({
   result,
+  progress,
   preCheckSummary,
+  selection,
+  destinationLabel,
   jobId,
   onRollback,
   onDone,
 }: ImportReportProps): React.JSX.Element {
-  const navigate = useNavigate();
   const [rolling, setRolling] = useState(false);
   const [showRollbackConfirm, setShowRollbackConfirm] = useState(false);
-
+  const [rollbackError, setRollbackError] = useState<string | null>(null);
   const shortJobId = jobId.slice(0, 8);
+  const embeddingErrors = progress?.embeddingErrors ?? 0;
 
   const needsEnrichment = useMemo(() => {
     if (!preCheckSummary) return 0;
-    return preCheckSummary.netNew.filter(r =>
-      !r.incomingRule.mitreAttackIds?.length ||
-      !r.incomingRule.description ||
-      (r.incomingRule.description?.length || 0) < 20
+    return preCheckSummary.netNew.filter(
+      (rule) =>
+        !rule.incomingRule.mitreAttackIds?.length ||
+        !rule.incomingRule.description ||
+        (rule.incomingRule.description?.length || 0) < 20,
     ).length;
   }, [preCheckSummary]);
 
-  const updatedCount = (result as any).updatedCount ?? 0;
-  const skippedUnchanged = (result as any).skippedUnchanged ?? 0;
-
-  const handleRollback = async () => {
+  async function handleRollback(): Promise<void> {
     setRolling(true);
+    setRollbackError(null);
     try {
       await onRollback();
+      setShowRollbackConfirm(false);
+    } catch (error) {
+      setRollbackError(error instanceof Error ? error.message : 'Rollback failed');
     } finally {
       setRolling(false);
-      setShowRollbackConfirm(false);
     }
-  };
+  }
+
+  const hasIssues = result.failureCount > 0 || embeddingErrors > 0;
 
   return (
-    <div className="max-w-md w-full p-6">
+    <div className="max-w-md w-full p-6" role="status" aria-live="polite">
       <h3 className="font-brand text-[16px] font-medium text-on-surface mb-1">
-        Import Complete
+        {hasIssues ? 'Import completed with issues' : 'Import complete'}
       </h3>
 
-      {/* Stats */}
       <div className="mt-4 flex flex-col gap-2">
-        {result.successCount > 0 && (
-          <StatRow indicator={<GreenCheck />} label="New rules imported" value={result.successCount} />
+        <StatRow label={`Rules stored in ${destinationLabel}`} value={result.successCount} tone="success" />
+        <StatRow label="Net-new rules selected" value={selection.netNewImported} />
+        <StatRow label="Unchanged duplicates selected" value={selection.forcedDuplicates} />
+        <StatRow label="Unchanged rules skipped" value={selection.unchangedSkipped} />
+        <StatRow label="Changed upstream, skipped for review" value={selection.changedUpstreamSkipped} />
+        <StatRow label="Insertion failures" value={result.failureCount} tone="error" />
+        {progress?.embeddingGenerated !== undefined && (
+          <StatRow label="Search embeddings generated" value={progress.embeddingGenerated} tone="success" />
         )}
-        {updatedCount > 0 && (
-          <StatRow indicator={<BlueArrow />} label="Existing rules updated" value={updatedCount} />
-        )}
-        {skippedUnchanged > 0 && (
-          <StatRow indicator={<GraySkip />} label="Unchanged — skipped" value={skippedUnchanged} />
-        )}
-        {result.failureCount > 0 && (
-          <StatRow indicator={<RedX />} label="Skipped (validation errors)" value={result.failureCount} />
-        )}
+        <StatRow label="Embedding failures" value={embeddingErrors} tone="error" />
       </div>
 
-      {/* Enrichment nudge */}
       {needsEnrichment > 0 && (
         <div className="mt-4 p-3 rounded-xl bg-primary/5 border border-primary/15">
           <p className="text-[12px] text-on-surface mb-2">
-            {needsEnrichment} rules need enrichment (missing MITRE, description, or references)
+            {needsEnrichment} imported rules may need MITRE or description enrichment.
           </p>
           <button
-            onClick={() => navigate(`/library?tags=needs-enrichment,import:${shortJobId}`)}
-            className="text-[12px] px-3 py-1.5 rounded-lg cursor-pointer transition-colors bg-primary/10 text-on-primary-container hover:bg-primary/20"
+            type="button"
+            onClick={() => onDone(`/library?tags=needs-enrichment,import:${shortJobId}`)}
+            className="text-[12px] px-3 py-1.5 rounded-lg cursor-pointer bg-primary/10 text-on-primary-container hover:bg-primary/20"
           >
             Open in Studio
           </button>
         </div>
       )}
 
-      {/* Actions */}
       <div className="mt-5 flex items-center gap-2">
         <button
-          onClick={() => navigate('/library')}
-          className="px-4 py-2 rounded-xl text-[13px] font-medium cursor-pointer transition-colors bg-primary/10 text-on-primary-container hover:bg-primary/20"
+          type="button"
+          onClick={() => onDone('/library')}
+          className="px-4 py-2 rounded-xl text-[13px] font-medium bg-primary/10 text-on-primary-container hover:bg-primary/20"
         >
-          View Library
+          View {destinationLabel}
         </button>
         <button
-          onClick={onDone}
-          className="px-4 py-2 rounded-xl text-[13px] cursor-pointer transition-colors text-on-surface-variant hover:text-on-surface"
+          type="button"
+          onClick={() => onDone()}
+          className="px-4 py-2 rounded-xl text-[13px] text-on-surface-variant"
         >
           Done
         </button>
         <div className="flex-1" />
-        <button
-          onClick={() => setShowRollbackConfirm(true)}
-          className="text-[11px] px-3 py-1.5 rounded-lg cursor-pointer transition-colors text-error hover:bg-error/5"
-        >
-          Rollback
-        </button>
+        {result.successCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowRollbackConfirm(true)}
+            className="text-[11px] px-3 py-1.5 rounded-lg text-error hover:bg-error/5"
+          >
+            Rollback
+          </button>
+        )}
       </div>
 
-      {/* Job ID */}
       <p className="mt-3 text-[10px] text-on-surface-variant">
-        Job ID: {shortJobId} — Rollback available from Settings &rarr; Import History
+        Job ID: {shortJobId} — rollback removes only rows created by this job.
       </p>
 
-      {/* Rollback confirmation */}
       {showRollbackConfirm && (
-        <div className="mt-3 p-3 rounded-xl bg-error/5 border border-error/20">
+        <div className="mt-3 p-3 rounded-xl bg-error/5 border border-error/20" role="alert">
           <p className="text-[12px] text-on-surface mb-1">Rollback this import?</p>
           <p className="text-[11px] text-on-surface-variant mb-3">
-            {result.successCount > 0 && `${result.successCount} new rules will be deleted. `}
-            {updatedCount > 0 && `${updatedCount} updated rules will be reverted. `}
-            This cannot be undone.
+            Up to {result.successCount.toLocaleString()} detections created by this job will be deleted. This cannot be
+            undone.
           </p>
+          {rollbackError && <p className="text-[11px] text-error mb-2">{rollbackError}</p>}
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={() => setShowRollbackConfirm(false)}
               disabled={rolling}
-              className="text-[11px] px-2 py-1 rounded cursor-pointer text-on-surface-variant"
+              className="text-[11px] px-2 py-1 text-on-surface-variant"
             >
               Cancel
             </button>
             <button
+              type="button"
               onClick={handleRollback}
               disabled={rolling}
-              className="text-[11px] px-2 py-1 rounded cursor-pointer text-error hover:bg-error/10 disabled:opacity-50"
+              className="text-[11px] px-2 py-1 text-error hover:bg-error/10 disabled:opacity-50"
             >
-              {rolling ? 'Rolling back...' : `Rollback ${result.successCount + updatedCount} rules`}
+              {rolling ? 'Rolling back...' : `Rollback ${result.successCount.toLocaleString()} rules`}
             </button>
           </div>
         </div>
@@ -149,66 +157,25 @@ export function ImportReport({
   );
 }
 
-// ---------------------------------------------------------------------------
-// SVG Indicator components (matching ImportPreCheck.tsx style)
-// ---------------------------------------------------------------------------
-
-function GreenCheck() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0">
-      <circle cx="7" cy="7" r="6" fill="rgba(16,185,129,0.15)" stroke="rgba(16,185,129,0.5)" strokeWidth="1" />
-      <path d="M4 7l2 2 4-4" stroke="rgb(16,185,129)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function BlueArrow() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0">
-      <circle cx="7" cy="7" r="6" fill="rgba(59,130,246,0.15)" stroke="rgba(59,130,246,0.5)" strokeWidth="1" />
-      <path d="M5 9V5h4M5 5l4 4" stroke="rgb(59,130,246)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function GraySkip() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0">
-      <circle cx="7" cy="7" r="6" fill="rgba(107,114,128,0.15)" stroke="rgba(107,114,128,0.5)" strokeWidth="1" />
-      <path d="M5 5l4 4M5 9l4-4" stroke="rgb(107,114,128)" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function RedX() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0">
-      <circle cx="7" cy="7" r="6" fill="rgba(239,68,68,0.15)" stroke="rgba(239,68,68,0.5)" strokeWidth="1" />
-      <path d="M5 5l4 4M5 9l4-4" stroke="rgb(239,68,68)" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Helper components
-// ---------------------------------------------------------------------------
-
 function StatRow({
-  indicator,
   label,
   value,
+  tone,
 }: {
-  indicator: React.ReactNode;
   label: string;
   value: number;
-}) {
+  tone?: 'success' | 'error';
+}): React.JSX.Element | null {
+  if (value <= 0) return null;
+  const marker = tone === 'success' ? '✓' : tone === 'error' ? '!' : '—';
+  const color = tone === 'success' ? 'text-emerald-500' : tone === 'error' ? 'text-error' : 'text-on-surface-variant';
   return (
     <div className="flex items-center gap-2">
-      {indicator}
-      <span className="text-[12px] text-on-surface-variant flex-1">{label}</span>
-      <span className="text-[13px] font-medium text-on-surface tabular-nums">
-        {value.toLocaleString()}
+      <span className={color} aria-hidden="true">
+        {marker}
       </span>
+      <span className="text-[12px] text-on-surface-variant flex-1">{label}</span>
+      <span className="text-[13px] font-medium text-on-surface tabular-nums">{value.toLocaleString()}</span>
     </div>
   );
 }

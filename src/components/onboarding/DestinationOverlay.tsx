@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { useOnboarding } from './OnboardingContext';
+import { useGlobalImport } from '../../context/GlobalImportContext';
 
 /** Map source IDs to bundled logo paths */
 const SOURCE_LOGO_MAP: Record<string, string> = {
@@ -57,7 +58,9 @@ function AnimatedNumber({ value, className }: { value: number; className?: strin
     }
 
     rafRef.current = requestAnimationFrame(animate);
-    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
   }, [value]);
 
   return <span className={className}>{Intl.NumberFormat('en-US').format(displayed)}</span>;
@@ -96,17 +99,28 @@ interface DestPanelContentProps {
 
 export function DestPanelContent({ onCollapse }: DestPanelContentProps): React.JSX.Element | null {
   const { phase, sources, liveStats } = useOnboarding();
+  const globalImport = useGlobalImport();
 
   const selectedSources = useMemo(() => sources.filter((s) => s.selected), [sources]);
 
   const totalExpected = useMemo(() => {
-    return selectedSources.reduce((sum, s) => sum + s.source.estimatedRules, 0);
+    return selectedSources.reduce(
+      (sum, sourceState) =>
+        sum +
+        sourceState.folders.filter((folder) => folder.selected).reduce((count, folder) => count + folder.fileCount, 0),
+      0,
+    );
   }, [selectedSources]);
 
-  const progressPercent =
-    totalExpected > 0
-      ? Math.min((liveStats.totalImported / totalExpected) * 100, 100)
-      : 0;
+  const isEmbedding = phase === 'embedding';
+  const actualCount = isEmbedding
+    ? (globalImport.progress?.embeddingGenerated ?? 0)
+    : (globalImport.progress?.insertedRules ?? liveStats.totalImported);
+  const actualTotal = isEmbedding
+    ? (globalImport.progress?.embeddingTotal ?? 0)
+    : (globalImport.progress?.totalRules ?? totalExpected);
+
+  const progressPercent = actualTotal > 0 ? Math.min((actualCount / actualTotal) * 100, 100) : 0;
 
   const tacticCount = liveStats.mitreTactics.size;
   const techniqueCount = liveStats.mitreTechniques.size;
@@ -114,7 +128,7 @@ export function DestPanelContent({ onCollapse }: DestPanelContentProps): React.J
   const totalBySeverity = Object.values(liveStats.bySeverity).reduce((a, b) => a + b, 0);
   const totalBySource = Object.values(liveStats.bySource).reduce((a, b) => a + b, 0);
 
-  const isLive = phase === 'processing' || phase === 'complete';
+  const isLive = ['processing', 'importing', 'embedding', 'complete'].includes(phase);
 
   if (selectedSources.length === 0) return null;
 
@@ -124,16 +138,20 @@ export function DestPanelContent({ onCollapse }: DestPanelContentProps): React.J
       <div className="flex items-center justify-between px-3 pt-3 pb-1.5 shrink-0">
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] font-medium tracking-wide uppercase text-on-surface-variant">
-            {isLive ? 'Library' : 'Expected'}
+            {isLive ? 'Development' : 'Expected'}
           </span>
-          {phase === 'processing' && (
+          {phase !== 'complete' && isLive && (
             <span className="flex items-center gap-0.5">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-[9px]" style={{ color: 'rgba(16,185,129,0.7)' }}>Live</span>
+              <span className="text-[9px]" style={{ color: 'rgba(16,185,129,0.7)' }}>
+                Live
+              </span>
             </span>
           )}
           {phase === 'complete' && (
-            <span className="text-[9px]" style={{ color: 'rgba(16,185,129,0.7)' }}>Done</span>
+            <span className="text-[9px]" style={{ color: 'rgba(16,185,129,0.7)' }}>
+              Done
+            </span>
           )}
         </div>
         <button
@@ -160,7 +178,7 @@ export function DestPanelContent({ onCollapse }: DestPanelContentProps): React.J
       <div className="flex-1 overflow-y-auto px-3 pb-3 scrollbar-minimal">
         {/* Hero counter */}
         <AnimatedNumber
-          value={isLive ? liveStats.totalImported : totalExpected}
+          value={isLive ? actualCount : totalExpected}
           className="font-brand text-2xl font-bold text-on-surface block"
         />
         {!isLive && totalExpected > 0 && (
@@ -170,7 +188,7 @@ export function DestPanelContent({ onCollapse }: DestPanelContentProps): React.J
         )}
 
         {/* Progress bar */}
-        {isLive && totalExpected > 0 && (
+        {isLive && actualTotal > 0 && (
           <div className="h-[2px] w-full rounded-full mt-2 bg-surface-container-high">
             <div
               className="h-full rounded-full transition-all duration-500 ease-out bg-primary"
@@ -183,9 +201,7 @@ export function DestPanelContent({ onCollapse }: DestPanelContentProps): React.J
         {!isLive && (
           <>
             <Divider />
-            <span className="text-[9px] tracking-[0.15em] uppercase block mb-1.5 text-on-surface-variant">
-              Sources
-            </span>
+            <span className="text-[9px] tracking-[0.15em] uppercase block mb-1.5 text-on-surface-variant">Sources</span>
             <div className="flex flex-col gap-1.5">
               {selectedSources.map((s) => (
                 <div key={s.source.id} className="flex items-center gap-2">
@@ -207,9 +223,7 @@ export function DestPanelContent({ onCollapse }: DestPanelContentProps): React.J
                       {s.source.shortName.charAt(0)}
                     </span>
                   )}
-                  <span className="text-[11px] text-on-surface truncate flex-1">
-                    {s.source.shortName}
-                  </span>
+                  <span className="text-[11px] text-on-surface truncate flex-1">{s.source.shortName}</span>
                   <span className="text-[10px] tabular-nums text-on-surface-variant">
                     ~{s.source.estimatedRules.toLocaleString()}
                   </span>
@@ -221,21 +235,15 @@ export function DestPanelContent({ onCollapse }: DestPanelContentProps): React.J
 
         {/* MITRE ATT&CK */}
         <Divider />
-        <span className="text-[9px] tracking-[0.15em] uppercase block mb-1 text-on-surface-variant">
-          MITRE ATT&CK
-        </span>
+        <span className="text-[9px] tracking-[0.15em] uppercase block mb-1 text-on-surface-variant">MITRE ATT&CK</span>
         <div className="flex items-center justify-between">
           <div className="text-center flex-1">
-            <span className="font-brand text-sm font-bold block text-on-surface">
-              {tacticCount || '--'}
-            </span>
+            <span className="font-brand text-sm font-bold block text-on-surface">{tacticCount || '--'}</span>
             <span className="text-[9px] text-on-surface-variant">/14 tactics</span>
           </div>
           <div className="w-px h-4 bg-outline-variant/20" />
           <div className="text-center flex-1">
-            <span className="font-brand text-sm font-bold block text-on-surface">
-              {techniqueCount || '--'}
-            </span>
+            <span className="font-brand text-sm font-bold block text-on-surface">{techniqueCount || '--'}</span>
             <span className="text-[9px] text-on-surface-variant">techniques</span>
           </div>
         </div>
@@ -243,9 +251,7 @@ export function DestPanelContent({ onCollapse }: DestPanelContentProps): React.J
         {/* Quality + Severity */}
         <Divider />
         <div className="flex items-center justify-between mb-1">
-          <span className="text-[9px] tracking-[0.15em] uppercase text-on-surface-variant">
-            Quality
-          </span>
+          <span className="text-[9px] tracking-[0.15em] uppercase text-on-surface-variant">Quality</span>
           <span className="font-brand text-xs font-bold text-on-surface">
             {liveStats.avgQualityScore > 0 ? liveStats.avgQualityScore : '--'}
           </span>

@@ -11,12 +11,16 @@
 
 import type { ResearchAgent } from "../types.ts";
 import { ToolContext, executeTool } from "../tools/index.ts";
-import { RunContext, emit, consumeBudget } from "../events.ts";
+import { RunContext, emit, consumeBudget, abortSession } from "../events.ts";
+import { loadCheckpoint, saveCheckpoint, deleteCheckpoint } from "./checkpoint.ts";
+import { estimateCallTokens } from "../budget-policy.ts";
 import { callAnthropic } from "../llm/anthropic-direct.ts";
+import { AnthropicError } from "../llm/anthropic-raw.ts";
 import type {
   AnthropicMessage,
   AnthropicContentBlock,
   AnthropicDebugEvent,
+  AnthropicErrorInfo,
 } from "../llm/anthropic-direct.ts";
 
 /** Discriminated result from a final-output validator. The `reason` lets the
@@ -30,7 +34,7 @@ export type ValidationResult<T> =
 
 export interface AgentLoopConfig<T> {
   agent: ResearchAgent;
-  /** Anthropic model id, e.g. claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5.
+  /** Anthropic model id, e.g. claude-opus-5 or claude-sonnet-5.
    *  Callers should resolve this via ROLE_CONFIG from ../llm/model-routing.ts
    *  rather than hardcoding — that file is the single source of truth for
    *  per-role model routing. */
@@ -77,6 +81,11 @@ export interface AgentLoopOutcome<T> {
   output: T | null;
   iterations: number;
   reason: string | null;
+  /** Present only when the loop ended on a provider failure. `scope: 'account'`
+   *  means every other in-flight worker in this session will fail the same way,
+   *  so the caller should abort the session rather than let the remaining jobs
+   *  each burn an attempt discovering it independently. */
+  failure?: AnthropicErrorInfo | null;
 }
 
 /** Cap individual tool-result payloads so an exuberant search doesn't bloat
@@ -85,6 +94,27 @@ export interface AgentLoopOutcome<T> {
  *  words and need real space to be useful, otherwise the Research Agent
  *  falls back to training memory and hallucinates. */
 const TOOL_RESULT_MAX_CHARS = 12000;
+
+/** Job-wall-budget safe deadline: the platform kills the edge worker at
+ *  ~400s (verified against the reaper's own thresholds — see
+ *  20260728120200_threat_research_reaper_platform_ceiling.sql), and this
+ *  guard needs margin under that to actually exit cleanly rather than being
+ *  killed mid-request. 370s leaves 30s for job-claim overhead, clock skew,
+ *  and the emit() call itself before the worker dies. */
+const JOB_WALL_BUDGET_SAFE_DEADLINE_MS = 370_000;
+
+/** Minimum remaining runway worth attempting another iteration for. Below
+ *  this, refuse outright rather than start a call that has almost no room
+ *  to work with. Found via Batch 8 live verification: the guard originally
+ *  refused whenever cfg.timeoutMs (the worst-case ceiling for a role, e.g.
+ *  340s for DOSSIER's long final-synthesis call) didn't fully fit in the
+ *  remaining budget — which fired after ~40s of real elapsed time on every
+ *  real session, since most iterations are short tool-calling turns that
+ *  never need anywhere near the full ceiling. The fix: shrink THIS call's
+ *  timeout to whatever's actually left (see effectiveTimeoutMs below)
+ *  instead of refusing whenever the nominal ceiling doesn't fit, and only
+ *  refuse when the remaining runway drops below this floor. */
+const MIN_USEFUL_CALL_MS = 30_000;
 
 /** Prepend current-date context to every agent's system prompt. The QA agent
  *  in particular was flagging real Tavily-sourced current-year citations as
@@ -195,6 +225,64 @@ export async function runAgentLoop<T>(
     payload: { ...ctxPayload },
   });
 
+  // Resume a conversation the previous attempt got partway through. The reaper
+  // resets a job whose worker the platform killed, and without this the retry
+  // re-runs every tool call and regenerates every turn already paid for.
+  //
+  // Restoring is guarded three ways in checkpoint.ts — schema version, size,
+  // and a restore cap — so a stale, oversized, or poisoned conversation makes
+  // the job start clean rather than replay into a wall.
+  let resumedFromIteration = 0;
+  const restored = await loadCheckpoint(runCtx);
+  if (restored.messages) {
+    messages.length = 0;
+    messages.push(...restored.messages);
+    resumedFromIteration = restored.iteration;
+    await emit(runCtx, {
+      agent: cfg.agent,
+      event_type: 'agent_post_response_checkpoint',
+      message: `resumed from checkpoint at iteration ${restored.iteration}`,
+      payload: {
+        ...ctxPayload,
+        checkpoint: 'restored',
+        resumed_from_iteration: restored.iteration,
+        message_count: messages.length,
+      },
+    });
+  } else if (restored.reason && restored.reason !== 'no_checkpoint') {
+    // Say why a checkpoint existed but was refused — otherwise a job that
+    // silently restarts looks identical to one that never had state.
+    await emit(runCtx, {
+      agent: cfg.agent,
+      event_type: 'agent_post_response_checkpoint',
+      message: `checkpoint not resumed: ${restored.reason}`,
+      payload: { ...ctxPayload, checkpoint: 'rejected', reason: restored.reason },
+    });
+  }
+
+  /** Persist the conversation, reporting when it was too large to store.
+   *  Best-effort throughout: losing the ability to resume is a cost, but a
+   *  checkpoint failure must never be what fails a run. */
+  const persistCheckpoint = async (iteration: number): Promise<void> => {
+    const decision = await saveCheckpoint(runCtx, cfg.agent, iteration, messages);
+    if (!decision.save && decision.reason === 'too_large') {
+      // Skipped rather than truncated: a partial message list would resume
+      // into a conversation the model cannot follow, which is worse than the
+      // honest fallback of starting over.
+      await emit(runCtx, {
+        agent: cfg.agent,
+        event_type: 'agent_post_response_checkpoint',
+        message: `checkpoint skipped: conversation is ${Math.round(decision.bytes / 1024)}KB`,
+        payload: {
+          ...ctxPayload,
+          iteration,
+          checkpoint: 'skipped_too_large',
+          bytes: decision.bytes,
+        },
+      });
+    }
+  };
+
   // Universal exit emitter — fires on every return path of the loop so we
   // can always tell the difference between "loop returned X" and "worker
   // was killed externally". The specific agent_completed / agent_failed
@@ -217,9 +305,72 @@ export async function runAgentLoop<T>(
   };
 
   for (let iteration = 1; iteration <= cfg.iterationCap; iteration++) {
+    // Job-wall-budget guard. Supabase kills the edge worker at ~400s
+    // (platform ceiling, verified against the reaper's own thresholds in
+    // 20260728120200_threat_research_reaper_platform_ceiling.sql). Rather
+    // than let that happen silently — the exact "worker died mid-loop, no
+    // reason recorded" failure the observability events exist to catch —
+    // track the real wall-clock remaining since the job was claimed
+    // (runCtx.jobStartedAt, which spans the WHOLE worker invocation, not
+    // just this loop's own start — a job can call runAgentLoop more than
+    // once, e.g. detection generation then a separate QA critique call).
+    //
+    // This call's ACTUAL timeout shrinks to whatever runway is left rather
+    // than refusing outright whenever cfg.timeoutMs (the worst-case ceiling
+    // for this role) doesn't fully fit — most iterations are short tool-
+    // calling turns that never need anywhere near that ceiling. Only refuse
+    // when the remaining runway drops below MIN_USEFUL_CALL_MS.
+    let effectiveTimeoutMs = cfg.timeoutMs ?? 180_000;
+    if (runCtx.jobStartedAt !== undefined) {
+      const jobElapsedMs = Date.now() - runCtx.jobStartedAt;
+      const remainingMs = JOB_WALL_BUDGET_SAFE_DEADLINE_MS - jobElapsedMs;
+      if (remainingMs < MIN_USEFUL_CALL_MS) {
+        await emit(runCtx, {
+          agent: cfg.agent,
+          event_type: 'agent_failed',
+          message: `job_wall_budget: ${Math.round(jobElapsedMs / 1000)}s elapsed since job claim, ` +
+            `only ${Math.round(remainingMs / 1000)}s of runway left before the platform's ~400s worker ` +
+            `ceiling — exiting cleanly instead of risking a silent kill`,
+          payload: { ...ctxPayload, reason: 'job_wall_budget', job_elapsed_ms: jobElapsedMs, iteration },
+        });
+        return exitLoop({ success: false, output: null, iterations: iteration - 1, reason: 'job_wall_budget' });
+      }
+      effectiveTimeoutMs = Math.min(effectiveTimeoutMs, remainingMs);
+    }
+
     // Atomic check-and-spend at the session level. If the cap is reached,
     // the RPC returns allowed:false and we exit.
-    const modelBudget = await consumeBudget(runCtx, { modelCalls: 1 });
+    //
+    // This is also where a cooperative abort is observed. Supabase Edge has no
+    // cancellation channel — nothing can kill a running isolate from outside —
+    // so a worker learns the session is over at its next budget check. Since
+    // that check already happens immediately before every model call, the
+    // abort lands at exactly the point where money would otherwise be spent.
+    // Reserve the worst case this call could cost. Settled against real usage
+    // once the response returns (see the reconciliation below). Reserving
+    // rather than checking committed spend is what stops N parallel leaves
+    // each passing the gate and then collectively blowing the cap.
+    const reservedTokens = estimateCallTokens(
+      // The system block is composed below; approximate the prompt from the
+      // parts already known. Precision is not needed — this is a ceiling that
+      // gets replaced by measured usage seconds later.
+      cfg.systemInstruction.length + cfg.knowledgePack.length + JSON.stringify(messages).length,
+      cfg.maxTokens ?? 16_384,
+    );
+    const modelBudget = await consumeBudget(runCtx, {
+      modelCalls: 1,
+      tokensReserve: reservedTokens,
+      phase: runCtx.phase,
+    });
+    if (modelBudget.aborted) {
+      await emit(runCtx, {
+        agent: cfg.agent,
+        event_type: 'agent_failed',
+        message: `session aborted: ${modelBudget.reason ?? 'terminal provider failure'}`,
+        payload: { ...ctxPayload, reason: 'session_aborted', terminal: true },
+      });
+      return exitLoop({ success: false, output: null, iterations: iteration - 1, reason: 'session_aborted' });
+    }
     if (!modelBudget.allowed) {
       await emit(runCtx, {
         agent: cfg.agent,
@@ -234,7 +385,14 @@ export async function runAgentLoop<T>(
       agent: cfg.agent,
       event_type: 'agent_iteration',
       message: `iteration ${iteration}`,
-      payload: { ...ctxPayload, iteration },
+      payload: {
+        ...ctxPayload,
+        iteration,
+        // Present only on a resumed job, so the trail distinguishes "iteration
+        // 1 of a fresh attempt" from "iteration 1 continuing a conversation
+        // that already reached iteration 3".
+        ...(resumedFromIteration > 0 ? { resumed_from_iteration: resumedFromIteration } : {}),
+      },
     });
 
     const callStart = Date.now();
@@ -259,7 +417,7 @@ export async function runAgentLoop<T>(
         iteration,
         model: cfg.model,
         feature: cfg.feature,
-        timeout_ms: cfg.timeoutMs ?? null,
+        timeout_ms: effectiveTimeoutMs,
         max_tokens: cfg.maxTokens ?? null,
         strict_tools: strictTools,
         cache: cacheMode,
@@ -307,13 +465,14 @@ export async function runAgentLoop<T>(
           // match the tool's input_schema. Callers can opt out by setting
           // cfg.strictTools=false (debugging only).
           strictTools,
-          // Default ON: prompt caching of system prompt + tools array.
-          // The 5-minute TTL fits the orchestrator's per-session wall time;
-          // sibling workers within a session reuse the cached prefix.
+          // Default ON: prompt caching of system prompt + tools array. The
+          // adapter uses a one-hour TTL so later fan-out workers still reuse
+          // the stable prefix.
           cache: cacheMode,
-          // Per-role overrides (model-routing.ts). When unset, the adapter
-          // applies its own defaults (180s / 16384).
-          timeoutMs: cfg.timeoutMs,
+          // Per-role ceiling (model-routing.ts), shrunk to whatever
+          // job-wall-budget runway remains (see the guard above) so a late
+          // iteration can't itself overrun the platform's ~400s kill.
+          timeoutMs: effectiveTimeoutMs,
           maxTokens: cfg.maxTokens,
           debug: debugModelCall,
         },
@@ -339,43 +498,54 @@ export async function runAgentLoop<T>(
       });
     } catch (e) {
       const errMsg = (e as Error)?.message ?? String(e);
-      // Try to extract a clean reason from Anthropic's JSON error body.
-      // Adapter formats errors as "Anthropic <status>: <body>". When the
-      // body is JSON we surface error.type + error.message in the activity
-      // console message instead of the raw blob. Full raw error stays in
-      // payload.error for forensics. Falls back to the raw error string
-      // if parsing fails — never throw from the error-handling path.
-      let cleanMessage = errMsg.slice(0, 300);
-      let parsedType: string | null = null;
-      let parsedReason: string | null = null;
-      const httpMatch = errMsg.match(/Anthropic (\d{3}):\s*(\{[\s\S]*)/);
-      if (httpMatch) {
-        const status = httpMatch[1];
-        try {
-          const body = JSON.parse(httpMatch[2]);
-          parsedType = body?.error?.type ?? null;
-          parsedReason = body?.error?.message ?? null;
-          if (parsedReason) {
-            cleanMessage = `Anthropic ${status} ${parsedType ?? 'error'}: ${parsedReason}`.slice(0, 300);
-          }
-        } catch {
-          // Body wasn't JSON; leave cleanMessage as the truncated raw error.
-        }
-      } else if (errMsg.startsWith('Anthropic call timed out')) {
-        cleanMessage = errMsg;
+      // The adapter classifies its own failures (anthropic-raw.ts) and throws
+      // an AnthropicError carrying the decision: is this retryable, and is it
+      // specific to this request or true of the whole account? That second
+      // field is what lets a caller stop a session on credit exhaustion
+      // instead of failing twenty leaves one at a time. Anything else reaching
+      // here is a genuine bug in our code, not a provider failure, so it is
+      // reported as-is rather than guessed at.
+      const failure = e instanceof AnthropicError ? e.info : null;
+
+      // Release the reservation this call never spent. Without this a failing
+      // job would shrink the budget for every leaf after it — the failure
+      // compounding into a starvation the retries then inherit.
+      await consumeBudget(runCtx, { tokensRelease: reservedTokens, phase: runCtx.phase });
+
+      // An account-scoped failure is true of every worker in this session, so
+      // stop the session here rather than let the remaining jobs each burn an
+      // attempt rediscovering it. Idempotent: the siblings that hit the same
+      // error in the same second all call this and only the first takes
+      // effect. Done before the event so the flag is visible to any worker
+      // that checks its budget while this one is still emitting.
+      if (failure?.scope === 'account') {
+        await abortSession(runCtx, `${cfg.agent}: ${failure.message}`.slice(0, 500));
       }
+
       await emit(runCtx, {
         agent: cfg.agent,
         event_type: 'agent_failed',
-        message: cleanMessage,
+        message: errMsg.slice(0, 300),
         payload: {
           ...ctxPayload,
           error: errMsg.slice(0, 800),
-          error_type: parsedType,
-          error_reason: parsedReason,
+          error_kind: failure?.kind ?? null,
+          error_type: failure?.type ?? null,
+          error_reason: failure?.message?.slice(0, 800) ?? null,
+          error_status: failure?.status ?? null,
+          error_scope: failure?.scope ?? null,
+          error_retryable: failure?.retryable ?? null,
+          // Explicit marker the orchestrator keys off to abort the session.
+          terminal: failure?.scope === 'account',
         },
       });
-      return exitLoop({ success: false, output: null, iterations: iteration, reason: 'anthropic_failed' });
+      return exitLoop({
+        success: false,
+        output: null,
+        iterations: iteration,
+        reason: 'anthropic_failed',
+        failure,
+      });
     }
 
     // Visibility: every Anthropic response gets an event regardless of
@@ -433,10 +603,15 @@ export async function runAgentLoop<T>(
     // returns). This second call records the tokens for cost attribution
     // and the soft alarm threshold. Fail-open: budget RPC errors here
     // never block the loop — same posture as the pre-call gate.
+    // Settle: commit what the call actually cost and release the reservation.
+    // Always settle, even at zero tokens, or the reservation would leak and
+    // shrink the budget available to later leaves.
     const totalTokens = response.usage.inputTokens + response.usage.outputTokens;
-    if (totalTokens > 0) {
-      await consumeBudget(runCtx, { tokens: totalTokens });
-    }
+    await consumeBudget(runCtx, {
+      tokens: totalTokens,
+      tokensRelease: reservedTokens,
+      phase: runCtx.phase,
+    });
     await emit(runCtx, {
       agent: cfg.agent,
       event_type: 'agent_post_response_checkpoint',
@@ -488,6 +663,9 @@ export async function runAgentLoop<T>(
       });
       const parsed = cfg.validateFinalOutput(response.text);
       if (parsed.ok) {
+        // The job produced its output; the conversation is now dead weight and
+        // holds the user's environment profile and rule bodies. Drop it.
+        await deleteCheckpoint(runCtx);
         await emit(runCtx, {
           agent: cfg.agent,
           event_type: 'agent_post_response_checkpoint',
@@ -564,12 +742,13 @@ export async function runAgentLoop<T>(
           `Fix THAT specifically and re-emit the JSON. ` +
           `Output the JSON object directly — no markdown fences, no commentary outside the JSON.`,
       });
+      await persistCheckpoint(iteration);
       continue;
     }
 
     // Tool calls → execute each, build matching tool_result blocks (each with
     // tool_use_id matching the assistant's tool_use block id).
-    const toolResultBlocks: AnthropicContentBlock[] = [];
+    const toolResultBlocks: Extract<AnthropicContentBlock, { type: 'tool_result' }>[] = [];
     for (const call of response.toolUses) {
       const toolBudget = await consumeBudget(runCtx, { toolCalls: 1 });
       if (!toolBudget.allowed) {
@@ -642,6 +821,12 @@ export async function runAgentLoop<T>(
         tool_result_chars: toolResultBlocks.reduce((sum, block) => sum + block.content.length, 0),
       },
     });
+
+    // Persist AFTER the tool results are in the message list. This is the
+    // point where the iteration's expensive work — the model call and every
+    // tool it triggered — is fully represented, so a worker killed from here
+    // on can resume without repeating any of it.
+    await persistCheckpoint(iteration);
   }
 
   await emit(runCtx, {

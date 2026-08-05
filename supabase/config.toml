@@ -110,8 +110,13 @@ verify_jwt = true
 [functions.trigger-auto-digest]
 verify_jwt = true
 
+[functions.auto-digest-queue-consumer]
+verify_jwt = true
+
 [functions.threat-research-orchestrator]
 verify_jwt = true
 
 [functions.pack-deploy-worker]
+
+[functions.manage-threat-intel-feed]
 verify_jwt = true

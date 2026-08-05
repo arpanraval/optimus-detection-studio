@@ -42,16 +42,17 @@ export async function enrichFeasibility(
   }
 
   const ttps: any[] = Array.isArray(report.ttps) ? report.ttps : [];
+  const enrichedTTPs = ttps.map((ttp) => ({ ...ttp }));
 
   // 3. Filter to uncovered TTPs only
-  const uncoveredTTPs = ttps.filter(
+  const uncoveredTTPs = enrichedTTPs.filter(
     (t) => t.hasExistingDetection === false || t.covered === false,
   );
 
   if (uncoveredTTPs.length === 0) {
     await supabase
       .from('threat_intel_reports')
-      .update({ feasible_gap_count: 0, infeasible_gap_count: 0 })
+      .update({ feasible_gap_count: 0, infeasible_gap_count: 0, unknown_gap_count: 0, deployment_readiness_percent: 100 })
       .eq('id', reportId);
     return;
   }
@@ -64,7 +65,7 @@ export async function enrichFeasibility(
   if (mitreIds.length === 0) {
     await supabase
       .from('threat_intel_reports')
-      .update({ feasible_gap_count: 0, infeasible_gap_count: 0 })
+      .update({ feasible_gap_count: 0, infeasible_gap_count: 0, unknown_gap_count: 0, deployment_readiness_percent: null })
       .eq('id', reportId);
     return;
   }
@@ -104,6 +105,7 @@ export async function enrichFeasibility(
         feasible_gap_count: 0,
         infeasible_gap_count: 0,
         unknown_gap_count: uncoveredTTPs.length,
+        deployment_readiness_percent: null,
       })
       .eq('id', reportId);
     return;
@@ -155,18 +157,21 @@ export async function enrichFeasibility(
   for (const ttp of uncoveredTTPs) {
     const mitreId = ttp.mitreId || ttp.technique_id;
     if (!mitreId) {
+      ttp.feasibility = 'unknown';
       unknownCount += 1;
       continue;
     }
 
     const stixId = stixByMitreId[mitreId];
     if (!stixId) {
+      ttp.feasibility = 'unknown';
       unknownCount += 1;
       continue;
     }
 
     const required = requiredSources[stixId];
     if (!required || required.length === 0) {
+      ttp.feasibility = 'unknown';
       unknownCount += 1;
       continue;
     }
@@ -177,8 +182,10 @@ export async function enrichFeasibility(
     );
 
     if (hasMatch) {
+      ttp.feasibility = 'feasible';
       feasibleCount += 1;
     } else {
+      ttp.feasibility = 'infeasible';
       infeasibleCount += 1;
     }
   }
@@ -187,9 +194,11 @@ export async function enrichFeasibility(
   await supabase
     .from('threat_intel_reports')
     .update({
+      ttps: enrichedTTPs,
       feasible_gap_count: feasibleCount,
       infeasible_gap_count: infeasibleCount,
       unknown_gap_count: unknownCount,
+      deployment_readiness_percent: unknownCount === 0 && feasibleCount + infeasibleCount > 0 ? Math.round((feasibleCount / (feasibleCount + infeasibleCount)) * 100) : null,
     })
     .eq('id', reportId);
 }

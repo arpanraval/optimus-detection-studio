@@ -34,3 +34,65 @@ jobs:
       # remaining advisory warnings don't fail CI; any new error does.
       - name: Lint
         run: bun run lint
+
+  # Supabase Edge Functions target Deno, so `bun run type-check` (tsconfig
+  # covers src/** only) never looked at them. That gap is not academic: a
+  # configuration that could not fit the platform's ~400s worker ceiling
+  # reached production with every local gate green, because none of the gates
+  # could execute -- or even parse -- the code that broke.
+  #
+  # Separate job so a Deno failure is distinguishable at a glance from a
+  # frontend one, and so it runs in parallel.
+  edge-functions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # Type-checks the whole import graph, including the remote esm.sh and
+      # deno.land specifiers the vitest run resolves to local stand-ins. This
+      # is the only gate that sees the modules exactly as the platform will.
+      #
+      # --no-lock because the repo has no deno.lock; the functions are deployed
+      # straight from source by `supabase functions deploy`.
+      - name: Deno check — threat-research-orchestrator
+        run: deno check --no-lock supabase/functions/threat-research-orchestrator/index.ts
+
+      # Every other edge function, ADVISORY for now.
+      #
+      # Five fail today, for two different reasons, and both predate this
+      # workflow:
+      #   optimus-tools, auto-digest-orchestrator, detection-finetune,
+      #   threat-intel-digest-v2   real type errors (TS2339, TS7006)
+      #   fetch-feeds              npm:fast-xml-parser not resolvable without
+      #                            a deno.json nodeModulesDir setting
+      #
+      # Turning these red on day one would mean the first thing anyone does
+      # with this gate is disable it. So the sweep reports without blocking,
+      # and the annotations make the debt visible in the PR diff view rather
+      # than leaving it invisible as it is today.
+      #
+      # Burn it down and then delete `continue-on-error` — that deletion is the
+      # point of the step existing.
+      - name: Deno check — remaining edge functions (advisory)
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          failed=0
+          for entry in supabase/functions/*/index.ts; do
+            case "$entry" in
+              */threat-research-orchestrator/*) continue ;;  # gated above
+            esac
+            echo "::group::deno check $entry"
+            if ! deno check --no-lock "$entry"; then
+              echo "::warning file=$entry::deno check failed (pre-existing; not gating)"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "Some edge functions still fail deno check — see warnings above."
+          fi
