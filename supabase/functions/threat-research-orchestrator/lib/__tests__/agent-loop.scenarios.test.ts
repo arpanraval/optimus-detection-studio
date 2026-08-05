@@ -62,7 +62,7 @@ function makeToolContext(): ToolContext {
 function makeConfig(overrides: Record<string, unknown> = {}) {
   return {
     agent: 'research' as const,
-    model: 'claude-sonnet-4-6',
+    model: 'claude-sonnet-5',
     systemInstruction: 'test system',
     knowledgePack: '',
     toolDeclarations: [],

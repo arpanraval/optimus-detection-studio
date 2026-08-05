@@ -168,8 +168,8 @@ async function callOpenAIAPI(
     body: JSON.stringify({
       model,
       messages,
-      temperature: 0.3,
-      response_format: { type: 'json_object' }
+      response_format: { type: 'json_object' },
+      ...(model.startsWith('gpt-5.6') ? { reasoning_effort: 'none' } : { temperature: 0.3 }),
     }),
     signal: AbortSignal.timeout(AI_CALL_TIMEOUT_MS)
   })

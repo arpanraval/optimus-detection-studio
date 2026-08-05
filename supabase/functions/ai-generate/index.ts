@@ -11,18 +11,16 @@ type Provider = 'google' | 'openai' | 'anthropic'
 
 const MODEL_PROVIDERS: Record<string, Provider> = {
   // Google Gemini models
-  'gemini-3.1-pro-preview': 'google',
-  'gemini-3-flash-preview': 'google',
-  'gemini-3.1-flash-lite-preview': 'google',
-  'gemini-3-pro-image-preview': 'google',
+  'gemini-3.6-flash': 'google',
+  'gemini-3.5-flash-lite': 'google',
+  'gemini-3.1-flash-lite-image': 'google',
   // OpenAI models
-  'gpt-5.4': 'openai',
-  'gpt-5.4-mini': 'openai',
-  'gpt-5.4-nano': 'openai',
+  'gpt-5.6-sol': 'openai',
+  'gpt-5.6-terra': 'openai',
+  'gpt-5.6-luna': 'openai',
   // Anthropic models
-  'claude-opus-4-6': 'anthropic',
-  'claude-sonnet-4-6': 'anthropic',
-  'claude-haiku-4-5': 'anthropic',
+  'claude-opus-5': 'anthropic',
+  'claude-sonnet-5': 'anthropic',
 }
 
 function getProvider(model: string): Provider {
@@ -285,6 +283,13 @@ async function callOpenAIAPI(
     messages
   }
 
+  // GPT-5.6 defaults to reasoning, but Chat Completions tool calls require
+  // effective reasoning none. This also preserves the previous latency and
+  // token profile for the app's interactive text/JSON routes.
+  if (model.startsWith('gpt-5.6')) {
+    openaiPayload.reasoning_effort = 'none'
+  }
+
   // Add response format for JSON mode
   if (responseFormat === 'json') {
     openaiPayload.response_format = { type: 'json_object' }
@@ -527,7 +532,7 @@ serve(async (req: Request) => {
     const body: AIRequest = await req.json()
     const {
       prompt,
-      model = 'gemini-3-flash-preview',
+      model = 'gemini-3.6-flash',
       responseFormat = 'json',
       systemInstruction,
       tools,

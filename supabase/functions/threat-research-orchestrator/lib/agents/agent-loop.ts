@@ -34,7 +34,7 @@ export type ValidationResult<T> =
 
 export interface AgentLoopConfig<T> {
   agent: ResearchAgent;
-  /** Anthropic model id, e.g. claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5.
+  /** Anthropic model id, e.g. claude-opus-5 or claude-sonnet-5.
    *  Callers should resolve this via ROLE_CONFIG from ../llm/model-routing.ts
    *  rather than hardcoding — that file is the single source of truth for
    *  per-role model routing. */

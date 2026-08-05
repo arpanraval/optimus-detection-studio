@@ -574,7 +574,6 @@ async function callGemini(model: string, userPrompt: string): Promise<{ result: 
       { role: 'user', parts: [{ text: `${SYSTEM_PROMPT}\n\n${userPrompt}` }] },
     ],
     generationConfig: {
-      temperature: AI_TEMPERATURE,
       maxOutputTokens: AI_MAX_TOKENS,
       responseMimeType: 'application/json',
     },
@@ -604,9 +603,10 @@ async function callOpenAI(model: string, userPrompt: string): Promise<{ result: 
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: userPrompt },
     ],
-    temperature: AI_TEMPERATURE,
-    max_tokens: AI_MAX_TOKENS,
     response_format: { type: 'json_object' },
+    ...(model.startsWith('gpt-5.6')
+      ? { reasoning_effort: 'none', max_completion_tokens: AI_MAX_TOKENS }
+      : { temperature: AI_TEMPERATURE, max_tokens: AI_MAX_TOKENS }),
   };
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -634,7 +634,6 @@ async function callAnthropic(model: string, userPrompt: string): Promise<{ resul
     model,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: userPrompt }],
-    temperature: AI_TEMPERATURE,
     max_tokens: AI_MAX_TOKENS,
   };
   const res = await fetch('https://api.anthropic.com/v1/messages', {

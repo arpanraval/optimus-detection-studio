@@ -75,7 +75,7 @@ async function callRaw(overrides: Record<string, unknown> = {}) {
   // The raw adapter takes the key explicitly; only the telemetry-wrapped
   // callAnthropic in anthropic-direct.ts reads it from the environment.
   return callAnthropicRaw('test-key-not-a-secret', {
-    model: 'claude-sonnet-4-6',
+    model: 'claude-sonnet-5',
     messages: [{ role: 'user', content: 'hello' }],
     // Generous by default so retry behaviour is what's under test. The adapter
     // refuses to retry unless the backoff plus a minimally useful attempt fits

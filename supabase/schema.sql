@@ -224,11 +224,11 @@ CREATE TABLE IF NOT EXISTS public.auto_digest_settings (
   is_enabled boolean NOT NULL DEFAULT false,
   schedule_hour_utc integer NOT NULL DEFAULT 6,
   max_articles_per_day integer NOT NULL DEFAULT 3,
-  ai_model text NOT NULL DEFAULT 'gemini-3-flash-preview'::text,
+  ai_model text NOT NULL DEFAULT 'gemini-3.6-flash'::text,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
-  classification_model text DEFAULT 'gemini-3-flash-preview'::text,
-  digest_model text DEFAULT 'gemini-3-flash-preview'::text,
+  classification_model text DEFAULT 'gemini-3.6-flash'::text,
+  digest_model text DEFAULT 'gemini-3.6-flash'::text,
   prompt_templates jsonb
 );
 CREATE TABLE IF NOT EXISTS public.batch_embedding_jobs (

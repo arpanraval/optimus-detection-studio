@@ -224,9 +224,9 @@ export const AISuggestDropdown: React.FC<AISuggestDropdownProps> = ({
           fullWidth
           value={selectedModel}
           options={[
-            ...LLM_MODELS.filter((m) => m.provider === 'google'),
-            ...LLM_MODELS.filter((m) => m.provider === 'openai'),
-            ...LLM_MODELS.filter((m) => m.provider === 'anthropic'),
+            ...LLM_MODELS.filter((m) => m.provider === 'google' && m.capabilities.json),
+            ...LLM_MODELS.filter((m) => m.provider === 'openai' && m.capabilities.json),
+            ...LLM_MODELS.filter((m) => m.provider === 'anthropic' && m.capabilities.json),
           ].map((m) => ({
             value: m.id,
             label: `${PROVIDER_LABEL[m.provider] || m.provider} · ${m.name}`,

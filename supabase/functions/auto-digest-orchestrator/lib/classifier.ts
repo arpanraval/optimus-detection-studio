@@ -256,9 +256,9 @@ export async function classifyEntries(
 // ---------------------------------------------------------------------------
 
 // Allowed model prefixes — used to validate at runtime that the configured
-// classifier model is one of the providers we have routing for. The previous
-// version hardcoded a fixed set of model IDs (e.g. 'gemini-3-flash-preview',
-// 'gpt-5.4-mini') that excluded Anthropic entirely — even though the routing
+// classifier model is one of the providers we have routing for. A previous
+// version hardcoded a fixed set of model IDs, which excluded Anthropic
+// entirely even though the routing
 // below dispatches to callAnthropic when the id starts with 'claude'. The
 // effect was that a user picking any Claude model in settings broke the
 // pipeline ("Model X is not in the allowed list") even though the code was
@@ -324,7 +324,6 @@ async function callGemini(model: string, userPrompt: string): Promise<{ result: 
       { role: 'user', parts: [{ text: `${SYSTEM_PROMPT}\n\n${userPrompt}` }] },
     ],
     generationConfig: {
-      temperature: AI_TEMPERATURE,
       maxOutputTokens: AI_MAX_TOKENS,
       responseMimeType: 'application/json',
     },
@@ -362,9 +361,10 @@ async function callOpenAI(model: string, userPrompt: string): Promise<{ result: 
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: userPrompt },
     ],
-    temperature: AI_TEMPERATURE,
-    max_tokens: AI_MAX_TOKENS,
     response_format: { type: 'json_object' },
+    ...(model.startsWith('gpt-5.6')
+      ? { reasoning_effort: 'none', max_completion_tokens: AI_MAX_TOKENS }
+      : { temperature: AI_TEMPERATURE, max_tokens: AI_MAX_TOKENS }),
   };
 
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -400,7 +400,6 @@ async function callAnthropic(model: string, userPrompt: string): Promise<{ resul
     model,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: userPrompt }],
-    temperature: AI_TEMPERATURE,
     max_tokens: AI_MAX_TOKENS,
   };
 

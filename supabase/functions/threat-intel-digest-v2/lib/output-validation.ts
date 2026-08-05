@@ -9,9 +9,9 @@ import { AttackType, ThreatLevel, getIoCCategory } from './types.ts'
 
 export const MAX_MODEL_OUTPUT_CHARS = 1_000_000
 export const ALLOWED_MODEL_IDS = new Set([
-  'gemini-3.1-pro-preview', 'gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview',
-  'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano',
-  'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5',
+  'gemini-3.6-flash', 'gemini-3.5-flash-lite',
+  'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna',
+  'claude-opus-5', 'claude-sonnet-5',
 ])
 
 const CONFIDENCES = new Set(['high', 'medium', 'low'])

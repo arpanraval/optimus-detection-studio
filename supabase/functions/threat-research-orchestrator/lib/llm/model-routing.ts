@@ -2,9 +2,9 @@
 //
 // Single source of truth for which Claude model each agent uses.
 //
-// Routing rationale (May 2026, from user-approved design):
+// Routing rationale (July 2026):
 //
-//   Opus 4.7 — for the two reasoning surfaces where output quality has the
+//   Opus 5 — for the two reasoning surfaces where output quality has the
 //              largest downstream multiplier:
 //                • PLANNER  — Opportunity Planner (PR2): dedupes N behaviours
 //                             into M canonical opportunities. One bad call
@@ -13,11 +13,9 @@
 //                             detection IS the user-facing artefact; this is
 //                             where claude.ai's quality advantage lives.
 //
-//   Sonnet 4.6 — for the broader reasoning surfaces where Opus's incremental
-//                quality doesn't pay for itself in cost. Sonnet 4.6 has a
-//                much later knowledge cutoff than Haiku 4.5 (Aug 2025 vs
-//                Feb 2025), critical for the Research Agent which must
-//                reason about current-year threats:
+//   Sonnet 5 — for the broader reasoning surfaces where Opus's incremental
+//              quality doesn't pay for itself, and as the explicit replacement
+//              for all former Haiku routes:
 //                • RESEARCH    — Research Agent (workflow-specific intel sweep)
 //                • ATTACK      — Attack Researcher (per-behaviour deep dive)
 //                • QA          — Detection critique
@@ -25,13 +23,8 @@
 //                                (no Haiku for this either — quality floor stays
 //                                at Sonnet across the board)
 //
-//   Haiku 4.5 — intentionally NOT routed in this design. The user's reasoning:
-//               keep a single quality floor without per-route experimentation.
-//               If a future cheaper sub-step appears, add it here explicitly
-//               rather than reintroducing implicit routing in individual agents.
-//
-// All three models support tool use AND strict tool use AND prompt caching
-// (per Anthropic docs as of 2026-05). The previous comment in research-agent.ts
+// Both routed models support tool use, strict tool use, and prompt caching.
+// The previous comment in research-agent.ts
 // claiming "Sonnet's slower per-token rate exceeded the per-call wall budget"
 // is stale. The queue gives each PHASE JOB a fresh worker; one agent loop can
 // still make several model/tool calls inside that worker. Role limits therefore
@@ -46,12 +39,12 @@ export type ResearchAgentRole =
   | 'EXTRACTION';  // Classification, summary, low-risk extraction
 
 export const MODEL: Record<ResearchAgentRole, string> = {
-  PLANNER:    'claude-opus-4-7',
-  ENGINEER:   'claude-opus-4-7',
-  RESEARCH:   'claude-sonnet-4-6',
-  ATTACK:     'claude-sonnet-4-6',
-  QA:         'claude-sonnet-4-6',
-  EXTRACTION: 'claude-sonnet-4-6',
+  PLANNER:    'claude-opus-5',
+  ENGINEER:   'claude-opus-5',
+  RESEARCH:   'claude-sonnet-5',
+  ATTACK:     'claude-sonnet-5',
+  QA:         'claude-sonnet-5',
+  EXTRACTION: 'claude-sonnet-5',
 } as const;
 
 /** Per-role configuration knobs the agent-loop forwards into AnthropicCallParams.
@@ -71,7 +64,7 @@ export interface RoleConfig {
 
 export const ROLE_CONFIG: Record<ResearchAgentRole, RoleConfig> = {
   PLANNER:    { model: MODEL.PLANNER,    timeoutMs: 300_000, maxTokens: 16_384 },
-  // ENGINEER: raised from 240s to 300s. Opus 4.7 wrapper-generation calls
+  // ENGINEER: raised from 240s to 300s. Opus wrapper-generation calls
   // can spend 200-280s on a complex multi-opportunity behaviour (8-12K
   // output tokens at ~40-50 tps). At 240s the call timed out close to
   // the model's natural completion, costing a full iteration retry that

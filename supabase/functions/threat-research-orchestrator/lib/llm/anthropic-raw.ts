@@ -205,8 +205,7 @@ const ANTHROPIC_URL =
 
 /** Models that REJECT the `temperature` parameter with a 400
  *  invalid_request_error. As of 2026-05-19 Anthropic deprecated temperature
- *  for claude-opus-4-7 — sending it returns 400 and the call never executes.
- *  Sonnet 4.6 and Haiku 4.5 still accept temperature.
+ *  for Claude 5 models — sending it returns 400 and the call never executes.
  *
  *  When we can't pin temperature to 0, determinism comes from:
  *    1. Strict tool use (grammar-constrained sampling on tool inputs)
@@ -215,7 +214,8 @@ const ANTHROPIC_URL =
  *  Run-to-run variance increases slightly for Opus but doesn't break
  *  correctness — same inputs still converge on the same TTP coverage. */
 const MODELS_WITHOUT_TEMPERATURE: ReadonlySet<string> = new Set([
-  'claude-opus-4-7',
+  'claude-opus-5',
+  'claude-sonnet-5',
 ]);
 
 /** Default per-call timeout. Native AbortSignal.timeout — Rust-runtime-
@@ -223,13 +223,13 @@ const MODELS_WITHOUT_TEMPERATURE: ReadonlySet<string> = new Set([
  *
  *  180s ceiling because: (a) the walk-every-tactic Research Agent emits
  *  subject + 14 tactic_summary entries + N behaviours in one response, and
- *  (b) Opus 4.7 reasoning over the full skill pack + actor-critic context
+ *  (b) Opus reasoning over the full skill pack + actor-critic context
  *  can spend 60-120s in a single call. With the queue architecture each
  *  LLM call gets its own fresh edge worker so this longer ceiling doesn't
  *  compound across phases. Callers can override via params.timeoutMs.
  *
  *  Was 90s; raised to 180s on the model-routing upgrade (Sonnet/Opus for
- *  reasoning agents). Opus 4.7 at ~40 tps emitting 12K tokens takes ~5
+ *  reasoning agents). Opus at ~40 tps emitting 12K tokens takes ~5
  *  minutes worst case — that's still bounded by the per-job worker
  *  lifetime, not this timeout. */
 const ANTHROPIC_CALL_TIMEOUT_DEFAULT_MS = 180_000;

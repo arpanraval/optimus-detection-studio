@@ -258,7 +258,7 @@ async function processOneDigestArticle(
 
     const reportCorrelationId = entry.auto_digest_report_id || crypto.randomUUID();
     const digestUrl = `${supabaseUrl}/functions/v1/threat-intel-digest-v2`;
-    const digestModel = settings.digest_model || settings.ai_model || 'gemini-3-flash-preview';
+    const digestModel = settings.digest_model || settings.ai_model || 'gemini-3.6-flash';
     const modelProvider = digestModel.startsWith('gpt') ? 'openai' : digestModel.startsWith('claude') ? 'anthropic' : 'google';
     const promptVersion = typeof settings.prompt_templates?.version === 'string' ? settings.prompt_templates.version : 'threat-intel-digest-2026-07-17.1';
     const pipelineVersion = 'auto-digest-queue-2026-07-17.1';
@@ -482,7 +482,7 @@ async function processOneDigestArticle(
       // billing/telemetry tracks consistently with the rest of the pipeline.
       const linkerModel = settings.classification_model
         || settings.ai_model
-        || 'gemini-3-flash-preview';
+        || 'gemini-3.6-flash';
       await linkBySubject(supabase, ctx, reportId, job.user_id, linkerModel, result);
     } catch (e: any) {
       console.error(`[orchestrator] linkBySubject ${reportId} failed:`, e?.message);
@@ -630,7 +630,7 @@ async function runPhase(
         await classifyEntries(
           ctx,
           harvIds,
-          settings.classification_model || settings.ai_model || 'gemini-3-flash-preview',
+          settings.classification_model || settings.ai_model || 'gemini-3.6-flash',
           result,
           phaseDeadline,
         );
@@ -926,7 +926,7 @@ serve(async (req: Request) => {
 
       const linkerModel = settings.classification_model
         || settings.ai_model
-        || 'gemini-3-flash-preview';
+        || 'gemini-3.6-flash';
 
       // Spin a synthetic RunContext + result summary so the linker can emit
       // events as if it were running inside a real job. We don't have a

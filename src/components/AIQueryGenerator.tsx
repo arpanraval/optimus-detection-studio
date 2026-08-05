@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Icon } from './Icon';
 import { ModelSelector } from './ModelSelector';
-import { generateAIJSON, DEFAULT_MODEL } from '../lib/aiService';
+import { generateAIJSON, DEFAULT_MODEL, getModelById } from '../lib/aiService';
 import { useToast } from '../hooks/useToast';
 import { useTheme } from '../context/ThemeContext';
 import { Detection } from '../types';
@@ -253,7 +253,7 @@ const saveIndex = (s: SessionSummary[]) => localStorage.setItem(SESSIONS_INDEX_K
 const loadSession = (id: string): Session | null => {
     try {
         const s = JSON.parse(localStorage.getItem(SESSION_PREFIX + id) || 'null');
-        if (s && !s.model) s.model = DEFAULT_MODEL; // Backward compatibility
+        if (s && (!s.model || !getModelById(s.model))) s.model = DEFAULT_MODEL;
         return s;
     } catch { return null; }
 };

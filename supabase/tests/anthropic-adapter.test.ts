@@ -69,7 +69,7 @@ function toSseFrames(body: { content?: any[]; usage?: any }): string {
     type: "message_start",
     message: {
       id: "msg_mock", type: "message", role: "assistant", content: [],
-      model: "claude-haiku-4-5", stop_reason: null, stop_sequence: null,
+      model: "claude-sonnet-5", stop_reason: null, stop_sequence: null,
       usage: {
         input_tokens: usage.input_tokens ?? 0,
         cache_read_input_tokens: usage.cache_read_input_tokens ?? 0,
@@ -138,7 +138,7 @@ function assert(cond: unknown, label: string) {
 }
 
 const baseParams = {
-  model: "claude-haiku-4-5",
+  model: "claude-sonnet-5",
   messages: [{ role: "user" as const, content: "hi" }],
   // Production leaves this unset. Tests opt in so the dormant stream parser
   // remains covered without changing the hosted request shape.

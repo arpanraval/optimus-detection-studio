@@ -337,8 +337,8 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     is_enabled: false,
     schedule_hour_utc: 6,
     max_articles_per_day: 3,
-    classification_model: 'gemini-3-flash-preview',
-    digest_model: 'gemini-3-flash-preview',
+    classification_model: 'gemini-3.6-flash',
+    digest_model: 'gemini-3.6-flash',
   });
 
   // Manual run state
@@ -367,8 +367,8 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
         is_enabled: settings.is_enabled,
         schedule_hour_utc: settings.schedule_hour_utc,
         max_articles_per_day: settings.max_articles_per_day,
-        classification_model: settings.classification_model || settings.ai_model || 'gemini-3-flash-preview',
-        digest_model: settings.digest_model || settings.ai_model || 'gemini-3-flash-preview',
+        classification_model: settings.classification_model || settings.ai_model || 'gemini-3.6-flash',
+        digest_model: settings.digest_model || settings.ai_model || 'gemini-3.6-flash',
       });
       setConfigDirty(false);
     }
@@ -498,8 +498,8 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
         is_enabled: settings.is_enabled,
         schedule_hour_utc: settings.schedule_hour_utc,
         max_articles_per_day: settings.max_articles_per_day,
-        classification_model: settings.classification_model || settings.ai_model || 'gemini-3-flash-preview',
-        digest_model: settings.digest_model || settings.ai_model || 'gemini-3-flash-preview',
+        classification_model: settings.classification_model || settings.ai_model || 'gemini-3.6-flash',
+        digest_model: settings.digest_model || settings.ai_model || 'gemini-3.6-flash',
       });
     }
     setConfigDirty(false);
