@@ -74,12 +74,13 @@ function treeOf(behaviours: AttackBehaviour[]): ThreatResearchTree {
 }
 
 describe('flagCrossBehaviourDuplicates', () => {
-  it('never invents a QA verdict for a detection QA did not judge', () => {
+  it('records the duplicate as detection metadata, inventing no verdict', () => {
     // The regression this guards: the duplicate used to be recorded by
     // synthesising a whole qa block with verdict 'pass_with_concerns'. The list
-    // view reads det.qa?.verdict first, so the leaf rendered as "Passed with
-    // concerns" and was picked up by "select all passing" — a detection that
-    // QA had never seen became bulk-save eligible.
+    // view read det.qa?.verdict first, so the leaf rendered as "Passed with
+    // concerns" and was picked up by "select all passing" — a detection nothing
+    // had reviewed became bulk-save eligible. With QA removed there is no block
+    // to annotate; the flag lives on the detection and nowhere else.
     const first = detection({ id: 'd_o1' });
     const dup = detection({ id: 'd_o2', qa: null, qa_error: null });
     const tree = treeOf([
@@ -91,13 +92,14 @@ describe('flagCrossBehaviourDuplicates', () => {
 
     expect(dup.qa).toBeNull();
     expect(dup.duplicate_of).toBe('d_o1');
-    expect(dup.qa_error).toBe('duplicate_no_qa');
+    // Being a duplicate is not a pipeline error and must not be recorded as one.
+    expect(dup.qa_error).toBeNull();
     // The canonical (first) detection is untouched.
     expect(first.duplicate_of).toBeUndefined();
     expect(first.qa).toBeNull();
   });
 
-  it('preserves an existing qa_error rather than masking it', () => {
+  it('leaves an existing qa_error alone rather than masking it', () => {
     const first = detection({ id: 'd_o1' });
     const dup = detection({ id: 'd_o2', qa_error: 'model_budget_exhausted' });
     const tree = treeOf([
@@ -112,7 +114,9 @@ describe('flagCrossBehaviourDuplicates', () => {
     expect(dup.qa_error).toBe('model_budget_exhausted');
   });
 
-  it('annotates qa.duplicate_of when a real verdict exists, leaving it intact', () => {
+  it('does not touch a historical qa block when flagging a duplicate', () => {
+    // Sessions that ran before the QA removal still carry verdicts. Dedup
+    // annotates alongside them, never through them.
     const first = detection({ id: 'd_o1' });
     const dup = detection({ id: 'd_o2', qa: qa({ verdict: 'fail', concerns: ['too broad'] }) });
     const tree = treeOf([
@@ -122,10 +126,9 @@ describe('flagCrossBehaviourDuplicates', () => {
 
     flagCrossBehaviourDuplicates(tree);
 
-    expect(dup.qa?.verdict).toBe('fail');           // model's judgement preserved
-    expect(dup.qa?.duplicate_of).toBe('d_o1');
-    expect(dup.qa?.concerns).toHaveLength(2);
-    expect(dup.duplicate_of).toBeUndefined();       // recorded on qa, not both
+    expect(dup.qa?.verdict).toBe('fail');           // historical judgement preserved
+    expect(dup.qa?.concerns).toHaveLength(1);       // not appended to
+    expect(dup.duplicate_of).toBe('d_o1');
   });
 
   it('leaves genuinely distinct detections alone', () => {

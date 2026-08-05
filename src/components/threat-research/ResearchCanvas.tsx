@@ -99,21 +99,18 @@ function tacticLabel(t: MitreTacticName): string {
 
 function detectionState(det: DetectionOpportunity['detection'], behaviourActive: boolean): NodeState {
   if (det.archived) return 'archived';
-  // Checked before any qa branch, same precedence as ResearchList's
-  // resolveRowState — a saved detection (user-saved, or reuse-first pointing
-  // the leaf at an existing library rule with qa left null) is terminal
-  // regardless of what its qa verdict says. This used to be missing here,
-  // so a reused leaf fell through to the qa-null branch below and rendered
-  // "pending" forever while ResearchList correctly showed it as saved.
+  // Checked first, same precedence as ResearchList's resolveRowState — a saved
+  // detection (user-saved, or reuse-first pointing the leaf at an existing
+  // library rule) is terminal.
   if (isDetectionSaved(det)) return 'covered';
-  if (det.qa?.verdict === 'fail') return 'fail';
-  // qa_error is a pipeline failure (QA never returned a verdict). Distinct
-  // from 'fail' (a real verdict) — UI must render the two differently so
-  // operators know whether QA judged the detection or never ran. When
-  // qa is null AND qa_error is set, this is the case.
-  if (!det.qa && det.qa_error) return 'qa_error';
-  if (!det.qa) return behaviourActive ? 'active' : 'pending';
-  return 'default';
+  // Generation failure is the only terminal-bad state. Note this must be
+  // checked BEFORE the query test, because a failed leaf has no query either.
+  if (det.qa_error === 'engineer_failed') return 'qa_error';
+  // A query exists: the node is done and waiting on the user. Keyed on the
+  // artefact rather than on det.qa, which is now always null — reading it here
+  // would have frozen every node at 'pending' forever.
+  if (det.query && det.query.trim().length > 0) return 'default';
+  return behaviourActive ? 'active' : 'pending';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -251,9 +248,9 @@ function buildLayout(
         const oId = `${b.id}/${o.id}`;
         const oState: NodeState = o.detection.archived
           ? 'archived'
-          : o.detection.qa?.verdict === 'fail'
+          : o.detection.qa_error === 'engineer_failed'
             ? 'fail'
-            : bActive && !o.detection.qa
+            : bActive && !(o.detection.query && o.detection.query.trim())
               ? 'active'
               : 'default';
         nodes.push({
@@ -280,21 +277,21 @@ function buildLayout(
         const dState = detectionState(det, bActive);
         // Subtitle precedence (most-specific first), matching
         // detectionState()'s precedence above:
-        //   saved (user-saved, or reuse-first with qa left null) → "<verdict>
-        //     · saved", or "in library" when there's no verdict to show
-        //   qa_error → "QA didn't run" (recoverable pipeline failure)
-        //   qa verdict → "<verdict>" (real verdict from completed QA)
-        //   active → "in review…"
-        //   neither → "qa pending"
+        //   saved (user-saved, or reuse-first)  → "in library"
+        //   engineer_failed                     → "generation failed"
+        //   has a query                         → "ready to review"
+        //   behaviour still running             → "writing…"
+        //   otherwise                           → "queued"
+        const hasQuery = !!det.query && det.query.trim().length > 0;
         const sub = isDetectionSaved(det)
-          ? (det.qa ? `${det.qa.verdict.replace(/_/g, ' ')} · saved` : 'in library')
-          : det.qa_error
-            ? "QA didn't run"
-            : det.qa
-              ? det.qa.verdict.replace(/_/g, ' ')
+          ? 'in library'
+          : det.qa_error === 'engineer_failed'
+            ? 'generation failed'
+            : hasQuery
+              ? 'ready to review'
               : bActive
-                ? 'in review…'
-                : 'qa pending';
+                ? 'writing…'
+                : 'queued';
         nodes.push({
           id: dId,
           parentId: oId,

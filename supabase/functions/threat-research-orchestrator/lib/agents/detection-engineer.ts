@@ -11,9 +11,9 @@
 //    no new query is generated.
 //
 // 2. Otherwise: writes ONE detection query in the user's resolved SIEM
-//    language, against the planner's pre-decided observable surface. The
-//    detection is then sent to the QA agent via single-pass critique
-//    (one verdict; one engineer revision only on `fail`, no re-critique).
+//    language, against the planner's pre-decided observable surface. That
+//    query is the deliverable — there is no LLM review stage after it (see
+//    the note further down for why the QA agent was removed).
 //    Per-opportunity (not per-behaviour) means duplicate detections across
 //    sibling opportunities can't happen — the planner upstream guarantees
 //    one slot, one detection.
@@ -25,14 +25,11 @@ import { loadKnowledgePack } from "../skills-loader.ts";
 import { ROLE_CONFIG } from "../llm/model-routing.ts";
 import { handleLibrarySearch } from "../tools/library-search.ts";
 import { hasMitreOverlap } from "../coverage.ts";
-import { supportsDefenderSchemaValidation } from "../query-language.ts";
-import { validateKqlAgainstDefenderSchema } from "../tools/defender-schema-lookup.ts";
 import { mergeSourceCitations } from "../citations.ts";
-import { critiqueDetection, type CritiqueOutcome, type QaIntentContext } from "./qa-agent.ts";
 import type {
   ActorCoverageSeedItem, AttackBehaviour,
   DetectionOpportunity, GeneratedDetection, LibraryMatch, MitreTacticName,
-  QaIteration, QaResult, ResearchQueryLanguage, ResearchSubject,
+  ResearchQueryLanguage, ResearchSubject,
   DetectionCandidateVersion, QaVerdict,
 } from "../types.ts";
 
@@ -112,32 +109,31 @@ Output: ONE fenced ${language} code block. Optional \`// name:\` and \`// severi
 // and revision call.
 
 // ────────────────────────────────────────────────────────────────────────────
-// Single-pass QA (Engineer → QA → ship; one revision attempt only on `fail`)
+// No QA stage — the engineer's query ships to the user
 // ────────────────────────────────────────────────────────────────────────────
 //
-// We removed the actor-critic loop (was 3 QA + 2 revisions). Reasons:
-//   1. Opus-generated detections rarely need iterative refinement to ship.
-//   2. The loop's stateful nature didn't survive the 10-min edge function
-//      lifetime — workers died mid-loop and restarted from iter=0, burning
-//      tokens on re-execution. Single-pass per-opp work is atomic and fits
-//      inside one edge function invocation.
-//   3. Each LLM call costs real money. Going from up-to-5 to up-to-2 calls
-//      per opportunity is a ~60% token reduction at the per-opp level.
+// There was an LLM critic here (single-pass, one revision on `fail`; before
+// that, a 3-round actor-critic loop). It is gone. Session 7382a9c2 is the
+// record: seven detections, seven `pass_with_concerns`, zero revisions, and
+// among the concerns were confident fabrications — that
+// DeviceProcessEvents.FolderPath excludes the filename, and that doubled quotes
+// terminate a KQL verbatim string early. Both are false; acting on either would
+// have broken a correct rule.
 //
-// Behaviour:
-//   - QA critiques once.
-//   - `pass` ships immediately.
-//   - `pass_with_concerns` ships as-is, concerns surfaced to UI for human
-//     review (we don't auto-fix; user decides).
-//   - `fail` triggers ONE engineer revision via writeFn. The revised
-//     detection ships WITHOUT a re-critique — QA's suggested_changes are
-//     the engineer's only guidance. Trust the engineer to apply them
-//     mechanically; if the revision is still bad, the user catches it.
+// The critic also produced genuine catches in the same list. That is precisely
+// why it had to go rather than be tuned: a reviewer whose true and invented
+// findings are indistinguishable forces a human to re-verify all of them, which
+// costs more than reviewing the query directly.
 //
-// The QA `iteration_count` is always 1 (the single critique). `history`
-// always has exactly one entry. The final detection ships with the
-// original critique's verdict — we don't run a second QA to confirm the
-// revision worked.
+// What replaces it is nothing, deliberately. Deterministic checks that CAN be
+// grounded still run (the Defender schema validation in handleDetection, plus
+// the advisory validators) and their findings are surfaced. The user decides
+// what to keep.
+
+/** Re-run the deterministic validators against a candidate body. Returns the
+ *  problems found; empty means clean. Supplied by the orchestrator, which owns
+ *  the Supabase client the schema check needs. */
+export type CandidateValidator = (query: string) => Promise<string[]>;
 
 /** Append a candidate query and make it active.
  *
@@ -171,151 +167,6 @@ export function withCandidateVersion(
       },
     ],
     active_version: version,
-  };
-}
-
-/** Annotate each candidate with its deterministic verdict and choose which one
- *  ships.
- *
- *  One rule: the NEWEST version that is deterministically clean becomes active;
- *  if none is clean, the newest wins.
- *
- *  Both halves matter. "Newest clean" means a revision that introduces a
- *  hallucinated column cannot displace the original that parsed — which is the
- *  whole guarantee C2 was supposed to provide and did not, because activation
- *  was unconditional. "Newest when none is clean" means a real QA fail still
- *  gets its repair attempt promoted rather than falling back to a body QA had
- *  already rejected.
- *
- *  Pure, so the decision is testable without a schema or a model. `query`
- *  is kept in step with `active_version` so every existing reader that only
- *  understands `query` sees the same body the version tab calls active. */
-export function applyCandidateValidation(
-  detection: GeneratedDetection,
-  problemsByVersion: Readonly<Record<number, string[]>>,
-): GeneratedDetection {
-  const versions = detection.candidate_versions ?? [];
-  if (versions.length === 0) return detection;
-
-  const annotated: DetectionCandidateVersion[] = versions.map(v => {
-    const problems = problemsByVersion[v.version];
-    return {
-      ...v,
-      validation: problems === undefined
-        ? (v.validation ?? { checked: false, problems: [] })
-        : { checked: true, problems },
-    };
-  });
-
-  const clean = annotated.filter(v => v.validation?.checked && v.validation.problems.length === 0);
-  const pool = clean.length > 0 ? clean : annotated;
-  const chosen = pool[pool.length - 1];
-
-  return {
-    ...detection,
-    candidate_versions: annotated,
-    active_version: chosen.version,
-    query: chosen.query,
-  };
-}
-
-/** Re-run the deterministic validators against a candidate body. Returns the
- *  problems found; empty means clean. Supplied by the orchestrator, which owns
- *  the Supabase client the schema check needs. */
-export type CandidateValidator = (query: string) => Promise<string[]>;
-
-export async function driveSinglePassQa(
-  initialDetection: GeneratedDetection,
-  writeFn: (prevDetection: GeneratedDetection, qa: QaResult) => Promise<GeneratedDetection>,
-  qaFn:    (detection: GeneratedDetection) => Promise<CritiqueOutcome>,
-  /** Optional so existing callers compile. When absent, versions record
-   *  `checked: false` and activation keeps its previous behaviour. */
-  validateFn?: CandidateValidator,
-): Promise<GeneratedDetection> {
-  // Record the engineer's output as version 1 before QA ever sees it. Doing it
-  // here rather than at revision time means the original survives even if the
-  // revision path throws — the version history cannot be lost by the same
-  // failure that produced the revision.
-  const withV1 = withCandidateVersion(initialDetection, initialDetection.query, 'generated', null);
-
-  const outcome = await qaFn(withV1);
-  if (outcome.kind === 'pipeline_error') {
-    // QA pipeline failed (timeout, iteration cap, model error, etc.). Surface
-    // as qa_error — distinct from a verdict. Detection ships without a QA
-    // judgement; UI shows "QA didn't run — retry". The caller can re-enqueue
-    // the qa job.
-    return {
-      ...withV1,
-      qa: null,
-      qa_error: outcome.reason,
-    };
-  }
-
-  const qa = outcome.qa;
-  const history: QaIteration[] = [
-    { verdict: qa.verdict, concerns: qa.concerns, diff_from_previous: null },
-  ];
-
-  // Only `fail` triggers revision. `pass` and `pass_with_concerns` ship as-is.
-  if (qa.verdict !== 'fail') {
-    return {
-      ...withV1,
-      qa: { ...qa, iteration_history: history, iteration_count: 1 },
-      qa_error: null,
-    };
-  }
-
-  // One revision attempt, no second critique. That trades marginal quality (a
-  // second critic might catch a regression introduced by the fix) for ~40%
-  // lower token cost and no chance of worker death mid-loop.
-  //
-  // The revised detection still carries the ORIGINAL 'fail' verdict, because
-  // that is the last judgement anything actually made — inventing a passing
-  // one would be fabrication. But the verdict no longer describes the query
-  // that shipped, so `revised_after_fail` marks the gap.
-  //
-  // Without that marker the stale 'fail' was taken at face value: the leaf
-  // read as broken to the user AND was excluded from the session's usable
-  // count, so a detection was punished twice for having been repaired. It now
-  // derives as `revised_unverified` / `needs_review` (lib/readiness.ts) —
-  // preserved, surfaced, and honest about not having been re-checked.
-  const revised = await writeFn(withV1, qa);
-  // APPEND. The revision becomes the active version, but version 1 stays
-  // reachable so an analyst can compare and revert — QA's judgement is a
-  // proposal, not an irreversible edit.
-  const versioned = withCandidateVersion(
-    { ...revised, candidate_versions: withV1.candidate_versions },
-    revised.query,
-    'qa_revision',
-    qa.verdict,
-  );
-
-  // Re-run the deterministic checks on both bodies before deciding which one
-  // ships. QA is not consulted again -- it just got this wrong enough to
-  // trigger a revision -- but "does this column exist" and "does this parse"
-  // are facts, and they are exactly the failures a hurried revision
-  // introduces.
-  let decided = versioned;
-  if (validateFn) {
-    const byVersion: Record<number, string[]> = {};
-    for (const v of versioned.candidate_versions ?? []) {
-      try {
-        byVersion[v.version] = await validateFn(v.query);
-      } catch (e) {
-        // A validator that cannot run has found nothing; it must not be able to
-        // mark a good body as problematic. Leaving the entry absent records
-        // `checked: false` rather than a clean bill of health.
-        console.warn('[detection-engineer] candidate revalidation failed:', e);
-      }
-    }
-    decided = applyCandidateValidation(versioned, byVersion);
-  }
-
-  return {
-    ...decided,
-    qa: { ...qa, iteration_history: history, iteration_count: 1 },
-    qa_error: null,
-    revised_after_fail: true,
   };
 }
 
@@ -408,79 +259,6 @@ function validateGeneratedDetection(
       saved_detection_id: null,
       archived: false,
     },
-  };
-}
-
-async function reviseDetection(
-  toolCtx: ToolContext,
-  runCtx: RunContext,
-  prev: GeneratedDetection,
-  qa: QaResult,
-  language: ResearchQueryLanguage,
-  pack: string,
-  contextPayload?: Record<string, unknown>,
-): Promise<GeneratedDetection> {
-  const role = ROLE_CONFIG.ENGINEER;
-  const cfg: AgentLoopConfig<GeneratedDetection> = {
-    agent: 'detection-engineer',
-    // Opus 4.7: detection authoring is the user-facing artefact; Opus's
-    // reasoning depth pays for itself here. Revision rounds especially
-    // benefit — addressing QA concerns is a multi-constraint optimization.
-    model: role.model,
-    systemInstruction: buildSystemPrompt(language),
-    knowledgePack: pack,
-    toolDeclarations: TOOLS_FOR.detectionEngineer,
-    // 4 = revise + up to 3 retries. The strict coerceOrReject validator can
-    // consume retries on enum-validation alone (a single invalid severity
-    // or tactic triggers a retry), so a cap of 3 effectively gave the model
-    // 2 chances to BOTH emit valid JSON AND address QA's concerns — leading
-    // to silent actor-critic no-ops where the "revised" detection in the
-    // tree is the unchanged first draft. 4 leaves headroom for one
-    // validation-retry plus 2 substantive correction attempts. If 4 still
-    // can't get it, the prior draft is shipped — same end-state as before,
-    // just with a real chance to converge first.
-    iterationCap: 4,
-    feature: 'tr-detection-engineer',
-    // Reuse the previous detection's metadata as defaults — revision changes
-    // the query body, not the surrounding contract. The model only emits a
-    // new fenced block; we keep prev's name/tactic/MITRE/etc unless the
-    // optional // name: / // severity: header in the block overrides them.
-    validateFinalOutput: (text) => validateGeneratedDetection(text, language, {
-      defaultName: prev.name,
-      defaultDescription: prev.description,
-      defaultTactic: prev.tactic,
-      defaultMitreIds: prev.mitre_technique_ids,
-      defaultCoversIds: prev.covers_behaviour_ids,
-      defaultSeverity: prev.suggested_severity,
-    }),
-    contextPayload,
-    timeoutMs: role.timeoutMs,
-    maxTokens: role.maxTokens,
-  };
-  const initialMessage =
-    `Revise this detection to address the QA concerns.\n\n` +
-    `Current query (${language}):\n\`\`\`${language.toLowerCase()}\n${prev.query}\n\`\`\`\n\n` +
-    `QA verdict: ${qa.verdict}\n` +
-    `Concerns:\n${qa.concerns.map(c => `- ${c}`).join('\n')}\n` +
-    `Suggested changes:\n${qa.suggested_changes.map(s => `- ${s}`).join('\n')}\n\n` +
-    `Output the revised query in ONE fenced ${language} block. Address the concerns, keep the rest. No JSON, no preamble.`;
-  const outcome = await runAgentLoop<GeneratedDetection>(cfg, toolCtx, runCtx, initialMessage);
-  if (!outcome.output) return prev;
-
-  // Preserve identity/state fields from the previous detection so the tree
-  // patch lands on the same opportunity slot. The new validator already
-  // returns id='d1' as a placeholder; we overwrite with prev.id here.
-  //
-  // citations must be carried too: the validator always returns [], so a
-  // revision would otherwise silently empty the Citations panel for exactly
-  // the detections QA touched. A revision rewrites the query body, not the
-  // evidence the behaviour was built on.
-  return {
-    ...outcome.output,
-    id: prev.id,
-    citations: prev.citations,
-    saved_detection_id: prev.saved_detection_id,
-    archived: prev.archived,
   };
 }
 
@@ -698,115 +476,4 @@ export async function generateDetectionForOpportunity(
     },
   });
   return detection;
-}
-
-/** Run single-pass QA on ONE detection. Returns the (possibly revised)
- *  detection with `qa` populated. Emits qa_refinement_started /
- *  qa_refinement_completed / qa_verdict events around the call.
- *
- *  `actorCoverageSeed` is passed ONLY to the engineer's revision pass — QA
- *  no longer does dedup (the Opportunity Planner handles upstream dedup,
- *  the library-match phase handles per-opp, and finalise runs a
- *  cross-opportunity semantic dedup). The engineer still receives the
- *  seed so a revision doesn't drift toward duplicating an existing
- *  library detection.
- *
- *  Function name kept (refineDetectionViaActorCritic) for caller-API
- *  stability — internally it now drives a single-pass critique. */
-export async function refineDetectionViaActorCritic(
-  toolCtx: ToolContext,
-  runCtx: RunContext,
-  behaviour: AttackBehaviour,
-  opp: DetectionOpportunity,
-  language: ResearchQueryLanguage,
-  pack: string,
-  actorCoverageSeed: ActorCoverageSeedItem[] = [],
-  /** SIEM product this query targets. Sentinel and Defender XDR share KQL but
-   *  not their table sets, so QA cannot judge a table reference from the
-   *  language alone. Optional and last so existing callers keep compiling;
-   *  null means Sigma, which is product-agnostic. */
-  queryProduct: string | null = null,
-): Promise<GeneratedDetection> {
-  const leafCtx = {
-    behaviour_id: behaviour.id,
-    opportunity_id: opp.id,
-    detection_id: opp.detection.id,
-  };
-  await emit(runCtx, {
-    agent: 'qa',
-    event_type: 'qa_refinement_started',
-    message: `qa for ${opp.detection.id}`,
-    payload: leafCtx,
-  });
-  const intent: QaIntentContext = {
-    behaviourTitle: behaviour.title,
-    behaviourNarrative: behaviour.narrative_description,
-    opportunityTitle: opp.title,
-    opportunityDescription: opp.description,
-    observableChain: opp.observable_chain ?? [],
-    telemetry: opp.telemetry ?? [],
-    queryProduct,
-  };
-  // Deterministic revalidation of every candidate body. Gated on product for
-  // the same reason the initial check is (C1): both Microsoft SIEMs write KQL,
-  // and there is no Sentinel schema here, so running the Defender check on a
-  // Sentinel query invents unknown-table findings for correct code. No schema,
-  // no check -- an honest absence rather than a false verdict.
-  const revalidate: CandidateValidator | undefined =
-    supportsDefenderSchemaValidation(queryProduct) && language === 'KQL'
-      ? async (query: string) => {
-        const f = await validateKqlAgainstDefenderSchema(toolCtx.supabase, query);
-        const problems: string[] = [];
-        if (f.table && !f.table_known) problems.push(`unknown table: ${f.table}`);
-        for (const c of f.unknown_columns) problems.push(`unknown column: ${c}`);
-        return problems;
-      }
-      : undefined;
-
-  const refined = await driveSinglePassQa(
-    opp.detection,
-    (prev, qa) => reviseDetection(toolCtx, runCtx, prev, qa, language, pack, leafCtx),
-    (det) => critiqueDetection(toolCtx, runCtx, det, intent, leafCtx),
-    revalidate,
-  );
-  // A revision that introduced a deterministic defect does not become active.
-  // Say so in the event trail: silently shipping v1 when the UI had been told
-  // v2 was the answer is how the previous version of this got confusing.
-  const activeVersion = refined.candidate_versions?.find(v => v.version === refined.active_version);
-  if (refined.candidate_versions && refined.candidate_versions.length > 1
-      && refined.active_version !== refined.candidate_versions.length) {
-    await emit(runCtx, {
-      agent: 'qa',
-      event_type: 'qa_revision_rejected',
-      message: `revision for ${opp.detection.id} failed revalidation; keeping v${refined.active_version}`,
-      payload: {
-        ...leafCtx,
-        active_version: refined.active_version,
-        rejected_problems: refined.candidate_versions.at(-1)?.validation?.problems ?? [],
-        active_problems: activeVersion?.validation?.problems ?? [],
-      },
-    });
-  }
-  await emit(runCtx, {
-    agent: 'qa',
-    event_type: 'qa_refinement_completed',
-    message: refined.qa_error
-      ? `qa pipeline error for ${opp.detection.id}: ${refined.qa_error}`
-      : `qa done for ${opp.detection.id}`,
-    payload: {
-      ...leafCtx,
-      verdict: refined.qa?.verdict,
-      iterations: refined.qa?.iteration_count,
-      qa_error: refined.qa_error,
-    },
-  });
-  await emit(runCtx, {
-    agent: 'qa',
-    event_type: 'qa_verdict',
-    message: refined.qa_error
-      ? `qa_error: ${refined.qa_error}`
-      : `${refined.qa?.verdict ?? 'unknown'} (${refined.qa?.coverage_quality ?? 'unknown'})`,
-    payload: { ...leafCtx, qa: refined.qa, qa_error: refined.qa_error },
-  });
-  return refined;
 }

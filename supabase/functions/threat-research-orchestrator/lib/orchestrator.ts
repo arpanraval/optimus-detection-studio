@@ -52,7 +52,6 @@ import { runOpportunityPlanner, toDetectionOpportunity } from "./agents/opportun
 import {
   checkLibraryCoverage,
   generateDetectionForOpportunity,
-  refineDetectionViaActorCritic,
 } from "./agents/detection-engineer.ts";
 // isDeployedCoverage / isLanguageRunnable are now DISPLAY helpers only — they
 // annotate the reused leaf, they no longer gate whether a rule is reused.
@@ -87,12 +86,14 @@ import type {
 interface JobRow {
   id: string;
   session_id: string;
+  /** 'qa' is retained ONLY so job rows from sessions that ran before the QA
+   *  agent was removed still type-check when replayed. Nothing enqueues it and
+   *  the dispatcher has no arm for it. */
   phase: 'preflight' | 'research' | 'attack_research' | 'opportunity_planning' | 'detection' | 'qa' | 'finalise';
   /** For attack_research: the behaviour id (for example "b1").
    *  For detection: composite "{primary_behaviour_id}/{opportunity_id}"
    *  (e.g. "b1/o3") — detection is now per canonical opportunity, not
    *  per behaviour, since the Opportunity Planner runs upstream.
-   *  For qa: same composite format as detection.
    *  Null for singleton phases (preflight, research, opportunity_planning,
    *  finalise). */
   behaviour_id: string | null;
@@ -302,26 +303,10 @@ export async function runJob(supabase: SupabaseClient, jobId: string): Promise<v
         await markJobCompleted(supabase, job);
         await dispatchNextInPhase(supabase, session.id, 'detection');
         // Finalise gate: only fires when BOTH detection AND qa phases are
-        // terminal. The generic promote_phase(detection → finalise) is
-        // unsafe because qa jobs are enqueued by detection workers and may
-        // still be pending/running when the last detection completes.
-        // tr_promote_finalise_if_ready checks both phases atomically; the
-        // last worker (detection or qa, whichever finishes last) fires.
-        await promoteFinaliseIfReady(supabase, runCtx, session.id);
-        break;
-
-      case 'qa':
-        // Stand-alone QA pass on a single opportunity. behaviour_id is the
-        // composite "{behaviourId}/{opportunityId}" path. Auto-enqueued by
-        // handleDetection per opportunity (decoupled from detection-engineer
-        // worker so a worker death doesn't lose all in-flight QA).
-        if (!job.behaviour_id) throw new Error('qa job missing composite behaviour_id');
-        await handleQa(supabase, runCtx, toolCtx, session, tree, job.behaviour_id);
-        await markJobCompleted(supabase, job);
-        await dispatchNextInPhase(supabase, session.id, 'qa');
-        // Finalise gate (see detection branch above). The RPC is idempotent
-        // and uses an advisory lock so the parallel detection-side call
-        // can't race against this one.
+        // terminal. tr_promote_finalise_if_ready still counts a 'qa' phase
+        // that no longer produces jobs — with none enqueued its pending count
+        // is 0, so the gate turns purely on detection. Left in place so
+        // historical sessions mid-flight when QA was removed still finalise.
         await promoteFinaliseIfReady(supabase, runCtx, session.id);
         break;
 
@@ -566,8 +551,7 @@ async function handleResearch(
         ? `Token budget CAPPED: ${N} behaviours need more than the ${Math.round(budgets.tokenCap / 1000)}K ` +
           `session ceiling, so every phase floor was scaled down. This session may not complete all leaves.`
         : `Token budget: ${Math.round(budgets.tokenCap / 1000)}K total, ` +
-          `detection ${Math.round(budgets.perPhase.detection / 1000)}K / ` +
-          `qa ${Math.round(budgets.perPhase.qa / 1000)}K reserved`,
+          `detection ${Math.round(budgets.perPhase.detection / 1000)}K reserved`,
       payload: {
         token_cap: budgets.tokenCap,
         per_phase: budgets.perPhase,
@@ -1097,31 +1081,13 @@ async function handleDetection(
       description: opp.detection.description,
       feasibility: opp.detection.feasibility,
       feasibility_notes: opp.detection.feasibility_notes,
-      // A reused rule was never critiqued by THIS pipeline — clear any qa
-      // verdict/error left over from a prior attempt on this opportunity
-      // (e.g. a failed generation that's now being retried and resolves via
-      // reuse instead). Without this a retry-into-reuse keeps showing a
-      // stale verdict/error alongside a brand-new query body.
+      // Clear any verdict/error left over from a prior attempt on this
+      // opportunity (a failed generation now being retried and resolving via
+      // reuse instead). Without this a retry-into-reuse keeps showing a stale
+      // judgement alongside a brand-new query body.
       qa: null,
       qa_error: null,
     });
-    // Also resolve any pre-existing qa JOB row for this opportunity. A reuse
-    // needs no QA pass, so mark it 'completed' directly rather than leaving
-    // it 'pending'/'failed' (which would either block the finalise gate —
-    // tr_promote_finalise_if_ready only treats completed/failed as done — or
-    // get picked up by the dispatcher cron and waste a QA call critiquing a
-    // rule this pipeline didn't write).
-    const qaCompositeIdForReuse = `${behaviour.id}/${opp.id}`;
-    const { error: reuseQaResetErr } = await supabase
-      .from('threat_research_jobs')
-      .update({ status: 'completed', completed_at: new Date().toISOString(), failure_reason: null })
-      .eq('session_id', session.id)
-      .eq('phase', 'qa')
-      .eq('behaviour_id', qaCompositeIdForReuse)
-      .neq('status', 'completed');
-    if (reuseQaResetErr) {
-      console.warn(`[handleDetection] reuse-path qa resolve for ${qaCompositeIdForReuse} failed:`, reuseQaResetErr.message);
-    }
     return;
   }
   // Generation proceeds. A match may still exist here — it just did not earn
@@ -1222,9 +1188,33 @@ async function handleDetection(
   // Post-step: validate emitted T-ids against the canonical mitre_techniques
   // table. Hallucinated ids surface via unverified_mitre_ids on the
   // GeneratedDetection so the UI can flag.
+  //
+  // The tactic-consistency half of this used to run in handleQa, on the
+  // post-revision detection. With no QA stage there is no revision and no
+  // second chance to catch it, so both checks run here on the one body that
+  // ships. A behaviour tagged `persistence` citing a technique whose canonical
+  // tactic is defense-evasion is mis-classified, and the user should see that
+  // whether or not anything reviewed the query.
   if (generated.mitre_technique_ids.length > 0) {
     const unverified = new Set(await findUnverifiedMitreIds(supabase, generated.mitre_technique_ids));
     generated.unverified_mitre_ids = generated.mitre_technique_ids.filter(id => unverified.has(id));
+    // Only verified ids can be checked for tactic consistency — a hallucinated
+    // id has no canonical tactic to compare against and is already flagged.
+    const verifiedIds = generated.mitre_technique_ids.filter(id => !unverified.has(id));
+    if (verifiedIds.length > 0) {
+      const tacticsByTechnique = await fetchTechniqueTactics(supabase, verifiedIds);
+      const inconsistent = filterTacticInconsistent(
+        verifiedIds, behaviour.tactic, tacticsByTechnique,
+      );
+      if (inconsistent.length > 0) {
+        // Recorded on the BEHAVIOUR, not the detection: the mismatch is between
+        // the behaviour's tactic and the technique's canonical one. Merge
+        // rather than overwrite so a retry can't drop an earlier flag.
+        const merged = new Set(behaviour.tactic_inconsistent_mitre_ids ?? []);
+        for (const id of inconsistent) merged.add(id);
+        behaviour.tactic_inconsistent_mitre_ids = Array.from(merged);
+      }
+    }
   }
 
   // Post-step: deterministic schema validation for Defender XDR KQL queries.
@@ -1333,213 +1323,21 @@ async function handleDetection(
     citations: generated.citations,
     covers_behaviour_ids: generated.covers_behaviour_ids,
     validator_findings: generated.validator_findings,
+    // Written explicitly rather than left absent: a retry into this slot must
+    // clear any verdict a previous (pre-removal) attempt left behind, so the
+    // leaf never shows a stale judgement beside a fresh query.
     qa: null,
     qa_error: null,
   });
 
-  // ── 4. Enqueue ONE qa job for this opportunity. ─────────────────────────
-  // PR2: detection is now per-opportunity, so each detection job produces
-  // exactly one qa job — no fan-out from detection to qa.
-  const qaCompositeId = `${behaviour.id}/${opp.id}`;
-  // Reset any prior qa row with this composite id (retry_leaf path).
-  const { error: qaResetErr } = await supabase
-    .from('threat_research_jobs')
-    .update({
-      status: 'pending',
-      attempt_count: 0,
-      started_at: null,
-      completed_at: null,
-      failure_reason: null,
-    })
-    .eq('session_id', session.id)
-    .eq('phase', 'qa')
-    .eq('behaviour_id', qaCompositeId);
-  if (qaResetErr) {
-    console.warn(`[handleDetection] qa reset for ${qaCompositeId} failed:`, qaResetErr.message);
-  }
-
-  const { error: qaInsertErr } = await supabase
-    .from('threat_research_jobs')
-    .upsert(
-      [{ session_id: session.id, phase: 'qa' as const, behaviour_id: qaCompositeId }],
-      { onConflict: 'session_id,phase,behaviour_id', ignoreDuplicates: true },
-    );
-  if (qaInsertErr) {
-    // Non-fatal: detection content is already persisted at step 3. The
-    // user can manually trigger complete_qa to recover later.
-    console.warn(`[handleDetection] qa job enqueue for ${qaCompositeId} failed:`, qaInsertErr.message);
-  } else {
-    // Kick the dispatcher so the qa job starts immediately rather than
-    // waiting for the next cron tick.
-    await supabase.rpc('threat_research_dispatch_next_in_phase', {
-      p_session_id: session.id,
-      p_phase: 'qa',
-    }).then(() => {/* fire-and-forget */}, () => {/* swallow */});
-  }
-}
-
-/** Single-pass QA on one opportunity. Each qa job runs critiqueDetection
- *  ONCE, plus one engineer revision attempt if verdict='fail' (no
- *  re-critique on the revision). Patches the final detection (with
- *  verdict, concerns, history of length 1) back to the tree.
- *
- *  Wall-clock per job: ~1-3 min (1 QA call + 0-1 engineer revision call,
- *  each ~30-70s). Fits inside one edge-function invocation cleanly — no
- *  worker death mid-loop, no state lost on restart.
- *
- *  Previously this ran a 3-round actor-critic loop (up to 5 LLM calls
- *  per opp). The loop drove most of the architectural pain — workers
- *  dying mid-iteration, state lost on restart, tokens burned re-doing
- *  earlier rounds. Removed in favour of "trust Opus + critique once +
- *  one fix on failure". Tools used: engineer kit only; qa has no tools. */
-async function handleQa(
-  supabase: SupabaseClient,
-  runCtx: RunContext,
-  toolCtx: ToolContext,
-  session: { id: string; user_id: string; input_text: string; environment_snapshot: unknown },
-  tree: ThreatResearchTree,
-  compositeId: string,
-): Promise<void> {
-  const slash = compositeId.indexOf('/');
-  if (slash < 0) throw new Error(`qa job behaviour_id must be "{behaviourId}/{opportunityId}", got ${compositeId}`);
-  const behaviourId = compositeId.slice(0, slash);
-  const opportunityId = compositeId.slice(slash + 1);
-
-  const behaviour = tree.behaviours.find(b => b.id === behaviourId);
-  if (!behaviour) {
-    console.warn(`[handleQa] behaviour ${behaviourId} not in tree — skipping`);
-    return;
-  }
-  const opp = behaviour.opportunities.find(o => o.id === opportunityId);
-  if (!opp) {
-    console.warn(`[handleQa] opportunity ${behaviourId}/${opportunityId} not in tree — skipping`);
-    return;
-  }
-  // Idempotent: if QA already ran (re-dispatch race, manual retry), skip.
-  if (opp.detection.qa) return;
-
-  const { language: queryLanguage, product: queryProduct } =
-    resolveQueryTarget(session.environment_snapshot ?? null);
-  const pack = await loadKnowledgePack('detection-engineering');
-
-  // Refresh the actor coverage seed at qa-job start. Same rationale as in
-  // handleDetection: the cached tree.actor_coverage_seed can be 30+
-  // minutes stale by the time qa runs on a late opportunity. Pass to
-  // refineDetectionViaActorCritic so QA sees the same context the
-  // engineer was given (otherwise QA can mis-flag deliberately
-  // complementary detections as duplicates of the seed).
-  let actorCoverageSeed = tree.actor_coverage_seed ?? [];
-  if (tree.subject) {
-    try {
-      actorCoverageSeed = await buildActorCoverageSeed(supabase, tree.subject, runCtx.userId);
-    } catch (e) {
-      console.warn('[handleQa] actor coverage seed refresh failed:', (e as Error).message);
-    }
-  }
-
-  // refineDetectionViaActorCritic emits qa_refinement_started /
-  // qa_refinement_completed / qa_verdict events itself — no need to
-  // duplicate them here. Returns the REVISED detection with qa.iteration_*
-  // populated.
-  const refined = await refineDetectionViaActorCritic(
-    toolCtx, runCtx, behaviour, opp, queryLanguage, pack, actorCoverageSeed, queryProduct,
-  );
-
-  // Re-run BOTH MITRE post-steps on the revised detection: revisions can
-  // introduce new technique IDs the model hallucinates AND can introduce
-  // techniques whose canonical tactic doesn't match the parent behaviour's
-  // tactic. Without the consistency re-check, a revision could silently
-  // pivot the detection's MITRE coverage onto a different tactic from the
-  // behaviour it supposedly defends — the user would see a green "passed"
-  // detection that's actually mis-classified.
-  if (refined.mitre_technique_ids.length > 0) {
-    const unverified = new Set(await findUnverifiedMitreIds(supabase, refined.mitre_technique_ids));
-    refined.unverified_mitre_ids = refined.mitre_technique_ids.filter(id => unverified.has(id));
-    // Tactic consistency: only check IDs that exist in the canonical table
-    // (verified). Hallucinated ones are already flagged via unverified.
-    const verifiedIds = refined.mitre_technique_ids.filter(id => !unverified.has(id));
-    if (verifiedIds.length > 0) {
-      const tacticsByTechnique = await fetchTechniqueTactics(supabase, verifiedIds);
-      const inconsistent = filterTacticInconsistent(verifiedIds, behaviour.tactic, tacticsByTechnique);
-      if (inconsistent.length > 0) {
-        // Surface on the BEHAVIOUR (where tactic mismatch lives) rather
-        // than the detection — the detection's tactic field can be the
-        // detection's claimed tactic; the mismatch is between behaviour
-        // and the technique's canonical tactic. Merge with existing flags
-        // rather than overwriting; multiple revisions could accumulate.
-        const before = new Set(behaviour.tactic_inconsistent_mitre_ids ?? []);
-        for (const id of inconsistent) before.add(id);
-        behaviour.tactic_inconsistent_mitre_ids = Array.from(before);
-      }
-    }
-  }
-
-  // Detect feasibility pivots: if the revised detection's feasibility moved
-  // from covered/partial to uncovered, the BEHAVIOUR's detectability and
-  // artefacts_required (set in handleDetection) are stale. We don't have
-  // enough context to recompute them here (the engineer would have to be
-  // re-asked), but we can at least flag the inconsistency by appending a
-  // note to detectability_rationale so the canvas tile + leaf card reflect
-  // the late discovery. UI consumers should surface this distinctly.
-  const feasibilityPivot =
-    behaviour.detectability !== null
-    && behaviour.detectability !== undefined
-    && refined.feasibility === 'uncovered'
-    && (behaviour.detectability === 'siem' || behaviour.detectability === 'edr');
-  let behaviourPatch: Record<string, unknown> | null = null;
-  if (feasibilityPivot) {
-    const note = ' [QA revision flipped this opportunity to uncovered — telemetry assumed at engineering time may not be present.]';
-    const newRationale = (behaviour.detectability_rationale ?? '') + note;
-    behaviour.detectability_rationale = newRationale;
-    behaviourPatch = { detectability_rationale: newRationale };
-  }
+  // Persist the tactic-consistency flag raised above. It lives on the
+  // behaviour, so it needs its own patch — the detection patch above cannot
+  // carry it.
   if ((behaviour.tactic_inconsistent_mitre_ids ?? []).length > 0) {
-    behaviourPatch = {
-      ...(behaviourPatch ?? {}),
+    await patchBehaviour(supabase, session.id, behaviour.id, {
       tactic_inconsistent_mitre_ids: behaviour.tactic_inconsistent_mitre_ids,
-    };
+    });
   }
-  if (behaviourPatch) {
-    await patchBehaviour(supabase, session.id, behaviour.id, behaviourPatch);
-  }
-
-  // Mutate local tree for subsequent in-process reads.
-  opp.detection = refined;
-
-  // Patch the FULL revised detection back. Revision can change name, query,
-  // mitre_technique_ids, severity, etc. — not just qa.
-  //
-  // qa_error is patched alongside qa: when the pipeline failed mid-loop,
-  // refined.qa may be null AND refined.qa_error is set. When the loop
-  // completed normally, qa is set and qa_error is null. UIs use the two
-  // together to distinguish "QA judged this fails" (qa.verdict='fail',
-  // qa_error=null) from "QA never reached a verdict" (qa=null, qa_error set).
-  await patchDetection(supabase, session.id, behaviour.id, opp.id, opp.detection.id, {
-    name: refined.name,
-    description: refined.description,
-    query: refined.query,
-    query_language: refined.query_language,
-    mitre_technique_ids: refined.mitre_technique_ids,
-    unverified_mitre_ids: refined.unverified_mitre_ids,
-    tactic: refined.tactic,
-    suggested_severity: refined.suggested_severity,
-    suggested_detection_type: refined.suggested_detection_type,
-    feasibility: refined.feasibility,
-    feasibility_notes: refined.feasibility_notes,
-    citations: refined.citations,
-    covers_behaviour_ids: refined.covers_behaviour_ids,
-    qa: refined.qa,
-    qa_error: refined.qa_error,
-    // Without this the flag lives only in memory and the persisted leaf reads
-    // as a plain 'fail' -- the repaired detection would be discarded exactly
-    // as before.
-    revised_after_fail: refined.revised_after_fail ?? null,
-    // Without these the version history lives only in the worker's memory and
-    // the persisted leaf shows a single query -- the revision would still be
-    // destructive from every reader's point of view.
-    candidate_versions: refined.candidate_versions ?? null,
-    active_version: refined.active_version ?? null,
-  });
 }
 
 /** Run async fn over items with a fixed pool size. Caller-side errors are
@@ -1579,8 +1377,6 @@ async function handleFinalise(
     .single();
   const totalMs = row?.created_at ? Date.now() - new Date(row.created_at).getTime() : 0;
 
-  await annotateFailedQaJobs(supabase, session.id, tree);
-
   // Cross-opportunity dedup (semantic fingerprint, PR3-lite). Catches
   // duplicates the Opportunity Planner missed.
   const dupCount = flagCrossBehaviourDuplicates(tree);
@@ -1597,10 +1393,6 @@ async function handleFinalise(
   let oppCount = 0;
   let detectionWithQuery = 0;
   let libraryMatchCount = 0;
-  let qaPass = 0;
-  let qaPassWithConcerns = 0;
-  let qaFail = 0;
-  let qaErrorCount = 0;
   let engineerFailedCount = 0;
   let duplicateFlagged = 0;
   let mergedBehaviourCount = 0;
@@ -1612,26 +1404,13 @@ async function handleFinalise(
       if (det.query && det.query.length > 0) detectionWithQuery++;
       if (det.saved_detection_id) libraryMatchCount++;
       if (det.qa_error === 'engineer_failed') engineerFailedCount++;
-      else if (det.qa_error) qaErrorCount++;
-      if (det.qa?.verdict === 'pass') qaPass++;
-      else if (det.qa?.verdict === 'pass_with_concerns') qaPassWithConcerns++;
-      else if (det.qa?.verdict === 'fail') qaFail++;
-      // Both shapes count: qa.duplicate_of when the leaf had a real verdict to
-      // annotate, det.duplicate_of when it never reached QA.
-      if (det.qa?.duplicate_of || det.duplicate_of) duplicateFlagged++;
+      if (det.duplicate_of) duplicateFlagged++;
     }
   }
 
-  // Decide final session status. A session is only "completed" if at least
-  // ONE detection actually has a usable artefact: either an LLM-generated
-  // query that passed (or pass_with_concerns) QA, or a library_match that
-  // covers the opportunity. Otherwise the session ran the pipeline but
-  // produced no usable output — that's a failure, not a success, and
-  // downstream consumers querying status='completed' to mean "you have
-  // detections" need to be told the truth.
-  // Yield, derived from the shared readiness model rather than counted ad hoc
-  // here. Two failures came out of the old arithmetic
-  // (`library + qa_pass + qa_pass_with_concerns`), in opposite directions:
+  // Decide final session status from the shared readiness model rather than
+  // counting ad hoc here. Two failures came out of the old arithmetic, in
+  // opposite directions:
   //
   //   - a detection whose QA call ERRORED was discarded, though its query had
   //     already been written and paid for. bc5804b3 wrote ten queries, hit six
@@ -1640,21 +1419,17 @@ async function handleFinalise(
   //     look-ups alone. 793cafab did exactly that on credit exhaustion and had
   //     to be corrected by hand.
   //
-  // Preservation and readiness are now separate: nothing generated is thrown
-  // away, and nothing unreviewed is called production-ready. `partial` is the
-  // state that was missing, and its absence is why the pipeline had to pick
-  // one of those two lies.
+  // `partial` is the state that was missing, and its absence is why the
+  // pipeline had to pick one of those two lies. It now means one thing only:
+  // some opportunities produced a query and some produced nothing.
   const allDetections = tree.behaviours.flatMap(b => b.opportunities.map(o => o.detection));
   const sessionYield = summariseYield(allDetections);
   const finalStatus = deriveSessionStatus(sessionYield);
   const failureReason = finalStatus === 'failed'
-    ? `pipeline ran but preserved no detections: ${engineerFailedCount} engineer_failed, ${qaErrorCount} qa_error, ${qaFail} qa_fail across ${oppCount} opportunit${oppCount === 1 ? 'y' : 'ies'}. Use the resume_session action to retry failed detection jobs after fixing the underlying cause.`
+    ? `pipeline ran but preserved no detections: ${engineerFailedCount} engineer_failed across ${oppCount} opportunit${oppCount === 1 ? 'y' : 'ies'}. Use the resume_session action to retry failed detection jobs after fixing the underlying cause.`
     : finalStatus === 'partial'
-      // Not a failure, and deliberately not silent either: the user is told
-      // exactly how much needs them before anything can ship.
-      ? `${sessionYield.productionCandidates} ready to review, ${sessionYield.needsReview} need a human verdict (QA did not reach one), `
-        + `${sessionYield.needsTelemetry} blocked on telemetry the environment profile does not list, `
-        + `${sessionYield.drafts} not usable.`
+      // Not a failure, and deliberately not silent either.
+      ? `${sessionYield.productionCandidates} ready to review, ${sessionYield.drafts} could not be generated.`
       : null;
 
   const { error: finaliseError } = await supabase
@@ -1678,11 +1453,11 @@ async function handleFinalise(
   await emit(runCtx, {
     agent: 'orchestrator',
     event_type: finalStatus === 'failed' ? 'session_failed' : 'session_completed',
-    // Lead with yield, because that is the question being asked. The verdict
+    // Lead with yield, because that is the question being asked. The
     // breakdown follows for post-mortems.
     message: `${tree.behaviours.length} behaviours → ${oppCount} opportunities → ` +
-      `${sessionYield.productionCandidates} ready / ${sessionYield.needsReview} need review / ${sessionYield.needsTelemetry} need telemetry / ${sessionYield.drafts} not usable` +
-      ` (${libraryMatchCount} library / ${qaPass} pass / ${qaPassWithConcerns} pass+concerns / ${qaFail} fail / ${qaErrorCount} qa_error / ${engineerFailedCount} engineer_failed)` +
+      `${sessionYield.productionCandidates} ready / ${sessionYield.drafts} not usable` +
+      ` (${libraryMatchCount} library / ${engineerFailedCount} engineer_failed)` +
       `${finalStatus === 'failed' ? ' — SESSION FAILED: nothing preserved' : ''}`,
     duration_ms: totalMs,
     payload: {
@@ -1704,17 +1479,11 @@ async function handleFinalise(
       // across sessions with differing tree shapes.
       session_status:         finalStatus,
       production_candidates:  sessionYield.productionCandidates,
-      needs_review:           sessionYield.needsReview,
-      needs_telemetry:        sessionYield.needsTelemetry,
       drafts:                 sessionYield.drafts,
       preserved:              sessionYield.preserved,
       // detection state breakdown
       detections_with_query: detectionWithQuery,
       library_matches:       libraryMatchCount,
-      qa_pass:               qaPass,
-      qa_pass_with_concerns: qaPassWithConcerns,
-      qa_fail:               qaFail,
-      qa_error_count:        qaErrorCount,
       engineer_failed_count: engineerFailedCount,
       merged_behaviours:     mergedBehaviourCount,
       duplicate_flagged:     duplicateFlagged,
@@ -1769,9 +1538,9 @@ async function patchBehaviour(
 }
 
 /** Atomic merge of a JSONB patch into one detection (deeper path). Used by
- *  handleDetection / handleQa to land each detection's state in the tree
- *  as soon as it's finalised — so a reaped worker preserves everything
- *  completed before kill. Verifies the detection id matches before merging. */
+ *  handleDetection to land each detection's state in the tree as soon as it's
+ *  finalised — so a reaped worker preserves everything completed before kill.
+ *  Verifies the detection id matches before merging. */
 async function patchDetection(
   supabase: SupabaseClient,
   sessionId: string,
@@ -1796,40 +1565,6 @@ async function patchDetection(
   }
 }
 
-/** Before finalise, make queue-level QA failures visible in the tree. A job
- *  can fail via the SQL reaper without running handleQa's normal
- *  qa_error patch path. If we leave those leaves as qa=null/qa_error=null,
- *  the UI reads as "still pending" even though the queue is terminal. */
-async function annotateFailedQaJobs(
-  supabase: SupabaseClient,
-  sessionId: string,
-  tree: ThreatResearchTree,
-): Promise<void> {
-  const { data: failedJobs, error } = await supabase
-    .from('threat_research_jobs')
-    .select('behaviour_id, failure_reason')
-    .eq('session_id', sessionId)
-    .eq('phase', 'qa')
-    .eq('status', 'failed');
-  if (error) {
-    console.warn('[finalise] failed to load failed QA jobs:', error.message);
-    return;
-  }
-
-  for (const job of failedJobs ?? []) {
-    const composite = String(job.behaviour_id ?? '');
-    const slash = composite.indexOf('/');
-    if (slash < 0) continue;
-    const behaviourId = composite.slice(0, slash);
-    const opportunityId = composite.slice(slash + 1);
-    const behaviour = tree.behaviours.find(b => b.id === behaviourId);
-    const opp = behaviour?.opportunities.find(o => o.id === opportunityId);
-    if (!opp || opp.detection.qa || opp.detection.qa_error) continue;
-    opp.detection.qa_error = job.failure_reason
-      ? `qa_job_failed: ${job.failure_reason}`
-      : 'qa_job_failed';
-  }
-}
 
 async function primeEnvironmentSnapshot(
   supabase: SupabaseClient,

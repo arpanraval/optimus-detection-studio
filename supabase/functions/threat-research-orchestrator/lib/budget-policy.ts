@@ -29,8 +29,7 @@ export type BudgetedPhase =
   | 'research'
   | 'attack_research'
   | 'opportunity_planning'
-  | 'detection'
-  | 'qa';
+  | 'detection';
 
 export interface PhaseBudgets {
   /** Session-wide ceiling. Always >= the sum of the floors. */
@@ -70,10 +69,9 @@ const PER_UNIT = {
   attack_research: 20_000,
   /** One planning job over all behaviours. */
   opportunity_planning: 60_000,
-  /** Per opportunity: generation plus up to one revision. */
+  /** Per opportunity: one generation pass. There is no revision stage — the
+   *  QA critic that used to prompt one was removed. */
   detection: 40_000,
-  /** Per opportunity: critique, plus room for one re-critique. */
-  qa: 15_000,
 } as const;
 
 /** Nothing plausible costs this much; a session hitting it is a runaway.
@@ -118,7 +116,6 @@ function assemble(behaviours: number, opportunities: number): PhaseBudgets {
     attack_research: PER_UNIT.attack_research * behaviours,
     opportunity_planning: PER_UNIT.opportunity_planning,
     detection: PER_UNIT.detection * opportunities,
-    qa: PER_UNIT.qa * opportunities,
   };
 
   const floorSum = Object.values(perPhase).reduce((a, b) => a + b, 0);
@@ -138,7 +135,7 @@ function assemble(behaviours: number, opportunities: number): PhaseBudgets {
   // Raising the ceiling to fit would defeat its purpose; leaving the floors
   // above it would make them meaningless exactly at the fan-outs where
   // starvation actually happens. So scale every floor by the same factor: the
-  // session stays inside its bound, and detection and qa keep their SHARE of
+  // session stays inside its bound, and detection keeps its SHARE of
   // it rather than being the phases that run out first.
   //
   // `capped: true` is not cosmetic. The caller has to surface it, because a

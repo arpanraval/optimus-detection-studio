@@ -130,11 +130,40 @@ export interface QaIteration {
   diff_from_previous: string | null;
 }
 
+export type ResearchSeverity = 'Critical' | 'High' | 'Medium' | 'Low' | 'Informational';
+export type ResearchDetectionType = 'Detection' | 'Hunting';
+
+/** QA's proposed correction to a detection's CLASSIFICATION, as opposed to its
+ *  query.
+ *
+ *  The rubric has always asked QA two questions it had no way to answer: is
+ *  this really a Detection or a Hunt, and is the severity right. With only a
+ *  verdict and a prose concerns array to answer in, the single channel that
+ *  actually changed anything was `fail` -- which spends a generation rewriting
+ *  a query whose only defect was the label attached to it. Session 30afda88
+ *  did exactly that to an `ago(30d)` retro-hunt: the query was correct, the
+ *  lookback made it unschedulable, and the pipeline destroyed it rather than
+ *  calling it a hunt.
+ *
+ *  Values are clamped to these unions server-side at parse time, so by the
+ *  time the UI sees a patch it is already applied to the detection's own
+ *  suggested_* fields -- this block is the record of WHY they changed. */
+export interface QaMetadataPatch {
+  suggested_detection_type?: ResearchDetectionType;
+  suggested_severity?: ResearchSeverity;
+}
+
 export interface QaResult {
   verdict: QaVerdict;
   coverage_quality: QaCoverageQuality;
   concerns: string[];
   suggested_changes: string[];
+  /**
+   * Reclassification QA proposed instead of failing the query. Null when QA
+   * had nothing to correct. Optional so sessions persisted before this
+   * contract still load.
+   */
+  metadata_patch?: QaMetadataPatch | null;
   /**
    * Set by finalise cross-opportunity dedup, NOT by the QA agent. QA's
    * single-pass critique always leaves this null; finalise populates it
@@ -210,32 +239,33 @@ export interface GeneratedDetection {
    *  for backward compatibility with sessions persisted before this field. */
   unverified_mitre_ids?: string[];
   tactic: MitreTacticName;
-  suggested_severity: 'Critical' | 'High' | 'Medium' | 'Low' | 'Informational';
-  suggested_detection_type: 'Detection' | 'Hunting';
+  /** Named aliases rather than inline unions so QaMetadataPatch is provably
+   *  assignable here: a reclassification QA proposes cannot drift out of the
+   *  set of values the detection can actually hold. */
+  suggested_severity: ResearchSeverity;
+  suggested_detection_type: ResearchDetectionType;
   feasibility: FeasibilityVerdict;
   feasibility_notes: string;
   citations: ResearchCitation[];
   covers_behaviour_ids: string[];
-  /** Filled when the QA loop completed with any verdict (pass, pass_with_concerns,
-   *  fail). Null when QA is pending. Distinct from `qa_error`: qa.verdict is a
-   *  detection-quality judgement made by the QA agent; `qa_error` indicates the
-   *  QA pipeline itself failed and never reached a verdict. UIs MUST render these
-   *  two states differently. */
+  /** @deprecated HISTORICAL SESSIONS ONLY — nothing writes this any more.
+   *
+   *  The QA agent that produced it was removed: on session 7382a9c2 it
+   *  returned pass_with_concerns on all seven detections while asserting
+   *  schema facts that are false, and a critic whose true and invented
+   *  findings are indistinguishable costs more to check than it saves.
+   *
+   *  Still rendered (as an archived verdict) so sessions that predate the
+   *  removal keep their history. Nothing may read it to decide anything. */
   qa: QaResult | null;
-  /** Non-null when the QA pipeline failed for THIS detection (timeout, model
-   *  error, iteration cap, budget exhaustion). Short reason string. The user
-   *  should see "QA didn't run — retryable" rather than the misleading
-   *  "QA judged this insufficient" badge the old code shipped. Optional for
-   *  backward compatibility with sessions persisted before this field. */
+  /** Non-null when generation or, historically, the QA pipeline failed for
+   *  THIS detection. `'engineer_failed'` is the only value the current
+   *  pipeline writes and the only one anything reads; the rest
+   *  (iteration_cap, model_budget_exhausted, qa_job_failed:*) are historical. */
   qa_error?: string | null;
-  /** True when QA returned `fail` and the engineer applied its suggested
-   *  changes. The `qa` block still holds the ORIGINAL failing verdict -- that
-   *  is the last judgement anything actually made, and inventing a passing one
-   *  would be fabrication -- but it no longer describes the query that
-   *  shipped. This flag marks that gap so the detection derives as
-   *  `revised_unverified` / `needs_review` rather than being read as broken
-   *  and then excluded from the session's usable count: punished twice for
-   *  having been repaired. */
+  /** @deprecated HISTORICAL SESSIONS ONLY. Marked a query the engineer had
+   *  revised after a QA `fail`, whose verdict therefore no longer described
+   *  the body that shipped. Nothing revises a query now. */
   revised_after_fail?: boolean | null;
   /** Every candidate query produced for this detection, oldest first. A
    *  revision APPENDS; it never overwrites. Optional so the 31 sessions
@@ -277,15 +307,14 @@ export interface GeneratedDetection {
   validator_findings?: Record<string, string>;
 }
 
-/** Why a scoring library match was not treated as coverage.
- *   - `not_deployed`      the rule isn't in a status that counts as deployed
- *                         (a Draft rule detects nothing)
- *   - `language_mismatch` the rule targets a different SIEM than this session */
-/** Why a library hit did not replace generating a new detection. All four
- *  are shown to the user, because "there is a rule for this but it is a Draft"
- *  and "there is a rule for this but it is written in SPL" are different
- *  problems with different fixes. */
+/** Why a library hit did not replace generating a new detection. Each is
+ *  shown to the user, because "there is a rule for this but it is written in
+ *  SPL" and "there is a rule for this but it watches something else" are
+ *  different problems with different fixes. */
 export type LibraryNearMatchReason =
+  /** @deprecated Lifecycle status no longer blocks reuse — the library is
+   *  overwhelmingly non-Production, so requiring it made reuse unreachable.
+   *  Retained for sessions persisted before that change. */
   | 'not_deployed'
   | 'language_mismatch'
   | 'no_query_body'

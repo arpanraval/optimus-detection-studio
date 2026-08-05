@@ -23,7 +23,7 @@ import type { GeneratedDetection, DetectionOpportunity, ThreatResearchTree } fro
  *       in formatting / aliasing
  *
  *  Two detections matching on (2 of 3) buckets are flagged as duplicates.
- *  The first occurrence wins canonicity; later ones get qa.duplicate_of set.
+ *  The first occurrence wins canonicity; later ones get duplicate_of set.
  *
  *  Mutates `tree` in place. Returns the number of duplicates flagged. */
 export function flagCrossBehaviourDuplicates(tree: ThreatResearchTree): number {
@@ -96,27 +96,13 @@ export function flagCrossBehaviourDuplicates(tree: ThreatResearchTree): number {
         continue;
       }
 
-      // Flag the duplicate. Preserve any existing qa verdict — we're
-      // adding a concern, not overwriting the model's judgement.
-      const dupNote = `Semantic duplicate of detection ${match.detectionId} (fingerprint match across MITRE/telemetry/query tokens).`;
-      if (det.qa) {
-        det.qa.duplicate_of = match.detectionId;
-        if (!det.qa.concerns.some(c => c.startsWith('Semantic duplicate'))) {
-          det.qa.concerns = [...det.qa.concerns, dupNote];
-        }
-      } else {
-        // No qa block — the detection shipped with a qa_error, or QA never
-        // ran at all. The previous code synthesised a qa block here with
-        // verdict:'pass_with_concerns' while its own comment said "don't
-        // fabricate a verdict". That fabrication was load-bearing in the UI:
-        // resolveRowState reads det.qa?.verdict FIRST, so a never-QA'd
-        // detection rendered "Passed with concerns" and became bulk-save
-        // eligible. Record the duplicate as detection-level metadata instead,
-        // and leave det.qa null so every reader can still tell that no
-        // verdict exists.
-        det.duplicate_of = match.detectionId;
-        if (!det.qa_error) det.qa_error = 'duplicate_no_qa';
-      }
+      // Flag the duplicate as detection-level metadata. This used to branch on
+      // whether a QA block existed, and in its absence synthesised one with
+      // verdict:'pass_with_concerns' — a fabricated verdict that the UI then
+      // read as a real one, making a never-reviewed detection bulk-save
+      // eligible. With QA removed there is no block to annotate and no
+      // temptation to invent one: the duplicate is recorded where it belongs.
+      det.duplicate_of = match.detectionId;
       flagged++;
     }
   }

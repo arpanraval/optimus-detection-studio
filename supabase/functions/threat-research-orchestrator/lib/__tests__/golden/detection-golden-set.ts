@@ -42,7 +42,7 @@ export interface ExpectedOutcome {
   /** Whether an existing library rule should suppress generation. */
   suppressGeneration?: boolean;
   /** Readiness the leaf should land on. */
-  readiness?: 'draft' | 'needs_review' | 'needs_telemetry' | 'production_candidate';
+  readiness?: 'draft' | 'production_candidate';
   /** Deterministic validator findings to feed the case, keyed by check name.
    *  Present when the point of the case is what readiness does with them. */
   validatorFindings?: Record<string, string>;
@@ -215,21 +215,24 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     expected: { verdict: 'pass_with_concerns', readiness: 'production_candidate' },
   },
   {
-    id: 'overconstrained-revision-loses-recall',
+    id: 'overconstrained-narrowing-loses-recall',
     kind: 'judged',
-    intent: 'A revision that narrows a primitive to one chain must not silently replace it.',
+    intent: 'Narrowing a primitive to one chain trades recall for fidelity.',
     rationale:
       'Adding explorer.exe parent AND PowerShell child AND a network event raises ' +
-      'fidelity and detects only ClickFix, missing generic remote MSHTA. Both versions ' +
-      'must survive so the analyst chooses. NEEDS A STAFF LABEL: whether this ' +
-      'particular narrowing was an improvement is exactly the judgement being tested.',
+      'fidelity and detects only ClickFix, missing generic remote MSHTA. This used ' +
+      'to be a REVISION case — the QA critic prompted exactly this narrowing and ' +
+      'both versions had to survive so the analyst could choose. There is no critic ' +
+      'now, so the only way this query appears is if the engineer writes it, and ' +
+      'the judgement being tested is whether that was the right call. NEEDS A ' +
+      'STAFF LABEL.',
     product: DEFENDER,
     language: 'KQL',
     query: 'DeviceProcessEvents | where FileName =~ "mshta.exe" and InitiatingProcessFileName =~ "explorer.exe" | where ProcessCommandLine has "http"',
     observableChain: ['mshta.exe retrieving a remote payload'],
     telemetry: ['DeviceProcessEvents'],
     mitreIds: ['T1218.005'],
-    expected: { activeVersion: 2, readiness: 'needs_review' },
+    expected: { readiness: 'production_candidate' },
   },
   {
     id: 'registry-surface-is-not-covered-by-a-process-rule',
@@ -303,46 +306,43 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     expected: { suppressGeneration: false },
   },
   {
-    id: 'telemetry-the-estate-lacks-is-not-production-ready',
+    id: 'telemetry-the-estate-may-lack-is-still-the-users-call',
     kind: 'deterministic',
-    intent: 'A correct query the environment cannot feed is not ready to ship.',
+    intent: 'A telemetry gap is information for the user, not a gate.',
     rationale:
-      'The query is right and QA is right to pass it. What is missing is the log ' +
-      'source, and the remedy is a collection change rather than a rewrite — so it ' +
-      'is neither a draft nor a production candidate. Previously ' +
-      'pass_with_concerns mapped straight to production_candidate, so an ' +
-      'undeployable detection was reported as ready: the exact inversion the ' +
-      'readiness model exists to prevent. The signal is deterministic (the ' +
-      'opportunity\'s telemetry against environment_profiles), which is why ' +
-      'readiness is allowed to act on it.',
+      'This case used to expect needs_telemetry. The check behind it compared '
+      + 'the planner\'s free-text telemetry prose against environment_profiles '
+      + 'labels by word overlap, so a detection\'s fate turned on whether its '
+      + 'phrasing happened to contain "sysmon". In session 7382a9c2 it blocked '
+      + 'three of seven detections, two of which described their own '
+      + 'requirement as optional ("Optional code-signing metadata", "...where '
+      + 'available") and a third of which named OriginalFileName — carried by '
+      + 'Sysmon EID 1, which the profile did list. A heuristic that wrong '
+      + 'cannot be allowed to decide what ships, so it decides nothing.',
     product: DEFENDER,
     language: 'KQL',
     query: 'DeviceNetworkEvents | where RemoteUrl has "attacker.example" | where InitiatingProcessFileName =~ "mshta.exe"',
     observableChain: ['mshta.exe making an outbound connection to attacker.example'],
     telemetry: ['Zeek conn.log'],
     mitreIds: ['T1218.005'],
-    validatorFindings: {
-      telemetry_feasibility:
-        '1/1 required telemetry source(s) not found in the user\'s configured '
-        + 'environment: Zeek conn.log. Verify against /settings/environment.',
-    },
-    expected: { verdict: 'pass_with_concerns', readiness: 'needs_telemetry' },
+    expected: { readiness: 'production_candidate' },
   },
   {
-    id: 'qa-transport-error-preserves-the-query',
+    id: 'a-generated-query-reaches-the-user',
     kind: 'deterministic',
-    intent: 'A QA pipeline failure is not a quality verdict.',
+    intent: 'Nothing between the engineer and the user may withhold a query.',
     rationale:
-      'Session bc5804b3 generated ten queries, hit six QA errors, and delivered one. ' +
-      'An unreachable critic says nothing about the artefact; the query is preserved ' +
-      'and marked for review.',
+      'Session bc5804b3 generated ten queries, hit six QA errors, and delivered '
+      + 'one — an unreachable critic silently discarding work that was already '
+      + 'written and paid for. With no critic at all, that failure mode cannot '
+      + 'recur: a query exists, so it is a candidate, and the user decides.',
     product: DEFENDER,
     language: 'KQL',
     query: 'DeviceProcessEvents | where FileName =~ "adfind.exe"',
     observableChain: ['AdFind execution'],
     telemetry: ['DeviceProcessEvents'],
     mitreIds: ['T1018'],
-    expected: { readiness: 'needs_review' },
+    expected: { readiness: 'production_candidate' },
   },
 ];
 

@@ -4,8 +4,8 @@
 // this directory's finding-string interface for composition in index.ts.
 //
 // The orchestrator's own direct calls to findUnverifiedMitreIds /
-// fetchTechniqueTactics / filterTacticInconsistent (handleDetection,
-// handleQa) are UNCHANGED — those populate real typed tree fields
+// fetchTechniqueTactics / filterTacticInconsistent (all in handleDetection)
+// are UNCHANGED — those populate real typed tree fields
 // (unverified_mitre_ids, tactic_inconsistent_mitre_ids) the UI already
 // renders, and rewiring them through here would risk regressing working
 // code for no gain. This wrapper exists only so the composed

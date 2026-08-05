@@ -11,14 +11,13 @@ import {
 } from '../budget-policy.ts';
 
 describe('phase budget sizing', () => {
-  it('reserves detection and qa before the planner has run', () => {
-    // The whole point of sizing at research time: if detection and qa had no
-    // floor until planning, research and attack_research could spend the
-    // budget first. That is the shape of the 199 recorded "model-call budget
+  it('reserves detection before the planner has run', () => {
+    // The whole point of sizing at research time: if detection had no floor
+    // until planning, research and attack_research could spend the budget
+    // first. That is the shape of the 199 recorded "model-call budget
     // exhausted" failures.
     const budgets = sizeAfterResearch(8);
     expect(budgets.perPhase.detection).toBeGreaterThan(0);
-    expect(budgets.perPhase.qa).toBeGreaterThan(0);
   });
 
   it('scales attack_research with behaviours and detection with opportunities', () => {
@@ -50,18 +49,22 @@ describe('phase budget sizing', () => {
   it('scales floors down and flags the session when the work exceeds the ceiling', () => {
     // A max fan-out wants ~3.5M tokens against a 2M ceiling. Raising the
     // ceiling would defeat it; leaving floors above it would make them
-    // meaningless exactly where starvation happens. Scaling keeps detection
-    // and qa's SHARE intact and marks the session capacity-limited.
+    // meaningless exactly where starvation happens. Scaling keeps each phase's
+    // SHARE intact and marks the session capacity-limited.
     const maxed = sizeAfterPlanning(MAX_BUDGETED_BEHAVIOURS, MAX_BUDGETED_OPPORTUNITIES);
     expect(maxed.capped).toBe(true);
 
     const floorSum = Object.values(maxed.perPhase).reduce((a, x) => a + x, 0);
     expect(floorSum).toBeLessThanOrEqual(maxed.tokenCap);
 
-    // Relative share preserved: detection still gets more than qa, in the same
-    // proportion as the unscaled sizing.
-    const unscaled = sizeAfterPlanning(4, 3);
-    const ratio = (b: { detection: number; qa: number }) => b.detection / b.qa;
+    // Relative share preserved: scaling multiplies every floor by the same
+    // factor, so proportions survive it. Compared against the SAME fan-out
+    // shape (behaviours:opportunities held at 3:4) one tenth the size, which
+    // sits well inside the ceiling and is therefore unscaled.
+    const unscaled = sizeAfterPlanning(MAX_BUDGETED_BEHAVIOURS / 10, MAX_BUDGETED_OPPORTUNITIES / 10);
+    expect(unscaled.capped).toBe(false);
+    const ratio = (b: { detection: number; attack_research: number }) =>
+      b.detection / b.attack_research;
     expect(ratio(maxed.perPhase)).toBeCloseTo(ratio(unscaled.perPhase), 1);
   });
 

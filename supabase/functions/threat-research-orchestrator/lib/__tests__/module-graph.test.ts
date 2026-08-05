@@ -35,7 +35,6 @@ describe('threat-research orchestrator module graph', () => {
       import('../agents/attack-researcher.ts'),
       import('../agents/opportunity-planner.ts'),
       import('../agents/detection-engineer.ts'),
-      import('../agents/qa-agent.ts'),
       import('../agents/input-classifier.ts'),
     ]);
     for (const agent of agents) {

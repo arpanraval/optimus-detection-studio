@@ -1,24 +1,30 @@
 // supabase/functions/threat-research-orchestrator/lib/coverage.ts
 //
-// When does an existing library detection count as COVERAGE?
+// When does an existing library detection replace writing a new one?
 //
-// Two independent signals determine whether a reused detection represents
-// deployed, runnable coverage in the session environment:
+// Two questions, kept apart on purpose:
 //
-//   1. STATUS  — the rule has to actually be deployed. A Draft or Deprecated
-//                rule detects nothing, so treating it as coverage hands the
-//                user a claim the system cannot substantiate.
-//   2. LANGUAGE — the rule has to be runnable in the SIEM this session targets.
+//   1. IS THIS RULE ABOUT THIS OPPORTUNITY?  — decided by adjudicateReuse, and
+//      the only thing that may suppress generation. MITRE overlap, a real query
+//      body, a runnable language, observable containment.
+//   2. WHAT IS THE USER GETTING?  — described by isDeployedCoverage. A reused
+//      Draft is still reuse; it is just not deployed coverage, and the leaf says
+//      so via feasibility 'partial' rather than 'covered'.
+//
+// Status answers (2), not (1). Making it answer (1) is a mistake this file has
+// made twice: against an imported library that is 4,576 KQL rules with exactly
+// one marked Production, `Production AND KQL` is unsatisfiable, and reuse simply
+// never fires for Microsoft-shop customers. See adjudicateReuse for the numbers.
 //
 // The library search itself is deliberately NOT filtered (handleLibrarySearch
 // passes no p_status to hybrid_search_detections): we want near-matches in any
 // status to stay visible so the engineer can reference them and the UI can
-// explain itself. The gating happens here, after the fact.
+// explain itself. The adjudication happens here, after the fact.
 //
-// This matters more than it used to. The OR-tokenized tsquery (migration
-// 20260521150000) plus the match threshold dropping 0.75 -> 0.6 (20260520120000)
-// made weak matches considerably easier to hit, so an un-gated match could
-// silently suppress generation on the strength of a half-finished Draft.
+// Precision still matters. The OR-tokenized tsquery (migration 20260521150000)
+// plus the match threshold dropping 0.75 -> 0.6 (20260520120000) made weak
+// matches easier to hit, which is why observable containment — not status —
+// is what now stops a loosely-related rule from suppressing real work.
 //
 // Kept in its own module — with no Deno or esm.sh imports — so it is unit
 // testable. detection-engineer.ts pulls in the Supabase client transitively and
@@ -124,25 +130,39 @@ export interface ReuseAdjudication {
  *
  *  A rule may replace generation only when ALL of these hold: it overlaps on
  *  MITRE technique, it has a runnable query body, it is written in the
- *  language this session targets, and its lifecycle status says it is actually
- *  deployed.
+ *  language this session targets, and it constrains what the opportunity is
+ *  actually looking for.
  *
- *  History matters here, in both directions.
+ *  Lifecycle status is deliberately NOT one of those conditions, and that is a
+ *  reversal. It was one, twice, and both times it made reuse unreachable for
+ *  Microsoft-shop customers. The library is 4,576 KQL detections of which
+ *  exactly ONE carries status 'Production' -- 2,763 are Development and 1,805
+ *  are Draft. For T1218.005 specifically: 12 SPL Production, 10 EQL Production,
+ *  7 Sigma Testing, 1 KQL Development. A Defender session therefore could not
+ *  satisfy `Production AND KQL` for any technique, so session 7382a9c2 wrote
+ *  seven fresh rules next to 31 existing ones and skipped every match with
+ *  reason 'language_mismatch' or 'not_deployed'.
  *
- *  A Production-AND-language gate existed once and was reverted (Amendment 1,
- *  2026-07-28) because on a real run it excluded all 185 mshta rules in an
- *  11,820-rule library -- no rule was simultaneously Production and KQL -- so
- *  nothing was ever reused. The reversal went too far the other way: ANY
- *  MITRE-overlapping hit above a 0.6 similarity threshold now suppresses
- *  generation, so 048fdd12 spent 165K tokens to return six existing rules and
- *  793cafab returned five, and the user asked for detections and received a
- *  search result.
+ *  That is not a tuning problem. An imported corpus arrives un-triaged by
+ *  definition; requiring it to be marked Production before it can be reused
+ *  asks the user to do the curation the reuse is supposed to save them. Status
+ *  is still COMPUTED and still reported -- handleDetection uses it to mark a
+ *  reused leaf `covered` vs `partial`, which is the honest place for it: it
+ *  describes what the user is getting, rather than deciding whether they get
+ *  anything.
  *
- *  What was actually wrong with the first attempt was not the conditions but
- *  the consequence: failing them made a match VANISH. Here, failing them only
- *  costs the short-circuit. The match is still surfaced as related coverage
- *  and the gap is still filled. Nothing is lost, so the conditions can be
- *  strict without being destructive.
+ *  What remains is a set of conditions about whether the rule is ABOUT this
+ *  opportunity: MITRE overlap, a non-empty query body, a language the session
+ *  can run, and observable containment. Those four now carry the weight that
+ *  status was wrongly asked to share.
+ *
+ *  The other half of the history still applies. An earlier revision let ANY
+ *  MITRE-overlapping hit above 0.6 similarity suppress generation, so 048fdd12
+ *  spent 165K tokens to return six existing rules and 793cafab returned five --
+ *  the user asked for detections and received a search result. What was wrong
+ *  there was not the conditions but the consequence: failing them made a match
+ *  VANISH. Here, failing them only costs the short-circuit. The match is still
+ *  surfaced as related coverage and the gap is still filled.
  *
  *  Honest caveat: these gates sit on a noisy base signal. The search is an
  *  OR-tokenized tsquery (20260521150000) with the threshold dropped 0.75 ->
@@ -204,11 +224,13 @@ export function adjudicateReuse(input: {
     observableOverlap: observableDetail.overlaps,
   };
 
+  // deployedStatus is computed and reported but deliberately absent here — see
+  // the note above on why lifecycle status cannot be a reuse precondition
+  // against an imported, un-triaged library.
   const suppressGeneration =
     reasons.mitreOverlap &&
     reasons.runnableQuery &&
     reasons.compatibleLanguage &&
-    reasons.deployedStatus &&
     reasons.observableOverlap;
 
   // Ordered by how actionable the answer is to a detection engineer: a
@@ -219,7 +241,6 @@ export function adjudicateReuse(input: {
     if (!reasons.mitreOverlap) skippedReason = 'technique_mismatch';
     else if (!reasons.runnableQuery) skippedReason = 'no_query_body';
     else if (!reasons.compatibleLanguage) skippedReason = 'language_mismatch';
-    else if (!reasons.deployedStatus) skippedReason = 'not_deployed';
     // Last, because it is the most specific answer: the rule IS about this
     // technique, IS deployed and IS runnable here -- it simply does not
     // constrain what this opportunity is looking for. observableDetail

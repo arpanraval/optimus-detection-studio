@@ -88,13 +88,15 @@ export function ResearchList({
 
   function clearSelection() { setSelected(new Set()); }
 
-  function selectAllPassing() {
-    // Convenience: pick every eligible leaf whose QA verdict is pass or
-    // pass_with_concerns (excludes fail and qa-pending).
+  function selectAllReady() {
+    // Convenience: pick every eligible leaf that actually has a query. This
+    // used to filter on a QA verdict of pass / pass_with_concerns; with no
+    // verdicts, having been written is the only thing that qualifies a
+    // detection for the user's attention.
     const next = new Set<LeafKey>();
     for (const l of eligibleLeaves) {
-      const v = l.opportunity.detection.qa?.verdict;
-      if (v === 'pass' || v === 'pass_with_concerns') next.add(l.key);
+      const q = l.opportunity.detection.query;
+      if (q && q.trim().length > 0) next.add(l.key);
     }
     setSelected(next);
   }
@@ -202,7 +204,6 @@ export function ResearchList({
   // Surfacing these counts at the top of the list gives operators a one-glance
   // "is this session output usable?" answer.
   let engineerFailedCount = 0;
-  let qaErrorCount = 0;
   let savedCount = 0;
   let totalDetections = 0;
   for (const b of tree.behaviours) {
@@ -211,28 +212,21 @@ export function ResearchList({
       const det = o.detection;
       if (isDetectionSaved(det)) savedCount++;
       if (det.qa_error === 'engineer_failed') engineerFailedCount++;
-      else if (det.qa_error) qaErrorCount++;
-      // qa.verdict === 'fail' is intentionally not surfaced in the header
-      // counts — failed verdicts render per-row (Retry available) and
-      // counting them here would imply a separate "X failed" badge that
-      // doesn't exist in this view.
     }
   }
-  // passingCount mirrors exactly what selectAllPassing() below selects:
-  // eligible (not saved, not archived) leaves with a pass/pass_with_concerns
-  // verdict. Deriving it from eligibleLeaves — rather than counting
-  // pass/pass_with_concerns across the WHOLE tree — makes usableCount =
-  // savedCount + passingCount mutually exclusive by construction. The
-  // previous `qaPassCount + qaPassWithConcernsCount + savedCount` double-
-  // counted any detection that was BOTH saved and QA-passing, so "N usable"
-  // could exceed the actual number of distinct usable detections.
-  const passingCount = eligibleLeaves.filter(l => {
-    const v = l.opportunity.detection.qa?.verdict;
-    return v === 'pass' || v === 'pass_with_concerns';
+  // readyCount mirrors exactly what selectAllReady() selects: eligible (not
+  // saved, not archived) leaves that have a query. Deriving it from
+  // eligibleLeaves rather than counting across the WHOLE tree keeps
+  // usableCount = savedCount + readyCount mutually exclusive by construction;
+  // an earlier version summed overlapping sets and could report more usable
+  // detections than existed.
+  const readyCount = eligibleLeaves.filter(l => {
+    const q = l.opportunity.detection.query;
+    return !!q && q.trim().length > 0;
   }).length;
-  const usableCount = savedCount + passingCount;
+  const usableCount = savedCount + readyCount;
   const allEngineerFailed = totalDetections > 0 && engineerFailedCount === totalDetections;
-  const hasFailures = engineerFailedCount > 0 || qaErrorCount > 0;
+  const hasFailures = engineerFailedCount > 0;
 
   return (
     <div className="flex-1 overflow-auto p-4">
@@ -264,11 +258,9 @@ export function ResearchList({
           <div className="flex items-center gap-2 text-xs text-on-surface-variant">
             <Icon name="alert-triangle" size={12} className="flex-shrink-0 text-ext-amber" />
             <span className="text-on-surface">
-              {engineerFailedCount > 0 ? `${engineerFailedCount} engineer-failed` : null}
-              {engineerFailedCount > 0 && qaErrorCount > 0 ? ' · ' : ''}
-              {qaErrorCount > 0 ? `${qaErrorCount} qa_error` : null}
+              {engineerFailedCount} engineer-failed
             </span>
-            <span>of {totalDetections} · {usableCount} usable ({passingCount} passing, {savedCount} saved) · retry individually or resume_session</span>
+            <span>of {totalDetections} · {usableCount} usable ({readyCount} ready, {savedCount} saved) · retry individually or resume_session</span>
           </div>
         </div>
       )}
@@ -295,21 +287,21 @@ export function ResearchList({
       <div className="mb-3 flex items-center gap-3 text-xs text-on-surface-variant">
         <button
           type="button"
-          onClick={selectAllPassing}
-          disabled={passingCount === 0}
-          title={passingCount === 0
-            ? 'No detections have a passing QA verdict yet'
-            : `Select ${passingCount} detection${passingCount === 1 ? '' : 's'} with pass / pass_with_concerns verdict`}
+          onClick={selectAllReady}
+          disabled={readyCount === 0}
+          title={readyCount === 0
+            ? 'No detections have been generated yet'
+            : `Select ${readyCount} generated detection${readyCount === 1 ? '' : 's'} awaiting your review`}
           className="rounded-md border border-outline-variant px-2 py-1 hover:bg-surface-container disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
         >
-          Select all passing{passingCount > 0 ? ` (${passingCount})` : ''}
+          Select all ready{readyCount > 0 ? ` (${readyCount})` : ''}
         </button>
         {/* Quick summary alongside the action, so the table headers below
             aren't the only place users get an overview. */}
         <span className="text-on-surface-variant">
           {totalDetections} detection{totalDetections === 1 ? '' : 's'} ·{' '}
           {usableCount > 0 ? <span className="text-on-surface">{usableCount} usable</span> : <span className="text-on-surface-variant">0 usable</span>}
-          {hasFailures ? <> · <span className="text-ext-coral">{engineerFailedCount + qaErrorCount} failed</span></> : null}
+          {hasFailures ? <> · <span className="text-ext-coral">{engineerFailedCount} failed</span></> : null}
         </span>
       </div>
       <div className="overflow-hidden rounded-2xl border border-outline-variant bg-surface">
@@ -368,27 +360,26 @@ export function ResearchList({
   );
 }
 
-/** Canonical row state. Derived from (detection.qa, detection.qa_error,
- *  detection.saved_detection_id, detection.archived, jobs.{det,qa}_status).
+/** Canonical row state. Derived from (detection.query, detection.qa_error,
+ *  detection.saved_detection_id, detection.archived, jobs.detection_status).
  *  The mapping is precedence-ordered: terminal-good > running > terminal-bad
- *  > silent-loss > queued > idle. One label, one colour, one action. */
+ *  > queued > idle. One label, one colour, one action.
+ *
+ *  This used to carry eleven QA-derived states — pass, pass_with_concerns,
+ *  fail, four flavours of pipeline error, a queued state and a silent-loss
+ *  state. All of them described a verdict, and there are no verdicts now: the
+ *  engineer's query goes to the user, who decides. What is left is whether a
+ *  query exists and what the user has done with it. */
 type RowState =
   | 'saved'           // already in library
   | 'discarded'       // user archived
   | 'detection_run'   // engineer worker is running right now
-  | 'qa_run'          // qa worker is running right now
-  | 'pass'            // qa.verdict='pass'  — ready to save
-  | 'pass_concerns'   // qa.verdict='pass_with_concerns' — ready to save
-  | 'fail'            // qa.verdict='fail' — actionable revision
+  | 'ready'           // a query exists and is waiting on the user
+  | 'duplicate'       // semantic duplicate of an earlier leaf
   | 'eng_failed'      // qa_error='engineer_failed' — retry needed
-  | 'qa_iteration'    // qa_error='iteration_cap' — KQL escape/JSON parse — retry
-  | 'qa_budget'       // qa_error='model_budget_exhausted' — retry after cap bump
-  | 'qa_timeout'      // qa_job_failed via reaper — retry
-  | 'dup_no_qa'       // qa_error='duplicate_no_qa' — semantic duplicate, QA never ran
-  | 'qa_other_error'  // any other qa_error string — retry
-  | 'lost_silent'     // job completed yet qa is null and qa_error is null — retry
-  | 'qa_pending'      // qa job exists, status=pending, not picked up yet
-  | 'idle';           // no qa job, nothing to show
+  | 'lost_silent'     // job terminal yet no query landed — retry
+  | 'pending'         // detection job queued, not picked up yet
+  | 'idle';           // nothing to show
 
 function resolveRowState(
   det: DetectionOpportunity['detection'],
@@ -397,26 +388,18 @@ function resolveRowState(
   if (det.archived) return 'discarded';
   if (isDetectionSaved(det)) return 'saved';
   if (jobState?.detection_status === 'running') return 'detection_run';
-  if (jobState?.qa_status === 'running') return 'qa_run';
-  if (det.qa?.verdict === 'pass') return 'pass';
-  if (det.qa?.verdict === 'pass_with_concerns') return 'pass_concerns';
-  if (det.qa?.verdict === 'fail') return 'fail';
   if (det.qa_error === 'engineer_failed') return 'eng_failed';
-  if (det.qa_error === 'iteration_cap') return 'qa_iteration';
-  if (det.qa_error === 'model_budget_exhausted') return 'qa_budget';
-  if (det.qa_error && det.qa_error.startsWith('qa_job_failed')) return 'qa_timeout';
-  // Before the generic qa_error arm: this leaf is a semantic duplicate that
-  // never got a verdict. It used to arrive here carrying a synthesised
-  // qa.verdict='pass_with_concerns' and was caught by the 'pass_concerns'
-  // branch above — i.e. it rendered as QA-approved without QA ever running.
-  if (det.qa_error === 'duplicate_no_qa') return 'dup_no_qa';
-  if (det.qa_error) return 'qa_other_error';
-  // qa is null and qa_error is null. If the qa job's terminal, the verdict
-  // was silently dropped (the historical id='d1' bug, or another path that
-  // landed an empty qa). If the qa job is still pending, this leaf is in
-  // the dispatcher queue waiting for a worker.
-  if (jobState?.qa_status === 'completed' || jobState?.qa_status === 'failed') return 'lost_silent';
-  if (jobState?.qa_status === 'pending') return 'qa_pending';
+  // A real query outranks everything below. Historical leaves can carry a
+  // stale qa_error beside a perfectly good query; that error described a
+  // critic that no longer exists and must not hide the artefact.
+  if (det.query && det.query.trim().length > 0) {
+    return det.duplicate_of ? 'duplicate' : 'ready';
+  }
+  // No query. Either the job finished without landing one, or it hasn't run.
+  if (jobState?.detection_status === 'completed' || jobState?.detection_status === 'failed') {
+    return 'lost_silent';
+  }
+  if (jobState?.detection_status === 'pending') return 'pending';
   return 'idle';
 }
 
@@ -435,18 +418,11 @@ const STATE_RENDER: Record<RowState, StateRenderConfig> = {
   saved:          { label: 'Saved to library', icon: 'check',          textCls: 'text-ext-teal font-medium',          borderCls: 'border-l-ext-teal',        actionLabel: null   },
   discarded:      { label: 'Discarded',        icon: null,              textCls: 'text-on-surface-variant',             borderCls: 'border-l-transparent',     actionLabel: null   },
   detection_run:  { label: 'Engineer running…', icon: 'loader', iconSpin: true, textCls: 'text-primary',                 borderCls: 'border-l-primary',          actionLabel: null   },
-  qa_run:         { label: 'QA running…',       icon: 'loader', iconSpin: true, textCls: 'text-primary',                 borderCls: 'border-l-primary',          actionLabel: null   },
-  pass:           { label: 'Passed QA',         icon: 'check-circle',   textCls: 'text-ext-teal font-medium',          borderCls: 'border-l-ext-teal',        actionLabel: 'Save' },
-  pass_concerns:  { label: 'Passed with concerns', icon: 'alert-circle', textCls: 'text-ext-amber font-medium',         borderCls: 'border-l-ext-amber',       actionLabel: 'Save' },
-  fail:           { label: 'QA: needs revision', icon: 'x-circle',      textCls: 'text-ext-coral font-medium',         borderCls: 'border-l-ext-coral',       actionLabel: 'Retry' },
+  ready:          { label: 'Ready to review',   icon: 'check-circle',   textCls: 'text-ext-teal font-medium',          borderCls: 'border-l-ext-teal',        actionLabel: 'Save' },
+  duplicate:      { label: 'Duplicate',         icon: 'copy',           textCls: 'text-on-surface-variant font-medium', borderCls: 'border-l-outline-variant', actionLabel: 'Save' },
   eng_failed:     { label: 'Engineer failed',    icon: 'x-circle',      textCls: 'text-ext-coral font-semibold',       borderCls: 'border-l-ext-coral',       actionLabel: 'Retry' },
-  qa_iteration:   { label: 'QA stuck (JSON/escape)', icon: 'alert-triangle', textCls: 'text-ext-amber font-medium',     borderCls: 'border-l-ext-amber',       actionLabel: 'Retry' },
-  qa_budget:      { label: 'QA budget exhausted', icon: 'alert-triangle', textCls: 'text-ext-amber font-medium',       borderCls: 'border-l-ext-amber',       actionLabel: 'Retry' },
-  qa_timeout:     { label: 'QA worker timeout', icon: 'alert-triangle', textCls: 'text-ext-amber font-medium',         borderCls: 'border-l-ext-amber',       actionLabel: 'Retry' },
-  dup_no_qa:      { label: "Duplicate — QA didn't run", icon: 'copy',     textCls: 'text-on-surface-variant font-medium', borderCls: 'border-l-outline-variant', actionLabel: null   },
-  qa_other_error: { label: 'QA error',           icon: 'alert-triangle', textCls: 'text-ext-amber font-medium',        borderCls: 'border-l-ext-amber',       actionLabel: 'Retry' },
   lost_silent:    { label: 'Lost — needs retry', icon: 'help-circle',   textCls: 'text-ext-amber font-medium',         borderCls: 'border-l-ext-amber',       actionLabel: 'Retry' },
-  qa_pending:     { label: 'QA queued',          icon: 'clock',         textCls: 'text-on-surface-variant italic',     borderCls: 'border-l-transparent',     actionLabel: null   },
+  pending:        { label: 'Queued',             icon: 'clock',         textCls: 'text-on-surface-variant italic',     borderCls: 'border-l-transparent',     actionLabel: null   },
   idle:           { label: 'Not started',        icon: null,             textCls: 'text-on-surface-variant italic',    borderCls: 'border-l-transparent',     actionLabel: null   },
 };
 
@@ -469,10 +445,6 @@ function Row({
   const render = STATE_RENDER[state];
 
   const isEngineerFailed = state === 'eng_failed';
-  // A semantic duplicate that never reached QA has nothing worth saving — the
-  // detection it duplicates is the one to keep. Suppress the checkbox rather
-  // than let it into a bulk save.
-  const isDuplicateNoQa = state === 'dup_no_qa';
 
   // Severity / feasibility cells: only show real values when the engineer
   // actually emitted them. engineer_failed and lost_silent stash defaults
@@ -486,19 +458,12 @@ function Row({
     ? <span className="text-xs text-on-surface-variant">{FEASIBILITY_LABEL[det.feasibility]}</span>
     : <span className="text-xs text-on-surface-variant">—</span>;
 
+  // retry_leaf enqueues a fresh `detection` job — a full regeneration, not a
+  // re-run over the existing query body.
   const failureTooltip =
-    state === 'qa_other_error' ? `qa_error: ${det.qa_error}` :
-    state === 'qa_timeout'     ? `qa_error: ${det.qa_error}` :
-    state === 'qa_budget'      ? 'Session model-call cap reached. Retry bumps the cap and regenerates this detection from scratch.' :
-    state === 'qa_iteration'   ? 'QA agent loop hit iteration cap — typically a JSON parse failure on the candidate KQL (escape chars). Retry usually succeeds.' :
-    state === 'eng_failed'     ? 'Detection engineer agent loop failed (budget/timeout/validation). Retry regenerates the detection from scratch.' :
-    // retry_leaf enqueues a fresh `detection` job — same full regeneration
-    // as eng_failed's retry, not a QA-only re-run of the existing query.
-    // The previous copy here claimed it "re-runs QA against the existing
-    // detection body," which is not what the endpoint does.
-    state === 'lost_silent'    ? 'QA verdict was lost mid-pipeline (historical id-mismatch bug). Retry regenerates the detection from scratch.' :
-    state === 'dup_no_qa'      ? `Semantic duplicate of detection ${det.duplicate_of ?? 'another leaf'}; QA never ran on this one. Nothing to save — use the detection it duplicates.` :
-    state === 'fail'           ? (det.qa?.concerns?.[0] ?? 'QA judged the detection inadequate.') :
+    state === 'eng_failed'  ? 'Detection engineer agent loop failed (budget/timeout/validation). Retry regenerates the detection from scratch.' :
+    state === 'lost_silent' ? 'The detection job finished without producing a query. Retry regenerates it from scratch.' :
+    state === 'duplicate'   ? `Semantic duplicate of detection ${det.duplicate_of ?? 'another leaf'} — check whether that one already covers this.` :
     null;
 
   return (
@@ -507,7 +472,9 @@ function Row({
       className={`cursor-pointer hover:bg-surface-container-high border-l-4 ${render.borderCls} ${det.archived ? 'opacity-50' : ''}`}
     >
       <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
-        {eligible && !isEngineerFailed && !isDuplicateNoQa ? (
+        {/* Duplicates stay selectable: the fingerprint match is a hint, not a
+            ruling, and the user is the one deciding what to keep. */}
+        {eligible && !isEngineerFailed ? (
           <input
             type="checkbox"
             checked={selected}

@@ -3,7 +3,7 @@ import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
 import { useToast } from '../../hooks/useToast';
 import { useSigmaConverter } from '../../hooks/useSigmaConverter';
-import { saveDetectionFromLeaf, archiveLeaf, unarchiveLeaf, completeQa } from '../../lib/threatResearchService';
+import { saveDetectionFromLeaf, archiveLeaf, unarchiveLeaf } from '../../lib/threatResearchService';
 import { routeHelpers } from '../../router/routes';
 import { Section, CitationList } from './shared';
 import type {
@@ -69,10 +69,6 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
     if (!picked) return stored;
     return { ...stored, query: picked.query, active_version: picked.version };
   }, [stored, selectedVersion]);
-  // Acknowledgement gate for saving a QA-failed detection. Resets when the
-  // user opens a different leaf because the component remounts.
-  const [confirmFailedSave, setConfirmFailedSave] = useState(false);
-
   // Resizable / collapsible panel state
   const [width, setWidth] = useState<number>(() => {
     const stored = typeof window !== 'undefined' ? Number(localStorage.getItem(PANEL_STORAGE_KEY)) : NaN;
@@ -150,19 +146,6 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
       onMutated();
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Restore failed');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleRetryQa() {
-    setBusy(true);
-    try {
-      const { enqueued } = await completeQa(session.id);
-      showToast('info', enqueued > 0 ? `Queued QA for ${enqueued} detection${enqueued === 1 ? '' : 's'}` : 'No QA work to queue');
-      onMutated();
-    } catch (e) {
-      showToast('error', e instanceof Error ? e.message : 'QA retry failed');
     } finally {
       setBusy(false);
     }
@@ -248,10 +231,13 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
 
         <Section title="Verdict">
           <div className="flex flex-wrap items-center gap-2 text-xs">
+            {/* Sessions that ran before the QA agent was removed still carry a
+                verdict. It is shown as the historical record it is — nothing
+                writes one now, and nothing reads one to decide anything. */}
             {det.qa && (
               <>
                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${VERDICT_STYLE[det.qa.verdict]}`}>
-                  QA: {det.qa.verdict.replace(/_/g, ' ')}
+                  QA (archived): {det.qa.verdict.replace(/_/g, ' ')}
                 </span>
                 <span className="inline-flex items-center rounded-full bg-surface-variant px-2 py-0.5 font-medium text-on-surface-variant">
                   Coverage: {det.qa.coverage_quality}
@@ -272,22 +258,12 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
                 )}
               </>
             )}
-            {!det.qa && det.qa_error && (
-              <span
-                className="inline-flex items-center rounded-full bg-surface-variant px-2 py-0.5 font-medium text-on-surface-variant"
-                title={`QA pipeline did not produce a verdict (${det.qa_error}). The detection itself is still valid — retry to re-run QA.`}
-              >
-                QA: didn&apos;t run
-              </span>
-            )}
-            {/* Duplicate recorded at detection level rather than on `qa`. This
-                is the no-verdict case: finalise found a semantic duplicate but
-                there was no qa block to annotate, and inventing one would show
-                a verdict QA never gave. */}
-            {!det.qa && det.duplicate_of && (
+            {/* Semantic duplicate found by the finalise dedup pass. Recorded on
+                the detection, never on a synthesised verdict. */}
+            {det.duplicate_of && (
               <span
                 className="inline-flex items-center rounded-full bg-tertiary-container px-2 py-0.5 font-medium text-on-tertiary-container"
-                title={`Semantic duplicate of detection ${det.duplicate_of} (fingerprint match across MITRE / telemetry / query tokens), found by the finalise dedup pass. QA never ran on this leaf.`}
+                title={`Semantic duplicate of detection ${det.duplicate_of} (fingerprint match across MITRE / telemetry / query tokens), found by the finalise dedup pass.`}
               >
                 Duplicate of {det.duplicate_of}
               </span>
@@ -393,77 +369,36 @@ export function DetectionLeafCard({ session, behaviour, opportunity, onClose, on
         )}
       </div>
 
-      {/* Footer: QA-fail detections are guarded behind a confirmation toggle
-          rather than just disabled — analysts may legitimately want to save
-          a flagged detection for manual review. The default-off state stops
-          accidental ship of broken queries. */}
       <Footer
         det={det}
         busy={busy}
-        confirmFailedSave={confirmFailedSave}
-        setConfirmFailedSave={setConfirmFailedSave}
         onSave={handleSave}
         onArchive={handleArchive}
         onUnarchive={handleUnarchive}
-        onRetryQa={handleRetryQa}
       />
     </aside>
   );
 }
 
 function Footer({
-  det, busy, confirmFailedSave, setConfirmFailedSave, onSave, onArchive, onUnarchive, onRetryQa,
+  det, busy, onSave, onArchive, onUnarchive,
 }: {
   det: DetectionOpportunity['detection'];
   busy: boolean;
-  confirmFailedSave: boolean;
-  setConfirmFailedSave: (v: boolean) => void;
   onSave: () => void;
   onArchive: () => void;
   onUnarchive: () => void;
-  onRetryQa: () => void;
 }) {
-  const qaFailed = det.qa?.verdict === 'fail';
-  const qaMissing = !det.saved_detection_id && !det.qa;
-  const saveBlocked = (qaFailed && !confirmFailedSave) || qaMissing;
+  // Save is gated on nothing but the mechanics of saving.
+  //
+  // It used to be gated on a QA verdict existing, and on acknowledging a `fail`
+  // via a checkbox. With the QA agent removed `det.qa` is always null, so that
+  // first condition would have disabled Save permanently — turning "the user
+  // decides what to keep" into "the user can keep nothing". Deciding is the
+  // whole point of this panel: the query, its citations, the schema notes and
+  // any near-match are all on screen above.
   return (
     <div className="border-t border-outline-variant px-5 py-3">
-      {qaMissing && (
-        <div className="mb-2 flex items-start justify-between gap-3 rounded-md bg-surface-variant px-3 py-2 text-xs text-on-surface-variant">
-          <span>
-            <span className="font-medium text-on-surface">QA verdict required.</span>{' '}
-            {det.qa_error
-              ? `The QA pipeline stopped with ${det.qa_error}. Retry QA before saving.`
-              : 'QA is still pending. Wait for the verdict before saving.'}
-          </span>
-          {det.qa_error && (
-            <Button
-              variant="tonal"
-              color="primary"
-              size="sm"
-              onClick={onRetryQa}
-              disabled={busy}
-              title="Queues QA for every detection in this session still missing a verdict, not just this one."
-            >
-              Retry QA (session-wide)
-            </Button>
-          )}
-        </div>
-      )}
-      {qaFailed && !det.saved_detection_id && (
-        <label className="mb-2 flex items-start gap-2 text-xs text-on-surface-variant">
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={confirmFailedSave}
-            onChange={(e) => setConfirmFailedSave(e.target.checked)}
-          />
-          <span>
-            <span className="font-medium text-error">QA flagged this detection as failing.</span>{' '}
-            Review the concerns above before saving. Tick to acknowledge and enable Save.
-          </span>
-        </label>
-      )}
       <div className="flex items-center gap-2">
         {det.saved_detection_id ? (
           <Button
@@ -473,7 +408,7 @@ function Footer({
             View in Library
           </Button>
         ) : (
-          <Button onClick={onSave} disabled={busy || det.archived || saveBlocked}>
+          <Button onClick={onSave} disabled={busy || det.archived}>
             {busy ? 'Saving...' : 'Save to Library'}
           </Button>
         )}

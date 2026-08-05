@@ -165,18 +165,37 @@ describe('adjudicateReuse', () => {
     expect(a.reasons.observableOverlap).toBe(false);
   });
 
-  it('generates the gap AND shows a Draft rule as related coverage', () => {
-    // Previously any MITRE-overlapping hit suppressed generation outright, so
-    // 048fdd12 spent 165K tokens returning six existing rules. The user asked
-    // for detections and got a search result.
+  it('reuses a Draft rule — lifecycle status is not a reuse precondition', () => {
+    // The library is 4,576 KQL detections with exactly one marked Production.
+    // Requiring Production made reuse unsatisfiable for every Defender and
+    // Sentinel session, on every technique: 7382a9c2 wrote seven fresh rules
+    // beside 31 existing ones. Status still describes what the user is getting
+    // (feasibility 'partial' rather than 'covered'); it no longer decides
+    // whether they get anything.
     const a = adjudicateReuse({
       opportunityMitreIds: ['T1018'],
       match: { ...KQL_PRODUCTION, status: 'Draft' },
       targetLanguage: 'KQL',
+      opportunityObservableChain: ['adfind.exe enumerating the domain'],
+      opportunityTelemetry: ['DeviceProcessEvents'],
+    });
+    expect(a.suppressGeneration).toBe(true);
+    expect(a.reasons.deployedStatus).toBe(false); // still computed, still reported
+    expect(a.skippedReason).toBeNull();
+  });
+
+  it('a Draft rule about a DIFFERENT surface still does not suppress', () => {
+    // Dropping the status gate must not weaken the conditions that remain.
+    const a = adjudicateReuse({
+      opportunityMitreIds: ['T1018'],
+      match: { ...KQL_PRODUCTION, status: 'Draft' },
+      targetLanguage: 'KQL',
+      opportunityObservableChain: ['LDAP query volume from a single host'],
+      opportunityTelemetry: ['DeviceNetworkEvents'],
     });
     expect(a.suppressGeneration).toBe(false);
     expect(a.showAsRelatedCoverage).toBe(true);
-    expect(a.skippedReason).toBe('not_deployed');
+    expect(a.skippedReason).toBe('different_observables');
   });
 
   it('generates when the rule is in another SIEM language', () => {

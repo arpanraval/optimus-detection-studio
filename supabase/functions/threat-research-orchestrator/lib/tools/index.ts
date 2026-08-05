@@ -176,5 +176,4 @@ export const TOOLS_FOR = {
     environmentContextToolDeclaration,
     defenderSchemaLookupToolDeclaration,
   ],
-  qa:                 [],
 } as const;

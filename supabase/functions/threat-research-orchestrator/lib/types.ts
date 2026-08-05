@@ -167,11 +167,41 @@ export interface QaIteration {
   diff_from_previous: string | null;
 }
 
+export type ResearchSeverity = 'Critical' | 'High' | 'Medium' | 'Low' | 'Informational';
+export type ResearchDetectionType = 'Detection' | 'Hunting';
+
+/** QA's proposed correction to a detection's CLASSIFICATION, as opposed to its
+ *  query.
+ *
+ *  The rubric has always asked QA two questions it had no way to answer: is
+ *  this really a Detection or a Hunt, and is the severity right. With only a
+ *  verdict and a prose concerns array to answer in, the single channel that
+ *  actually changed anything was `fail` -- which spends a generation rewriting
+ *  a query whose only defect was the label attached to it. Session 30afda88
+ *  did exactly that to an `ago(30d)` retro-hunt: the query was correct, the
+ *  lookback made it unschedulable, and the pipeline destroyed it rather than
+ *  calling it a hunt.
+ *
+ *  Both fields are optional and independently applied: QA may correct the type
+ *  without opining on severity. Values are clamped to these unions server-side
+ *  at parse time (validateQaResult), so an unrecognised string is dropped
+ *  rather than written onto the detection. */
+export interface QaMetadataPatch {
+  suggested_detection_type?: ResearchDetectionType;
+  suggested_severity?: ResearchSeverity;
+}
+
 export interface QaResult {
   verdict: QaVerdict;
   coverage_quality: QaCoverageQuality;
   concerns: string[];
   suggested_changes: string[];
+  /**
+   * Reclassification QA proposes instead of failing the query. Null when QA
+   * had nothing to correct, or when the model emitted values outside the
+   * enums. Optional so the sessions persisted before this contract still load.
+   */
+  metadata_patch?: QaMetadataPatch | null;
   /**
    * The id of an existing library or research detection this candidate
    * duplicates. NEVER set by the QA agent — dedup is the responsibility of
@@ -255,8 +285,11 @@ export interface GeneratedDetection {
   /** Subset of mitre_technique_ids that aren't in mitre_techniques. UI flags. */
   unverified_mitre_ids: string[];
   tactic: MitreTacticName;
-  suggested_severity: 'Critical' | 'High' | 'Medium' | 'Low' | 'Informational';
-  suggested_detection_type: 'Detection' | 'Hunting';
+  /** Named aliases rather than inline unions so QaMetadataPatch is provably
+   *  assignable here: a reclassification QA proposes cannot drift out of the
+   *  set of values the detection can actually hold. */
+  suggested_severity: ResearchSeverity;
+  suggested_detection_type: ResearchDetectionType;
   feasibility: FeasibilityVerdict;
   feasibility_notes: string;
   citations: ResearchCitation[];

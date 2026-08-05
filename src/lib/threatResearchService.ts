@@ -62,19 +62,6 @@ export async function resumeFailedSession(session_id: string): Promise<{ retried
   return { retried: typeof data?.retried === 'number' ? data.retried : 0 };
 }
 
-/** Enqueue one qa-phase job per opportunity in this session that still has
- *  detection.qa==null. Each job runs critiqueDetection on a single
- *  opportunity and patches the verdict — no Tavily, bounded Anthropic cost,
- *  fits worker lifetime cleanly. Idempotent: safe to invoke multiple times,
- *  already-QA'ed opportunities are skipped. */
-export async function completeQa(session_id: string): Promise<{ enqueued: number }> {
-  const { data, error } = await supabase.functions.invoke('threat-research-orchestrator?action=complete_qa', {
-    body: { session_id },
-  });
-  if (error) throw error;
-  return { enqueued: typeof data?.enqueued === 'number' ? data.enqueued : 0 };
-}
-
 /** Cursor-paginated session list. Pass `before` = the created_at of the
  *  oldest currently-visible session to load the next page. Without a cursor
  *  this returns the most-recent `limit` sessions. Default limit kept at 50
