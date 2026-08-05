@@ -558,8 +558,13 @@ serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: 'History too long' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
 
-    // Validate model name to prevent URL injection
-    if (!/^(gemini|gpt-|o[134]|claude)-[a-zA-Z0-9._-]+$/.test(model)) {
+    // Validate model name to prevent URL injection.
+    // The vendor alternatives must NOT carry their own trailing hyphen: the
+    // pattern supplies the separator. 'gpt-' did, so it demanded 'gpt--x' and
+    // rejected every OpenAI model ever sent here (gpt-5.4 then, gpt-5.6-* now)
+    // with a 400 'Invalid model'. Gemini and Claude were unaffected, which is
+    // why only OpenAI appeared broken.
+    if (!/^(gemini|gpt|o[134]|claude)-[a-zA-Z0-9._-]+$/.test(model)) {
       return new Response(JSON.stringify({ error: 'Invalid model' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
 
