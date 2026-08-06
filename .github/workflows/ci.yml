@@ -74,15 +74,39 @@ jobs:
       #
       # Fail-closed by design: a NEW function is gated automatically unless
       # somebody explicitly adds it to KNOWN_FAILING.
+      # Retried because the import graph is fetched from esm.sh and deno.land
+      # at check time. The first run of this gate went red on
+      #
+      #   Import 'https://esm.sh/@supabase/supabase-js@2' failed: 522
+      #
+      # which is a CDN outage, not a type error. A gate that fails on somebody
+      # else's downtime is one people learn to ignore, and this one exists
+      # precisely because the previous version had been ignorable. Type errors
+      # are deterministic and fail all three attempts, so retrying costs
+      # nothing on a genuine failure.
       - name: Deno check — edge functions (gating)
         run: |
           set -uo pipefail
+
+          check() {
+            local entry="$1" attempt=1
+            while :; do
+              if deno check --no-lock --node-modules-dir=auto "$entry"; then
+                return 0
+              fi
+              [ "$attempt" -ge 3 ] && return 1
+              echo "  attempt ${attempt} failed — retrying in $(( attempt * 5 ))s"
+              sleep "$(( attempt * 5 ))"
+              attempt=$(( attempt + 1 ))
+            done
+          }
+
           failed=0
           for entry in supabase/functions/*/index.ts; do
             name=$(basename "$(dirname "$entry")")
             case " $KNOWN_FAILING " in *" $name "*) continue ;; esac
             echo "::group::deno check $name"
-            if ! deno check --no-lock --node-modules-dir=auto "$entry"; then
+            if ! check "$entry"; then
               echo "::error file=$entry::deno check failed"
               failed=1
             fi
