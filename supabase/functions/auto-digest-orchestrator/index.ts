@@ -150,13 +150,37 @@ async function recoverPendingEntries(supabase: any, userId: string, pendingEntry
   if (!Array.isArray(pendingEntryIds) || pendingEntryIds.length === 0) return;
   const ids = pendingEntryIds.filter((id): id is string => typeof id === 'string');
   if (ids.length === 0) return;
-  const { error } = await supabase
+  const { data: recovered, error } = await supabase
     .from('threat_intel_feed_entries')
     .update({ digest_status: 'classified' })
     .eq('user_id', userId)
     .in('id', ids)
-    .in('digest_status', ['queued', 'digesting']);
-  if (error) console.warn('[orchestrator] failed to recover pending entries:', error.message);
+    .in('digest_status', ['queued', 'digesting'])
+    .select('id');
+  if (error) {
+    console.warn('[orchestrator] failed to recover pending entries:', error.message);
+    return;
+  }
+
+  // Give the day's quota back for exactly the rows we reverted.
+  //
+  // Counting `ids` instead would double-refund: recoverableEntryIds is read
+  // when the job row is loaded, which is BEFORE digesting pops the active
+  // entry, so a failure after complete_auto_digest_entry has already settled
+  // that article would refund it twice. Only rows still sitting in
+  // queued/digesting were actually left unsettled, and the filter above means
+  // those are precisely the rows this UPDATE touched.
+  const releaseCount = (recovered || []).length;
+  if (releaseCount === 0) return;
+  const { error: releaseError } = await supabase.rpc('release_auto_digest_article_quota', {
+    p_user_id: userId,
+    p_count: releaseCount,
+  });
+  // Non-fatal by design: a leaked reservation self-corrects at UTC midnight,
+  // whereas throwing here would mask the original failure being recovered from.
+  if (releaseError) {
+    console.warn('[orchestrator] failed to release digest quota:', releaseError.message);
+  }
 }
 
 // ---------------------------------------------------------------------------
