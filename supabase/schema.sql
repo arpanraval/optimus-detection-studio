@@ -9681,3 +9681,75 @@ GRANT EXECUTE ON FUNCTION public.complete_auto_digest_entry(uuid, text, text, te
 
 COMMENT ON FUNCTION public.release_auto_digest_article_quota(uuid, integer) IS
   'Returns unused daily article reservations. Floors at zero so a double-release cannot manufacture capacity.';
+
+-- ---------------------------------------------------------------------------
+-- SECURITY DEFINER lockdown
+-- ---------------------------------------------------------------------------
+--
+-- PostgreSQL grants EXECUTE to PUBLIC on CREATE FUNCTION, and Supabase's anon
+-- role inherits PUBLIC. A SECURITY DEFINER function therefore runs with owner
+-- privileges for an unauthenticated caller unless EXECUTE is explicitly
+-- revoked. Production applied those revokes migration-by-migration and has
+-- zero anon-executable SECURITY DEFINER functions; this consolidated file had
+-- lost them, so a fresh clone or self-host stood up with 44 of them reachable
+-- through /rest/v1/rpc.
+--
+-- Driven off the catalog rather than a hand-maintained list, so a function
+-- added later is locked down by default instead of silently inheriting PUBLIC.
+-- Runs last, after every CREATE FUNCTION above.
+DO $lockdown$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT p.oid::regprocedure AS sig
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.prosecdef
+  LOOP
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated', r.sig);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', r.sig);
+  END LOOP;
+END
+$lockdown$;
+
+-- Re-grant EXECUTE to authenticated for exactly the functions production
+-- grants it to. Guarded by to_regprocedure so a signature that does not exist
+-- in this file is skipped rather than aborting the whole schema load.
+DO $regrant$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT unnest(ARRAY[
+    'public.approve_promotion(uuid,uuid,text,text)',
+    'public.cancel_auto_digest_job(uuid,text)',
+    'public.check_detection_write_permission(uuid,text)',
+    'public.check_promotion_eligibility(text)',
+    'public.complete_feed_entry_processing(uuid,text)',
+    'public.complete_password_setup(text)',
+    'public.find_similar_detections(text,double precision,integer,boolean)',
+    'public.fork_to_development(text,uuid)',
+    'public.get_current_spend(text,text,text)',
+    'public.get_defensive_posture(uuid,text)',
+    'public.get_filter_options(text)',
+    'public.get_mitigation_techniques(text)',
+    'public.get_strategy_analytics(text)',
+    'public.get_technique_strategies_by_mitre_id(text)',
+    'public.get_top_impact_mitigations(integer)',
+    'public.get_top_impact_strategies(integer)',
+    'public.is_global_admin(uuid)',
+    'public.is_global_admin_or_lead(uuid)',
+    'public.populate_scoring_snapshot(text)',
+    'public.refresh_coverage_stats()',
+    'public.request_auto_digest_job(uuid,text)',
+    'public.reserve_auto_digest_article_quota(uuid,integer,integer)',
+    'public.rollback_bulk_import(uuid,uuid)',
+    'public.submit_for_promotion(text,uuid)',
+    'public.submit_for_promotion(uuid,uuid)',
+    'public.tr_patch_detection(uuid,text,text,text,jsonb)'
+  ]) AS sig
+  LOOP
+    IF to_regprocedure(r.sig) IS NOT NULL THEN
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated', r.sig);
+    END IF;
+  END LOOP;
+END
+$regrant$;

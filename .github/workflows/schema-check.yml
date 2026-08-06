@@ -80,7 +80,15 @@ jobs:
           R=$(psql "$PGURL" -tA -c "select count(*) from pg_publication_tables where pubname='supabase_realtime';")
           A=$(psql "$PGURL" -tA -c "select count(*) from pg_trigger where tgname='on_auth_user_created';")
           C=$(psql "$PGURL" -tA -c "select count(*) from information_schema.columns where table_schema='public' and table_name='auto_digest_jobs' and column_name in ('active_entry_id','heartbeat_at');")
-          W=$(psql "$PGURL" -tA -c "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.oid='public.auto_digest_watchdog()'::regprocedure and pg_get_functiondef(p.oid) like '%active_entry_id%' and pg_get_functiondef(p.oid) like '%heartbeat_at%' and pg_get_functiondef(p.oid) like '%digest_failed%';")
+          # Watchdog must be the durable-queue version. This used to look for
+          # 'active_entry_id' and 'digest_failed', which the durable-queue
+          # rebuild deliberately removed when per-article state moved out of
+          # auto_digest_jobs and into leased auto_digest_job_entries rows. The
+          # assertion outlived the design it guarded and failed against both
+          # schema.sql and production, so it now checks the markers the current
+          # watchdog actually has: it must reclaim expired entry leases and
+          # judge job liveness by heartbeat.
+          W=$(psql "$PGURL" -tA -c "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.oid='public.auto_digest_watchdog()'::regprocedure and pg_get_functiondef(p.oid) like '%auto_digest_job_entries%' and pg_get_functiondef(p.oid) like '%lease_expires_at%' and pg_get_functiondef(p.oid) like '%heartbeat_at%';")
           echo "public tables:        $T (expect >= 63)"
           echo "public functions:     $F (expect >= 80)"
           echo "public RLS policies:  $P (expect >= 170)"
