@@ -1174,6 +1174,15 @@ ALTER TABLE public.threat_research_events ADD CONSTRAINT threat_research_events_
 ALTER TABLE public.threat_research_events ADD CONSTRAINT threat_research_events_pkey PRIMARY KEY (id);
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_pkey PRIMARY KEY (id);
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_session_id_phase_behaviour_id_key UNIQUE (session_id, phase, behaviour_id);
+-- Must precede trjc_session_fk / trvs_session_fk / trpb_session_fk below.
+-- PostgreSQL requires the referenced column to already carry a unique
+-- constraint when a FOREIGN KEY is created, and this primary key used to be
+-- declared eight lines AFTER the three FKs that reference it. Prod never
+-- noticed -- it was built incrementally by migrations, where ordering is
+-- irrelevant -- but schema.sql is what a fresh clone applies, so standing the
+-- backend up from zero failed on "no unique constraint matching given keys
+-- for referenced table threat_research_sessions".
+ALTER TABLE public.threat_research_sessions ADD CONSTRAINT threat_research_sessions_pkey PRIMARY KEY (id);
 ALTER TABLE public.threat_research_job_checkpoints ADD CONSTRAINT threat_research_job_checkpoints_pkey PRIMARY KEY (job_id);
 ALTER TABLE public.threat_research_job_checkpoints ADD CONSTRAINT trjc_job_fk FOREIGN KEY (job_id) REFERENCES public.threat_research_jobs(id) ON DELETE CASCADE;
 ALTER TABLE public.threat_research_job_checkpoints ADD CONSTRAINT trjc_session_fk FOREIGN KEY (session_id) REFERENCES public.threat_research_sessions(id) ON DELETE CASCADE;
@@ -1184,7 +1193,6 @@ ALTER TABLE public.threat_research_phase_budgets ADD CONSTRAINT trpb_session_fk 
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_phase_check CHECK ((phase = ANY (ARRAY['preflight'::text, 'research'::text, 'attack_research'::text, 'opportunity_planning'::text, 'detection'::text, 'qa'::text, 'finalise'::text])));
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text])));
 ALTER TABLE public.threat_research_sessions ADD CONSTRAINT threat_research_sessions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'partial'::text, 'failed'::text, 'cancelled'::text])));
-ALTER TABLE public.threat_research_sessions ADD CONSTRAINT threat_research_sessions_pkey PRIMARY KEY (id);
 ALTER TABLE public.user_dashboards ADD CONSTRAINT user_dashboards_pkey PRIMARY KEY (id);
 ALTER TABLE public.user_invitations ADD CONSTRAINT team_invitations_pkey PRIMARY KEY (id);
 ALTER TABLE public.user_invitations ADD CONSTRAINT team_invitations_token_key UNIQUE (token);
