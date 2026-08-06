@@ -4338,13 +4338,9 @@ REVOKE ALL ON FUNCTION public.tr_consume_budget(uuid, integer, integer, integer,
 GRANT EXECUTE ON FUNCTION public.tr_consume_budget(uuid, integer, integer, integer, text, integer, integer)
   TO service_role;
 
--- Restated so this migration is self-sufficient.
-REVOKE ALL ON FUNCTION public.tr_set_phase_budgets(uuid, integer, jsonb)
-  FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.tr_set_phase_budgets(uuid, integer, jsonb) TO service_role;
-
-REVOKE ALL ON FUNCTION public.tr_abort_session(uuid, text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.tr_abort_session(uuid, text) TO service_role;
+-- The grants for tr_set_phase_budgets and tr_abort_session used to sit here,
+-- ahead of the CREATE statements below, which a fresh database rejects with
+-- "function ... does not exist". They now follow each function's definition.
 
 COMMENT ON FUNCTION public.tr_consume_budget(uuid, integer, integer, integer, text, integer, integer) IS
   'Atomic budget check-and-spend for a threat-research session. SECURITY DEFINER, service-role only: it validates no caller identity, so end-user execution must stay revoked. Any future signature change must re-apply these grants -- DROP discards the ACL and Supabase default privileges re-grant anon/authenticated.';
@@ -4386,6 +4382,7 @@ BEGIN
 END;
 $function$;
 REVOKE EXECUTE ON FUNCTION public.tr_set_phase_budgets(uuid, integer, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.tr_set_phase_budgets(uuid, integer, jsonb) TO service_role;
 CREATE OR REPLACE FUNCTION public.tr_abort_session(p_session_id uuid, p_reason text)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -4438,6 +4435,7 @@ BEGIN
 END;
 $function$;
 REVOKE EXECUTE ON FUNCTION public.tr_abort_session(uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.tr_abort_session(uuid, text) TO service_role;
 CREATE OR REPLACE FUNCTION public.tr_find_actor_tagged_detections(p_aliases text[], p_limit integer DEFAULT 200, p_user_id uuid DEFAULT NULL::uuid)
  RETURNS TABLE(id text, name text, severity text, mitre_technique_ids text[], matching_aliases text[])
  LANGUAGE sql
