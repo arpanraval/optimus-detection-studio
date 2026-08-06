@@ -9519,6 +9519,14 @@ $$;
 -- many reports get produced, so it counts SUCCESSFUL digests. An article that
 -- ends skipped, quarantined, failed, or retained gives its reservation back.
 
+-- Unrelated to quota, but a live trap in the same table: the phase column's
+-- DEFAULT is 'digesting', which is absent from its own CHECK constraint
+-- (harvest|classify|rank|digest|story_link|finalize). Any INSERT that omits
+-- phase therefore fails outright. Every row production has ever written sets
+-- 'digest' explicitly, so aligning the default changes no existing behaviour
+-- and removes the trap for the next writer.
+ALTER TABLE public.auto_digest_job_entries ALTER COLUMN phase SET DEFAULT 'digest';
+
 CREATE OR REPLACE FUNCTION public.release_auto_digest_article_quota(
   p_user_id uuid,
   p_count integer
