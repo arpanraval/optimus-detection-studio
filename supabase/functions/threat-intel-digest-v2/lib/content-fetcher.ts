@@ -236,6 +236,35 @@ export function parseHTML(html: string): FetchResult {
 
   // Convert to text
   let content = contentHtml
+    // Fold hyperlink targets into the text BEFORE tags are stripped.
+    //
+    // Vendor writeups routinely publish their detection rules as bare anchor
+    // text pointing at a rule file -- the Elastic CHAINDROP article listed ten
+    // rules as links to .toml files in elastic/detection-rules and
+    // elastic/protections-artifacts. Stripping the tag kept the rule NAME and
+    // discarded the href, which is the only part that identifies the rule and
+    // the only part rule-extractor's GitHub sweep can match on. The result was
+    // a report that recorded 3 inline queries and none of the 10 references,
+    // leaving the fetch-rule-inline UI with nothing to offer.
+    //
+    // Emitted as "text ( url )" so both the extractor's URL regex and the model
+    // reading the prose see the same thing. Non-http hrefs (relative paths,
+    // in-page anchors, mailto:) carry no rule identity and are dropped.
+    //
+    // The space before the closing paren is load-bearing. rule-extractor
+    // matches URLs with [^\s<>"']+, which treats ")" as part of the URL -- so
+    // "(url)" yields a trailing paren on every captured link and every
+    // subsequent fetch 404s. Whitespace is what terminates that match.
+    .replace(
+      /<a\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
+      (_match: string, href: string, inner: string) => {
+        const text = inner.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+        const url = href.trim()
+        if (!/^https?:\/\//i.test(url)) return ` ${text} `
+        if (!text || text === url) return ` ${url} `
+        return ` ${text} ( ${url} ) `
+      },
+    )
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<\/div>/gi, '\n')
