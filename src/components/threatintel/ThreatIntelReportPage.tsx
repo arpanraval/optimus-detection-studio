@@ -1179,10 +1179,29 @@ export const ThreatIntelReportPage: React.FC = () => {
           {activeTab === 'overview' && (
             <div className="space-y-8 animate-fade-in">
 
+              {/* Renders only for runs that actually went wrong. It used to
+                  fire on every report: the database mapper never copied
+                  `outcome`, so it was undefined, `undefined !== 'complete'`
+                  was true, and the `|| 'degraded'` fallback then asserted a
+                  verdict it did not have. A warning shown on all 170 reports
+                  told you nothing about the 15 that were genuinely partial. */}
               {report.outcome !== 'complete' && (
                 <div role='alert' className='rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-sm'>
-                  <div className='font-semibold'>Analysis requires review</div>
-                  <p>Outcome: {report.outcome || 'degraded'}; source quality: {report.sourceQuality || 'legacy_unverified'}. Automated findings must be verified before operational use.</p>
+                  <div className='font-semibold'>
+                    {report.outcome === 'unknown' ? 'Analysis state unknown' : 'Analysis requires review'}
+                  </div>
+                  <p>
+                    Outcome: {report.outcome}; source quality: {report.sourceQuality}.
+                    {report.sectionErrors && Object.keys(report.sectionErrors).length > 0 && (
+                      <> Sections that failed: {Object.keys(report.sectionErrors).join(', ')}.</>
+                    )}
+                    {' '}Automated findings must be verified before operational use.
+                  </p>
+                  {report.qualityWarnings && report.qualityWarnings.length > 0 && (
+                    <ul className='mt-2 list-disc pl-5 space-y-0.5'>
+                      {report.qualityWarnings.map((w, i) => <li key={i}>{w}</li>)}
+                    </ul>
+                  )}
                 </div>
               )}
 

@@ -38,7 +38,7 @@ const SESSION_PREFIX = 'optimus_threat_intel_session_v1_';
 // DATABASE RECORD TYPES
 // ============================================
 
-interface ThreatIntelReportDbRecord {
+export interface ThreatIntelReportDbRecord {
   id: string;
   user_id: string;
   name: string;
@@ -57,6 +57,19 @@ interface ThreatIntelReportDbRecord {
   processing_stage: string;
   processing_error?: string;
   section_errors?: any;
+  // Trust metadata. Present on every row and fetched by the `select('*')` in
+  // loadSession, but absent from this interface until now -- which is why the
+  // mapper below never copied them and nobody got a type error for it.
+  outcome?: 'complete' | 'partial' | 'failed' | 'cancelled';
+  source_quality?: 'full_article' | 'partial_article' | 'feed_summary' | 'title_only' | 'unavailable' | 'legacy_unverified';
+  source_content_length?: number;
+  source_content_hash?: string;
+  fetched_url?: string;
+  quality_warnings?: string[];
+  possible_actor_mentions?: string[];
+  library_overlap_percent?: number | null;
+  validated_overlap_percent?: number | null;
+  deployment_readiness_percent?: number | null;
   selected_ttp_ids: string[];
   selected_ioc_ids: string[];
   report_title?: string;
@@ -145,7 +158,11 @@ const ThreatIntelContext = createContext<ThreatIntelContextType | undefined>(und
 /**
  * Convert database record to ThreatIntelSession
  */
-function dbRecordToSession(record: ThreatIntelReportDbRecord): ThreatIntelSession {
+// Exported for the round-trip test in __tests__/db-record-mapping.test.ts.
+// That test is the guard against this mapper silently dropping fields again:
+// it is hand-maintained and field-by-field, which is how five of them went
+// missing at once without a single type error.
+export function dbRecordToSession(record: ThreatIntelReportDbRecord): ThreatIntelSession {
   const report: ThreatReport = {
     id: record.id,
     createdAt: record.created_at,
@@ -163,6 +180,25 @@ function dbRecordToSession(record: ThreatIntelReportDbRecord): ThreatIntelSessio
     processingStage: record.processing_stage as any,
     processingError: record.processing_error,
     sectionErrors: record.section_errors,
+
+    // Trust metadata. Falling back to 'complete'/'full_article' would assert
+    // something we do not know; falling back to 'failed'/'legacy_unverified'
+    // is what produced the every-report-is-degraded bug. Both are required on
+    // ThreatReport, so a row genuinely missing them is a data defect worth
+    // seeing rather than papering over -- the banner renders "unknown".
+    outcome: record.outcome ?? 'unknown',
+    sourceQuality: record.source_quality ?? 'unknown',
+    sourceContentLength: record.source_content_length,
+    sourceContentHash: record.source_content_hash,
+    fetchedUrl: record.fetched_url,
+    qualityWarnings: record.quality_warnings ?? [],
+    possibleActorMentions: record.possible_actor_mentions ?? [],
+    libraryOverlapPercent: record.library_overlap_percent,
+    validatedOverlapPercent: record.validated_overlap_percent,
+    deploymentReadinessPercent: record.deployment_readiness_percent,
+    // Deliberately NOT `?? 0` -- see A2. Absent coverage and zero coverage are
+    // different facts and must stay distinguishable.
+    coveragePercent: record.coverage_percent ?? null,
   };
 
   return {

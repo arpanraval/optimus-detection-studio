@@ -50,6 +50,9 @@ const createMockReport = (sourceUrl?: string): ThreatReport => {
     id: generateReportId(),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    // Fixture data, fully populated by construction.
+    outcome: 'complete',
+    sourceQuality: 'full_article',
     sourceType: 'url',
     sourceUrl,
     summary: {
@@ -293,6 +296,9 @@ DeviceNetworkEvents
     id: REACT2SHELL_REPORT_ID,
     createdAt: '2025-12-15T09:00:00Z',
     updatedAt: '2025-12-15T09:00:00Z',
+    // Fixture data, fully populated by construction.
+    outcome: 'complete',
+    sourceQuality: 'full_article',
     sourceType: 'url',
     sourceUrl: 'https://www.microsoft.com/en-us/security/blog/2025/12/15/defending-against-the-cve-2025-55182-react2shell-vulnerability-in-react-server-components/',
     summary: {

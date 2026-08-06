@@ -147,8 +147,19 @@ export interface ThreatReport {
   id: string;
   createdAt: string;
   updatedAt: string;
-  outcome?: 'complete' | 'partial' | 'failed' | 'cancelled';
-  sourceQuality?: 'full_article' | 'partial_article' | 'feed_summary' | 'title_only' | 'unavailable' | 'legacy_unverified';
+  // REQUIRED, deliberately. These describe whether the report can be trusted,
+  // and the review banner keys off them. They were optional, so the database
+  // mapper could omit them and still compile -- which it did, leaving outcome
+  // undefined on every report and making all 170 render as "degraded". Every
+  // persisted row has both populated, so requiring them is accurate rather
+  // than defensive, and it makes dropping them a build failure instead of a
+  // silent mislabel.
+  // 'unknown' is a real state, not a placeholder: it means the row did not
+  // carry the value. Modelling it in the union keeps "we don't know" separate
+  // from "we know it went badly", which is the distinction this whole bug
+  // erased. No persisted row needs it today (all 170 have both populated).
+  outcome: 'complete' | 'partial' | 'failed' | 'cancelled' | 'unknown';
+  sourceQuality: 'full_article' | 'partial_article' | 'feed_summary' | 'title_only' | 'unavailable' | 'legacy_unverified' | 'unknown';
   sourceContentLength?: number;
   sourceContentHash?: string;
   fetchedUrl?: string;
