@@ -8,6 +8,21 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
+
+    // src/lib/supabaseClient.ts throws at MODULE scope when these are unset,
+    // so any suite that transitively imports it fails to load rather than
+    // failing an assertion. That made the suite pass on a developer machine
+    // (where .env.local supplies them) and fail in CI, which has no
+    // .env.local because the file is gitignored.
+    //
+    // Declaring them here makes the run hermetic: identical locally and in
+    // CI, and independent of whatever .env.local happens to hold. These are
+    // placeholders and must stay that way — every suite stubs the client, so
+    // nothing here should ever reach a real project.
+    env: {
+      VITE_SUPABASE_URL: 'http://localhost:54321',
+      VITE_SUPABASE_ANON_KEY: 'test-anon-key',
+    },
     include: [
       'src/**/__tests__/**/*.test.{ts,tsx}',
       'supabase/functions/_shared/__tests__/**/*.test.ts',
