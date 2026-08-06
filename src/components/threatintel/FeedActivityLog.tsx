@@ -30,6 +30,17 @@ const ACTIVITY_FILTERS: { id: ActivityFilter; label: string }[] = [
 
 const JOB_PAGE_SIZE = 20;
 
+// Runs worth offering a retry on. A retry is a fresh run, not a resume: the
+// phases re-derive their work from digest_status, so anything the failed run
+// left behind (a 'classified' article it selected but never digested) is
+// picked back up by ranking. Completed and cancelled runs are excluded --
+// nothing is owed for those.
+const RETRYABLE_STATUSES = new Set<AutoDigestJob['status']>([
+  'failed',
+  'partial',
+  'timeout_partial',
+]);
+
 function mergeJobs(existing: AutoDigestJob[], incoming: AutoDigestJob[]): AutoDigestJob[] {
   const byId = new Map<string, AutoDigestJob>();
   for (const job of existing) byId.set(job.id, job);
@@ -200,15 +211,29 @@ function jobOneLineSummary(job: AutoDigestJob): string {
 // RUN ROW — single-line dense entry, expands inline
 // =============================================================================
 
-const JobRow: React.FC<{ job: AutoDigestJob; expanded: boolean; onToggle: () => void }> = ({ job, expanded, onToggle }) => {
+const JobRow: React.FC<{
+  job: AutoDigestJob;
+  expanded: boolean;
+  onToggle: () => void;
+  onRetry: () => void;
+  /** False while any run is pending/processing — a second run cannot start. */
+  retryEnabled: boolean;
+  retrying: boolean;
+}> = ({ job, expanded, onToggle, onRetry, retryEnabled, retrying }) => {
   const { tone, label } = jobToneAndLabel(job);
   const dur = jobDuration(job);
   const summary = jobOneLineSummary(job);
   const time = formatTime(job.started_at || job.created_at);
+  const canRetry = RETRYABLE_STATUSES.has(job.status);
 
   const handleCopyId = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     try { await navigator.clipboard.writeText(job.id); } catch { /* drop quietly */ }
+  };
+
+  const handleRetry = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    onRetry();
   };
 
   const handleRowKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -242,8 +267,29 @@ const JobRow: React.FC<{ job: AutoDigestJob; expanded: boolean; onToggle: () => 
         <span className="text-xs tabular-nums text-on-surface-variant min-w-[64px] text-right">
           {dur != null ? formatDuration(dur) : ''}
         </span>
-        {/* Copy ID + chevron */}
+        {/* Retry + copy ID + chevron */}
         <span className="flex items-center gap-1.5">
+          {canRetry && (
+            <button
+              type="button"
+              onClick={handleRetry}
+              disabled={!retryEnabled || retrying}
+              aria-label={`Retry run from ${time}`}
+              title={
+                retrying
+                  ? 'Starting a new run…'
+                  : retryEnabled
+                    ? 'Run the pipeline again. Articles this run left undigested are picked back up.'
+                    : 'A digest run is already in progress'
+              }
+              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus:outline-none rounded p-1 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Icon
+                name="refresh-cw"
+                className={`w-3.5 h-3.5 text-on-surface-variant/60 ${retrying ? 'animate-spin' : ''}`}
+              />
+            </button>
+          )}
           <button
             type="button"
             onClick={handleCopyId}
@@ -330,6 +376,33 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId, liveJo
   }, [userId, oldestLoadedAt, hasMore, isLoadingOlder]);
 
   const hasActiveJob = jobs.some((j) => j.status === 'pending' || j.status === 'processing');
+
+  const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
+
+  // Retry is deliberately the same call the scheduler and Run Now make. There
+  // is no resume-a-failed-job path: every phase re-queries state rather than
+  // carrying IDs across hops, so a fresh run sweeps up whatever the failed one
+  // stranded. The reason lands in result_summary, so a retried run is
+  // distinguishable from a scheduled one in this very list.
+  const handleRetry = useCallback(async (jobId: string) => {
+    if (!userId || hasActiveJob || retryingJobId) return;
+    setRetryingJobId(jobId);
+    setRetryError(null);
+    const { error } = await supabase.rpc('request_auto_digest_job', {
+      p_user_id: userId,
+      p_reason: 'retry',
+    });
+    setRetryingJobId(null);
+    if (error) {
+      setRetryError(error.message);
+      return;
+    }
+    // The RPC is a no-op when a run is already pending/processing — it returns
+    // the existing one rather than creating a second. Refetch either way so
+    // the new run appears and the poller takes over from here.
+    await fetchJobs();
+  }, [userId, hasActiveJob, retryingJobId, fetchJobs]);
   useEffect(() => {
     // When liveJobs is supplied, useAutoDigestSettings owns the polling and
     // publishes each update to this component. This fallback keeps the
@@ -441,6 +514,15 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId, liveJo
         </span>
       </div>
 
+      {retryError && (
+        <div className="mb-3 px-3 py-2 rounded-md border border-error/40 bg-error-container/40 flex items-start gap-2">
+          <Icon name="refresh-cw" className="w-3.5 h-3.5 text-error mt-0.5 shrink-0" />
+          <p className="text-xs text-on-surface">
+            Could not start a retry — <span className="text-on-surface-variant">{retryError}</span>
+          </p>
+        </div>
+      )}
+
       {filteredJobs.length === 0 && (
         <div className="px-4 py-8 flex flex-col items-center text-center gap-2">
           <p className="text-xs text-on-surface-variant">
@@ -489,6 +571,9 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId, liveJo
                       job={j}
                       expanded={expandedJobs.has(j.id)}
                       onToggle={() => toggleJob(j.id)}
+                      onRetry={() => handleRetry(j.id)}
+                      retryEnabled={!hasActiveJob && retryingJobId === null}
+                      retrying={retryingJobId === j.id}
                     />
                   ))}
                 </div>

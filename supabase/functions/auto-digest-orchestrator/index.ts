@@ -150,13 +150,37 @@ async function recoverPendingEntries(supabase: any, userId: string, pendingEntry
   if (!Array.isArray(pendingEntryIds) || pendingEntryIds.length === 0) return;
   const ids = pendingEntryIds.filter((id): id is string => typeof id === 'string');
   if (ids.length === 0) return;
-  const { error } = await supabase
+  const { data: recovered, error } = await supabase
     .from('threat_intel_feed_entries')
     .update({ digest_status: 'classified' })
     .eq('user_id', userId)
     .in('id', ids)
-    .in('digest_status', ['queued', 'digesting']);
-  if (error) console.warn('[orchestrator] failed to recover pending entries:', error.message);
+    .in('digest_status', ['queued', 'digesting'])
+    .select('id');
+  if (error) {
+    console.warn('[orchestrator] failed to recover pending entries:', error.message);
+    return;
+  }
+
+  // Give the day's quota back for exactly the rows we reverted.
+  //
+  // Counting `ids` instead would double-refund: recoverableEntryIds is read
+  // when the job row is loaded, which is BEFORE digesting pops the active
+  // entry, so a failure after complete_auto_digest_entry has already settled
+  // that article would refund it twice. Only rows still sitting in
+  // queued/digesting were actually left unsettled, and the filter above means
+  // those are precisely the rows this UPDATE touched.
+  const releaseCount = (recovered || []).length;
+  if (releaseCount === 0) return;
+  const { error: releaseError } = await supabase.rpc('release_auto_digest_article_quota', {
+    p_user_id: userId,
+    p_count: releaseCount,
+  });
+  // Non-fatal by design: a leaked reservation self-corrects at UTC midnight,
+  // whereas throwing here would mask the original failure being recovered from.
+  if (releaseError) {
+    console.warn('[orchestrator] failed to release digest quota:', releaseError.message);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -597,14 +621,23 @@ async function runPhase(
 
     switch (phase) {
       case 'harvesting': {
-        const entryIds = await harvestFeeds(ctx, result, phaseDeadline);
+        await harvestFeeds(ctx, result, phaseDeadline);
         assertPhaseBudget(phaseDeadline, phase);
         await persistResult(supabase, jobId, result);
 
-        if (entryIds.length === 0) {
-          await markJobCompleted(supabase, jobId, 'completed', result);
-          return;
-        }
+        // Deliberately does NOT terminate on an empty harvest. Ranking is the
+        // single place a run ends for lack of work, because it is the only
+        // phase that sees entries stranded by an EARLIER run — a 'classified'
+        // row that was selected but never digested.
+        //
+        // Ending the run here instead meant a quiet day silently abandoned
+        // that backlog: harvest dedupes on what is already stored, so a retry
+        // after a failure harvests 0 and stopped right here, never reaching
+        // the phase that would have picked the stranded articles back up.
+        // That is exactly why the two articles stranded by the 2026-08-06
+        // failure could not be recovered by pressing Run Now.
+        //
+        // Cost is two extra queue hops on a genuinely empty day.
         await advancePhase(supabase, jobId, 'classifying');
         await enqueuePhase(supabase, supabaseUrl, serviceRoleKey, jobId, 'classifying');
         return;
@@ -622,20 +655,20 @@ async function runPhase(
           .limit(50);
         const harvIds: string[] = (harvestedRows || []).map((r: any) => r.id);
 
-        if (harvIds.length === 0) {
-          await markJobCompleted(supabase, jobId, 'completed', result);
-          return;
+        // Nothing new to classify is not the end of the run — see the note in
+        // 'harvesting'. Entries stranded in 'classified' by an earlier failure
+        // are picked up by ranking, the single termination point.
+        if (harvIds.length > 0) {
+          await classifyEntries(
+            ctx,
+            harvIds,
+            settings.classification_model || settings.ai_model || 'gemini-3.6-flash',
+            result,
+            phaseDeadline,
+          );
+          assertPhaseBudget(phaseDeadline, phase);
+          await persistResult(supabase, jobId, result);
         }
-
-        await classifyEntries(
-          ctx,
-          harvIds,
-          settings.classification_model || settings.ai_model || 'gemini-3.6-flash',
-          result,
-          phaseDeadline,
-        );
-        assertPhaseBudget(phaseDeadline, phase);
-        await persistResult(supabase, jobId, result);
 
         await advancePhase(supabase, jobId, 'ranking');
         await enqueuePhase(supabase, supabaseUrl, serviceRoleKey, jobId, 'ranking');
@@ -667,7 +700,8 @@ async function runPhase(
         // job state are persisted. Keep the IDs locally so any later ranking
         // failure can release them instead of stranding queued articles.
         recoverableEntryIds = selectedIds;
-        // Stash selected IDs as the digesting queue, advance phase, persist
+        // Reserve today's article quota before anything is staged, so a
+        // partial grant trims the queue rather than stranding queued rows.
         if (selectedIds.length > 0) {
           const { data: quotaGranted, error: quotaError } = await supabase.rpc(
             'reserve_auto_digest_article_quota',
@@ -683,6 +717,32 @@ async function runPhase(
           }
           recoverableEntryIds = selectedIds;
         }
+        // Materialise the per-article durable rows BEFORE handing off.
+        // claim_auto_digest_entry leases an *existing* auto_digest_job_entries
+        // row and returns nothing when there is none, so skipping this fails
+        // every article with "could not be leased".
+        //
+        // `phase` is set explicitly: the column's own default ('digesting')
+        // is not in its CHECK constraint, so an insert that omits it fails.
+        if (selectedIds.length > 0) {
+          const { error: entryRowsError } = await supabase
+            .from('auto_digest_job_entries')
+            .upsert(
+              selectedIds.map((feedEntryId) => ({
+                job_id: jobId,
+                user_id: job.user_id,
+                feed_entry_id: feedEntryId,
+                phase: 'digest',
+                status: 'pending',
+              })),
+              { onConflict: 'job_id,feed_entry_id', ignoreDuplicates: true },
+            );
+          if (entryRowsError) {
+            throw new Error(`Failed to create durable digest entries: ${entryRowsError.message}`);
+          }
+        }
+
+        // Stash selected IDs as the digesting queue, advance phase, persist
         // result — all in one UPDATE so the next hop sees a consistent view.
         const { error: rankUpdateError } = await supabase
           .from('auto_digest_jobs')
@@ -696,6 +756,44 @@ async function runPhase(
             heartbeat_at: new Date().toISOString(),
           })
           .eq('id', jobId);
+        if (rankUpdateError) {
+          throw new Error(`Failed to stage the digest queue: ${rankUpdateError.message}`);
+        }
+
+        await enqueuePhase(supabase, supabaseUrl, serviceRoleKey, jobId, 'digesting');
+        return;
+      }
+
+      case 'digesting': {
+        // pending_entry_ids is the work queue. One article is drained per hop
+        // so each gets a fresh isolate and a fresh phase budget.
+        const pending = Array.isArray(job.pending_entry_ids)
+          ? (job.pending_entry_ids as unknown[]).filter((id): id is string => typeof id === 'string')
+          : [];
+        if (pending.length === 0) {
+          await advancePhase(supabase, jobId, 'finalising');
+          await enqueuePhase(supabase, supabaseUrl, serviceRoleKey, jobId, 'finalising');
+          return;
+        }
+
+        // Pop one and write the remainder back BEFORE processing. On a
+        // retryable failure complete_auto_digest_entry prepends this
+        // feed-entry ID back onto pending_entry_ids, so leaving it in place
+        // here would queue the same article twice.
+        const entryId = pending[0];
+        const remaining = pending.slice(1);
+        const { error: claimStateError } = await supabase
+          .from('auto_digest_jobs')
+          .update({
+            pending_entry_ids: remaining,
+            active_entry_id: entryId,
+            heartbeat_at: new Date().toISOString(),
+          })
+          .eq('id', jobId);
+        if (claimStateError) {
+          throw new Error(`Failed to stage digest entry ${entryId}: ${claimStateError.message}`);
+        }
+
         const { data: leasedEntries, error: leaseError } = await supabase.rpc('claim_auto_digest_entry', {
           p_job_id: jobId,
           p_entry_id: entryId,

@@ -1174,6 +1174,15 @@ ALTER TABLE public.threat_research_events ADD CONSTRAINT threat_research_events_
 ALTER TABLE public.threat_research_events ADD CONSTRAINT threat_research_events_pkey PRIMARY KEY (id);
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_pkey PRIMARY KEY (id);
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_session_id_phase_behaviour_id_key UNIQUE (session_id, phase, behaviour_id);
+-- Must precede trjc_session_fk / trvs_session_fk / trpb_session_fk below.
+-- PostgreSQL requires the referenced column to already carry a unique
+-- constraint when a FOREIGN KEY is created, and this primary key used to be
+-- declared eight lines AFTER the three FKs that reference it. Prod never
+-- noticed -- it was built incrementally by migrations, where ordering is
+-- irrelevant -- but schema.sql is what a fresh clone applies, so standing the
+-- backend up from zero failed on "no unique constraint matching given keys
+-- for referenced table threat_research_sessions".
+ALTER TABLE public.threat_research_sessions ADD CONSTRAINT threat_research_sessions_pkey PRIMARY KEY (id);
 ALTER TABLE public.threat_research_job_checkpoints ADD CONSTRAINT threat_research_job_checkpoints_pkey PRIMARY KEY (job_id);
 ALTER TABLE public.threat_research_job_checkpoints ADD CONSTRAINT trjc_job_fk FOREIGN KEY (job_id) REFERENCES public.threat_research_jobs(id) ON DELETE CASCADE;
 ALTER TABLE public.threat_research_job_checkpoints ADD CONSTRAINT trjc_session_fk FOREIGN KEY (session_id) REFERENCES public.threat_research_sessions(id) ON DELETE CASCADE;
@@ -1184,7 +1193,6 @@ ALTER TABLE public.threat_research_phase_budgets ADD CONSTRAINT trpb_session_fk 
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_phase_check CHECK ((phase = ANY (ARRAY['preflight'::text, 'research'::text, 'attack_research'::text, 'opportunity_planning'::text, 'detection'::text, 'qa'::text, 'finalise'::text])));
 ALTER TABLE public.threat_research_jobs ADD CONSTRAINT threat_research_jobs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text])));
 ALTER TABLE public.threat_research_sessions ADD CONSTRAINT threat_research_sessions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'partial'::text, 'failed'::text, 'cancelled'::text])));
-ALTER TABLE public.threat_research_sessions ADD CONSTRAINT threat_research_sessions_pkey PRIMARY KEY (id);
 ALTER TABLE public.user_dashboards ADD CONSTRAINT user_dashboards_pkey PRIMARY KEY (id);
 ALTER TABLE public.user_invitations ADD CONSTRAINT team_invitations_pkey PRIMARY KEY (id);
 ALTER TABLE public.user_invitations ADD CONSTRAINT team_invitations_token_key UNIQUE (token);
@@ -4330,13 +4338,9 @@ REVOKE ALL ON FUNCTION public.tr_consume_budget(uuid, integer, integer, integer,
 GRANT EXECUTE ON FUNCTION public.tr_consume_budget(uuid, integer, integer, integer, text, integer, integer)
   TO service_role;
 
--- Restated so this migration is self-sufficient.
-REVOKE ALL ON FUNCTION public.tr_set_phase_budgets(uuid, integer, jsonb)
-  FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.tr_set_phase_budgets(uuid, integer, jsonb) TO service_role;
-
-REVOKE ALL ON FUNCTION public.tr_abort_session(uuid, text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.tr_abort_session(uuid, text) TO service_role;
+-- The grants for tr_set_phase_budgets and tr_abort_session used to sit here,
+-- ahead of the CREATE statements below, which a fresh database rejects with
+-- "function ... does not exist". They now follow each function's definition.
 
 COMMENT ON FUNCTION public.tr_consume_budget(uuid, integer, integer, integer, text, integer, integer) IS
   'Atomic budget check-and-spend for a threat-research session. SECURITY DEFINER, service-role only: it validates no caller identity, so end-user execution must stay revoked. Any future signature change must re-apply these grants -- DROP discards the ACL and Supabase default privileges re-grant anon/authenticated.';
@@ -4378,6 +4382,7 @@ BEGIN
 END;
 $function$;
 REVOKE EXECUTE ON FUNCTION public.tr_set_phase_budgets(uuid, integer, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.tr_set_phase_budgets(uuid, integer, jsonb) TO service_role;
 CREATE OR REPLACE FUNCTION public.tr_abort_session(p_session_id uuid, p_reason text)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -4430,6 +4435,7 @@ BEGIN
 END;
 $function$;
 REVOKE EXECUTE ON FUNCTION public.tr_abort_session(uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.tr_abort_session(uuid, text) TO service_role;
 CREATE OR REPLACE FUNCTION public.tr_find_actor_tagged_detections(p_aliases text[], p_limit integer DEFAULT 200, p_user_id uuid DEFAULT NULL::uuid)
  RETURNS TABLE(id text, name text, severity text, mitre_technique_ids text[], matching_aliases text[])
  LANGUAGE sql
@@ -9492,3 +9498,258 @@ BEGIN
   RETURN QUERY SELECT v_target_id;
 END;
 $$;
+
+-- ---------------------------------------------------------------------------
+-- Auto-digest quota release (mirrors 20260806101500_auto_digest_quota_release)
+-- ---------------------------------------------------------------------------
+
+-- Auto-digest daily quota: make reservations refundable, and start recording
+-- completions.
+--
+-- reserve_auto_digest_article_quota was the ONLY function that ever touched
+-- auto_digest_daily_quota.reserved_articles, and it only ever incremented. A
+-- run that reserved N articles and then failed burned N against the day's cap
+-- permanently -- the 2026-08-06 failure reserved 2 and never gave them back.
+-- Enough retries in one day would lock the user out until UTC midnight.
+--
+-- completed_articles was never written by anything: it read 0 on every row,
+-- including days where articles were digested successfully.
+--
+-- The cap is named max_articles_per_day and is documented as a limit on how
+-- many reports get produced, so it counts SUCCESSFUL digests. An article that
+-- ends skipped, quarantined, failed, or retained gives its reservation back.
+
+-- Unrelated to quota, but a live trap in the same table: the phase column's
+-- DEFAULT is 'digesting', which is absent from its own CHECK constraint
+-- (harvest|classify|rank|digest|story_link|finalize). Any INSERT that omits
+-- phase therefore fails outright. Every row production has ever written sets
+-- 'digest' explicitly, so aligning the default changes no existing behaviour
+-- and removes the trap for the next writer.
+ALTER TABLE public.auto_digest_job_entries ALTER COLUMN phase SET DEFAULT 'digest';
+
+CREATE OR REPLACE FUNCTION public.release_auto_digest_article_quota(
+  p_user_id uuid,
+  p_count integer
+)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_day date := (now() AT TIME ZONE 'UTC')::date;
+  v_count integer := greatest(0, least(coalesce(p_count, 0), 100));
+  v_reserved integer;
+  v_released integer;
+  v_jwt_role text := coalesce(
+    auth.jwt() ->> 'role',
+    current_setting('request.jwt.claim.role', true),
+    ''
+  );
+BEGIN
+  IF auth.uid() IS DISTINCT FROM p_user_id AND v_jwt_role <> 'service_role' THEN
+    RAISE EXCEPTION 'not authorized' USING errcode = '42501';
+  END IF;
+
+  IF v_count = 0 THEN
+    RETURN 0;
+  END IF;
+
+  -- Same lock key as reserve, so a release cannot interleave with a
+  -- concurrent reservation for the same user and day.
+  PERFORM pg_advisory_xact_lock(hashtextextended(p_user_id::text || ':' || v_day::text, 0));
+
+  SELECT reserved_articles INTO v_reserved
+    FROM public.auto_digest_daily_quota
+   WHERE user_id = p_user_id AND quota_date = v_day
+   FOR UPDATE;
+
+  IF v_reserved IS NULL THEN
+    RETURN 0;
+  END IF;
+
+  -- Floor at zero. A double-release must never manufacture capacity.
+  v_released := least(v_count, v_reserved);
+  UPDATE public.auto_digest_daily_quota
+     SET reserved_articles = reserved_articles - v_released, updated_at = now()
+   WHERE user_id = p_user_id AND quota_date = v_day;
+
+  RETURN v_released;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.release_auto_digest_article_quota(uuid, integer)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.release_auto_digest_article_quota(uuid, integer)
+  TO service_role;
+
+-- complete_auto_digest_entry now settles the quota alongside the entry, so the
+-- two can never drift: a success counts, anything else terminal refunds. The
+-- decrement is inlined rather than calling the RPC above because this function
+-- also runs from the watchdog as `postgres`, where the RPC's service_role JWT
+-- check would not hold.
+CREATE OR REPLACE FUNCTION public.complete_auto_digest_entry(
+  p_entry_id uuid,
+  p_status text,
+  p_report_id text DEFAULT NULL::text,
+  p_error_code text DEFAULT NULL::text,
+  p_error text DEFAULT NULL::text
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions', 'pg_catalog'
+AS $$
+DECLARE
+  v_entry public.auto_digest_job_entries%ROWTYPE;
+  v_status text;
+  v_retry boolean := false;
+  v_message_id bigint;
+  v_day date := (now() AT TIME ZONE 'UTC')::date;
+BEGIN
+  SELECT * INTO v_entry
+    FROM public.auto_digest_job_entries
+   WHERE id = p_entry_id
+   FOR UPDATE;
+  IF NOT FOUND OR v_entry.status NOT IN ('running', 'pending') THEN
+    RETURN false;
+  END IF;
+
+  v_status := CASE
+    WHEN p_status IN ('succeeded', 'skipped', 'retained_previous') THEN p_status
+    WHEN p_status = 'failed' AND v_entry.attempt_count < v_entry.max_attempts THEN 'pending'
+    WHEN p_status IN ('failed', 'quarantined') THEN 'quarantined'
+    ELSE 'failed'
+  END;
+  v_retry := v_status = 'pending';
+
+  UPDATE public.auto_digest_job_entries
+     SET status = v_status,
+         report_id = COALESCE(p_report_id, report_id),
+         last_error_code = p_error_code,
+         last_error = p_error,
+         quarantined_at = CASE WHEN v_status = 'quarantined' THEN now() ELSE quarantined_at END,
+         completed_at = CASE WHEN v_retry THEN NULL ELSE now() END,
+         lease_expires_at = NULL,
+         heartbeat_at = now(),
+         updated_at = now()
+   WHERE id = p_entry_id;
+
+  -- Quota settlement. Skipped while v_retry, because the article still holds
+  -- its reservation for the retry that complete_auto_digest_entry enqueues
+  -- below; the eventual terminal outcome settles it.
+  IF NOT v_retry THEN
+    IF v_status = 'succeeded' THEN
+      UPDATE public.auto_digest_daily_quota
+         SET completed_articles = completed_articles + 1, updated_at = now()
+       WHERE user_id = v_entry.user_id AND quota_date = v_day;
+    ELSE
+      UPDATE public.auto_digest_daily_quota
+         SET reserved_articles = greatest(0, reserved_articles - 1), updated_at = now()
+       WHERE user_id = v_entry.user_id AND quota_date = v_day;
+    END IF;
+  END IF;
+
+  IF v_retry THEN
+    UPDATE public.auto_digest_jobs
+       SET pending_entry_ids = jsonb_build_array(v_entry.feed_entry_id) ||
+             COALESCE(pending_entry_ids, '[]'::jsonb),
+           phase = 'digesting',
+           phase_lease_expires_at = NULL,
+           phase_started_at = NULL,
+           phase_attempt_count = 0,
+           heartbeat_at = now()
+     WHERE id = v_entry.job_id
+       AND status = 'processing'
+       AND NOT cancellation_requested;
+    v_message_id := public.auto_digest_enqueue(
+      'run_phase', v_entry.job_id, p_entry_id, jsonb_build_object('phase', 'digesting')
+    );
+    UPDATE public.auto_digest_jobs
+       SET queue_message_id = COALESCE(v_message_id, queue_message_id)
+     WHERE id = v_entry.job_id;
+  END IF;
+
+  RETURN true;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.complete_auto_digest_entry(uuid, text, text, text, text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.complete_auto_digest_entry(uuid, text, text, text, text)
+  TO service_role;
+
+COMMENT ON FUNCTION public.release_auto_digest_article_quota(uuid, integer) IS
+  'Returns unused daily article reservations. Floors at zero so a double-release cannot manufacture capacity.';
+
+-- ---------------------------------------------------------------------------
+-- SECURITY DEFINER lockdown
+-- ---------------------------------------------------------------------------
+--
+-- PostgreSQL grants EXECUTE to PUBLIC on CREATE FUNCTION, and Supabase's anon
+-- role inherits PUBLIC. A SECURITY DEFINER function therefore runs with owner
+-- privileges for an unauthenticated caller unless EXECUTE is explicitly
+-- revoked. Production applied those revokes migration-by-migration and has
+-- zero anon-executable SECURITY DEFINER functions; this consolidated file had
+-- lost them, so a fresh clone or self-host stood up with 44 of them reachable
+-- through /rest/v1/rpc.
+--
+-- Driven off the catalog rather than a hand-maintained list, so a function
+-- added later is locked down by default instead of silently inheriting PUBLIC.
+-- Runs last, after every CREATE FUNCTION above.
+DO $lockdown$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT p.oid::regprocedure AS sig
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.prosecdef
+  LOOP
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated', r.sig);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', r.sig);
+  END LOOP;
+END
+$lockdown$;
+
+-- Re-grant EXECUTE to authenticated for exactly the functions production
+-- grants it to. Guarded by to_regprocedure so a signature that does not exist
+-- in this file is skipped rather than aborting the whole schema load.
+DO $regrant$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT unnest(ARRAY[
+    'public.approve_promotion(uuid,uuid,text,text)',
+    'public.cancel_auto_digest_job(uuid,text)',
+    'public.check_detection_write_permission(uuid,text)',
+    'public.check_promotion_eligibility(text)',
+    'public.complete_feed_entry_processing(uuid,text)',
+    'public.complete_password_setup(text)',
+    'public.find_similar_detections(text,double precision,integer,boolean)',
+    'public.fork_to_development(text,uuid)',
+    'public.get_current_spend(text,text,text)',
+    'public.get_defensive_posture(uuid,text)',
+    'public.get_filter_options(text)',
+    'public.get_mitigation_techniques(text)',
+    'public.get_strategy_analytics(text)',
+    'public.get_technique_strategies_by_mitre_id(text)',
+    'public.get_top_impact_mitigations(integer)',
+    'public.get_top_impact_strategies(integer)',
+    'public.is_global_admin(uuid)',
+    'public.is_global_admin_or_lead(uuid)',
+    'public.populate_scoring_snapshot(text)',
+    'public.refresh_coverage_stats()',
+    'public.request_auto_digest_job(uuid,text)',
+    'public.reserve_auto_digest_article_quota(uuid,integer,integer)',
+    'public.rollback_bulk_import(uuid,uuid)',
+    'public.submit_for_promotion(text,uuid)',
+    'public.submit_for_promotion(uuid,uuid)',
+    'public.tr_patch_detection(uuid,text,text,text,jsonb)'
+  ]) AS sig
+  LOOP
+    IF to_regprocedure(r.sig) IS NOT NULL THEN
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated', r.sig);
+    END IF;
+  END LOOP;
+END
+$regrant$;

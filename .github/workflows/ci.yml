@@ -45,6 +45,11 @@ jobs:
   # frontend one, and so it runs in parallel.
   edge-functions:
     runs-on: ubuntu-latest
+    # The only functions that still fail `deno check`. Everything not named
+    # here is GATED. Burn this list down to empty, then delete the advisory
+    # step below — that deletion is the point of the step existing.
+    env:
+      KNOWN_FAILING: detection-finetune optimus-tools threat-intel-digest-v2
     steps:
       - uses: actions/checkout@v4
 
@@ -56,43 +61,71 @@ jobs:
       # deno.land specifiers the vitest run resolves to local stand-ins. This
       # is the only gate that sees the modules exactly as the platform will.
       #
+      # --node-modules-dir=auto resolves the `npm:` specifiers several
+      # functions import (fast-xml-parser, @google/genai). Without it the check
+      # ABORTS AT MODULE RESOLUTION before type-checking anything — which is
+      # precisely how `entryId is not defined` reached production in
+      # auto-digest-orchestrator while this job reported success in 40s. A
+      # green check that never ran is worse than no check, so the flag and the
+      # gating below have to land together.
+      #
       # --no-lock because the repo has no deno.lock; the functions are deployed
       # straight from source by `supabase functions deploy`.
-      - name: Deno check — threat-research-orchestrator
-        run: deno check --no-lock supabase/functions/threat-research-orchestrator/index.ts
-
-      # Every other edge function, ADVISORY for now.
       #
-      # Five fail today, for two different reasons, and both predate this
-      # workflow:
-      #   optimus-tools, auto-digest-orchestrator, detection-finetune,
-      #   threat-intel-digest-v2   real type errors (TS2339, TS7006)
-      #   fetch-feeds              npm:fast-xml-parser not resolvable without
-      #                            a deno.json nodeModulesDir setting
+      # Fail-closed by design: a NEW function is gated automatically unless
+      # somebody explicitly adds it to KNOWN_FAILING.
+      # Retried because the import graph is fetched from esm.sh and deno.land
+      # at check time. The first run of this gate went red on
       #
-      # Turning these red on day one would mean the first thing anyone does
-      # with this gate is disable it. So the sweep reports without blocking,
-      # and the annotations make the debt visible in the PR diff view rather
-      # than leaving it invisible as it is today.
+      #   Import 'https://esm.sh/@supabase/supabase-js@2' failed: 522
       #
-      # Burn it down and then delete `continue-on-error` — that deletion is the
-      # point of the step existing.
-      - name: Deno check — remaining edge functions (advisory)
-        continue-on-error: true
+      # which is a CDN outage, not a type error. A gate that fails on somebody
+      # else's downtime is one people learn to ignore, and this one exists
+      # precisely because the previous version had been ignorable. Type errors
+      # are deterministic and fail all three attempts, so retrying costs
+      # nothing on a genuine failure.
+      - name: Deno check — edge functions (gating)
         run: |
           set -uo pipefail
+
+          check() {
+            local entry="$1" attempt=1
+            while :; do
+              if deno check --no-lock --node-modules-dir=auto "$entry"; then
+                return 0
+              fi
+              [ "$attempt" -ge 3 ] && return 1
+              echo "  attempt ${attempt} failed — retrying in $(( attempt * 5 ))s"
+              sleep "$(( attempt * 5 ))"
+              attempt=$(( attempt + 1 ))
+            done
+          }
+
           failed=0
           for entry in supabase/functions/*/index.ts; do
-            case "$entry" in
-              */threat-research-orchestrator/*) continue ;;  # gated above
-            esac
-            echo "::group::deno check $entry"
-            if ! deno check --no-lock "$entry"; then
-              echo "::warning file=$entry::deno check failed (pre-existing; not gating)"
+            name=$(basename "$(dirname "$entry")")
+            case " $KNOWN_FAILING " in *" $name "*) continue ;; esac
+            echo "::group::deno check $name"
+            if ! check "$entry"; then
+              echo "::error file=$entry::deno check failed"
               failed=1
             fi
             echo "::endgroup::"
           done
-          if [ "$failed" -ne 0 ]; then
-            echo "Some edge functions still fail deno check — see warnings above."
-          fi
+          exit "$failed"
+
+      # Pre-existing debt, ADVISORY so it annotates without blocking:
+      #   detection-finetune      63 errors (TS2339, TS2345, TS2322, TS18046)
+      #   optimus-tools            6 errors (TS7006, TS2339, TS7034, TS7005)
+      #   threat-intel-digest-v2   1 error  (TS2322)
+      - name: Deno check — known-failing edge functions (advisory)
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          for name in $KNOWN_FAILING; do
+            entry="supabase/functions/$name/index.ts"
+            echo "::group::deno check $name"
+            deno check --no-lock --node-modules-dir=auto "$entry" \
+              || echo "::warning file=$entry::deno check failed (known debt; not gating)"
+            echo "::endgroup::"
+          done

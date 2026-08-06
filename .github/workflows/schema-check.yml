@@ -80,7 +80,15 @@ jobs:
           R=$(psql "$PGURL" -tA -c "select count(*) from pg_publication_tables where pubname='supabase_realtime';")
           A=$(psql "$PGURL" -tA -c "select count(*) from pg_trigger where tgname='on_auth_user_created';")
           C=$(psql "$PGURL" -tA -c "select count(*) from information_schema.columns where table_schema='public' and table_name='auto_digest_jobs' and column_name in ('active_entry_id','heartbeat_at');")
-          W=$(psql "$PGURL" -tA -c "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.oid='public.auto_digest_watchdog()'::regprocedure and pg_get_functiondef(p.oid) like '%active_entry_id%' and pg_get_functiondef(p.oid) like '%heartbeat_at%' and pg_get_functiondef(p.oid) like '%digest_failed%';")
+          # Watchdog must be the durable-queue version. This used to look for
+          # 'active_entry_id' and 'digest_failed', which the durable-queue
+          # rebuild deliberately removed when per-article state moved out of
+          # auto_digest_jobs and into leased auto_digest_job_entries rows. The
+          # assertion outlived the design it guarded and failed against both
+          # schema.sql and production, so it now checks the markers the current
+          # watchdog actually has: it must reclaim expired entry leases and
+          # judge job liveness by heartbeat.
+          W=$(psql "$PGURL" -tA -c "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.oid='public.auto_digest_watchdog()'::regprocedure and pg_get_functiondef(p.oid) like '%auto_digest_job_entries%' and pg_get_functiondef(p.oid) like '%lease_expires_at%' and pg_get_functiondef(p.oid) like '%heartbeat_at%';")
           echo "public tables:        $T (expect >= 63)"
           echo "public functions:     $F (expect >= 80)"
           echo "public RLS policies:  $P (expect >= 170)"
@@ -128,6 +136,50 @@ jobs:
             fail=1
           else
             echo "anon-executable SECURITY DEFINER functions: none ✅"
+          fi
+
+          # A column DEFAULT that its own CHECK constraint rejects makes every
+          # INSERT omitting that column fail outright. It is invisible until
+          # someone writes the first such INSERT, and then it looks like a bug
+          # in the writer rather than in the schema.
+          #
+          # Not hypothetical: auto_digest_job_entries.phase defaulted to
+          # 'digesting' while its CHECK allowed only 'digest'. The auto-digest
+          # orchestrator only worked because it passed phase explicitly, and
+          # the restored digesting phase had to keep doing so.
+          #
+          # KNOWN DEBT, excluded below so this gates rather than fails on day
+          # one -- both predate the check and both are live traps in the
+          # product's core table:
+          #   detections.library_type      default 'user'        CHECK development|production
+          #   detections.promotion_status  default 'unpublished' CHECK none|pending|promoted|rejected
+          # Fix those, shrink the exclusion list. Anything NEW fails the build.
+          DV=$(psql "$PGURL" -tA <<'SQL'
+          select coalesce(string_agg(format('%s.%s (default %s)', c.relname, a.attname,
+                                            pg_get_expr(d.adbin, d.adrelid)), ', '), '')
+            from pg_attribute a
+            join pg_class      c on c.oid = a.attrelid
+            join pg_namespace  n on n.oid = c.relnamespace
+            join pg_attrdef    d on d.adrelid = a.attrelid and d.adnum = a.attnum
+            join pg_constraint k on k.conrelid = a.attrelid
+                                and k.contype = 'c'
+                                and k.conkey = array[a.attnum]
+           where n.nspname = 'public'
+             and c.relkind = 'r'
+             and a.atttypid = 'text'::regtype
+             and pg_get_expr(d.adbin, d.adrelid) ~ '^''[^'']*''::text$'
+             and pg_get_constraintdef(k.oid) like '%= ANY (ARRAY[%'
+             and pg_get_constraintdef(k.oid) not like
+                   '%''' || btrim(split_part(pg_get_expr(d.adbin, d.adrelid), '::', 1), '''') || '''%'
+             and format('%s.%s', c.relname, a.attname) not in
+                   ('detections.library_type', 'detections.promotion_status');
+          SQL
+          )
+          if [ -n "$DV" ]; then
+            echo "::error::column default(s) rejected by their own CHECK constraint: $DV"
+            fail=1
+          else
+            echo "defaults violating their own CHECK: none ✅"
           fi
 
           [ "$fail" -eq 0 ] && echo "✅ supabase/schema.sql applies cleanly on an empty database"
