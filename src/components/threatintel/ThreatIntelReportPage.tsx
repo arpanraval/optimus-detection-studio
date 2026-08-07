@@ -25,6 +25,13 @@ import {
   LibraryMatch,
   digestProducedUsableReport,
 } from '../../types/threatIntel';
+// Shared with the edge extractor so a reference is named the same way whether
+// it was just extracted or is being upgraded after a fetch.
+import {
+  deriveGitHubReferenceName,
+  deriveRuleTitleFromContent,
+  trimUrlTrailingPunctuation,
+} from '../../../supabase/functions/_shared/github-reference';
 import {
   badgeSizes,
   threatLevelColors,
@@ -521,9 +528,15 @@ export const ThreatIntelReportPage: React.FC = () => {
     setFetchingRuleId(rule.id);
 
     try {
+      // Strip prose punctuation the extractor captured with the URL. Stored
+      // references predate the extraction-side fix, and 41 of 57 carry a
+      // stray ')' that makes the fetch 404, so trimming here is what makes
+      // the button work on existing reports.
+      const cleanUrl = trimUrlTrailingPunctuation(url);
+
       // Convert GitHub blob URL to raw URL
       // https://github.com/user/repo/blob/branch/path -> https://raw.githubusercontent.com/user/repo/branch/path
-      let rawUrl = url;
+      let rawUrl = cleanUrl;
       if (rawUrl.includes('github.com') && rawUrl.includes('/blob/')) {
         rawUrl = rawUrl
           .replace('github.com', 'raw.githubusercontent.com')
@@ -603,12 +616,24 @@ export const ThreatIntelReportPage: React.FC = () => {
         return ExtractedRuleType.Other;
       };
 
-      const detectedType = detectRuleType(content, url);
+      const detectedType = detectRuleType(content, cleanUrl);
+
+      // Now that the file is in hand, prefer the rule's own title over the
+      // name derived from its filename. Falls back to the existing name when
+      // the content declares no title -- replacing a derived name with a worse
+      // guess would be a step backwards.
+      const fetchedTitle = deriveRuleTitleFromContent(content);
 
       // Update the rule in the report and persist
       const updatedRules = report.rules.map(r =>
         r.id === rule.id
-          ? { ...r, content, type: detectedType, sourceUrl: url }
+          ? {
+              ...r,
+              content,
+              type: detectedType,
+              sourceUrl: cleanUrl,
+              name: fetchedTitle || deriveGitHubReferenceName(cleanUrl) || r.name,
+            }
           : r
       );
       const updatedReport = { ...report, rules: updatedRules };

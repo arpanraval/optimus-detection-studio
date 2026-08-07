@@ -7,6 +7,11 @@
  */
 
 import type { ExtractedRule } from './types.ts'
+import {
+  deriveGitHubReferenceName,
+  describeGitHubReference,
+  trimUrlTrailingPunctuation,
+} from '../../_shared/github-reference.ts'
 
 /**
  * Extracts detection rules from content using pattern matching.
@@ -264,16 +269,24 @@ export function extractRulesFromContent(content: string): ExtractedRule[] {
   // GitHub references to detection tools
   const githubPattern = /https?:\/\/github\.com\/[^\s<>"']+(?:\/blob\/[^\s<>"']+)?/gi
   const githubMatches = content.match(githubPattern) || []
-  for (const match of githubMatches) {
+  for (const rawMatch of githubMatches) {
+    // The pattern above stops at whitespace, so a link written as
+    // `(see [rule](https://...yaml))` hands back the closing brackets too.
+    // Storing those produces a 404 URL, and the fetch button can never work.
+    const match = trimUrlTrailingPunctuation(rawMatch)
     if (/(?:sigma|yara|detection|rule|hunt|ioc|indicator|threat)/i.test(match)) {
       if (!seenContent.has(match)) {
         seenContent.add(match)
         rules.push({
           id: '',
           type: 'github_reference',
-          name: 'GitHub Reference',
+          // Derived from the filename in the URL. The name was previously a
+          // constant, so every reference on a report was indistinguishable --
+          // one report carries 14 of them. Replaced with the rule's own title
+          // if and when the content is fetched.
+          name: deriveGitHubReferenceName(match),
           content: match,
-          description: 'Link to detection rules or tools'
+          description: describeGitHubReference(match)
         })
       }
     }
