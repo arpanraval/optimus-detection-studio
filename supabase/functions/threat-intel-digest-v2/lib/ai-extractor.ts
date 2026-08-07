@@ -16,6 +16,7 @@ import {
   type Provider
 } from './types.ts'
 import { withAiTelemetry } from '../../_shared/aiTelemetry.ts'
+import { canonicalizeIoCType } from '../../_shared/ioc-type.ts'
 import {
   parseGeminiUsage,
   parseOpenAIUsage,
@@ -290,7 +291,18 @@ function mapIoCType(aiCategory: string, item: any): string {
     'mac_addresses': 'mac_address',
     'ssh_keys': 'ssh_key'
   }
-  return typeMap[aiCategory] || 'other'
+  // The `file_hashes` and `crypto_addresses` entries above forward the model's
+  // own word (`hash_type`, `currency_type`) rather than a fixed value, so this
+  // is the boundary where an uncontrolled spelling enters the system -- "SHA-256"
+  // and "SHA256" both arrived here and both were stored. Canonicalise before
+  // returning so downstream code, which is written against canonical spellings,
+  // matches. An unrecognised type is kept rather than coerced, and logged so a
+  // vocabulary gap is visible instead of silently becoming a new type.
+  const resolved = canonicalizeIoCType(typeMap[aiCategory] || 'other')
+  if (!resolved.recognized) {
+    console.warn(`mapIoCType: unrecognised indicator type "${resolved.type}" (from ${aiCategory}); stored as-is`)
+  }
+  return resolved.type
 }
 
 // =============================================================================

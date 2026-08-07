@@ -2,6 +2,8 @@
  * Type definitions for the Threat Intel Digest v2 edge function.
  */
 
+import { canonicalizeIoCType } from '../../_shared/ioc-type.ts'
+
 // =============================================================================
 // REQUEST/RESPONSE TYPES
 // =============================================================================
@@ -351,5 +353,10 @@ export const IOC_TYPE_TO_CATEGORY: Record<string, string> = {
 };
 
 export function getIoCCategory(type: string): string {
-  return IOC_TYPE_TO_CATEGORY[type] || 'other';
+  // Canonicalise first. This map is keyed on canonical spellings, so a
+  // `sha-256` from the model missed every key and fell to 'other' -- the
+  // reason 25 stored hashes sit outside the Hashes filter. An unrecognised
+  // type still lands on 'other', but now only when it is genuinely unknown
+  // rather than merely spelled differently.
+  return IOC_TYPE_TO_CATEGORY[canonicalizeIoCType(type).type] || 'other';
 }
