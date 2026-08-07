@@ -12,6 +12,7 @@ import {
   describeGitHubReference,
   trimUrlTrailingPunctuation,
 } from '../../_shared/github-reference.ts'
+import { classifyRuleType } from '../../_shared/rule-type.ts'
 
 /**
  * Extracts detection rules from content using pattern matching.
@@ -293,5 +294,12 @@ export function extractRulesFromContent(content: string): ExtractedRule[] {
   }
 
   console.log('Extracted ' + rules.length + ' rules via pattern matching')
-  return rules
+  // Classified in one pass rather than at each of the eleven push sites, so a
+  // new extractor branch cannot forget to say what kind of artifact it made.
+  // Every type above is already canonical; this attaches the missing axis --
+  // notably marking github_reference as a reference rather than a language.
+  return rules.map((rule) => {
+    const classification = classifyRuleType(rule.type)
+    return { ...rule, kind: classification.kind, typeRecognized: classification.recognized }
+  })
 }

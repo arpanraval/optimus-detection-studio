@@ -194,6 +194,9 @@ export interface ExtractedIoC {
 export interface ExtractedRule {
   id: string;
   type: string;
+  /** See E3 -- `type` conflated query languages with references and prose. */
+  kind?: 'query' | 'reference' | 'description';
+  typeRecognized?: boolean;
   name: string;
   content: string;
   description?: string;

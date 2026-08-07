@@ -277,6 +277,16 @@ export interface ExtractedIoC {
 export interface ExtractedRule {
   id: string;
   type: ExtractedRuleType;
+  /**
+   * What this artifact actually is. `type` alone could not say: it held both
+   * query languages (`kql`) and things that are not languages at all
+   * (`github_reference`, a Palo Alto signature ID averaging 5 characters,
+   * prose reading "log analysis"). Only `kind: 'query'` is deployable.
+   * See E3 in the intel-digest problem inventory.
+   */
+  kind?: 'query' | 'reference' | 'description';
+  /** False when the type string matched no known vocabulary entry. */
+  typeRecognized?: boolean;
   name?: string;
   content: string;
   sourceUrl?: string;        // GitHub link or original source

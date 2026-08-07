@@ -32,6 +32,25 @@ import {
   deriveRuleTitleFromContent,
   trimUrlTrailingPunctuation,
 } from '../../../supabase/functions/_shared/github-reference';
+import { classifyRuleType } from '../../../supabase/functions/_shared/rule-type';
+
+/**
+ * Display labels for the query languages the Detection form accepts. Keyed by
+ * the shared canonical vocabulary, so adding a language in one place is
+ * enough. A language absent here falls back to 'Other' -- which is honest,
+ * because the form genuinely has no better option for it.
+ */
+const QUERY_LANGUAGE_LABELS: Record<string, string> = {
+  kql: 'KQL',
+  spl: 'SPL',
+  sigma: 'Sigma',
+  yara: 'YARA',
+  snort: 'Snort',
+  suricata: 'Suricata',
+  eql: 'EQL',
+  esql: 'ES|QL',
+  xql: 'XQL',
+};
 import {
   badgeSizes,
   threatLevelColors,
@@ -418,16 +437,17 @@ export const ThreatIntelReportPage: React.FC = () => {
   const handleCreateDraftFromRule = useCallback((rule: ExtractedRule) => {
     if (!report) return;
 
-    // Map rule type to query language for the Detection form
+    // Map rule type to query language for the Detection form.
+    //
+    // This covered five values and defaulted everything else to 'Other', so a
+    // Suricata rule -- a member of ExtractedRuleType -- produced a detection
+    // with no usable query language, as did eql, xql, es|ql and an uppercase
+    // 'KQL'. Classifying first means the label follows the shared vocabulary
+    // instead of a hand-picked list that drifts from it.
     const getQueryLanguage = (type: string): string => {
-      switch (type) {
-        case 'kql': return 'KQL';
-        case 'spl': return 'SPL';
-        case 'sigma': return 'Sigma';
-        case 'yara': return 'YARA';
-        case 'snort': return 'Snort';
-        default: return 'Other';
-      }
+      const { kind, language, recognized } = classifyRuleType(type);
+      if (kind !== 'query' || !recognized) return 'Other';
+      return QUERY_LANGUAGE_LABELS[language] ?? 'Other';
     };
 
     // Try to extract MITRE technique IDs from the rule content itself (for Sigma rules)
