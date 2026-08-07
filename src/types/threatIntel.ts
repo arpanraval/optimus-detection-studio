@@ -201,6 +201,13 @@ export interface ThreatReport {
     library?: string;
     evidence?: string;
   };
+
+  // Per-section verdict. Produced by the edge function and stored in
+  // section_outcomes, but missing from this interface until now -- A1 listed
+  // it among the dropped fields and then did not add it, so the client had no
+  // field to receive it into. Mirrors the edge-side declaration in
+  // supabase/functions/threat-intel-digest-v2/lib/types.ts.
+  sectionOutcomes?: Record<string, 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'retained_previous'>;
 }
 
 export interface ReportSummary {
@@ -445,11 +452,38 @@ export interface DigestOptions {
 }
 
 export interface DigestReportResponse {
+  /**
+   * "A usable report is attached" -- NOT "nothing went wrong". A partial run
+   * is a success that has something to warn about. Read `outcome` for the
+   * completeness verdict. Prefer `digestProducedUsableReport` over reading
+   * this directly; see A3 in the intel-digest problem inventory.
+   */
   success: boolean;
   report?: ThreatReport;
   outcome?: 'complete' | 'partial' | 'failed' | 'cancelled';
   error?: string;
   processingTimeMs?: number;
+}
+
+/**
+ * Whether a digest response carries a report the caller can persist and render.
+ *
+ * Three call sites each answered this differently. Two tested `success`, which
+ * the edge function set to `outcome === 'complete'` -- so both discarded every
+ * partial report and displayed an unexplained failure (A3). The third read
+ * `outcome` and was correct.
+ *
+ * `outcome` is the authoritative field and is checked first, which also makes
+ * this correct against a digest function deployed before that fix: an old
+ * response for a partial run says `success: false` but `outcome: 'partial'`.
+ * Deploys are not atomic, so the client must not depend on version parity.
+ */
+export function digestProducedUsableReport(
+  response: Pick<DigestReportResponse, 'success' | 'outcome' | 'report'>,
+): boolean {
+  if (!response.report) return false;
+  if (response.outcome) return response.outcome !== 'failed' && response.outcome !== 'cancelled';
+  return response.success;
 }
 
 // ============================================

@@ -67,6 +67,7 @@ export interface ThreatIntelReportDbRecord {
   fetched_url?: string;
   quality_warnings?: string[];
   possible_actor_mentions?: string[];
+  section_outcomes?: Record<string, 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'retained_previous'>;
   library_overlap_percent?: number | null;
   validated_overlap_percent?: number | null;
   deployment_readiness_percent?: number | null;
@@ -193,6 +194,7 @@ export function dbRecordToSession(record: ThreatIntelReportDbRecord): ThreatInte
     fetchedUrl: record.fetched_url,
     qualityWarnings: record.quality_warnings ?? [],
     possibleActorMentions: record.possible_actor_mentions ?? [],
+    sectionOutcomes: record.section_outcomes,
     libraryOverlapPercent: record.library_overlap_percent,
     validatedOverlapPercent: record.validated_overlap_percent,
     deploymentReadinessPercent: record.deployment_readiness_percent,
@@ -253,7 +255,10 @@ function dbRecordToSummary(record: ThreatIntelReportDbRecord): ThreatIntelSessio
 /**
  * Convert ThreatIntelSession to database record
  */
-function sessionToDbRecord(session: ThreatIntelSession, userId: string): Partial<ThreatIntelReportDbRecord> {
+// Exported for the write-side half of __tests__/db-record-mapping.test.ts.
+// This mapper is the twin of dbRecordToSession and drifted the same way: it
+// wrote section_errors but not the outcome those errors belonged to.
+export function sessionToDbRecord(session: ThreatIntelSession, userId: string): Partial<ThreatIntelReportDbRecord> {
   const report = session.report;
 
   // Calculate coverage: percentage of TTPs that have existing detections
@@ -281,6 +286,26 @@ function sessionToDbRecord(session: ThreatIntelSession, userId: string): Partial
     processing_stage: report?.processingStage || 'complete',
     processing_error: report?.processingError,
     section_errors: report?.sectionErrors,
+
+    // Trust metadata -- the write-side twin of A1. This mapper already wrote
+    // section_errors but none of these, so a client-side save (which is what a
+    // successful Re-extract performs) refreshed the section errors and left
+    // the verdict describing the PREVIOUS run. The banner reads both, so the
+    // row contradicted itself. Omitting them is not neutral just because
+    // PostgREST leaves absent columns alone on update.
+    // 'unknown' is a read-side sentinel meaning "this row did not tell us".
+    // Persisting it would invent a value the column has never held and would
+    // overwrite whatever the server did know. Omitting the key instead leaves
+    // the stored value untouched, which is the honest move: not knowing the
+    // outcome is not the same as knowing it is unknown.
+    outcome: report?.outcome === 'unknown' ? undefined : report?.outcome,
+    source_quality: report?.sourceQuality === 'unknown' ? undefined : report?.sourceQuality,
+    quality_warnings: report?.qualityWarnings,
+    possible_actor_mentions: report?.possibleActorMentions,
+    section_outcomes: report?.sectionOutcomes,
+    source_content_length: report?.sourceContentLength,
+    source_content_hash: report?.sourceContentHash,
+    fetched_url: report?.fetchedUrl,
     selected_ttp_ids: session.selectedTTPIds || [],
     selected_ioc_ids: session.selectedIoCIds || [],
     // Cached fields for list queries

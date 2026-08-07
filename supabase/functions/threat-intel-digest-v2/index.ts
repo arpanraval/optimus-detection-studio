@@ -18,6 +18,7 @@ import { extractSummary, extractClassification, extractTTPs, extractIoCsWithAI }
 import { extractRulesFromContent } from './lib/rule-extractor.ts'
 import { performMitreMatching } from './lib/mitre-matcher.ts'
 import { findLibraryMatches } from './lib/library-matcher.ts'
+import { buildDigestEnvelope, deriveReportOutcome } from './lib/response-contract.ts'
 
 // Import types
 import type {
@@ -589,9 +590,11 @@ serve(async (req: Request) => {
       }
     }
 
-    const reportOutcome = (!summary || !classification || Boolean(sectionErrors.summary) || Boolean(sectionErrors.classification) || Boolean(sectionErrors.ttps))
-      ? 'failed'
-      : Object.keys(sectionErrors).length > 0 ? 'partial' : 'complete';
+    const reportOutcome = deriveReportOutcome({
+      hasSummary: Boolean(summary),
+      hasClassification: Boolean(classification),
+      sectionErrors,
+    });
     const skippedSections = new Set<string>();
     if (!extractIoCs) skippedSections.add('iocs');
     if (!extractRules) skippedSections.add('rules');
@@ -642,7 +645,7 @@ serve(async (req: Request) => {
     console.log('Summary: ' + ttps.length + ' TTPs, ' + iocs.length + ' IoCs, ' + rules.length + ' rules')
 
     return new Response(
-      JSON.stringify({ success: reportOutcome === 'complete', outcome: reportOutcome, error: reportOutcome === 'failed' ? 'Required extraction stages failed' : undefined, report, processingTimeMs: Date.now() - startTime }),
+      JSON.stringify(buildDigestEnvelope(reportOutcome, report, Date.now() - startTime)),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 

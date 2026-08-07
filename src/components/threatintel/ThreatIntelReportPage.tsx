@@ -23,6 +23,7 @@ import {
   RetrySectionType,
   MitreEntityMatch,
   LibraryMatch,
+  digestProducedUsableReport,
 } from '../../types/threatIntel';
 import {
   badgeSizes,
@@ -644,7 +645,7 @@ export const ThreatIntelReportPage: React.FC = () => {
     try {
       const result = await retryReportSection(report, section, model);
 
-      if (result.success && result.report) {
+      if (digestProducedUsableReport(result) && result.report) {
         // Update session with new report
         const updatedSession = {
           ...session,
@@ -683,12 +684,24 @@ export const ThreatIntelReportPage: React.FC = () => {
         if (keptExisting) {
           showToast('warning', 'No New Data', `Retry found no results. Kept existing ${countMessage}.`);
         } else if (newCount > 0) {
-          showToast('success', 'Retry Complete', `${countMessage} found`);
+          // A 'partial' outcome still carries a usable report -- it means some
+          // OTHER section has a warning. Saying "Retry Complete" would hide
+          // that; saying it failed is what A3 was. Name what happened.
+          if (result.outcome === 'partial') {
+            showToast('warning', 'Retry Complete, Review Needed', `${countMessage} found. Report still has warnings on other sections.`);
+          } else {
+            showToast('success', 'Retry Complete', `${countMessage} found`);
+          }
         } else {
           showToast('warning', 'No Data Found', `${countMessage} in article. Try a different model or check source.`);
         }
       } else {
-        showToast('error', 'Retry Failed', result.error || 'Failed to retry section');
+        // buildDigestEnvelope guarantees `error` is set whenever success is
+        // false, so this fallback should be unreachable. It previously fired
+        // on every partial report and printed a bare "Failed to retry section"
+        // with no cause -- if it ever fires again, say that it is unexplained
+        // rather than asserting a reason we do not have.
+        showToast('error', 'Retry Failed', result.error || 'The server returned no report and no reason.');
       }
     } catch (error) {
       console.error('Retry error:', error);

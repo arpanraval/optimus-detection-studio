@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dbRecordToSession, type ThreatIntelReportDbRecord } from '../ThreatIntelContext';
+import { dbRecordToSession, sessionToDbRecord, type ThreatIntelReportDbRecord } from '../ThreatIntelContext';
 
 /**
  * Guard for the database -> report mapper.
@@ -120,5 +120,57 @@ describe('dbRecordToSession', () => {
     expect(report.iocs).toHaveLength(1);
     expect(report.rules).toHaveLength(1);
     expect(report.libraryMatches).toHaveLength(1);
+  });
+});
+
+/**
+ * Guard for the report -> database mapper.
+ *
+ * A successful Re-extract saves through this path. It wrote section_errors but
+ * not `outcome`, so a retry refreshed the list of what failed while leaving the
+ * verdict describing the previous run. The banner reads both fields, so the
+ * stored row contradicted itself.
+ */
+describe('sessionToDbRecord', () => {
+  const session = () => {
+    const { report, ...rest } = dbRecordToSession(fullRecord());
+    return { ...rest, report };
+  };
+
+  it('writes the trust metadata alongside the section errors it belongs to', () => {
+    const record = sessionToDbRecord(session(), 'user-1');
+
+    expect(record.outcome).toBe('partial');
+    expect(record.source_quality).toBe('feed_summary');
+    expect(record.quality_warnings).toEqual(['content was truncated']);
+    expect(record.possible_actor_mentions).toEqual(['Scattered Spider']);
+    expect(record.section_errors).toEqual({ evidence: 'evidence extraction failed' });
+    expect(record.source_content_length).toBe(1234);
+    expect(record.source_content_hash).toBe('abc123');
+    expect(record.fetched_url).toBe('https://example.test/article?utm=1');
+  });
+
+  it('survives a round trip without changing the verdict', () => {
+    const record = sessionToDbRecord(session(), 'user-1');
+
+    expect(record.outcome).toBe(fullRecord().outcome);
+    expect(record.source_quality).toBe(fullRecord().source_quality);
+  });
+
+  // 'unknown' is a read-side sentinel for "the row did not tell us". Writing it
+  // back would invent a value the column has never held and would overwrite
+  // whatever the server did know. Omitting the key leaves the stored value be.
+  it('never persists the unknown sentinel', () => {
+    const record = fullRecord();
+    delete record.outcome;
+    delete record.source_quality;
+
+    const { report, ...rest } = dbRecordToSession(record);
+    expect(report.outcome).toBe('unknown');
+
+    const written = sessionToDbRecord({ ...rest, report }, 'user-1');
+    expect(written.outcome).toBeUndefined();
+    expect(written.source_quality).toBeUndefined();
+    expect('outcome' in written ? written.outcome : undefined).toBeUndefined();
   });
 });

@@ -10,6 +10,7 @@ import {
   ProcessingStage,
   PROCESSING_STAGES,
   generateReportId,
+  digestProducedUsableReport,
   ThreatLevel,
   AttackType,
   ExtractedTTP,
@@ -463,8 +464,10 @@ export const DigestNewReportModal: React.FC<Props> = ({ isOpen, onClose, onCompl
 
       if (abortRef.current?.signal.aborted) return;
 
-      if (!response.success || !response.report) {
-        throw new Error(response.error || 'Analysis failed');
+      // Same conflation as the retry path (A3): testing `success` discarded
+      // every 'partial' report, which is the normal outcome for most articles.
+      if (!digestProducedUsableReport(response) || !response.report) {
+        throw new Error(response.error || 'The server returned no report and no reason.');
       }
 
       // Show final stages completing
