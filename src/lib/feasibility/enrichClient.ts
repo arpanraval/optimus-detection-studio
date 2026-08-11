@@ -13,8 +13,10 @@ interface EnvProfileLite {
 export interface FeasibilityResult {
   feasible: number;
   infeasible: number;
+  /** Uncovered techniques that could not be assessed either way. */
+  unknown?: number;
   computed: boolean;
-  reason?: 'no_profile' | 'no_uncovered' | 'no_mitre_ids' | 'no_stix_mapping' | 'computed';
+  reason?: 'no_profile' | 'no_uncovered' | 'no_mitre_ids' | 'no_stix_mapping' | 'no_requirements' | 'computed';
 }
 
 /**
@@ -64,11 +66,11 @@ export async function enrichFeasibilityForReport(
 
   const stixIds = Object.values(stixByMitreId);
   if (stixIds.length === 0) {
-    await supabase
-      .from('threat_intel_reports')
-      .update({ feasible_gap_count: uncovered.length, infeasible_gap_count: 0 })
-      .eq('id', reportId);
-    return { feasible: uncovered.length, infeasible: 0, computed: true, reason: 'no_stix_mapping' };
+    // Not assessable: no technique mapped to STIX, so no requirement is known
+    // for any of them. This used to write `feasible: uncovered.length` and
+    // report computed:true -- claiming every gap was detectable on the basis
+    // of having looked nothing up.
+    return { feasible: 0, infeasible: 0, unknown: uncovered.length, computed: false, reason: 'no_stix_mapping' };
   }
 
   const { data: dsRows } = await supabase
@@ -87,13 +89,21 @@ export async function enrichFeasibilityForReport(
   for (const t of profile.edr_tools ?? []) available.add(t.toLowerCase());
   const availableArr = Array.from(available);
 
+  // Three outcomes, not two. A technique with no recorded data-source
+  // requirement has not been found feasible -- it has not been assessed. The
+  // orchestrator's copy was fixed for this; this mirror was not, and
+  // `mitre_technique_data_sources` holds 0 rows in production, so EVERY
+  // technique took the unknown path and was counted feasible. That is how the
+  // TTPs tab came to say "Gaps you can detect: 10" about a report where
+  // nothing had been checked.
   let feasible = 0;
   let infeasible = 0;
+  let unknown = 0;
   for (const ttp of uncovered) {
     const stix = ttp.mitreId ? stixByMitreId[ttp.mitreId] : undefined;
     const required = stix ? requiredSources[stix] : undefined;
     if (!required || required.length === 0) {
-      feasible += 1;
+      unknown += 1;
       continue;
     }
     const hasMatch = required.some(req =>
@@ -103,10 +113,17 @@ export async function enrichFeasibilityForReport(
     else infeasible += 1;
   }
 
+  // Only persist an assessment that actually assessed something. Writing
+  // 0/0 when every technique was unknown would read as "no gaps are
+  // detectable", which is a different false claim from the one just removed.
+  if (feasible + infeasible === 0) {
+    return { feasible: 0, infeasible: 0, unknown, computed: false, reason: 'no_requirements' };
+  }
+
   await supabase
     .from('threat_intel_reports')
     .update({ feasible_gap_count: feasible, infeasible_gap_count: infeasible })
     .eq('id', reportId);
 
-  return { feasible, infeasible, computed: true, reason: 'computed' };
+  return { feasible, infeasible, unknown, computed: true, reason: 'computed' };
 }
