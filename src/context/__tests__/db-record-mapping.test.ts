@@ -173,4 +173,57 @@ describe('sessionToDbRecord', () => {
     expect(written.source_quality).toBeUndefined();
     expect('outcome' in written ? written.outcome : undefined).toBeUndefined();
   });
+
+  // This mapper used to recompute coverage from `hasExistingDetection` over
+  // every TTP and upsert the result -- a fourth formula, and the only one that
+  // writes. The server can now report "coverage could not be assessed" (no
+  // detection passes the eligibility gate), and a save that recomputed would
+  // immediately overwrite that null with a number of its own.
+  it('persists the server verdict on coverage rather than recomputing one', () => {
+    const { report, ...rest } = dbRecordToSession(fullRecord());
+    const covered = {
+      ...report,
+      coveragePercent: 42,
+      ttps: [{ mitreId: 'T1059', hasExistingDetection: true }, { mitreId: 'T1027' }],
+    } as typeof report;
+
+    expect(sessionToDbRecord({ ...rest, report: covered }, 'user-1').coverage_percent).toBe(42);
+  });
+
+  // Absent must stay distinguishable from zero (constraint 5). Writing 0 here
+  // turns "could not be assessed" into "assessed as none" the moment a report
+  // is opened and saved.
+  it('writes an unassessed coverage as null, not zero', () => {
+    const { report, ...rest } = dbRecordToSession(fullRecord());
+    const unassessed = {
+      ...report,
+      coveragePercent: null,
+      ttps: [{ mitreId: 'T1059', hasExistingDetection: true }],
+    } as typeof report;
+
+    expect(sessionToDbRecord({ ...rest, report: unassessed }, 'user-1').coverage_percent).toBeNull();
+  });
+
+  // Feasibility is the orchestrator's to compute. The digest clears it when a
+  // retry replaces the TTP set; that clearing only reaches the row if this
+  // mapper writes it.
+  it('persists a cleared feasibility so stale counts cannot survive', () => {
+    const { report, ...rest } = dbRecordToSession(fullRecord());
+    const cleared = { ...report, feasibleGapCount: null, infeasibleGapCount: null } as typeof report;
+
+    const written = sessionToDbRecord({ ...rest, report: cleared }, 'user-1');
+    expect(written.feasible_gap_count).toBeNull();
+    expect(written.infeasible_gap_count).toBeNull();
+  });
+
+  // ...but a session that never carried the field must not blank a row the
+  // orchestrator populated.
+  it('leaves feasibility untouched when the report does not carry it', () => {
+    const { report, ...rest } = dbRecordToSession(fullRecord());
+    const { feasibleGapCount: _f, infeasibleGapCount: _i, ...withoutFeasibility } = report as any;
+
+    const written = sessionToDbRecord({ ...rest, report: withoutFeasibility }, 'user-1');
+    expect('feasible_gap_count' in written).toBe(false);
+    expect('infeasible_gap_count' in written).toBe(false);
+  });
 });

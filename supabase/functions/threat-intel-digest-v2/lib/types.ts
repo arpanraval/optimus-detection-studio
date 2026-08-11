@@ -118,6 +118,16 @@ export interface ThreatReport {
   libraryOverlapPercent?: number | null;
   validatedOverlapPercent?: number | null;
   deploymentReadinessPercent?: number | null;
+  /**
+   * Assessed by the auto-digest orchestrator, which has the environment
+   * profile; this function has no feasibility stage. Carried on the report
+   * anyway because the client swaps its whole session for this object, so a
+   * missing field reads as "feasibility not computed" on a report whose row
+   * holds a number. `null` means a retry replaced the TTP set and the previous
+   * assessment is void -- distinct from 0, which claims nothing is feasible.
+   */
+  feasibleGapCount?: number | null;
+  infeasibleGapCount?: number | null;
   overlapCalculatedAt?: string;
   processingStage: ProcessingStage;
   processingError?: string;

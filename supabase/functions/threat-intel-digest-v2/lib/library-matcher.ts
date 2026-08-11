@@ -15,6 +15,28 @@ import type {
 import { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 
 /**
+ * The outcome of a coverage search.
+ *
+ * `matches: []` used to mean two different things: "searched the library and
+ * nothing covers these techniques" and "there was nothing to search". Today
+ * it is always the second -- 0 of 11,820 detections pass the eligibility gate
+ * (production + promoted + approved), so every computed coverage figure is
+ * necessarily 0% (C2). Rendered as "0 Covered", that reads as an answer.
+ *
+ * `computed` says whether a question was actually asked. When it is false the
+ * caller must record absence, not zero (constraint 5).
+ */
+export interface LibraryMatchResult {
+  matches: LibraryMatch[]
+  /** False when no detection was eligible to be searched at all. */
+  computed: boolean
+  /** Detections that passed the eligibility gate. */
+  candidatePoolSize: number
+  /** Rows considered before the gate, for an honest "0 of N" message. */
+  librarySize: number
+}
+
+/**
  * Finds detections in the library that match the extracted TTPs.
  * Returns detections with TTP overlap and group-related coverage.
  */
@@ -24,9 +46,11 @@ export async function findLibraryMatches(
   supabaseClient: SupabaseClient,
   userId: string,
   includeOwnedDevelopment = false,
-): Promise<LibraryMatch[]> {
+): Promise<LibraryMatchResult> {
   const matches: LibraryMatch[] = []
   const seenDetectionIds = new Set<string>()
+  let librarySize = 0
+  let candidatePoolSize = 0
 
   try {
     // Part 1: Find detections by TTP overlap
@@ -42,9 +66,11 @@ export async function findLibraryMatches(
 
     if (error) {
       console.error('Library matching query error:', error)
-      return matches
+      // A failed query is not a coverage answer either.
+      return { matches, computed: false, candidatePoolSize: 0, librarySize: 0 }
     }
 
+    librarySize = (detections || []).length
     const eligibleDetections = (detections || []).filter((detection: any) => {
       const active = detection.status !== 'deprecated' && detection.status !== 'inactive';
       const production = detection.library_type === 'production'
@@ -56,7 +82,8 @@ export async function findLibraryMatches(
         && detection.user_id === userId;
       return active && (production || ownedDevelopment);
     });
-    console.log(`findLibraryMatches: Fetched ${eligibleDetections.length} eligible detections`)
+    candidatePoolSize = eligibleDetections.length
+    console.log(`findLibraryMatches: Fetched ${eligibleDetections.length} eligible detections of ${librarySize}`)
 
     if (eligibleDetections.length > 0) {
       // Part 1a: Filter detections that have overlapping TTPs
@@ -145,7 +172,11 @@ export async function findLibraryMatches(
     }
   } catch (error) {
     console.error('Library matching error:', error)
+    return { matches, computed: false, candidatePoolSize, librarySize }
   }
 
-  return matches
+  // Coverage was only actually assessed if something was eligible to assess it
+  // against. An empty candidate pool yields `matches: []`, which is absence of
+  // an answer, not an answer of zero.
+  return { matches, computed: candidatePoolSize > 0, candidatePoolSize, librarySize }
 }

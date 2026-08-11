@@ -167,8 +167,19 @@ export interface ThreatReport {
   possibleActorMentions?: string[];
   libraryOverlapPercent?: number | null;
   validatedOverlapPercent?: number | null;
+  /** When the overlap percentages above were last actually computed. */
+  overlapCalculatedAt?: string;
   deploymentReadinessPercent?: number | null;
   coveragePercent?: number | null;
+
+  // Assessed by the auto-digest orchestrator, not by the digest function, but
+  // carried on the report so a retry response cannot silently drop them: the
+  // client swaps its whole session for that response, and a missing field
+  // rendered as "feasibility not computed" on a report whose row said 9.
+  // `null` means the TTP set changed and the previous assessment is void --
+  // distinct from 0, which would claim nothing is feasible.
+  feasibleGapCount?: number | null;
+  infeasibleGapCount?: number | null;
 
   // Input
   sourceType: 'url' | 'paste';
@@ -400,8 +411,8 @@ export interface ThreatIntelSession {
   source?: 'manual' | 'auto';
   sourceFeedName?: string;
   sourceArticleUrl?: string;
-  feasibleGapCount?: number;
-  infeasibleGapCount?: number;
+  feasibleGapCount?: number | null;
+  infeasibleGapCount?: number | null;
 }
 
 export interface UpdatedEntityRecord {

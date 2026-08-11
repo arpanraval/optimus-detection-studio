@@ -19,6 +19,8 @@ import { extractRulesFromContent } from './lib/rule-extractor.ts'
 import { performMitreMatching } from './lib/mitre-matcher.ts'
 import { findLibraryMatches } from './lib/library-matcher.ts'
 import { buildDigestEnvelope, deriveReportOutcome } from './lib/response-contract.ts'
+import { reconcileQualityWarnings } from './lib/quality-warnings.ts'
+import { planStages, invalidatesFeasibility, type DigestStage } from './lib/retry-plan.ts'
 
 // Import types
 import type {
@@ -297,6 +299,14 @@ serve(async (req: Request) => {
       console.log(`Using pasted content: ${reportContent.length} chars`)
     }
 
+    // A retry runs the requested stage AND every stage downstream of it, so no
+    // verdict survives a change to the data it was computed from. Retrying
+    // `ttps` therefore re-runs `mitre` and `library` too. See lib/retry-plan.ts.
+    const plannedStages = planStages(isRetry ? (retrySection as DigestStage) : null)
+    if (isRetry) {
+      console.log(`Retry '${retrySection}' -> running stages: ${[...plannedStages].join(', ')}`)
+    }
+
     // Initialize variables
     let summary: ReportSummary | null = isRetry ? existingReport!.summary : null
     let classification: ReportClassification | null = isRetry ? existingReport!.classification : null
@@ -311,8 +321,15 @@ serve(async (req: Request) => {
       tacticCoverage: []
     }
     let libraryMatches: LibraryMatch[] = isRetry ? existingReport!.libraryMatches : []
+    // Whether coverage was actually assessed. On a retry that does not re-run
+    // the library stage the TTPs cannot have changed, so the stored verdict
+    // still stands -- and a stored percent is the record that one was reached.
+    let coverageComputed = isRetry ? existingReport!.coveragePercent != null : false
+    // `sectionErrors` is inherited on a retry because each stage clears its own
+    // key when it re-runs clean. `qualityWarnings` is deliberately NOT inherited
+    // -- it is rebuilt from scratch below, from stage state that is current. See
+    // lib/quality-warnings.ts.
     let sectionErrors: Record<string, string> = isRetry ? { ...existingReport!.sectionErrors } : {}
-    let qualityWarnings: string[] = isRetry ? [...(existingReport!.qualityWarnings || [])] : []
     let sourceQuality = isRetry ? existingReport!.sourceQuality : undefined
     let sourceContentLength = isRetry ? existingReport!.sourceContentLength : undefined
     let sourceContentHash = isRetry ? existingReport!.sourceContentHash : undefined
@@ -325,7 +342,7 @@ serve(async (req: Request) => {
     const aiCtx = { userId: user.id, feature: 'threat-intel-digest' as const }
 
     // Stage 2: Extract summary (AI)
-    const shouldRunSummary = !isRetry || retrySection === 'summary'
+    const shouldRunSummary = plannedStages.has('summary')
     if (shouldRunSummary) {
       console.log('=== Stage 2: Summary extraction (AI) ===')
       const summaryResult = await executeStage('summary', async () => {
@@ -358,7 +375,7 @@ serve(async (req: Request) => {
     }
 
     // Stage 3: Classification (AI)
-    const shouldRunClassification = !isRetry || retrySection === 'classification'
+    const shouldRunClassification = plannedStages.has('classification')
     if (shouldRunClassification) {
       console.log('=== Stage 3: Classification (AI) ===')
       const classificationResult = await executeStage('classification', async () => {
@@ -382,7 +399,7 @@ serve(async (req: Request) => {
     }
 
     // Stage 4: TTPs (AI)
-    const shouldRunTTPs = !isRetry || retrySection === 'ttps'
+    const shouldRunTTPs = plannedStages.has('ttps')
     if (shouldRunTTPs) {
       console.log('=== Stage 4: TTP extraction (AI) ===')
       const ttpsResult = await executeStage('ttps', async () => {
@@ -408,8 +425,8 @@ serve(async (req: Request) => {
     }
 
     // Stage 5 & 6: IoCs and Detection Queries (AI + Pattern)
-    const shouldRunIoCs = !isRetry || retrySection === 'iocs'
-    const shouldRunRules = !isRetry || retrySection === 'rules'
+    const shouldRunIoCs = plannedStages.has('iocs')
+    const shouldRunRules = plannedStages.has('rules')
 
     if ((shouldRunIoCs && extractIoCs) || (shouldRunRules && extractRules)) {
       console.log('=== Stage 5: IoC & Detection Query extraction ===')
@@ -471,7 +488,7 @@ serve(async (req: Request) => {
     }
 
     // Stage 7: MITRE matching (DB)
-    const shouldRunMitre = !isRetry || retrySection === 'mitre'
+    const shouldRunMitre = plannedStages.has('mitre')
     if (shouldRunMitre && mapToMitre && ttps.length > 0) {
       console.log('=== Stage 7: MITRE matching (DB) ===')
       const mitreResult = await executeStage('mitre', () =>
@@ -493,9 +510,11 @@ serve(async (req: Request) => {
             invalidTaxonomyIds.add(ttp.mitreId)
             return { ...ttp, validationState: 'rejected', provenance: 'rejected' }
           })())
+        // Written only to `sectionErrors`; reconcileQualityWarnings surfaces it
+        // as a warning. Pushing it into `qualityWarnings` here is what made one
+        // MITRE fault report as two failed sections (mitre + evidence).
         if (invalidTaxonomyIds.size > 0) {
           sectionErrors.mitre = `${invalidTaxonomyIds.size} extracted technique(s) failed canonical ATT&CK ID/name validation`
-          qualityWarnings.push(sectionErrors.mitre)
         } else {
           delete sectionErrors.mitre
         }
@@ -507,25 +526,50 @@ serve(async (req: Request) => {
     const evidenceGate = applyEvidenceQualityGate(reportContent, ttps, iocs, rules)
     sourceQuality = evidenceGate.sourceQuality
     sourceContentLength = evidenceGate.sourceContentLength
-    qualityWarnings = [...new Set([...qualityWarnings, ...evidenceGate.warnings])]
     ttps = evidenceGate.ttps
     iocs = evidenceGate.iocs
     rules = evidenceGate.rules
-    if (qualityWarnings.length > 0) {
-      sectionErrors.evidence = 'One or more extracted facts require source-evidence review'
-    }
+
+    // The gate re-runs over the full current report on every request, so its
+    // warnings are rebuilt rather than merged into the previous run's.
+    const reconciled = reconcileQualityWarnings({
+      sectionErrors,
+      evidenceWarnings: evidenceGate.warnings,
+    })
+    const qualityWarnings = reconciled.qualityWarnings
+    sectionErrors = reconciled.sectionErrors
 
     // Stage 8: Library coverage (DB)
-    const shouldRunLibrary = !isRetry || retrySection === 'library'
+    const shouldRunLibrary = plannedStages.has('library')
     if (shouldRunLibrary && findLibrary && ttps.length > 0) {
       console.log('=== Stage 8: Library coverage (DB) ===')
       const libraryResult = await executeStage('library', () =>
         findLibraryMatches(ttps, mitreMapping, supabaseClient, user.id, options.includeOwnedDevelopmentDetections === true)
       )
       if (libraryResult.success) {
-        libraryMatches = libraryResult.data!
-        delete sectionErrors.library
+        const { matches, computed, candidatePoolSize, librarySize } = libraryResult.data!
+        libraryMatches = matches
+        if (computed) {
+          coverageComputed = true
+          delete sectionErrors.library
+        } else {
+          // Nothing was eligible to search, so there is no coverage answer to
+          // give. Recording 0 here is what makes "0 Covered" read as a finding
+          // rather than as an unasked question (C2). Absence travels as a null
+          // coveragePercent instead.
+          //
+          // Deliberately NOT a section error. The stage ran and correctly
+          // determined it had nothing to compare against -- that is a fact
+          // about the library, not a failure of this report. Section errors
+          // drive `outcome`, so recording one here would make every retried
+          // report permanently `partial` for a reason no re-extraction can
+          // resolve, re-breaking exactly what A4 fixed.
+          coverageComputed = false
+          delete sectionErrors.library
+          console.log(`Library coverage not computed: 0 of ${librarySize} detections passed the eligibility gate (pool ${candidatePoolSize})`)
+        }
       } else {
+        coverageComputed = false
         sectionErrors.library = libraryResult.error || 'Unknown error'
       }
     }
@@ -534,10 +578,13 @@ serve(async (req: Request) => {
     const extractedTechniqueIds = new Set(ttps.map((ttp: any) => ttp.mitreId).filter(Boolean))
     const validatedTechniqueIds = new Set((mitreMapping?.matchedTechniques || []).filter((technique: any) => technique.isValid).map((technique: any) => technique.mitreId))
     const coveredTechniqueIds = new Set(libraryMatches.flatMap((match: any) => match.matchedTTPs || []))
-    const libraryOverlapPercent = extractedTechniqueIds.size > 0
+    // Absent stays distinguishable from zero: when coverage could not be
+    // assessed these are null, not 0. A percentage computed over an empty
+    // candidate pool is 0 for a reason that has nothing to do with the report.
+    const libraryOverlapPercent = coverageComputed && extractedTechniqueIds.size > 0
       ? Math.round((Array.from(coveredTechniqueIds).filter(id => extractedTechniqueIds.has(id)).length / extractedTechniqueIds.size) * 100)
       : null
-    const validatedOverlapPercent = validatedTechniqueIds.size > 0
+    const validatedOverlapPercent = coverageComputed && validatedTechniqueIds.size > 0
       ? Math.round((Array.from(coveredTechniqueIds).filter(id => validatedTechniqueIds.has(id)).length / validatedTechniqueIds.size) * 100)
       : null
     const overlapCalculatedAt = new Date().toISOString()
@@ -606,6 +653,17 @@ serve(async (req: Request) => {
         sectionErrors[section] ? 'failed' : skippedSections.has(section) ? 'skipped' : section === 'summary' && !summary ? 'failed' : section === 'classification' && !classification ? 'failed' : 'succeeded',
       ]),
     ) as NonNullable<ThreatReport['sectionOutcomes']>;
+    // Feasibility is per-TTP. If this run re-extracted the TTPs, whatever the
+    // orchestrator assessed was about a set that no longer exists.
+    const feasibilityStillValid = isRetry && !invalidatesFeasibility(plannedStages)
+    if (isRetry && !feasibilityStillValid) {
+      ttps = ttps.map((ttp: any) => {
+        if (ttp.feasibility === undefined) return ttp
+        const { feasibility: _dropped, ...rest } = ttp
+        return rest
+      })
+    }
+
     // Assemble report
     const report: ThreatReport = {
       id: reportId,
@@ -630,7 +688,13 @@ serve(async (req: Request) => {
       sectionOutcomes,
       processingStage: reportOutcome === 'complete' ? ProcessingStage.Complete : ProcessingStage.Error,
       processingDurationMs: Date.now() - startTime,
-      sectionErrors: Object.keys(sectionErrors).length > 0 ? sectionErrors : undefined,
+      // `{}`, not `undefined`. An absent key is not a cleared value: the client
+      // upserts this straight through, and PostgREST leaves omitted columns
+      // alone, so a report that resolved all its section errors kept the old
+      // ones in the row -- outcome `complete` sitting next to a stale mitre
+      // error. Sending the empty object is what makes "nothing failed"
+      // expressible at all.
+      sectionErrors,
       lastRetrySection: isRetry ? retrySection : undefined,
       lastRetryTime: isRetry ? new Date().toISOString() : undefined,
       sourceQuality,
@@ -638,6 +702,15 @@ serve(async (req: Request) => {
       sourceContentHash,
       fetchedUrl,
       qualityWarnings,
+      // Feasibility is assessed by the auto-digest orchestrator, which has the
+      // environment profile; this function cannot compute it. It must still be
+      // carried, because the client replaces its session with this object -- a
+      // missing field silently became "feasibility not computed" on a report
+      // whose row said 9. When the TTP set was re-extracted the stored counts
+      // describe techniques that are gone, so they are cleared to null (never
+      // 0) and the UI's "not computed" becomes true rather than an artifact.
+      feasibleGapCount: feasibilityStillValid ? existingReport!.feasibleGapCount ?? null : null,
+      infeasibleGapCount: feasibilityStillValid ? existingReport!.infeasibleGapCount ?? null : null,
       possibleActorMentions: (mitreMapping?.matchedGroups || []).map((group: any) => group.name).filter((name: string) => name && actorHasAttributionEvidence(reportContent, name)),
     }
 

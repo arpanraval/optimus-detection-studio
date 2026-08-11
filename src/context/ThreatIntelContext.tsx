@@ -70,6 +70,7 @@ export interface ThreatIntelReportDbRecord {
   section_outcomes?: Record<string, 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'retained_previous'>;
   library_overlap_percent?: number | null;
   validated_overlap_percent?: number | null;
+  overlap_calculated_at?: string | null;
   deployment_readiness_percent?: number | null;
   selected_ttp_ids: string[];
   selected_ioc_ids: string[];
@@ -261,11 +262,21 @@ function dbRecordToSummary(record: ThreatIntelReportDbRecord): ThreatIntelSessio
 export function sessionToDbRecord(session: ThreatIntelSession, userId: string): Partial<ThreatIntelReportDbRecord> {
   const report = session.report;
 
-  // Calculate coverage: percentage of TTPs that have existing detections
   const ttps = report?.ttps || [];
   const ttpCount = ttps.length;
+
+  // The server decides coverage; this mapper must not overrule it. It used to
+  // recompute from `hasExistingDetection` over every TTP and upsert the result,
+  // which is a fourth formula and the only one that writes -- so a save could
+  // overwrite the server's verdict with its own (C3). It also defaulted to 0,
+  // which turns "could not be assessed" into "assessed as none" the moment a
+  // report is opened and saved. Absence is preserved deliberately: `null` from
+  // the server is written as null, and only a report that carries no coverage
+  // field at all (legacy sessions) falls back to computing one.
   const coveredTtps = ttps.filter((ttp: any) => ttp.hasExistingDetection === true).length;
-  const coveragePercent = ttpCount > 0 ? Math.round((coveredTtps / ttpCount) * 100) : 0;
+  const coveragePercent = report?.coveragePercent !== undefined
+    ? report.coveragePercent
+    : (ttpCount > 0 ? Math.round((coveredTtps / ttpCount) * 100) : null);
 
   return {
     id: session.id,
@@ -285,7 +296,13 @@ export function sessionToDbRecord(session: ThreatIntelSession, userId: string): 
     library_matches: report?.libraryMatches || [],
     processing_stage: report?.processingStage || 'complete',
     processing_error: report?.processingError,
-    section_errors: report?.sectionErrors,
+    // `?? {}` so a report with no section errors can actually say so. Passing
+    // `undefined` makes PostgREST omit the column, which on an upsert means
+    // "leave it as it was" -- so section errors could be written but never
+    // retracted, and a fully resolved report kept its old failures in the row.
+    // Defensive as well as correct: it holds even against a digest function
+    // deployed before the server-side half of this fix.
+    section_errors: report?.sectionErrors ?? {},
 
     // Trust metadata -- the write-side twin of A1. This mapper already wrote
     // section_errors but none of these, so a client-side save (which is what a
@@ -318,6 +335,23 @@ export function sessionToDbRecord(session: ThreatIntelSession, userId: string): 
     ioc_count: report?.iocs?.length || 0,
     rule_count: report?.rules?.length || 0,
     coverage_percent: coveragePercent,
+    // Feasibility is the orchestrator's to compute and the digest's to
+    // invalidate. Persisting it here is what makes a re-extraction that
+    // replaced the TTP set actually clear the stale counts, instead of the
+    // row keeping "9 feasible" about techniques the report no longer has.
+    // Written only when the report carries the field, so a legacy session
+    // cannot blank a row the orchestrator populated.
+    ...(report?.feasibleGapCount !== undefined ? { feasible_gap_count: report.feasibleGapCount } : {}),
+    ...(report?.infeasibleGapCount !== undefined ? { infeasible_gap_count: report.infeasibleGapCount } : {}),
+    // Read at load (dbRecordToSession:198) but never written -- so the server
+    // could compute an overlap and the row kept whatever it held before. The
+    // stat tile reads `library_overlap_percent`, so a fresh "could not be
+    // assessed" (null) still rendered as the previous run's 0%, i.e. as an
+    // answer. Written only when the report carries them, so a legacy session
+    // cannot blank a row that was populated by a real run.
+    ...(report?.libraryOverlapPercent !== undefined ? { library_overlap_percent: report.libraryOverlapPercent } : {}),
+    ...(report?.validatedOverlapPercent !== undefined ? { validated_overlap_percent: report.validatedOverlapPercent } : {}),
+    ...(report?.overlapCalculatedAt !== undefined ? { overlap_calculated_at: report.overlapCalculatedAt } : {}),
   };
 }
 

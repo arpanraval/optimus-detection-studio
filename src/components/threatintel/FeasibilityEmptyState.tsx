@@ -23,8 +23,14 @@ export const FeasibilityEmptyState: React.FC<FeasibilityEmptyStateProps> = ({ un
           {uncoveredCount} uncovered technique{uncoveredCount === 1 ? '' : 's'} — feasibility not computed.
         </p>
         <p className="text-on-surface-variant/70 text-xs mt-1">
+          {/* This used to read "Re-run extraction to compute…". Feasibility is
+              assessed by the auto-digest orchestrator; the digest function the
+              Re-extract button calls has no feasibility stage at all, so that
+              instruction could never work. Re-extracting TTPs in fact clears
+              feasibility, because the previous assessment described techniques
+              the report no longer has. */}
           {hasProfile
-            ? 'Re-run extraction to compute which gaps are actionable in your environment.'
+            ? 'Feasibility is assessed during auto-digest; it refreshes on the next scheduled run of this feed.'
             : 'Set up your environment profile to see which gaps you can detect this week.'}
         </p>
       </div>
