@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { isOpaqueIdentifier, parseNamespacedId } from '../detection-identity';
+﻿import { describe, expect, it } from 'vitest';
+import { isOpaqueIdentifier, parseNamespacedId, normalizeLocator, normalizeTitle } from '../detection-identity';
 
 describe('parseNamespacedId', () => {
   it('accepts a UUID under a UUID-shaped namespace, lowercased and trimmed', () => {
@@ -64,5 +64,64 @@ describe('isOpaqueIdentifier', () => {
 
   it('is false for a rule name', () => {
     expect(isOpaqueIdentifier('Account MFA Modifications')).toBe(false);
+  });
+});
+
+describe('normalizeTitle', () => {
+  it('lowercases and collapses whitespace', () => {
+    expect(normalizeTitle('  Account   MFA  Modifications ')).toBe('account mfa modifications');
+  });
+
+  it('treats punctuation differences as the same title', () => {
+    expect(normalizeTitle('PUA - SoftPerfect Netscan Execution'))
+      .toBe(normalizeTitle('PUA SoftPerfect Netscan Execution'));
+  });
+
+  it('normalises smart quotes to the same key as straight quotes', () => {
+    expect(normalizeTitle(`Cat’s Got Your Files`)).toBe(normalizeTitle(`Cat’s Got Your Files`));
+  });
+
+  it('returns null for empty or punctuation-only names -- absent, not blank', () => {
+    expect(normalizeTitle('')).toBeNull();
+    expect(normalizeTitle('   ')).toBeNull();
+    expect(normalizeTitle('---')).toBeNull();
+  });
+
+  it('keeps genuinely different titles distinct', () => {
+    expect(normalizeTitle('SharePointFileOperation via clientIP with previously unseen user agents'))
+      .not.toBe(normalizeTitle('SharePointFileOperation via devices with previously unseen user agents'));
+  });
+});
+
+describe('normalizeLocator', () => {
+  it('resolves the blob and raw forms of one GitHub file to one key', () => {
+    const blob = normalizeLocator(
+      'https://github.com/Azure/Azure-Sentinel/blob/master/Solutions/Foo/Analytic%20Rules/Bar.yaml#L4',
+    );
+    const raw = normalizeLocator(
+      'https://raw.githubusercontent.com/Azure/Azure-Sentinel/master/Solutions/Foo/Analytic Rules/Bar.yaml',
+    );
+    expect(blob).toBe('github:azure/azure-sentinel/solutions/foo/analytic rules/bar.yaml');
+    expect(raw).toBe(blob);
+  });
+
+  it('ignores the branch, so the same file on two refs is one artifact', () => {
+    expect(normalizeLocator('https://github.com/o/r/blob/main/a/b.yml'))
+      .toBe(normalizeLocator('https://github.com/o/r/blob/v1.2.3/a/b.yml'));
+  });
+
+  it('drops query strings and fragments', () => {
+    expect(normalizeLocator('https://github.com/o/r/blob/main/a/b.yml?plain=1#L10-L20'))
+      .toBe('github:o/r/a/b.yml');
+  });
+
+  it('falls back to host and path for non-GitHub URLs', () => {
+    expect(normalizeLocator('https://Docs.Example.COM/Rules/Alpha.yml'))
+      .toBe('docs.example.com/rules/alpha.yml');
+  });
+
+  it('returns null for a non-URL', () => {
+    expect(normalizeLocator('not a url')).toBeNull();
+    expect(normalizeLocator('')).toBeNull();
   });
 });

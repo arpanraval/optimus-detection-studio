@@ -113,3 +113,70 @@ export function parseNamespacedId(raw: string, sourceHint?: string): NamespacedI
 
   return { namespace, value: value.toLowerCase(), raw: trimmed };
 }
+
+/**
+ * Reduce a rule name to a comparison key.
+ *
+ * Deliberately aggressive about punctuation and case, because vendors re-emit
+ * the same rule with cosmetic differences. That aggression is safe only because
+ * a title match is never treated as proof of identity (spec §4) -- it is the
+ * `possible same rule` rung, and a title group whose members disagree on their
+ * query bodies resolves to ambiguous rather than to a match.
+ *
+ * Returns null rather than '' when nothing survives, so a caller cannot store a
+ * blank key and later match it against another blank key.
+ */
+export function normalizeTitle(name: string): string | null {
+  if (typeof name !== 'string') return null;
+  const collapsed = name
+    .normalize('NFKD')
+    .replace(/['']/g, "'")
+    .replace(/[""]/g, '"')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  return collapsed || null;
+}
+
+const GITHUB_HOSTS = new Set(['github.com', 'www.github.com', 'raw.githubusercontent.com']);
+
+/**
+ * Reduce a source URL to a stable artifact key.
+ *
+ * The branch/ref is dropped on purpose: the same file on `main` and on a tag is
+ * the same artifact, and keeping the ref would make a rule stop resolving the
+ * moment a vendor renamed their default branch. Query strings and line
+ * fragments are dropped for the same reason -- E4b records 41 of 57 stored URLs
+ * carrying prose punctuation and `#L4` fragments that are incidental to which
+ * file is meant.
+ */
+export function normalizeLocator(url: string): string | null {
+  if (typeof url !== 'string' || !url.trim()) return null;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url.trim());
+  } catch {
+    return null;
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const segments = decodeURIComponent(parsed.pathname)
+    .split('/')
+    .filter(Boolean)
+    .map(segment => segment.toLowerCase());
+
+  if (!segments.length) return null;
+
+  if (GITHUB_HOSTS.has(host)) {
+    const [owner, repo, ...rest] = segments;
+    if (!owner || !repo || !rest.length) return null;
+    // github.com/<owner>/<repo>/blob/<ref>/<path>
+    // raw.githubusercontent.com/<owner>/<repo>/<ref>/<path>
+    const path = rest[0] === 'blob' || rest[0] === 'tree' ? rest.slice(2) : rest.slice(1);
+    if (!path.length) return null;
+    return `github:${owner}/${repo}/${path.join('/')}`;
+  }
+
+  return `${host}/${segments.join('/')}`;
+}
