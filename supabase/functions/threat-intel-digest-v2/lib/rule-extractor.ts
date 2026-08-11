@@ -12,7 +12,7 @@ import {
   describeGitHubReference,
   trimUrlTrailingPunctuation,
 } from '../../_shared/github-reference.ts'
-import { classifyRuleType } from '../../_shared/rule-type.ts'
+import { classifyRule } from '../../_shared/rule-type.ts'
 
 /**
  * Extracts detection rules from content using pattern matching.
@@ -299,7 +299,7 @@ export function extractRulesFromContent(content: string): ExtractedRule[] {
   // Every type above is already canonical; this attaches the missing axis --
   // notably marking github_reference as a reference rather than a language.
   return rules.map((rule) => {
-    const classification = classifyRuleType(rule.type)
+    const classification = classifyRule(rule.type, rule.content)
     return { ...rule, kind: classification.kind, typeRecognized: classification.recognized }
   })
 }

@@ -6,7 +6,7 @@ import type {
   ReportSummary,
 } from './types.ts'
 import { AttackType, ThreatLevel, getIoCCategory } from './types.ts'
-import { classifyRuleType } from '../../_shared/rule-type.ts'
+import { classifyRule } from '../../_shared/rule-type.ts'
 
 export const MAX_MODEL_OUTPUT_CHARS = 1_000_000
 export const ALLOWED_MODEL_IDS = new Set([
@@ -110,7 +110,9 @@ export function validateRuleCandidate(value: any): ExtractedRule {
   // alone: `kind` records whether this is a deployable query at all. Storing
   // only the raw string is what let a 5-character Palo Alto signature ID and
   // a Sigma rule occupy the same field with nothing to tell them apart.
-  const classification = classifyRuleType(value.query_type)
+  // Classified from type AND content: a Snort SID and a Snort rule both
+  // declare `snort`, and only the content tells them apart.
+  const classification = classifyRule(value.query_type, content)
   if (!classification.recognized) {
     console.warn(`validateRuleCandidate: unrecognised rule type "${classification.language}"; kept as an unknown query language`)
   }

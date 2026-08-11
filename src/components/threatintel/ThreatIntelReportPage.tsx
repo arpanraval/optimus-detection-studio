@@ -32,7 +32,8 @@ import {
   deriveRuleTitleFromContent,
   trimUrlTrailingPunctuation,
 } from '../../../supabase/functions/_shared/github-reference';
-import { classifyRuleType } from '../../../supabase/functions/_shared/rule-type';
+import { classifyRule, classifyRuleType } from '../../../supabase/functions/_shared/rule-type';
+import { looksLikeUpstreamError } from '../../../supabase/functions/_shared/github-reference';
 
 /**
  * Display labels for the query languages the Detection form accepts. Keyed by
@@ -595,6 +596,14 @@ export const ThreatIntelReportPage: React.FC = () => {
 
       const content = await response.text();
 
+      // Jina returns HTTP 200 for upstream failures with the error in the
+      // body, so response.ok above only proves the reader answered. Without
+      // this, a 404 is saved as rule content -- which is how the string
+      // "404: Not Found" ended up stored as a Sigma rule.
+      if (looksLikeUpstreamError(content)) {
+        throw new Error(`Source returned no rule content (${content.trim().slice(0, 60)})`);
+      }
+
       // Detect rule type from content patterns (more accurate than file extension)
       const detectRuleType = (text: string, fileUrl: string): ExtractedRuleType => {
         const lower = text.toLowerCase();
@@ -1057,6 +1066,24 @@ export const ThreatIntelReportPage: React.FC = () => {
     return Array.from(cats);
   }, [report]);
 
+  /**
+   * Rules broken down by what they actually are. The headline stat read
+   * "Candidate queries found: N" over a count that included GitHub links,
+   * 5-character vendor signature IDs and prose. Classified on the fly when
+   * `kind` is absent so reports predating the backfill still count correctly.
+   */
+  const ruleKindCounts = useMemo(() => {
+    const rules = report?.rules ?? [];
+    const counts = { query: 0, reference: 0, description: 0, total: rules.length };
+    for (const rule of rules) {
+      const kind = rule.kind ?? classifyRule(rule.type, rule.content).kind;
+      if (kind === 'query') counts.query++;
+      else if (kind === 'description') counts.description++;
+      else counts.reference++;
+    }
+    return counts;
+  }, [report?.rules]);
+
   if (loading || !report || !stats) {
     return (
       <div className="flex items-center justify-center h-full bg-background">
@@ -1284,7 +1311,14 @@ export const ThreatIntelReportPage: React.FC = () => {
                   color="text-on-surface-variant"
                 />
                 <StatCard label="Indicators" value={report.iocs.length} color="text-secondary" />
-                <StatCard label="Rules Extracted" value={report.rules.length} color="text-primary" />
+                <StatCard
+                  label="Rules Extracted"
+                  value={ruleKindCounts.query}
+                  subtext={ruleKindCounts.total > ruleKindCounts.query
+                    ? `+${ruleKindCounts.total - ruleKindCounts.query} reference${ruleKindCounts.total - ruleKindCounts.query === 1 ? '' : 's'} / notes`
+                    : undefined}
+                  color="text-primary"
+                />
               </div>
 
               {/* Key Findings + Attribution */}

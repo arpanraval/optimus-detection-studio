@@ -3,6 +3,8 @@ import {
   QUERY_LANGUAGES,
   classifyRuleType,
   isDeployableRule,
+  classifyRule,
+  hasQueryShape,
   squashRuleType,
 } from '../rule-type'
 
@@ -110,6 +112,108 @@ describe('against the live corpus', () => {
     // Pinned so a vocabulary change that silently reclassifies a large block
     // of rules shows up as a failure rather than a surprise.
     expect(notDeployable).toBe(147)
+  })
+})
+
+/**
+ * E2. classifyRuleType decides from the declared type alone, which cannot
+ * catch a rule whose type tells the truth and whose content does not. Every
+ * content string below is verbatim from the corpus, where all of them were
+ * marked deployable because their declared language is real.
+ */
+describe('classifyRule (type AND content)', () => {
+  it('demotes an identifier wearing a language label', () => {
+    const cases: [string, string][] = [
+      ['snort', '66788'],                                  // a SID
+      ['snort', 'Snort 2 SIDs: 66409, 66410, 66408'],      // a list of SIDs
+      ['clamav', 'Win.Trojan.CloudZRAT-10059935-0'],       // a signature name
+      ['clamav', 'Ps1.Trojan.Agent-10060317-0'],
+      ['yara', 'MAL_RANSOM_INC_Aug24'],                    // a rule name
+      ['sigma', '404: Not Found'],                         // a failed fetch
+    ]
+    for (const [type, content] of cases) {
+      const result = classifyRule(type, content)
+      expect(result.kind).toBe('reference')
+      expect(result.demotedByContent).toBe(true)
+      // The row is relabelled, never dropped: the identifier is the point.
+      expect(result.language).toBe(classifyRuleType(type).language)
+    }
+  })
+
+  it('leaves a genuine rule alone', () => {
+    const snort = 'alert tcp any any -> any 80 (msg:"test"; sid:1;)'
+    expect(classifyRule('snort', snort)).toMatchObject({ kind: 'query', demotedByContent: false })
+
+    const sigma = 'title: X\nlogsource:\n  product: windows\ndetection:\n  sel:\n    EventID: 1\n  condition: sel'
+    expect(classifyRule('sigma', sigma)).toMatchObject({ kind: 'query', demotedByContent: false })
+
+    const yara = 'rule Foo {\n strings:\n  $a = "x"\n condition:\n  $a\n}'
+    expect(classifyRule('yara', yara)).toMatchObject({ kind: 'query', demotedByContent: false })
+
+    const kql = 'DeviceProcessEvents | where FileName == "x.exe"'
+    expect(classifyRule('kql', kql)).toMatchObject({ kind: 'query', demotedByContent: false })
+
+    const clamav = 'Win.Trojan.Foo-1-0:1:*:6a0068'
+    expect(classifyRule('clamav', clamav)).toMatchObject({ kind: 'query', demotedByContent: false })
+  })
+
+  // Both found by dry-running the backfill against the corpus. An earlier
+  // draft of the shape tests demoted these real, deployable rules.
+  it('keeps a Sentinel analytics rule that carries query: rather than detection:', () => {
+    const sentinel = [
+      'id: a3a09840-1022-4267-b9e1-d6c9799ed38a',
+      'name: Account MFA Modifications',
+      'requiredDataConnectors:',
+      '  - connectorId: AzureActiveDirectory',
+      'query: |',
+      '  AuditLogs | where OperationName has "MFA"',
+    ].join('\n')
+    expect(classifyRule('sigma', sentinel)).toMatchObject({ kind: 'query', demotedByContent: false })
+  })
+
+  it('keeps a Wiz query, which is URL-encoded and has no whitespace', () => {
+    const wiz = "filters~(~(eventType~'Action*20performed')~range~(relative~86400000))"
+    expect(wiz).not.toMatch(/\s/)
+    expect(classifyRule('wiz_cloud_event_query', wiz)).toMatchObject({ kind: 'query', demotedByContent: false })
+  })
+
+  // But a Sigma header with no detection logic at all is still a reference:
+  // the article quoted the metadata, not the rule.
+  it('demotes a Sigma rule that is metadata only', () => {
+    const header = 'title: Veeam Credential Dumping via PostgreSQL psql\nid: 410f5c82-1fec-42d0-9552-7d9d885517b2\ndescription: Detects the extraction of credentials.'
+    expect(classifyRule('sigma', header)).toMatchObject({ kind: 'reference', demotedByContent: true })
+  })
+
+  it('does not re-promote something already known not to be a query', () => {
+    // A GitHub URL is a single token, but it was never a query to begin with.
+    const result = classifyRule('github_reference', 'https://github.com/o/r/blob/main/x.yaml')
+    expect(result.kind).toBe('reference')
+    expect(result.demotedByContent).toBe(false)
+  })
+
+  it('treats empty content as not a query', () => {
+    expect(classifyRule('kql', '').kind).toBe('reference')
+    expect(classifyRule('kql', null).kind).toBe('reference')
+  })
+})
+
+describe('hasQueryShape', () => {
+  // The general rule for languages with no specific grammar: a query has more
+  // than one token. A bare identifier is a name, not something you can run.
+  it('rejects a single bare token in any language', () => {
+    for (const language of ['kql', 'spl', 'eql', 'xql']) {
+      expect(hasQueryShape(language, 'SomeIdentifier-123')).toBe(false)
+      expect(hasQueryShape(language, 'x | where y == 1')).toBe(true)
+    }
+  })
+
+  it('requires the token each grammar mandates', () => {
+    expect(hasQueryShape('sigma', 'title: X\nlogsource: y')).toBe(false)
+    expect(hasQueryShape('sigma', 'detection:\n  condition: sel')).toBe(true)
+    expect(hasQueryShape('yara', 'rule Foo { strings: $a = "x" }')).toBe(false)
+    expect(hasQueryShape('yara', 'rule Foo { condition: true }')).toBe(true)
+    expect(hasQueryShape('snort', 'Snort 3 SIDs: 301492, 66408')).toBe(false)
+    expect(hasQueryShape('snort', 'alert tcp any any -> any any (sid:1;)')).toBe(true)
   })
 })
 

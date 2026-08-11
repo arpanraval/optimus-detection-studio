@@ -4,6 +4,7 @@ import {
   deriveRuleTitleFromContent,
   describeGitHubReference,
   gitHubRepoSlug,
+  looksLikeUpstreamError,
   trimUrlTrailingPunctuation,
 } from '../github-reference'
 
@@ -96,6 +97,36 @@ describe('gitHubRepoSlug / describeGitHubReference', () => {
 
   it('degrades to the generic description rather than inventing a repo', () => {
     expect(describeGitHubReference('https://github.com/')).toBe('Link to detection rules or tools')
+  })
+})
+
+/**
+ * E2. The GitHub rule fetch goes through Jina Reader, which answers HTTP 200
+ * for upstream failures and puts the error in the body -- verified live:
+ * raw.githubusercontent.com returned 404 while r.jina.ai returned 200 with
+ * "404: Not Found". `response.ok` was therefore true and that string was
+ * saved as a Sigma rule.
+ */
+describe('looksLikeUpstreamError', () => {
+  it('recognises a status line returned as the whole payload', () => {
+    expect(looksLikeUpstreamError('404: Not Found')).toBe(true)
+    expect(looksLikeUpstreamError('  403: Forbidden  ')).toBe(true)
+    expect(looksLikeUpstreamError('500')).toBe(true)
+    expect(looksLikeUpstreamError('Not Found')).toBe(true)
+  })
+
+  it('treats an empty body as a failure', () => {
+    for (const body of ['', '   ', null, undefined]) {
+      expect(looksLikeUpstreamError(body)).toBe(true)
+    }
+  })
+
+  // Must not reject real rules. A YARA rule mentioning 404 in a string, or a
+  // Sigma rule detecting HTTP errors, are legitimate content.
+  it('accepts genuine rule content', () => {
+    expect(looksLikeUpstreamError('rule Foo {\n condition: true\n}')).toBe(false)
+    expect(looksLikeUpstreamError('title: Detect 404 scanning\ndetection:\n  sel:\n    status: 404')).toBe(false)
+    expect(looksLikeUpstreamError('DeviceNetworkEvents | where StatusCode == 404')).toBe(false)
   })
 })
 

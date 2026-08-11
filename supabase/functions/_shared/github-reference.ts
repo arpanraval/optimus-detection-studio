@@ -154,6 +154,31 @@ export function describeGitHubReference(url: string): string {
  * Returns undefined when the content declares neither, so the caller keeps the
  * derived name rather than replacing it with something worse.
  */
+/**
+ * Whether a fetched body is an upstream error rather than rule content.
+ *
+ * The GitHub rule fetch goes through Jina Reader, which returns HTTP 200 for
+ * upstream failures and puts the error in the body. Verified against a real
+ * stored reference:
+ *
+ *   raw.githubusercontent.com  -> HTTP 404
+ *   via r.jina.ai              -> HTTP 200, body "404: Not Found"
+ *
+ * `response.ok` was therefore true and the string "404: Not Found" was saved
+ * as a Sigma rule, where it still sits. `response.ok` validates the transport;
+ * the payload has to be checked separately. See E2.
+ */
+export function looksLikeUpstreamError(body: string | null | undefined): boolean {
+  const text = (body ?? '').trim()
+  if (!text) return true
+
+  // An HTTP status line as the entire payload, e.g. "404: Not Found".
+  if (/^[45]\d{2}\s*[:-]?\s*[a-z ]{0,40}$/i.test(text)) return true
+  if (/^(?:error|not found|forbidden|unauthorized)\b/i.test(text) && text.length < 120) return true
+
+  return false
+}
+
 export function deriveRuleTitleFromContent(content: string): string | undefined {
   const yamlTitle = content.match(/^\s*title\s*:\s*(?:["']?)([^"'\n]+?)(?:["']?)\s*$/im)
   if (yamlTitle?.[1]) return yamlTitle[1].trim()

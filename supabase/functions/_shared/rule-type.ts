@@ -175,7 +175,98 @@ export function classifyRuleType(raw: string | null | undefined): RuleClassifica
   return { kind: 'query', language: input.toLowerCase(), recognized: false }
 }
 
-/** Whether a rule could be deployed to a SIEM as written. */
+/** Whether a rule's DECLARED TYPE claims it is a deployable query. */
 export function isDeployableRule(raw: string | null | undefined): boolean {
   return classifyRuleType(raw).kind === 'query'
+}
+
+// =============================================================================
+// CONTENT SHAPE
+// =============================================================================
+
+/**
+ * Structural tokens a rule in each language must contain.
+ *
+ * classifyRuleType decides from the declared type alone, which cannot catch a
+ * rule whose type tells the truth and whose content does not. The corpus is
+ * full of exactly that:
+ *
+ *   type: snort   content: "66788"                            (a SID)
+ *   type: clamav  content: "Win.Trojan.CloudZRAT-10059935-0"  (a signature name)
+ *   type: yara    content: "MAL_RANSOM_INC_Aug24"             (a rule name)
+ *   type: sigma   content: "404: Not Found"                   (a failed fetch)
+ *
+ * All four were marked deployable because their language is real. See E2.
+ *
+ * Each test asserts a token the language's own grammar REQUIRES, rather than
+ * enumerating ways content can be wrong -- the same principle as the defang
+ * bracket rule. A language with no entry falls back to the single-token test
+ * below.
+ */
+const REQUIRED_CONTENT_TOKENS: Record<string, RegExp> = {
+  // `detection:` is Sigma's. `query:` covers Microsoft Sentinel analytics
+  // YAML, which the extension-based type fallback labels `sigma` because the
+  // file ends in .yaml. Those are genuinely deployable -- they carry KQL under
+  // `query:` -- and an earlier draft of this test demoted two of them. Found
+  // by dry-running the backfill against the corpus rather than by inspection.
+  sigma: /\b(?:detection|query)\s*:/i,
+  yara: /\bcondition\s*:/i,
+  snort: /^\s*(?:alert|drop|reject|pass|log|sdrop)\s+/im,
+  suricata: /^\s*(?:alert|drop|reject|pass|log|sdrop)\s+/im,
+  // A ClamAV signature body is colon-delimited (Name:Type:Offset:Signature).
+  // A bare `Win.Trojan.Foo-123-0` is the published NAME of a signature the
+  // scanner ships -- a reference to it, not the signature itself.
+  clamav: /:/,
+  // Wiz filter syntax is URL-encoded and contains no whitespace, so the
+  // single-token fallback below would wrongly demote every real Wiz query.
+  // `~` is its field delimiter.
+  wiz_cloud_event_query: /~/,
+}
+
+/**
+ * Whether content is structurally a query in the given language.
+ *
+ * Languages without a specific grammar entry fall back to: a query has more
+ * than one token. A bare identifier with no whitespace -- `66788`,
+ * `MAL_RANSOM_INC_Aug24` -- is a name, not something you can run.
+ */
+export function hasQueryShape(language: string, content: string | null | undefined): boolean {
+  const text = (content ?? '').trim()
+  if (!text) return false
+
+  const required = REQUIRED_CONTENT_TOKENS[language]
+  if (required) return required.test(text)
+
+  return /\s/.test(text)
+}
+
+export interface RuleContentClassification extends RuleClassification {
+  /**
+   * True when the declared type claimed a query language but the content does
+   * not have that language's shape, so the rule was demoted to a reference.
+   */
+  demotedByContent: boolean
+}
+
+/**
+ * Classify a rule from its declared type AND its content.
+ *
+ * This is the classification callers should use. `classifyRuleType` answers
+ * only "what did the model call this", which is necessary but not sufficient:
+ * a Snort SID and a Snort rule both declare `snort`.
+ *
+ * A query whose content fails its language's shape test is demoted to
+ * `reference` rather than dropped. The identifier is the point -- `66788`
+ * tells you Cisco ships coverage, and E1 exists to resolve exactly these --
+ * so the row is kept and relabelled, never deleted.
+ */
+export function classifyRule(
+  rawType: string | null | undefined,
+  content: string | null | undefined,
+): RuleContentClassification {
+  const base = classifyRuleType(rawType)
+  if (base.kind !== 'query') return { ...base, demotedByContent: false }
+
+  if (hasQueryShape(base.language, content)) return { ...base, demotedByContent: false }
+  return { ...base, kind: 'reference', demotedByContent: true }
 }
