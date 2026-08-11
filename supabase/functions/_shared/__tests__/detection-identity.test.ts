@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { isOpaqueIdentifier, parseNamespacedId, normalizeLocator, normalizeTitle } from '../detection-identity';
 
 describe('parseNamespacedId', () => {
@@ -78,7 +78,7 @@ describe('normalizeTitle', () => {
   });
 
   it('normalises smart quotes to the same key as straight quotes', () => {
-    expect(normalizeTitle(`Cat’s Got Your Files`)).toBe(normalizeTitle(`Cat’s Got Your Files`));
+    expect(normalizeTitle(`Cat’s Got Your Files`)).toBe(normalizeTitle(`Cat's Got Your Files`));
   });
 
   it('returns null for empty or punctuation-only names -- absent, not blank', () => {

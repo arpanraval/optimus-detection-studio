@@ -130,8 +130,6 @@ export function normalizeTitle(name: string): string | null {
   if (typeof name !== 'string') return null;
   const collapsed = name
     .normalize('NFKD')
-    .replace(/['']/g, "'")
-    .replace(/[""]/g, '"')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
