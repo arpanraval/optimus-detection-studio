@@ -186,5 +186,40 @@ export function deriveRuleTitleFromContent(content: string): string | undefined 
   const yaraName = content.match(/^\s*(?:private\s+|global\s+)*rule\s+([A-Za-z_][A-Za-z0-9_]*)/m)
   if (yaraName?.[1]) return yaraName[1].replace(/[_]+/g, ' ').trim()
 
+  // Microsoft Sentinel analytics and hunting YAML name the rule `name:`, not
+  // `title:`. Anchored at column zero deliberately: a YAML block scalar's
+  // contents are always indented, so this cannot match a `name:`-shaped line
+  // inside `description: |`, and nested keys (requiredDataConnectors, etc.)
+  // are excluded for the same reason.
+  const sentinelName = cleanDeclaredTitle(
+    content.match(/^name\s*:\s*(?:["']?)([^"'\n]+?)(?:["']?)\s*$/m)?.[1],
+  )
+  if (sentinelName) return sentinelName
+
+  // Elastic .toml rules use `name = "..."`. Multi-line strings are removed
+  // first, so a line inside `description = """..."""` cannot be mistaken for
+  // the key -- the construct is stripped generically rather than enumerating
+  // the ways a description can happen to look like an assignment.
+  const withoutMultilineStrings = content.replace(/"""[\s\S]*?"""|'''[\s\S]*?'''/g, '')
+  const tomlName = cleanDeclaredTitle(
+    withoutMultilineStrings.match(/^\s*name\s*=\s*["']([^"'\n]+)["']/m)?.[1],
+  )
+  if (tomlName) return tomlName
+
   return undefined
+}
+
+/**
+ * A declared value that actually names something.
+ *
+ * `name: |` and `name: >` open a block scalar, so the captured text is the
+ * indicator rather than a title. Returning undefined for those keeps the
+ * contract every caller relies on: no title declared means keep the derived
+ * name rather than substitute something worse.
+ */
+function cleanDeclaredTitle(raw: string | undefined): string | undefined {
+  const value = raw?.trim()
+  if (!value) return undefined
+  if (/^[|>][+-]?\d*$/.test(value)) return undefined
+  return value
 }

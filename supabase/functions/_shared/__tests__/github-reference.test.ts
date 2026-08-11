@@ -148,4 +148,66 @@ describe('deriveRuleTitleFromContent', () => {
     expect(deriveRuleTitleFromContent('index=main | stats count')).toBeUndefined()
     expect(deriveRuleTitleFromContent('')).toBeUndefined()
   })
+
+  // E4c. Every fetched rule in the corpus is Microsoft Sentinel or Elastic
+  // TOML, and this function recognised neither -- so the documented "upgrade
+  // the name once the file is in hand" step had a 0% hit rate in production
+  // and always had. Verbatim opening lines from a stored rule.
+  it('reads a Microsoft Sentinel name', () => {
+    const sentinel = [
+      'id: a3a09840-1022-4267-b9e1-d6c9799ed38a',
+      'name: Account MFA Modifications',
+      'description: |',
+      "  'Identifies modifications to user's MFA settings.'",
+      'requiredDataConnectors:',
+      '  - connectorId: AzureActiveDirectory',
+    ].join('\n')
+
+    expect(deriveRuleTitleFromContent(sentinel)).toBe('Account MFA Modifications')
+  })
+
+  it('reads an Elastic TOML name', () => {
+    const toml = [
+      '[rule]',
+      'description = """',
+      'Identifies attempts to change memory protection of NTDLL.',
+      '"""',
+      'id = "29688edf-a003-42e4-8d79-c958cffce9fc"',
+      'name = "NTDLL Memory Protection Change via Unsigned DLL"',
+      'os_list = ["windows"]',
+    ].join('\n')
+
+    expect(deriveRuleTitleFromContent(toml)).toBe('NTDLL Memory Protection Change via Unsigned DLL')
+  })
+
+  // The guard that makes the two additions safe rather than merely wider.
+  it('ignores a name-shaped line inside a description block', () => {
+    const sentinel = [
+      'id: abc',
+      'description: |',
+      '  name: Not The Rule Name',
+      '  more prose',
+    ].join('\n')
+    expect(deriveRuleTitleFromContent(sentinel)).toBeUndefined()
+
+    const toml = [
+      '[rule]',
+      'description = """',
+      'name = "Not The Rule Name"',
+      '"""',
+    ].join('\n')
+    expect(deriveRuleTitleFromContent(toml)).toBeUndefined()
+  })
+
+  it('does not mistake a block scalar indicator for a title', () => {
+    expect(deriveRuleTitleFromContent('name: |\n  some folded text')).toBeUndefined()
+    expect(deriveRuleTitleFromContent('name: >-\n  some folded text')).toBeUndefined()
+  })
+
+  // Sigma stays authoritative where it is declared, so nothing that already
+  // resolved changes meaning.
+  it('still prefers an explicit Sigma title over a name', () => {
+    expect(deriveRuleTitleFromContent('title: Sigma Title\nname: Sentinel Name'))
+      .toBe('Sigma Title')
+  })
 })
