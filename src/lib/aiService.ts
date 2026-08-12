@@ -152,10 +152,14 @@ export const DEFAULT_MODEL = 'gemini-3.6-flash';
 // AI Service Interfaces
 // ============================================================================
 
+export type AIJsonSchema = Record<string, unknown>;
+
 export interface AIGenerateOptions {
   prompt: string;
   model?: string;
   responseFormat?: 'json' | 'text';
+  /** Optional JSON Schema used by providers that support constrained structured output. */
+  responseSchema?: AIJsonSchema;
   /** GenAI Cost Center feature code for usage attribution. Server defaults to 'unknown'. */
   feature?: AiFeatureCode;
 }
@@ -164,6 +168,8 @@ export interface AIChatOptions {
   prompt?: string;
   model?: string;
   responseFormat?: 'json' | 'text';
+  /** Optional JSON Schema used by providers that support constrained structured output. */
+  responseSchema?: AIJsonSchema;
   systemInstruction?: string;
   tools?: any[];
   history?: Array<{ role: string; parts: Array<{ text: string }> }>;
@@ -189,7 +195,7 @@ export interface AIGenerateResponse {
  * All AI API calls should go through this service to keep API keys secure on the backend.
  */
 export async function generateAIContent(options: AIGenerateOptions): Promise<AIGenerateResponse> {
-  const { prompt, model = DEFAULT_MODEL, responseFormat = 'json', feature } = options;
+  const { prompt, model = DEFAULT_MODEL, responseFormat = 'json', responseSchema, feature } = options;
 
   if (import.meta.env.DEV && !feature) {
     logger.warn('[aiService] generateAIContent missing feature tag — will be classified as "unknown" in the Cost Center.');
@@ -197,7 +203,7 @@ export async function generateAIContent(options: AIGenerateOptions): Promise<AIG
 
   return withRetry(async () => {
     const { data, error } = await supabase.functions.invoke('ai-generate', {
-      body: { prompt, model, responseFormat, feature }
+      body: { prompt, model, responseFormat, responseSchema, feature }
     });
 
     if (error) {
@@ -222,6 +228,7 @@ export async function generateAIChat(options: AIChatOptions): Promise<AIGenerate
     prompt,
     model = DEFAULT_MODEL,
     responseFormat = 'text',
+    responseSchema,
     systemInstruction,
     tools,
     history,
@@ -240,6 +247,7 @@ export async function generateAIChat(options: AIChatOptions): Promise<AIGenerate
         prompt,
         model,
         responseFormat,
+        responseSchema,
         systemInstruction,
         tools,
         history,

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Icon } from './Icon';
 import { ModelSelector } from './ModelSelector';
-import { generateAIJSON, DEFAULT_MODEL, getModelById } from '../lib/aiService';
+import { generateAIJSON, DEFAULT_MODEL, getModelById, type AIJsonSchema } from '../lib/aiService';
 import { useToast } from '../hooks/useToast';
 import { useTheme } from '../context/ThemeContext';
 import { Detection } from '../types';
@@ -57,6 +57,22 @@ interface SessionSummary {
 const SESSIONS_INDEX_KEY = 'optimus_ai_sessions_v5_index';
 const SESSION_PREFIX = 'optimus_ai_session_v5_';
 const MAX_SESSIONS = 50;
+
+const AI_QUERY_RESPONSE_SCHEMA: AIJsonSchema = {
+    type: 'object',
+    properties: {
+        query: {
+            type: 'string',
+            description: 'The complete executable detection query, including any inline comments.',
+        },
+        explanation: {
+            type: 'string',
+            description: 'A brief explanation of the detected behavior and why the query catches it.',
+        },
+    },
+    required: ['query', 'explanation'],
+    additionalProperties: false,
+};
 
 const LANGUAGES = [
     { id: 'spl', label: 'Splunk SPL', keywords: ['splunk', 'spl'] },
@@ -577,9 +593,10 @@ export const AIQueryGenerator: React.FC<AIQueryGeneratorProps> = ({ onCreateDraf
 
             const prompt = `${sys}\n\n${hist}${ctx}\n\nUser: ${userMsg.content}\n\nGenerate a ${langLabel} detection query:`;
 
-            const data = await generateAIJSON<{ query?: string; explanation?: string }>({
+            const data = await generateAIJSON<{ query: string; explanation: string }>({
                 prompt,
                 model: session.model,
+                responseSchema: AI_QUERY_RESPONSE_SCHEMA,
                 feature: 'ai-query-gen',
             });
 

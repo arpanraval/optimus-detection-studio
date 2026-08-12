@@ -5,6 +5,11 @@ import { checkRateLimit } from '../_shared/rate-limiter.ts'
 import { withAiTelemetry, BudgetExceededError } from '../_shared/aiTelemetry.ts'
 import { parseGeminiUsage, parseOpenAIUsage, parseAnthropicUsage } from '../_shared/aiUsageParsers.ts'
 import { normalizeFeatureCode } from '../_shared/aiFeatureCodes.ts'
+import {
+  assertAnthropicResponseComplete,
+  configureAnthropicResponse,
+  type JsonSchemaDefinition,
+} from './anthropic-response.ts'
 
 // Provider detection from model name
 type Provider = 'google' | 'openai' | 'anthropic'
@@ -41,6 +46,7 @@ interface AIRequest {
   model?: string
   provider?: Provider // Optional explicit provider override
   responseFormat?: 'json' | 'text'
+  responseSchema?: JsonSchemaDefinition
   systemInstruction?: string
   tools?: any[] // Normalized tool format (Gemini style)
   history?: Array<{ role: string; parts: Array<{ text: string }> }> // Gemini history format
@@ -378,6 +384,7 @@ async function callAnthropicAPI(
   model: string,
   prompt: string | undefined,
   responseFormat: 'json' | 'text',
+  responseSchema: JsonSchemaDefinition | undefined,
   systemInstruction: string | undefined,
   tools: any[] | undefined,
   history: Array<{ role: string; parts: Array<{ text: string }> }> | undefined,
@@ -410,22 +417,12 @@ async function callAnthropicAPI(
     messages
   }
 
-  // Build the system prompt. Anthropic has no native JSON mode (unlike Gemini's
-  // responseMimeType or OpenAI's response_format), so when the caller asks for
-  // JSON we prepend an instruction to the system prompt. The client-side parser
-  // (generateAIJSON in src/lib/aiService.ts) is also tolerant to fenced JSON
-  // and embedded JSON as a defense-in-depth fallback.
-  const jsonDirective = responseFormat === 'json'
-    ? 'Respond with a single valid JSON object only. Do not include prose, explanations, markdown, or code fences before or after the JSON. Your entire response must be parseable by JSON.parse().'
-    : null;
-
-  if (systemInstruction && jsonDirective) {
-    anthropicPayload.system = `${jsonDirective}\n\n${systemInstruction}`;
-  } else if (jsonDirective) {
-    anthropicPayload.system = jsonDirective;
-  } else if (systemInstruction) {
-    anthropicPayload.system = systemInstruction;
-  }
+  configureAnthropicResponse(anthropicPayload, {
+    model,
+    responseFormat,
+    responseSchema,
+    systemInstruction,
+  })
 
   // Convert and add tools if provided
   if (tools && tools.length > 0) {
@@ -448,6 +445,7 @@ async function callAnthropicAPI(
   }
 
   const data = await response.json()
+  assertAnthropicResponseComplete(data)
 
   // Extract text and tool use from content blocks
   let text = ''
@@ -534,6 +532,7 @@ serve(async (req: Request) => {
       prompt,
       model = 'gemini-3.6-flash',
       responseFormat = 'json',
+      responseSchema,
       systemInstruction,
       tools,
       history,
@@ -553,6 +552,14 @@ serve(async (req: Request) => {
     }
     if (systemInstruction && systemInstruction.length > 10_000) {
       return new Response(JSON.stringify({ error: 'System instruction too long' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
+    if (responseSchema !== undefined) {
+      if (responseFormat !== 'json' || typeof responseSchema !== 'object' || responseSchema === null || Array.isArray(responseSchema)) {
+        return new Response(JSON.stringify({ error: 'Invalid response schema' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      }
+      if (JSON.stringify(responseSchema).length > 10_000) {
+        return new Response(JSON.stringify({ error: 'Response schema too large' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      }
     }
     if (history && history.length > 50) {
       return new Response(JSON.stringify({ error: 'History too long' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
@@ -682,7 +689,7 @@ serve(async (req: Request) => {
             )
           case 'anthropic':
             return await callAnthropicAPI(
-              apiKey, model, prompt, responseFormat,
+              apiKey, model, prompt, responseFormat, responseSchema,
               fullSystemInstruction, tools, history, functionResponses
             )
           default:
