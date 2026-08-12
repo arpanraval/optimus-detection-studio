@@ -11,6 +11,8 @@ import { PreflightTimeChart, PreflightEntityChart } from './SiemPreflightCharts'
 import type { Detection, Integration, PreflightResult, PreflightWindowDays } from '../../types';
 import { SiemFinetuneModal } from './SiemFinetuneModal';
 import type { FinetuneRefinement } from '../../types/finetune';
+import { CrowdStrikeFinetuneModal } from './CrowdStrikeFinetuneModal';
+import type { CrowdStrikeFinetuneRefinement } from '../../types/crowdstrikeFinetune';
 
 interface SiemPreflightPanelProps {
   detection: Detection;
@@ -61,6 +63,7 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
   const [selectedId, setSelectedId] = useState<string | undefined>(integration?.id);
   const [windowDays, setWindowDays] = useState<PreflightWindowDays>(30);
   const [showFinetune, setShowFinetune] = useState(false);
+  const [showCrowdStrikeFinetune, setShowCrowdStrikeFinetune] = useState(false);
 
   useEffect(() => {
     if (integration) return;
@@ -117,6 +120,13 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
     setShowFinetune(false);
     navigate(routeHelpers.detectionEdit(detection.id), {
       state: { refinedKql: refinement.kql },
+    });
+  };
+
+  const handleApplyCrowdStrikeRefinement = (refinement: CrowdStrikeFinetuneRefinement) => {
+    setShowCrowdStrikeFinetune(false);
+    navigate(routeHelpers.detectionEdit(detection.id), {
+      state: { refinedCql: refinement.cql },
     });
   };
 
@@ -376,14 +386,24 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
                     </span>
                   )}
                 </div>
-                {(result.hit_count ?? 0) > 0 && activeIntegration?.provider === 'defender_xdr' ? (
+                {(result.hit_count ?? 0) > 0 &&
+                (activeIntegration?.provider === 'defender_xdr' ||
+                  activeIntegration?.provider === 'crowdstrike') ? (
                   <Button
                     variant="filled"
                     color="primary"
                     leadingIcon="magic-wand"
-                    onClick={() => setShowFinetune(true)}
+                    onClick={() => {
+                      if (activeIntegration.provider === 'crowdstrike') {
+                        setShowCrowdStrikeFinetune(true);
+                      } else {
+                        setShowFinetune(true);
+                      }
+                    }}
                   >
-                    Finetune with AI
+                    {activeIntegration.provider === 'crowdstrike'
+                      ? 'Finetune CrowdStrike CQL'
+                      : 'Finetune with AI'}
                   </Button>
                 ) : (
                   result.hit_count === 0 && (
@@ -479,6 +499,19 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
           onClose={() => setShowFinetune(false)}
         />
       )}
+      {showCrowdStrikeFinetune &&
+        activeIntegration?.provider === 'crowdstrike' &&
+        result?.status === 'success' && (
+          <CrowdStrikeFinetuneModal
+            detection={detection}
+            integrationId={activeIntegration.id}
+            preflightRunId={result.id}
+            windowDays={result.window_days}
+            baselineHitCount={result.hit_count ?? 0}
+            onApplyRefinement={handleApplyCrowdStrikeRefinement}
+            onClose={() => setShowCrowdStrikeFinetune(false)}
+          />
+        )}
     </div>
   );
 };

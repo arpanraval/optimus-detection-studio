@@ -33,6 +33,7 @@ export const DetectionFormPage: React.FC<DetectionFormPageProps> = ({ mode }) =>
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const refinedKql = (location.state as { refinedKql?: string } | null)?.refinedKql;
+  const refinedCql = (location.state as { refinedCql?: string } | null)?.refinedCql;
   const { user, detections, mitreFramework, saveDetection, sanitizeDetection } = useAppData();
   const { linkDetectionToReport } = useThreatIntel();
   const { showToast } = useToast();
@@ -230,6 +231,7 @@ export const DetectionFormPage: React.FC<DetectionFormPageProps> = ({ mode }) =>
         userId={user?.id || ''}
         targetLibrary={mode === 'edit' ? (detection?.library_type || LIBRARY_PRODUCTION) : targetLibrary}
         appliedRefinementKql={mode === 'edit' ? refinedKql : undefined}
+        appliedRefinementCql={mode === 'edit' ? refinedCql : undefined}
       />
     </PageErrorBoundary>
   );

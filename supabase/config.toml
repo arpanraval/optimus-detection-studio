@@ -92,6 +92,9 @@ verify_jwt = true
 [functions.detection-finetune]
 verify_jwt = true
 
+[functions.crowdstrike-detection-finetune]
+verify_jwt = true
+
 [functions.threat-intel-digest-v2]
 verify_jwt = true
 
