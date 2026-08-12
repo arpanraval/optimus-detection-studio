@@ -10,11 +10,24 @@
 -- not relevance gates (spec §1, §7). The gate that excluded them passed 0 of
 -- 11,820 detections.
 --
--- Filename note: this file is deliberately NOT named `..._detection_identity_keys.sql`.
--- The repo's local pre-commit hook feeds shell globs to `grep -E`, so its
--- `*.key` entry reduces to `.key` and false-matches the substring `_key` in any
--- ordinary filename. The applied migration version (20260812090000) is
--- unchanged; only the descriptive suffix differs.
+-- Filename note: this migration was applied via `mcp__supabase__apply_migration`,
+-- which stamps the call time as the recorded version rather than the name
+-- passed to it -- the `20260812090000` label originally used to name this file
+-- was never the version Postgres tracks. The live
+-- `supabase_migrations.schema_migrations` row for this change is version
+-- 20260812103343, which is why this file is named
+-- `20260812103343_detection_identity.sql`. The two migrations immediately
+-- before this one show the same pattern: file
+-- `20260811120000_name_remaining_github_references_and_classify_kinds.sql` is
+-- recorded as version 20260811110959. Filename-vs-recorded-version drift is
+-- the norm for apply_migration-applied migrations in this repo, not a defect
+-- specific to this file -- naming the file after the recorded version avoids
+-- `supabase db push` treating it as unapplied.
+--
+-- The descriptive suffix is `detection_identity`, not `detection_identity_keys`:
+-- the repo's local pre-commit hook feeds shell globs straight to `grep -E`, so
+-- its `*.key` entry degenerates to `.key` and false-matches the substring
+-- `_key` in `..._identity_keys.sql`.
 
 CREATE TABLE IF NOT EXISTS public.detection_identity_keys (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -71,6 +84,10 @@ WITH grouped AS (
     min(k.namespace)                                                   AS namespace,
     count(DISTINCT t.key_value)                                        AS distinct_titles,
     count(DISTINCT f.key_value)                                        AS distinct_fingerprints,
+    count(DISTINCT CASE WHEN t.key_value IS NOT NULL
+                        THEN k.detection_id END)                       AS titled_copies,
+    count(DISTINCT CASE WHEN f.key_value IS NOT NULL
+                        THEN k.detection_id END)                       AS fingerprinted_copies,
     array_agg(DISTINCT k.detection_id)                                 AS detection_ids
   FROM public.detection_identity_keys k
   LEFT JOIN public.detection_identity_keys t
@@ -88,7 +105,16 @@ SELECT
   CASE
     WHEN copies = 1 THEN 'valid'
     WHEN namespaces > 1 THEN 'ambiguous'
-    WHEN distinct_titles <= 1 OR distinct_fingerprints <= 1 THEN 'valid'
+    -- Agreement must cover EVERY copy, not merely the copies that happen to
+    -- have the field. `count(DISTINCT ...)` ignores NULLs, so an earlier draft
+    -- of this view read `distinct_titles <= 1` and a single copy missing its
+    -- title row pulled the count to 1 -- manufacturing agreement out of absent
+    -- data and flipping a genuinely ambiguous group to 'valid'. A false 'valid'
+    -- here becomes a false "you already hold this rule", the exact failure this
+    -- design exists to prevent, so the bias must run the other way: unknown is
+    -- ambiguous.
+    WHEN distinct_titles = 1 AND titled_copies = copies THEN 'valid'
+    WHEN distinct_fingerprints = 1 AND fingerprinted_copies = copies THEN 'valid'
     ELSE 'ambiguous'
   END AS status
 FROM grouped;
