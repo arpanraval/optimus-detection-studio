@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   assertAnthropicResponseComplete,
   configureAnthropicResponse,
+  createCompactAnthropicRetryPayload,
+  shouldRetryAnthropicCompactly,
+  supportsAnthropicEffort,
   supportsAnthropicStructuredOutput,
   type JsonSchemaDefinition,
 } from '../anthropic-response';
@@ -52,6 +55,25 @@ describe('configureAnthropicResponse', () => {
     expect(payload.system).toContain('Generate a detection query.');
   });
 
+  it('combines structured output with a supported effort level', () => {
+    const payload: Record<string, unknown> = {};
+
+    configureAnthropicResponse(payload, {
+      model: 'claude-opus-5',
+      responseFormat: 'json',
+      responseSchema,
+      effort: 'medium',
+    });
+
+    expect(payload.output_config).toEqual({
+      format: {
+        type: 'json_schema',
+        schema: responseSchema,
+      },
+      effort: 'medium',
+    });
+  });
+
   it('leaves text responses unconstrained', () => {
     const payload: Record<string, unknown> = {};
 
@@ -94,6 +116,56 @@ describe('supportsAnthropicStructuredOutput', () => {
       expect(supportsAnthropicStructuredOutput(model)).toBe(false);
     },
   );
+});
+
+describe('supportsAnthropicEffort', () => {
+  it.each(['claude-opus-5', 'claude-sonnet-5', 'claude-opus-4-5', 'claude-sonnet-4-6'])(
+    'accepts supported model %s',
+    (model) => {
+      expect(supportsAnthropicEffort(model)).toBe(true);
+    },
+  );
+
+  it.each(['claude-haiku-4-5-20251001', 'claude-sonnet-4-5', 'claude-3-opus-20240229'])(
+    'rejects unsupported model %s',
+    (model) => {
+      expect(supportsAnthropicEffort(model)).toBe(false);
+    },
+  );
+});
+
+describe('compact truncation recovery', () => {
+  it('retries only output-token truncation when enabled', () => {
+    expect(shouldRetryAnthropicCompactly({ stop_reason: 'max_tokens' }, true)).toBe(true);
+    expect(shouldRetryAnthropicCompactly({ stop_reason: 'max_tokens' }, false)).toBe(false);
+    expect(shouldRetryAnthropicCompactly({ stop_reason: 'end_turn' }, true)).toBe(false);
+    expect(shouldRetryAnthropicCompactly({ stop_reason: 'model_context_window_exceeded' }, true)).toBe(false);
+  });
+
+  it('preserves the schema while lowering effort and adding compact guidance', () => {
+    const payload = createCompactAnthropicRetryPayload({
+      output_config: {
+        format: {
+          type: 'json_schema',
+          schema: responseSchema,
+        },
+        effort: 'medium',
+      },
+      system: 'Generate a detection query.',
+      messages: [{ role: 'user', content: 'Detect credential dumping.' }],
+    });
+
+    expect(payload.output_config).toEqual({
+      format: {
+        type: 'json_schema',
+        schema: responseSchema,
+      },
+      effort: 'low',
+    });
+    expect(payload.system).toContain('Generate a detection query.');
+    expect(payload.system).toContain('Return a compact complete answer now.');
+    expect(payload.messages).toEqual([{ role: 'user', content: 'Detect credential dumping.' }]);
+  });
 });
 
 describe('assertAnthropicResponseComplete', () => {
