@@ -11,18 +11,14 @@
 -- 11,820 detections.
 --
 -- Filename note: this migration was applied via `mcp__supabase__apply_migration`,
--- which stamps the call time as the recorded version rather than the name
--- passed to it -- the `20260812090000` label originally used to name this file
--- was never the version Postgres tracks. The live
--- `supabase_migrations.schema_migrations` row for this change is version
--- 20260812103343, which is why this file is named
--- `20260812103343_detection_identity.sql`. The two migrations immediately
--- before this one show the same pattern: file
--- `20260811120000_name_remaining_github_references_and_classify_kinds.sql` is
--- recorded as version 20260811110959. Filename-vs-recorded-version drift is
--- the norm for apply_migration-applied migrations in this repo, not a defect
--- specific to this file -- naming the file after the recorded version avoids
--- `supabase db push` treating it as unapplied.
+-- which always stamps its own call time as the recorded version, regardless
+-- of the name passed to it. Applying (and re-applying, once, to ship the
+-- ambiguity-view fix below) through that tool left two stale rows in
+-- `supabase_migrations.schema_migrations` whose versions matched neither this
+-- filename nor each other. Those rows were reconciled BY HAND into a single
+-- row, `version = '20260812090000', name = 'detection_identity'`, to match
+-- this filename -- the recorded version was not produced by any tool run
+-- against this file; it was chosen to agree with it.
 --
 -- The descriptive suffix is `detection_identity`, not `detection_identity_keys`:
 -- the repo's local pre-commit hook feeds shell globs straight to `grep -E`, so
