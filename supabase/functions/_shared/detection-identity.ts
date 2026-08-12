@@ -205,3 +205,86 @@ export async function fingerprintQuery(body: string): Promise<string | null> {
     .join('');
   return `sha256:${hex}`;
 }
+
+/** The detection columns identity is derived from. */
+export interface DetectionIdentityInput {
+  id: string;
+  name: string | null;
+  external_id: string | null;
+  source: string | null;
+  detectionQuery: string | null;
+  source_url: string | null;
+}
+
+export interface IdentityKeyRow {
+  detection_id: string;
+  key_type: 'external_id' | 'fingerprint' | 'locator' | 'title';
+  /** Non-null for external_id and null for every other key type -- the table
+   *  enforces exactly that, because an external ID without its namespace is
+   *  not an identity (spec §4). */
+  namespace: string | null;
+  key_value: string;
+}
+
+/**
+ * Every identity key derivable from one detection.
+ *
+ * A key the detection cannot supply is simply absent from the result -- never a
+ * row with an empty value, which would match every other empty value and
+ * manufacture identity out of missing data.
+ */
+export async function buildIdentityKeys(
+  detection: DetectionIdentityInput,
+): Promise<IdentityKeyRow[]> {
+  const keys: IdentityKeyRow[] = [];
+
+  if (detection.external_id) {
+    const parsed = parseNamespacedId(detection.external_id, detection.source ?? undefined);
+    if (parsed) {
+      keys.push({
+        detection_id: detection.id,
+        key_type: 'external_id',
+        namespace: parsed.namespace,
+        key_value: parsed.value,
+      });
+    }
+  }
+
+  if (detection.detectionQuery) {
+    const fingerprint = await fingerprintQuery(detection.detectionQuery);
+    if (fingerprint) {
+      keys.push({
+        detection_id: detection.id,
+        key_type: 'fingerprint',
+        namespace: null,
+        key_value: fingerprint,
+      });
+    }
+  }
+
+  if (detection.source_url) {
+    const locator = normalizeLocator(detection.source_url);
+    if (locator) {
+      keys.push({
+        detection_id: detection.id,
+        key_type: 'locator',
+        namespace: null,
+        key_value: locator,
+      });
+    }
+  }
+
+  if (detection.name) {
+    const title = normalizeTitle(detection.name);
+    if (title) {
+      keys.push({
+        detection_id: detection.id,
+        key_type: 'title',
+        namespace: null,
+        key_value: title,
+      });
+    }
+  }
+
+  return keys;
+}

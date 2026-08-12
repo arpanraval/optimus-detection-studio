@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isOpaqueIdentifier, parseNamespacedId, normalizeLocator, normalizeTitle, fingerprintQuery } from '../detection-identity';
+import { isOpaqueIdentifier, parseNamespacedId, normalizeLocator, normalizeTitle, fingerprintQuery, buildIdentityKeys } from '../detection-identity';
 
 describe('parseNamespacedId', () => {
   it('accepts a UUID under a UUID-shaped namespace, lowercased and trimmed', () => {
@@ -153,5 +153,73 @@ describe('fingerprintQuery', () => {
   it('returns null when there is no body to fingerprint', async () => {
     expect(await fingerprintQuery('')).toBeNull();
     expect(await fingerprintQuery('   \n\t  ')).toBeNull();
+  });
+});
+
+const base = {
+  id: 'det-1',
+  name: null,
+  external_id: null,
+  source: null,
+  detectionQuery: null,
+  source_url: null,
+};
+
+describe('buildIdentityKeys', () => {
+  it('emits a namespaced external_id key when source vouches for the identifier', async () => {
+    const keys = await buildIdentityKeys({
+      ...base,
+      external_id: 'a3a09840-1022-4267-b9e1-d6c9799ed38a',
+      source: 'microsoft_sentinel',
+    });
+    expect(keys).toContainEqual({
+      detection_id: 'det-1',
+      key_type: 'external_id',
+      namespace: 'microsoft_sentinel',
+      key_value: 'a3a09840-1022-4267-b9e1-d6c9799ed38a',
+    });
+  });
+
+  it('emits no external_id key when the source is not a known namespace', async () => {
+    const keys = await buildIdentityKeys({
+      ...base,
+      external_id: 'a3a09840-1022-4267-b9e1-d6c9799ed38a',
+      source: 'community',
+    });
+    expect(keys.filter(k => k.key_type === 'external_id')).toEqual([]);
+  });
+
+  it('emits a title key with a null namespace', async () => {
+    const keys = await buildIdentityKeys({ ...base, name: 'Account MFA Modifications' });
+    expect(keys).toContainEqual({
+      detection_id: 'det-1',
+      key_type: 'title',
+      namespace: null,
+      key_value: 'account mfa modifications',
+    });
+  });
+
+  it('emits a fingerprint key for a rule with a body', async () => {
+    const keys = await buildIdentityKeys({ ...base, detectionQuery: 'SecurityEvent | where EventID == 4624' });
+    const fingerprint = keys.find(k => k.key_type === 'fingerprint');
+    expect(fingerprint?.key_value).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(fingerprint?.namespace).toBeNull();
+  });
+
+  it('emits a locator key when source_url holds a URL', async () => {
+    const keys = await buildIdentityKeys({
+      ...base,
+      source_url: 'https://github.com/Azure/Azure-Sentinel/blob/master/Solutions/Foo/Bar.yaml',
+    });
+    expect(keys).toContainEqual({
+      detection_id: 'det-1',
+      key_type: 'locator',
+      namespace: null,
+      key_value: 'github:azure/azure-sentinel/solutions/foo/bar.yaml',
+    });
+  });
+
+  it('emits nothing for a detection with no derivable key -- absent, not blank', async () => {
+    expect(await buildIdentityKeys(base)).toEqual([]);
   });
 });
