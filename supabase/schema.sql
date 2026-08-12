@@ -475,6 +475,9 @@ CREATE TABLE IF NOT EXISTS public.detection_preflight_runs (
   sample jsonb,
   breakdown jsonb,
   duration_ms integer,
+  provider_job_state jsonb,
+  started_at timestamp with time zone,
+  completed_at timestamp with time zone,
   created_at timestamp with time zone NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS public.detection_reviews (
@@ -1099,9 +1102,9 @@ ALTER TABLE public.detection_packs ADD CONSTRAINT detection_packs_pack_type_chec
 ALTER TABLE public.detection_packs ADD CONSTRAINT detection_packs_pkey PRIMARY KEY (id);
 ALTER TABLE public.detection_patterns ADD CONSTRAINT detection_patterns_pkey PRIMARY KEY (id);
 ALTER TABLE public.detection_patterns ADD CONSTRAINT detection_patterns_unique UNIQUE (user_id, detection_id);
-ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_provider_check CHECK ((provider = 'defender_xdr'::text));
+ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_provider_check CHECK ((provider = ANY (ARRAY['defender_xdr'::text, 'crowdstrike'::text])));
 ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_pkey PRIMARY KEY (id);
-ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'success'::text, 'query_error'::text, 'connection_error'::text, 'timeout'::text, 'permission_denied'::text])));
+ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'success'::text, 'query_error'::text, 'connection_error'::text, 'timeout'::text, 'permission_denied'::text, 'cancelled'::text])));
 ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_window_days_check CHECK (((window_days >= 1) AND (window_days <= 90)));
 ALTER TABLE public.detection_reviews ADD CONSTRAINT detection_reviews_pkey PRIMARY KEY (id);
 ALTER TABLE public.detection_reviews ADD CONSTRAINT detection_reviews_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'in_progress'::text, 'approved'::text, 'rejected'::text, 'cancelled'::text])));

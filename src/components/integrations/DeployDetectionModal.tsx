@@ -35,6 +35,10 @@ function getQueryLanguageForProvider(provider: IntegrationProvider): string {
   }
 }
 
+function supportsPreflight(provider: IntegrationProvider | undefined): boolean {
+  return provider === 'defender_xdr' || provider === 'crowdstrike';
+}
+
 // Auto-suggest security domain from log sources
 function suggestSecurityDomain(detection: Detection): SplunkSecurityDomain {
   const sources = [
@@ -166,8 +170,8 @@ const STEP_LABELS: { id: StepId; label: string }[] = [
   { id: 'result', label: 'Result' },
 ];
 
-function StepIndicator({ current, isDefender }: { current: StepId; isDefender: boolean }) {
-  const labels = isDefender ? STEP_LABELS : STEP_LABELS.filter(s => s.id !== 'preflight');
+function StepIndicator({ current, hasPreflight }: { current: StepId; hasPreflight: boolean }) {
+  const labels = hasPreflight ? STEP_LABELS : STEP_LABELS.filter(s => s.id !== 'preflight');
   // Map deploying to result position (it's the transition to result)
   const effectiveStep = current === 'deploying' ? 'result' : current;
   const currentIdx = labels.findIndex(s => s.id === effectiveStep);
@@ -328,8 +332,8 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
   const handleProceedToConfigure = () => {
     if (!selectedIntegration) return;
 
-    // Defender XDR: route through the pre-flight step first.
-    if (selectedIntegration.provider === 'defender_xdr' && step === 'validate') {
+    // Supported query providers route through the pre-flight step first.
+    if (supportsPreflight(selectedIntegration.provider) && step === 'validate') {
       setStep('preflight');
       return;
     }
@@ -490,7 +494,9 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
           ) : (
             <>
               {/* Step indicator */}
-              {step !== 'select' && <StepIndicator current={step} isDefender={selectedIntegration?.provider === 'defender_xdr'} />}
+              {step !== 'select' && (
+                <StepIndicator current={step} hasPreflight={supportsPreflight(selectedIntegration?.provider)} />
+              )}
 
               {/* Step 1: Select Integration */}
               {step === 'select' && (
@@ -774,7 +780,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                 </div>
               )}
 
-              {/* Step: Pre-flight (Defender XDR only) */}
+              {/* Step: Query pre-flight */}
               {step === 'preflight' && selectedIntegration && (
                 <div className="space-y-4">
                   <button
@@ -797,7 +803,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                     <div className="flex items-start gap-2 rounded-xl border border-ext-amber/30 bg-ext-amber-container/30 px-3.5 py-2.5">
                       <Icon name="alert-triangle" className="h-4 w-4 text-ext-amber mt-0.5 flex-shrink-0" />
                       <p className="text-[11px] leading-relaxed text-on-surface-variant">
-                        The query did not pass validation. You can still deploy, but the rule will likely error in Defender.
+                        The query did not pass validation. You can still deploy, but the rule may fail in the target SIEM.
                       </p>
                     </div>
                   )}
@@ -826,7 +832,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                     </div>
                   )}
                   <button
-                    onClick={() => setStep(selectedIntegration.provider === 'defender_xdr' ? 'preflight' : 'validate')}
+                    onClick={() => setStep(supportsPreflight(selectedIntegration.provider) ? 'preflight' : 'validate')}
                     className="flex items-center gap-1.5 text-xs font-medium text-on-surface-variant transition-colors hover:text-on-surface"
                   >
                     <Icon name="arrow-left" className="h-3.5 w-3.5" />

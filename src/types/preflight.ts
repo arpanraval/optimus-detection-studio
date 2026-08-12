@@ -3,11 +3,13 @@
 
 export type PreflightStatus =
   | 'pending'
+  | 'running'
   | 'success'
   | 'query_error'
   | 'connection_error'
   | 'timeout'
-  | 'permission_denied';
+  | 'permission_denied'
+  | 'cancelled';
 
 /** Backtest window in days — any custom value within the DB CHECK range (1–90). */
 export type PreflightWindowDays = number;
@@ -38,7 +40,7 @@ export interface PreflightRun {
   user_id: string;
   integration_id: string;
   detection_id: string;
-  provider: 'defender_xdr';
+  provider: 'defender_xdr' | 'crowdstrike';
   window_days: PreflightWindowDays;
   status: PreflightStatus;
   validation_passed: boolean;
@@ -52,6 +54,9 @@ export interface PreflightRun {
   sample: Record<string, unknown>[] | null;
   breakdown: PreflightBreakdown | null;
   duration_ms: number | null;
+  provider_job_state: Record<string, unknown> | null;
+  started_at: string | null;
+  completed_at: string | null;
   created_at: string;
 }
 

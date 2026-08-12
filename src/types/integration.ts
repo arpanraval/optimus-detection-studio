@@ -64,6 +64,7 @@ export interface ElasticConfig {
 export interface CrowdStrikeConfig {
   baseUrl: string;       // e.g. "https://api.crowdstrike.com" (varies by cloud region)
   customerId: string;    // CID -- required for rule creation
+  repository?: 'search-all' | 'investigate_view' | 'third-party' | 'falcon_for_it_view' | 'forensics_view';
 }
 
 export interface ChronicleConfig {
