@@ -38,9 +38,13 @@ interface RawGroup {
   updated_at?: string;
 }
 
+interface PaginatedQuery {
+  range(from: number, to: number): PromiseLike<{ data: unknown; error: unknown }>;
+}
+
 // ---- Paginated fetch helper (Supabase defaults to 1000 rows) ----
 async function fetchAllRows<T>(
-  query: () => ReturnType<ReturnType<typeof supabase.from>['select']>,
+  query: () => PaginatedQuery,
   pageSize = 1000,
 ): Promise<T[]> {
   const allRows: T[] = [];
@@ -48,7 +52,7 @@ async function fetchAllRows<T>(
   let hasMore = true;
 
   while (hasMore) {
-    const { data, error } = await (query() as any).range(offset, offset + pageSize - 1);
+    const { data, error } = await query().range(offset, offset + pageSize - 1);
     if (error) throw error;
     const rows = (data || []) as T[];
     allRows.push(...rows);
