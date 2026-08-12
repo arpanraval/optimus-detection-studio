@@ -8,6 +8,9 @@ import { normalizeFeatureCode } from '../_shared/aiFeatureCodes.ts'
 import {
   assertAnthropicResponseComplete,
   configureAnthropicResponse,
+  createCompactAnthropicRetryPayload,
+  shouldRetryAnthropicCompactly,
+  type AnthropicEffort,
   type JsonSchemaDefinition,
 } from './anthropic-response.ts'
 
@@ -47,6 +50,8 @@ interface AIRequest {
   provider?: Provider // Optional explicit provider override
   responseFormat?: 'json' | 'text'
   responseSchema?: JsonSchemaDefinition
+  effort?: AnthropicEffort
+  compactOnTruncation?: boolean
   systemInstruction?: string
   tools?: any[] // Normalized tool format (Gemini style)
   history?: Array<{ role: string; parts: Array<{ text: string }> }> // Gemini history format
@@ -385,10 +390,13 @@ async function callAnthropicAPI(
   prompt: string | undefined,
   responseFormat: 'json' | 'text',
   responseSchema: JsonSchemaDefinition | undefined,
+  effort: AnthropicEffort | undefined,
+  compactOnTruncation: boolean,
   systemInstruction: string | undefined,
   tools: any[] | undefined,
   history: Array<{ role: string; parts: Array<{ text: string }> }> | undefined,
-  functionResponses: Array<{ id: string; name: string; response: any }> | undefined
+  functionResponses: Array<{ id: string; name: string; response: any }> | undefined,
+  signal?: AbortSignal,
 ): Promise<AICallResult> {
   const messages = convertHistoryToAnthropic(history)
 
@@ -422,6 +430,7 @@ async function callAnthropicAPI(
     responseFormat,
     responseSchema,
     systemInstruction,
+    effort,
   })
 
   // Convert and add tools if provided
@@ -429,22 +438,34 @@ async function callAnthropicAPI(
     anthropicPayload.tools = convertToolsToAnthropic(tools)
   }
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify(anthropicPayload)
-  })
+  const requestAnthropic = async (payload: Record<string, unknown>): Promise<any> => {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify(payload),
+      signal,
+    })
 
-  if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`Anthropic API error: ${errorText}`)
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`Anthropic API error: ${errorText}`)
+    }
+
+    return await response.json()
   }
 
-  const data = await response.json()
+  let data = await requestAnthropic(anthropicPayload)
+  const usageAttempts = [parseAnthropicUsage(data)]
+
+  if (shouldRetryAnthropicCompactly(data, compactOnTruncation)) {
+    data = await requestAnthropic(createCompactAnthropicRetryPayload(anthropicPayload))
+    usageAttempts.push(parseAnthropicUsage(data))
+  }
+
   assertAnthropicResponseComplete(data)
 
   // Extract text and tool use from content blocks
@@ -467,7 +488,18 @@ async function callAnthropicAPI(
       text,
       functionCalls: functionCalls.length > 0 ? functionCalls : undefined
     },
-    usage: parseAnthropicUsage(data),
+    usage: usageAttempts.reduce((total, usage) => ({
+      inputTokens: total.inputTokens + usage.inputTokens,
+      outputTokens: total.outputTokens + usage.outputTokens,
+      cachedInputTokens: (total.cachedInputTokens ?? 0) + (usage.cachedInputTokens ?? 0),
+      cacheCreationInputTokens:
+        (total.cacheCreationInputTokens ?? 0) + (usage.cacheCreationInputTokens ?? 0),
+    }), {
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedInputTokens: 0,
+      cacheCreationInputTokens: 0,
+    }),
   }
 }
 
@@ -533,6 +565,8 @@ serve(async (req: Request) => {
       model = 'gemini-3.6-flash',
       responseFormat = 'json',
       responseSchema,
+      effort,
+      compactOnTruncation = false,
       systemInstruction,
       tools,
       history,
@@ -560,6 +594,12 @@ serve(async (req: Request) => {
       if (JSON.stringify(responseSchema).length > 10_000) {
         return new Response(JSON.stringify({ error: 'Response schema too large' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
       }
+    }
+    if (effort !== undefined && !['low', 'medium', 'high'].includes(effort)) {
+      return new Response(JSON.stringify({ error: 'Invalid effort level' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
+    if (typeof compactOnTruncation !== 'boolean') {
+      return new Response(JSON.stringify({ error: 'Invalid compactOnTruncation option' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
     if (history && history.length > 50) {
       return new Response(JSON.stringify({ error: 'History too long' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
@@ -690,7 +730,8 @@ serve(async (req: Request) => {
           case 'anthropic':
             return await callAnthropicAPI(
               apiKey, model, prompt, responseFormat, responseSchema,
-              fullSystemInstruction, tools, history, functionResponses
+              effort, compactOnTruncation, fullSystemInstruction,
+              tools, history, functionResponses, req.signal
             )
           default:
             throw new Error(`Unsupported provider: ${provider}`)

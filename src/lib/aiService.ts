@@ -153,6 +153,7 @@ export const DEFAULT_MODEL = 'gemini-3.6-flash';
 // ============================================================================
 
 export type AIJsonSchema = Record<string, unknown>;
+export type AIEffort = 'low' | 'medium' | 'high';
 
 export interface AIGenerateOptions {
   prompt: string;
@@ -160,6 +161,16 @@ export interface AIGenerateOptions {
   responseFormat?: 'json' | 'text';
   /** Optional JSON Schema used by providers that support constrained structured output. */
   responseSchema?: AIJsonSchema;
+  /** Provider effort control. Claude 5 defaults to high when omitted. */
+  effort?: AIEffort;
+  /** Let the Edge Function make one compact recovery after output-token truncation. */
+  compactOnTruncation?: boolean;
+  /** Optional AbortSignal to cancel the in-flight request. */
+  signal?: AbortSignal;
+  /** Override generic client retries for interactive or server-recovered calls. */
+  maxAttempts?: number;
+  /** Per-attempt client timeout in milliseconds. */
+  timeoutMs?: number;
   /** GenAI Cost Center feature code for usage attribution. Server defaults to 'unknown'. */
   feature?: AiFeatureCode;
 }
@@ -195,18 +206,44 @@ export interface AIGenerateResponse {
  * All AI API calls should go through this service to keep API keys secure on the backend.
  */
 export async function generateAIContent(options: AIGenerateOptions): Promise<AIGenerateResponse> {
-  const { prompt, model = DEFAULT_MODEL, responseFormat = 'json', responseSchema, feature } = options;
+  const {
+    prompt,
+    model = DEFAULT_MODEL,
+    responseFormat = 'json',
+    responseSchema,
+    effort,
+    compactOnTruncation = false,
+    signal,
+    maxAttempts,
+    timeoutMs,
+    feature,
+  } = options;
 
   if (import.meta.env.DEV && !feature) {
     logger.warn('[aiService] generateAIContent missing feature tag — will be classified as "unknown" in the Cost Center.');
   }
 
   return withRetry(async () => {
+    const body = {
+      prompt,
+      model,
+      responseFormat,
+      responseSchema,
+      feature,
+      ...(effort ? { effort } : {}),
+      ...(compactOnTruncation ? { compactOnTruncation: true } : {}),
+    };
     const { data, error } = await supabase.functions.invoke('ai-generate', {
-      body: { prompt, model, responseFormat, responseSchema, feature }
+      body,
+      ...(signal ? { signal } : {}),
     });
 
     if (error) {
+      if (signal?.aborted) {
+        const abortError = new Error('Aborted');
+        abortError.name = 'AbortError';
+        throw abortError;
+      }
       logger.error('AI generation error:', error);
       throw new Error(error.message || 'AI generation failed');
     }
@@ -216,7 +253,7 @@ export async function generateAIContent(options: AIGenerateOptions): Promise<AIG
     }
 
     return { text: data?.text || '', functionCalls: data?.functionCalls };
-  });
+  }, { maxAttempts, timeout: timeoutMs });
 }
 
 /**

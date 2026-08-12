@@ -63,11 +63,11 @@ const AI_QUERY_RESPONSE_SCHEMA: AIJsonSchema = {
     properties: {
         query: {
             type: 'string',
-            description: 'The complete executable detection query, including any inline comments.',
+            description: 'The complete executable detection query. Keep it focused and use only essential inline comments.',
         },
         explanation: {
             type: 'string',
-            description: 'A brief explanation of the detected behavior and why the query catches it.',
+            description: 'A concise 2-3 sentence explanation of the detected behavior and why the query catches it.',
         },
     },
     required: ['query', 'explanation'],
@@ -93,7 +93,7 @@ const buildSystemPrompt = (langLabel: string) => `You are an expert Detection En
 
 MISSION: Create high-fidelity detection queries that catch real attack behaviors with valid, production-ready syntax.
 
-METHODOLOGY - Follow this process:
+METHODOLOGY - Follow this process internally. Do not include the research process, reasoning, or a checklist in the output:
 
 1. RESEARCH THE ATTACK IN DEPTH
    - How does this attack actually work at a technical level?
@@ -127,6 +127,8 @@ OUTPUT FORMAT (JSON only, no markdown):
 
 CRITICAL RULES:
 - Output ONLY valid, executable ${langLabel} syntax - verify field names and operators are correct for this platform
+- Return the finished query directly; never output research notes, step-by-step reasoning, alternatives, or a long narrative
+- Keep the query focused on the requested behavior and keep the explanation to 2-3 sentences
 - Detect BEHAVIORS and PATTERNS, not just atomic indicators or tool signatures
 - Prioritize detection coverage - a detection that catches attacks is better than one with zero false positives but easy bypasses
 - Think like an attacker: What would you change to evade this detection? Then improve it.`;
@@ -597,6 +599,11 @@ export const AIQueryGenerator: React.FC<AIQueryGeneratorProps> = ({ onCreateDraf
                 prompt,
                 model: session.model,
                 responseSchema: AI_QUERY_RESPONSE_SCHEMA,
+                effort: 'medium',
+                compactOnTruncation: true,
+                signal: abortControllerRef.current.signal,
+                maxAttempts: 1,
+                timeoutMs: 180_000,
                 feature: 'ai-query-gen',
             });
 
