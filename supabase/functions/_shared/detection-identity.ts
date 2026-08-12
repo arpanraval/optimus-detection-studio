@@ -178,3 +178,30 @@ export function normalizeLocator(url: string): string | null {
 
   return `${host}/${segments.join('/')}`;
 }
+
+/**
+ * A conservative fingerprint of a rule body.
+ *
+ * "Conservative" means it normalises only what is unambiguously cosmetic --
+ * whitespace runs and case. Comments are deliberately NOT stripped: two
+ * physical copies of one imported rule carry identical comments, so stripping
+ * them buys nothing, while a body whose comments were edited is a *modified*
+ * copy (spec §9, "exact external ID, modified body") and must fingerprint
+ * differently so that difference stays visible.
+ *
+ * Uses SHA-256 via `crypto.subtle`, which is present in both Deno and every
+ * browser this ships to, keeping one implementation for both consumers.
+ * Returns null when nothing survives normalisation, so a rule with no body
+ * gets no fingerprint key rather than a shared key for emptiness.
+ */
+export async function fingerprintQuery(body: string): Promise<string | null> {
+  if (typeof body !== 'string') return null;
+  const normalized = body.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalized) return null;
+
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(normalized));
+  const hex = Array.from(new Uint8Array(digest))
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('');
+  return `sha256:${hex}`;
+}

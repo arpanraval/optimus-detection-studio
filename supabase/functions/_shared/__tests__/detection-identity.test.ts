@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isOpaqueIdentifier, parseNamespacedId, normalizeLocator, normalizeTitle } from '../detection-identity';
+import { isOpaqueIdentifier, parseNamespacedId, normalizeLocator, normalizeTitle, fingerprintQuery } from '../detection-identity';
 
 describe('parseNamespacedId', () => {
   it('accepts a UUID under a UUID-shaped namespace, lowercased and trimmed', () => {
@@ -123,5 +123,35 @@ describe('normalizeLocator', () => {
   it('returns null for a non-URL', () => {
     expect(normalizeLocator('not a url')).toBeNull();
     expect(normalizeLocator('')).toBeNull();
+  });
+});
+
+describe('fingerprintQuery', () => {
+  it('returns a sha256-prefixed hex digest', async () => {
+    const fingerprint = await fingerprintQuery('SecurityEvent | where EventID == 4624');
+    expect(fingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  it('is insensitive to whitespace and case -- the same rule reformatted is the same rule', async () => {
+    const a = await fingerprintQuery('SecurityEvent\n| where EventID == 4624\n| project Account');
+    const b = await fingerprintQuery('securityevent   | where eventid == 4624 | project account');
+    expect(a).toBe(b);
+  });
+
+  it('is sensitive to an edited body -- a modified copy is not the same logic', async () => {
+    const a = await fingerprintQuery('SecurityEvent | where EventID == 4624');
+    const b = await fingerprintQuery('SecurityEvent | where EventID == 4625');
+    expect(a).not.toBe(b);
+  });
+
+  it('is sensitive to a changed comment, because an edited copy is modified', async () => {
+    const a = await fingerprintQuery('// detects logon\nSecurityEvent | where EventID == 4624');
+    const b = await fingerprintQuery('// detects sign-in\nSecurityEvent | where EventID == 4624');
+    expect(a).not.toBe(b);
+  });
+
+  it('returns null when there is no body to fingerprint', async () => {
+    expect(await fingerprintQuery('')).toBeNull();
+    expect(await fingerprintQuery('   \n\t  ')).toBeNull();
   });
 });
