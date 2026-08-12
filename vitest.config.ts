@@ -26,6 +26,7 @@ export default defineConfig({
     include: [
       'src/**/__tests__/**/*.test.{ts,tsx}',
       'supabase/functions/_shared/__tests__/**/*.test.ts',
+      'supabase/functions/ai-generate/__tests__/**/*.test.ts',
       // Threat-research orchestrator tests. These are no longer restricted to
       // import-safe leaf modules: the aliases below resolve the Deno-targeted
       // remote imports, so orchestrator.ts and the agents load here too.
