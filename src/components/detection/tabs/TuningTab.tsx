@@ -4,6 +4,7 @@ import { Icon } from '../../Icon';
 import { AtomicTestsSection } from './AtomicTestsSection';
 import { DetailCard } from '../DetailCard';
 import { FinetuneHistoryList } from '../../integrations/FinetuneHistoryList';
+import { CrowdStrikeFinetuneHistoryList } from '../../integrations/CrowdStrikeFinetuneHistoryList';
 
 interface TuningTabProps {
   detection: Detection;
@@ -11,6 +12,10 @@ interface TuningTabProps {
 
 
 export const TuningTab: React.FC<TuningTabProps> = ({ detection }) => {
+  const primaryQuery = detection.queries?.find((query) => query.isPrimary) ?? detection.queries?.[0];
+  const queryLanguage = primaryQuery?.language ?? detection.queryLanguage;
+  const isCrowdStrikeCql = ['cql', 'logscale'].includes(queryLanguage?.trim().toLowerCase() ?? '');
+
   return (
     <div className="animate-fade-in space-y-6">
       
@@ -18,7 +23,11 @@ export const TuningTab: React.FC<TuningTabProps> = ({ detection }) => {
           Sessions are persisted by the detection-finetune edge function; surface
           them here so the work isn't lost when the modal closes. */}
       <DetailCard title="AI Finetune Sessions">
-        <FinetuneHistoryList detectionId={detection.id} />
+        {isCrowdStrikeCql ? (
+          <CrowdStrikeFinetuneHistoryList detectionId={detection.id} />
+        ) : (
+          <FinetuneHistoryList detectionId={detection.id} />
+        )}
       </DetailCard>
 
       {/* Atomic Red Team Integration */}
