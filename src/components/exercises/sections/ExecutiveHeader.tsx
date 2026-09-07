@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Icon } from '../../Icon';
 import type { RiskRating, StateSponsoredReport } from '../types';
+import type { IconName } from '../../Icon';
 
 interface Props {
   report: StateSponsoredReport;
@@ -29,7 +30,7 @@ function StatCard({
   label,
   children,
 }: {
-  icon: string;
+  icon: IconName;
   label: string;
   children: React.ReactNode;
 }): React.ReactElement {

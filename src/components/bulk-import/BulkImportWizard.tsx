@@ -22,6 +22,7 @@ import { ImportStickyHeader } from './ImportStickyHeader';
 import { useRegisterNavigationBlocker, useNavigationBlocker } from '../../context/NavigationBlockerContext';
 import { useGlobalImport } from '../../context/GlobalImportContext';
 import { Icon } from '../Icon';
+import type { IconName } from '../Icon';
 
 interface BulkImportWizardProps {
   /** Called when user closes the wizard */
@@ -33,7 +34,7 @@ interface BulkImportWizardProps {
 // Brand color for wizard
 const BRAND_COLOR = '#783264';
 
-const STEPS: { id: WizardStep; label: string; icon: string }[] = [
+const STEPS: { id: WizardStep; label: string; icon: IconName }[] = [
   { id: 'source', label: 'Source', icon: 'upload' },
   { id: 'recon', label: 'Scan', icon: 'search' },
   { id: 'parsing', label: 'Parsing', icon: 'refresh-cw' },

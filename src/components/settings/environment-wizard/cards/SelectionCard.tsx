@@ -1,9 +1,10 @@
 import React from 'react';
 import { Icon } from '../../../Icon';
+import type { IconName } from '../../../Icon';
 
 interface SelectionCardProps {
   /** Optional leading icon. Omit when the icon would be redundant (e.g. all items the same). */
-  icon?: string;
+  icon?: IconName;
   title: string;
   description?: string;
   selected: boolean;

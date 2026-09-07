@@ -6,6 +6,7 @@ import { IntegrationLogo } from '../integrations/IntegrationLogo';
 import { supabase } from '../../lib/supabaseClient';
 import { getProviderMeta } from '../../lib/providerMeta';
 import type { Integration, DeploymentRecord } from '../../types';
+import type { IconName } from '../Icon';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -92,7 +93,7 @@ function StatItem({
   value,
   alert,
 }: {
-  icon: string;
+  icon: IconName;
   label: string;
   value: string | number;
   alert?: boolean;

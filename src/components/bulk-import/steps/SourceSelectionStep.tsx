@@ -13,6 +13,7 @@ import { LIBRARY_LABELS } from '../../../types/detection';
 import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION } from '../../../constants/library';
 import { useAppData } from '../../../router/AppDataContext';
 import { Icon } from '../../Icon';
+import type { IconName } from '../../Icon';
 
 // Brand color for wizard
 const BRAND_COLOR = '#783264';
@@ -26,7 +27,7 @@ interface DuplicateOption {
   id: DuplicateStrategy;
   label: string;
   description: string;
-  icon: string;
+  icon: IconName;
 }
 
 const DUPLICATE_OPTIONS: DuplicateOption[] = [
@@ -54,7 +55,7 @@ interface SourceOption {
   id: ImportSourceType;
   label: string;
   description: string;
-  icon: string;
+  icon: IconName;
   disabled?: boolean;
 }
 
@@ -62,7 +63,7 @@ interface VendorOption {
   id: 'auto' | VendorFormat;
   label: string;
   description: string;
-  icon: string;
+  icon: IconName;
 }
 
 const VENDOR_OPTIONS: VendorOption[] = [

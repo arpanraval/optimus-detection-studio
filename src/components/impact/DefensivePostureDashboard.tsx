@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from '../Icon';
 import { ScopeToggle } from '../common/ScopeToggle';
 import { useDefensivePosture, TechniqueGap } from '../../hooks/useImpactScores';
+import type { IconName } from '../Icon';
 
 interface DefensivePostureDashboardProps {
   userId: string;
@@ -204,7 +205,7 @@ function CoverageCard({
   value: number;
   label: string;
   detail: string;
-  icon: string;
+  icon: IconName;
   showPercent?: boolean;
 }) {
   // Calculate circle properties

@@ -32,7 +32,7 @@ export type IconFactory = (strokeWidth?: number) => React.ReactNode;
 // ============================================================
 // BRAND ICONS
 // ============================================================
-export const brandIcons: Record<string, IconFactory> = {
+export const brandIcons = {
   'optimus-logo': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" className="w-full h-full">
       <circle cx="12" cy="12" r="11" stroke="currentColor" strokeWidth="1.2" className="text-tertiary"/>
@@ -62,12 +62,12 @@ export const brandIcons: Record<string, IconFactory> = {
       <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // NAVIGATION ICONS
 // ============================================================
-export const navigationIcons: Record<string, IconFactory> = {
+export const navigationIcons = {
   'chevron-down': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
@@ -143,12 +143,12 @@ export const navigationIcons: Record<string, IconFactory> = {
       <path d="M11 7 9.6 8.4l2.6 2.6H2v2h10.2l-2.6 2.6L11 17l5-5-5-5zm9 12h-8v2h8c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-8v2h8v14z"/>
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // ACTION ICONS
 // ============================================================
-export const actionIcons: Record<string, IconFactory> = {
+export const actionIcons = {
   'plus-circle': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/>
@@ -276,12 +276,12 @@ export const actionIcons: Record<string, IconFactory> = {
       <path d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/>
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // STATUS ICONS
 // ============================================================
-export const statusIcons: Record<string, IconFactory> = {
+export const statusIcons = {
   'alert-circle': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
@@ -362,12 +362,12 @@ export const statusIcons: Record<string, IconFactory> = {
       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM9.5 16.5v-9l7 4.5-7 4.5z"/>
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // CONTENT & FILE ICONS
 // ============================================================
-export const contentIcons: Record<string, IconFactory> = {
+export const contentIcons = {
   'file-code': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
@@ -434,12 +434,17 @@ export const contentIcons: Record<string, IconFactory> = {
       <path fillRule="evenodd" d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13zM8 14.5h8v2H8z"/>
     </svg>
   ),
-};
+  folder: () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+    </svg>
+  ),
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // USER & PEOPLE ICONS
 // ============================================================
-export const userIcons: Record<string, IconFactory> = {
+export const userIcons = {
   'user-circle': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
@@ -470,12 +475,12 @@ export const userIcons: Record<string, IconFactory> = {
       <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // UI & LAYOUT ICONS
 // ============================================================
-export const uiIcons: Record<string, IconFactory> = {
+export const uiIcons = {
   pipeline: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="2" y="3" width="5" height="18" rx="1" />
@@ -603,12 +608,12 @@ export const uiIcons: Record<string, IconFactory> = {
       <path d="M18 4H6c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H6V6h12v12z"/>
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // OBJECT & CONCEPT ICONS
 // ============================================================
-export const objectIcons: Record<string, IconFactory> = {
+export const objectIcons = {
   shield: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/>
@@ -801,12 +806,12 @@ export const objectIcons: Record<string, IconFactory> = {
       <path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H3V8h2v4h2V8h2v4h2V8h2v4h2V8h2v4h2V8h2v8z"/>
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // DATA & CHART ICONS
 // ============================================================
-export const dataIcons: Record<string, IconFactory> = {
+export const dataIcons = {
   'chart-bar': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M22 21H2V3h2v16h2v-9h4v9h2V6h4v13h2v-5h4v5z"/>
@@ -839,12 +844,12 @@ export const dataIcons: Record<string, IconFactory> = {
       <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // DEVICE & INFRASTRUCTURE ICONS
 // ============================================================
-export const deviceIcons: Record<string, IconFactory> = {
+export const deviceIcons = {
   monitor: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M20 3H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2h3l-1 1v2h12v-2l-1-1h3c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 13H4V5h16v11z"/>
@@ -887,12 +892,12 @@ export const deviceIcons: Record<string, IconFactory> = {
       <circle cx="5" cy="19" r="1" />
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // THEME ICONS
 // ============================================================
-export const themeIcons: Record<string, IconFactory> = {
+export const themeIcons = {
   sun: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.79 1.41-1.41-1.79-1.79-1.41 1.41zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z"/>
@@ -903,12 +908,12 @@ export const themeIcons: Record<string, IconFactory> = {
       <path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-2.98 0-5.4-2.42-5.4-5.4 0-1.81.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/>
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // GIT & VCS ICONS
 // ============================================================
-export const gitIcons: Record<string, IconFactory> = {
+export const gitIcons = {
   'git-branch': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M17.5 13c-2.485 0-4.5 2.015-4.5 4.5s2.015 4.5 4.5 4.5 4.5-2.015 4.5-4.5-2.015-4.5-4.5-4.5zm0 7c-1.378 0-2.5-1.122-2.5-2.5s1.122-2.5 2.5-2.5 2.5 1.122 2.5 2.5-1.122 2.5-2.5 2.5zm-11-20c-2.485 0-4.5 2.015-4.5 4.5s2.015 4.5 4.5 4.5c2.162 0 3.969-1.528 4.398-3.559 1.579 1.074 2.602 2.871 2.602 4.935 0 2.229-1.189 4.156-2.999 5.234l1.399 1.401c2.198-1.465 3.6-3.924 3.6-6.635 0-2.613-1.317-4.887-3.295-6.279-.427-2.037-2.235-3.597-4.405-3.597zm0 7c-1.378 0-2.5-1.122-2.5-2.5s1.122-2.5 2.5-2.5 2.5 1.122 2.5 2.5-1.122 2.5-2.5 2.5zm0 7c-2.485 0-4.5 2.015-4.5 4.5s2.015 4.5 4.5 4.5 4.5-2.015 4.5-4.5-2.015-4.5-4.5-4.5zm0 7c-1.378 0-2.5-1.122-2.5-2.5s1.122-2.5 2.5-2.5 2.5 1.122 2.5 2.5-1.122 2.5-2.5 2.5z"/>
@@ -926,12 +931,12 @@ export const gitIcons: Record<string, IconFactory> = {
       <path d="M6 3a3 3 0 1 0 0 6c1.31 0 2.42-.84 2.83-2H11c1.1 0 2 .9 2 2v2.17A3.001 3.001 0 0 0 12 18a3 3 0 0 0 3-3c0-1.31-.84-2.42-2-2.83V9c0-2.21-1.79-4-4-4H8.83A3.001 3.001 0 0 0 6 3zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm6 8a1 1 0 1 1 0 2 1 1 0 0 1 0-2zM18 3a3 3 0 0 0-2.83 2H13v2h2.17A3.001 3.001 0 0 0 18 9a3 3 0 1 0 0-6zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/>
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // SOCIAL & VENDOR ICONS
 // ============================================================
-export const socialIcons: Record<string, IconFactory> = {
+export const socialIcons = {
   github: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
@@ -993,12 +998,12 @@ export const socialIcons: Record<string, IconFactory> = {
       <path d="M20 7h-4V4c0-1.1-.9-2-2-2h-4c-1.1 0-2 .9-2 2v3H4c-1.1 0-2 .9-2 2v4c0 1.1.9 2 2 2h4v3c0 1.1.9 2 2 2h4c1.1 0 2-.9 2-2v-3h4c1.1 0 2-.9 2-2v-4c0-1.1-.9-2-2-2zm-6 3v4h-4v-4h4z"/>
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // MISC ICONS (formerly unused/backup variants)
 // ============================================================
-export const miscIcons: Record<string, IconFactory> = {
+export const miscIcons = {
   zap: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
@@ -1065,59 +1070,62 @@ export const miscIcons: Record<string, IconFactory> = {
       <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // COMBINED REGISTRY
 // ============================================================
 
+const CATEGORIES = {
+  brand: brandIcons,
+  navigation: navigationIcons,
+  action: actionIcons,
+  status: statusIcons,
+  content: contentIcons,
+  user: userIcons,
+  ui: uiIcons,
+  object: objectIcons,
+  data: dataIcons,
+  device: deviceIcons,
+  theme: themeIcons,
+  git: gitIcons,
+  social: socialIcons,
+  misc: miscIcons,
+} as const;
+
+type Categories = typeof CATEGORIES;
+
 /**
- * Build the complete icon map by merging all categories.
+ * Every valid icon name, derived from the category objects above. Adding an
+ * icon to a category is all it takes to make its name valid; a name that is
+ * not defined anywhere is a compile error at the call site.
+ */
+export type IconName = { [K in keyof Categories]: keyof Categories[K] }[keyof Categories];
+
+/** Name -> factory, merged once at module load (later categories win, as before). */
+export const iconFactories: Record<IconName, IconFactory> = Object.assign({}, ...Object.values(CATEGORIES));
+
+/** Every registered icon name. */
+export const ICON_NAMES = Object.keys(iconFactories) as IconName[];
+
+/** Narrow a plain string (from data, user config, etc.) to an IconName. */
+export function isIconName(name: string): name is IconName {
+  return Object.prototype.hasOwnProperty.call(iconFactories, name);
+}
+
+/**
+ * Build the complete icon map by rendering every factory.
  * Each icon factory receives an optional strokeWidth parameter.
  */
-export function buildIconMap(strokeWidth?: number): Record<string, React.ReactNode> {
-  const allCategories = [
-    brandIcons,
-    navigationIcons,
-    actionIcons,
-    statusIcons,
-    contentIcons,
-    userIcons,
-    uiIcons,
-    objectIcons,
-    dataIcons,
-    deviceIcons,
-    themeIcons,
-    gitIcons,
-    socialIcons,
-    miscIcons,
-  ];
-
-  const result: Record<string, React.ReactNode> = {};
-  for (const category of allCategories) {
-    for (const [name, factory] of Object.entries(category)) {
-      result[name] = factory(strokeWidth);
-    }
-  }
+export function buildIconMap(strokeWidth?: number): Record<IconName, React.ReactNode> {
+  const result = {} as Record<IconName, React.ReactNode>;
+  for (const name of ICON_NAMES) result[name] = iconFactories[name](strokeWidth);
   return result;
 }
 
 /** Get all registered icon names, organized by category */
-export function getIconNames(): Record<string, string[]> {
-  return {
-    brand: Object.keys(brandIcons),
-    navigation: Object.keys(navigationIcons),
-    action: Object.keys(actionIcons),
-    status: Object.keys(statusIcons),
-    content: Object.keys(contentIcons),
-    user: Object.keys(userIcons),
-    ui: Object.keys(uiIcons),
-    object: Object.keys(objectIcons),
-    data: Object.keys(dataIcons),
-    device: Object.keys(deviceIcons),
-    theme: Object.keys(themeIcons),
-    git: Object.keys(gitIcons),
-    social: Object.keys(socialIcons),
-    misc: Object.keys(miscIcons),
-  };
+export function getIconNames(): Record<keyof Categories, string[]> {
+  const out = {} as Record<keyof Categories, string[]>;
+  for (const key of Object.keys(CATEGORIES) as (keyof Categories)[]) out[key] = Object.keys(CATEGORIES[key]);
+  return out;
 }

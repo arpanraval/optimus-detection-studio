@@ -1,8 +1,9 @@
 import React from 'react';
 import { Icon } from '../../Icon';
+import type { IconName } from '../../Icon';
 
 interface InlineActionButtonProps {
-  icon: string;
+  icon: IconName;
   label: string;
   onClick: () => void;
   variant?: 'default' | 'danger' | 'success';

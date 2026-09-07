@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient';
 import { useToast } from '../hooks/useToast';
 import { PublishRequest, Detection, LIBRARY_LABELS } from '../types';
 import { LIBRARY_PRODUCTION } from '../constants/library';
+import type { IconName } from './Icon';
 
 interface MySubmissionsProps {
   userId: string;
@@ -130,7 +131,7 @@ export const MySubmissions: React.FC<MySubmissionsProps> = ({
     rejected: submissions.filter(s => s.status === 'rejected').length,
   };
 
-  const getStatusConfig = (status: string) => {
+  const getStatusConfig = (status: string): { label: string; icon: IconName; color: string } => {
     switch (status) {
       case 'pending':
         return { label: 'Pending Review', icon: 'clock', color: 'text-warning bg-warning/10' };

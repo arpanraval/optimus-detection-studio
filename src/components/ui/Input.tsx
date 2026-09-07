@@ -1,5 +1,6 @@
 import React, { useState, forwardRef } from 'react';
 import { Icon } from '../Icon';
+import type { IconName } from '../Icon';
 
 export type InputSize = 'sm' | 'md' | 'lg';
 export type InputState = 'default' | 'error' | 'success';
@@ -21,7 +22,7 @@ export interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElem
   /** Show required indicator */
   required?: boolean;
   /** Leading icon name */
-  leadingIcon?: string;
+  leadingIcon?: IconName;
   /** Show clear button (for search/text inputs) */
   clearable?: boolean;
   /** Callback when clear button is clicked */

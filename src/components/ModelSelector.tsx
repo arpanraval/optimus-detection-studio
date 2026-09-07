@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Icon } from './Icon';
 import { LLM_MODELS, LLMModel, LLMProvider, getModelById } from '../lib/aiService';
+import type { IconName } from './Icon';
 
 // =============================================================================
 // TYPES
@@ -20,7 +21,7 @@ interface ModelSelectorProps {
 }
 
 // Provider icons and colors
-const PROVIDER_CONFIG: Record<LLMProvider, { icon: string; color: string; name: string }> = {
+const PROVIDER_CONFIG: Record<LLMProvider, { icon: IconName; color: string; name: string }> = {
   google: { icon: 'spark', color: 'text-blue-400', name: 'Google' },
   openai: { icon: 'brain', color: 'text-green-400', name: 'OpenAI' },
   anthropic: { icon: 'cpu', color: 'text-orange-400', name: 'Anthropic' }

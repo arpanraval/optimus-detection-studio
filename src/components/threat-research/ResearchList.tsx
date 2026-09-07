@@ -8,6 +8,7 @@ import type {
   ThreatResearchSession, ThreatResearchTree, AttackBehaviour, DetectionOpportunity,
 } from '../../types/threatResearch';
 import { TrustFlags, isDetectionSaved } from './shared';
+import type { IconName } from '../Icon';
 
 interface Props {
   session: ThreatResearchSession;
@@ -405,7 +406,7 @@ function resolveRowState(
 
 interface StateRenderConfig {
   label: string;
-  icon: string | null;
+  icon: IconName | null;
   iconSpin?: boolean;
   textCls: string;
   borderCls: string;

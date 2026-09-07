@@ -2,6 +2,7 @@ import { Detection } from '../types';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { logger } from '../lib/logger';
+import type { IconName } from './Icon';
 
 // ============================================================================
 // OPTIMUS LOGO - Using public folder approach
@@ -72,7 +73,7 @@ export interface PDFExportSection {
   key: string;
   label: string;
   description: string;
-  icon: string;
+  icon: IconName;
 }
 
 export const PDF_EXPORT_SECTIONS: PDFExportSection[] = [

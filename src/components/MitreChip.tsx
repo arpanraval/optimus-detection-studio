@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from './Icon';
+import type { IconName } from './Icon';
 
 export type MitreEntityType =
   | 'tactic'
@@ -59,7 +60,7 @@ export const MitreChip: React.FC<MitreChipProps> = ({
 
   // Entity type configurations
   const typeConfig: Record<MitreEntityType, {
-    icon: string;
+    icon: IconName;
     bgColor: string;
     textColor: string;
     borderColor: string;

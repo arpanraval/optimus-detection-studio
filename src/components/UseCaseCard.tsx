@@ -6,6 +6,7 @@ import { StatusBadge } from './StatusBadge';
 import { SeverityBadge } from './SeverityBadge';
 import { Icon } from './Icon';
 import { getScoreColor } from './card-utils';
+import type { IconName } from './Icon';
 
 // ============================================================================
 // PROPS INTERFACE
@@ -35,7 +36,7 @@ const Badge: React.FC<{
   children: React.ReactNode;
   variant?: BadgeVariant;
   truncate?: boolean;
-  icon?: string;
+  icon?: IconName;
 }> = ({ children, variant = 'default', truncate = false, icon }) => {
   // Design System colors for SM size badges
   const variantStyles: Record<BadgeVariant, string> = {
@@ -49,7 +50,7 @@ const Badge: React.FC<{
     datasource: 'bg-[#4D7C6F]/10 text-[#4D7C6F] border border-[#4D7C6F]/20',  // Sage Green
   };
 
-  const iconMap: Record<BadgeVariant, string | null> = {
+  const iconMap: Record<BadgeVariant, IconName | null> = {
     default: null,
     tactic: 'target',
     technique: 'zap',

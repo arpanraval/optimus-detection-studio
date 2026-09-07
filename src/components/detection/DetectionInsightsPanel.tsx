@@ -3,6 +3,7 @@ import { Detection } from '../../types';
 import { Icon } from '../Icon';
 import { CircularProgress } from '../CircularProgress';
 import { QualityGrade } from '../../hooks/useDetectionQuality';
+import type { IconName } from '../Icon';
 
 interface ChecklistItem {
   id: string;
@@ -28,7 +29,7 @@ interface DetectionInsightsPanelProps {
   /** Override the derived button label (e.g. "Edit Detection" on the read-only page). */
   actionLabel?: string;
   /** Optional icon name to render before the action label. */
-  actionIcon?: string;
+  actionIcon?: IconName;
   /** Optional keyboard hint shown next to the action label (e.g. "⌘S"). */
   actionShortcut?: string;
   /** Jump to a tab when an incomplete checklist row is clicked. */

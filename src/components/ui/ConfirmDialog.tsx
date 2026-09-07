@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Icon } from '../Icon';
 import { Button } from './Button';
+import type { IconName } from '../Icon';
 
 export interface ConfirmDialogProps {
   /** Whether the dialog is open */
@@ -20,7 +21,7 @@ export interface ConfirmDialogProps {
   /** Visual variant - determines confirm button color */
   variant?: 'danger' | 'warning' | 'info';
   /** Icon name to display */
-  icon?: string;
+  icon?: IconName;
   /** Whether confirm action is loading */
   loading?: boolean;
 }
@@ -90,19 +91,19 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
       iconColor: 'text-error',
       iconBg: 'bg-error/10',
       confirmColor: 'error' as const,
-      defaultIcon: 'alert-triangle',
+      defaultIcon: 'alert-triangle' as const,
     },
     warning: {
       iconColor: 'text-amber-500',
       iconBg: 'bg-amber-500/10',
       confirmColor: 'primary' as const,
-      defaultIcon: 'alert-triangle',
+      defaultIcon: 'alert-triangle' as const,
     },
     info: {
       iconColor: 'text-primary',
       iconBg: 'bg-primary/10',
       confirmColor: 'primary' as const,
-      defaultIcon: 'info',
+      defaultIcon: 'info' as const,
     },
   };
 

@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { Icon } from '../Icon';
 import { LibraryType } from '../../types';
 import { LIBRARY_PRODUCTION } from '../../constants/library';
+import type { IconName } from '../Icon';
 
 // Design tokens
 const SOLID_TERTIARY = '#783264';
@@ -47,7 +48,7 @@ const SEVERITY_OPTIONS = ['Critical', 'High', 'Medium', 'Low', 'Informational'];
 // Dropdown component for actions with sub-options
 const ActionDropdown: React.FC<{
   label: string;
-  icon: string;
+  icon: IconName;
   options: string[];
   onSelect: (option: string) => void;
   disabled?: boolean;
@@ -225,7 +226,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
   const getConfirmationContent = () => {
     if (pendingAction?.type === 'status') {
       return {
-        icon: 'circle',
+        icon: 'circle' as const,
         iconBg: 'bg-primary/10',
         iconColor: 'text-primary',
         title: `Change status of ${effectiveCount.toLocaleString()} detection${effectiveCount > 1 ? 's' : ''}?`,
@@ -236,7 +237,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
     }
     if (pendingAction?.type === 'severity') {
       return {
-        icon: 'alert-triangle',
+        icon: 'alert-triangle' as const,
         iconBg: 'bg-warning/10',
         iconColor: 'text-warning',
         title: `Change severity of ${effectiveCount.toLocaleString()} detection${effectiveCount > 1 ? 's' : ''}?`,
@@ -246,7 +247,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
       };
     }
     return {
-      icon: 'alert-triangle',
+      icon: 'alert-triangle' as const,
       iconBg: 'bg-error/10',
       iconColor: 'text-error',
       title: `Delete ${effectiveCount.toLocaleString()} detection${effectiveCount > 1 ? 's' : ''}?`,

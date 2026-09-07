@@ -8,6 +8,7 @@ import { useDriftSummary } from '../hooks/useDriftSummary';
 import { viewToRoute, ROUTES } from '../router/routes';
 import { readDashboardSummaries } from './dashboard/enterprise/dashboardPersistence';
 import { getAvatarColor } from '../lib/avatar';
+import type { IconName } from './Icon';
 
 type View = 'dashboard' | 'enterprise-dashboard' | 'library' | 'detail' | 'form' | 'mitre' | 'coverage' | 'groups' | 'group-detail' | 'software' | 'software-detail' | 'campaigns' | 'campaign-detail' | 'mitigations' | 'mitigation-detail' | 'detection-strategies' | 'strategy-detail' | 'users' | 'add_selection' | 'sigma_converter' | 'ai_query_gen' | 'ai_agent' | 'bulk_import' | 'integrations' | 'approval_queue' | 'my_submissions' | 'account_settings' | 'data_sync' | 'packs' | 'pack-detail' | 'defensive-posture' | 'scoring_settings' | 'threat-intel' | 'threat-intel-feeds' | 'threat-research' | 'analysis-reports' | 'siem-health' | 'design-system' | 'design-system-buttons' | 'design-system-inputs' | 'design-system-badges' | 'design-system-cards' | 'design-system-navigation' | 'design-system-modals' | 'design-system-dropdowns' | 'design-system-loading' | 'design-system-misc' | 'design-system-colors' | 'design-system-bulk-import' | 'design-system-logo' | 'design-system-ai-chat-cards' | 'audit_log' | 'environment_profile' | 'intelligence_sources' | 'pipeline' | 'detection-board' | 'onboarding' | 'action_plan' | 'exercises-state-sponsored' | 'cost_center' | 'my_ai_usage';
 
@@ -35,7 +36,7 @@ interface NavSubItem {
 interface NavSection {
   id: string;
   label: string;
-  icon: string;
+  icon: IconName;
   items: NavSubItem[];
   singleAction?: View;
   activeClass: string;

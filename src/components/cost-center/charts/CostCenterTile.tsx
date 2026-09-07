@@ -1,9 +1,10 @@
 import React from 'react';
 import { Icon } from '../../Icon';
+import type { IconName } from '../../Icon';
 
 interface Props {
   title: string;
-  icon?: string;
+  icon?: IconName;
   action?: React.ReactNode;        // optional right-side action (e.g. small button)
   className?: string;
   /** Stagger index for entrance delay (0..n). When omitted, no entrance animation. */

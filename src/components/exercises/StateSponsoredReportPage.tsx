@@ -14,6 +14,7 @@ import { GapAnalysis } from './sections/GapAnalysis';
 import { ArsenalSection } from './sections/ArsenalSection';
 import { TargetingSection } from './sections/TargetingSection';
 import { Icon } from '../Icon';
+import type { IconName } from '../Icon';
 
 interface Props {
   onNavigate: (path: string) => void;
@@ -29,7 +30,7 @@ function FilterDropdown({
   required,
 }: {
   label: string;
-  icon: string;
+  icon: IconName;
   options: FilterOption[];
   selected: string[];
   onChange: (values: string[]) => void;

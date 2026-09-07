@@ -11,6 +11,7 @@ import type {
   DriftCheckProgress,
   DriftCheckResult,
 } from '../../services/drift/types';
+import type { IconName } from '../Icon';
 
 const FRESH_UNTIL_MS = 24 * 60 * 60 * 1000;
 const STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
@@ -27,7 +28,7 @@ function timeAgo(iso: string | null): string {
   return `${d}d ago`;
 }
 
-function freshnessClasses(iso: string | null): { classes: string; iconName: string; label: string } {
+function freshnessClasses(iso: string | null): { classes: string; iconName: IconName; label: string } {
   if (!iso) return { classes: 'bg-surface-container-highest text-on-surface-variant/70', iconName: 'clock', label: 'Never checked' };
   const ms = Date.now() - new Date(iso).getTime();
   if (ms < FRESH_UNTIL_MS) return { classes: 'bg-[#4D7C6F]/15 text-[#4D7C6F]', iconName: 'check-circle', label: `Fresh · ${timeAgo(iso)}` };

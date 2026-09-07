@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from '../../Icon';
+import type { IconName } from '../../Icon';
 
 interface StringArrayEditorProps {
   label: string;
@@ -8,7 +9,7 @@ interface StringArrayEditorProps {
   placeholder?: string;
   addButtonText?: string;
   emptyMessage?: string; // Renamed from emptyText to match mockup logic closer
-  icon?: string; // New prop
+  icon?: IconName; // New prop
   maxItems?: number;
   addLabel?: string; // Alias for addButtonText
 }

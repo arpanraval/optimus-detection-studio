@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Icon } from '../Icon';
 import { useNotifications } from '../../context/NotificationContext';
 import { UserNotification } from '../../types';
+import type { IconName } from '../Icon';
 
 interface NotificationBellProps {
   className?: string;
@@ -24,7 +25,7 @@ const formatTimeAgo = (dateString: string): string => {
 };
 
 // M3 design system colors — matches StatusBadge/SeverityBadge palette
-const getNotificationConfig = (type: string): { icon: string; color: string; bgColor: string } => {
+const getNotificationConfig = (type: string): { icon: IconName; color: string; bgColor: string } => {
   switch (type) {
     case 'promotion_approved':
     case 'review_complete':

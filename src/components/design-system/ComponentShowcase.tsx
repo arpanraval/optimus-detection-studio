@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Icon } from '../Icon';
 import { useTheme } from '../../context/ThemeContext';
 import { ScrollArea, Button, FAB } from '../ui';
+import type { IconName } from '../Icon';
 
 // =============================================================================
 // M3 COMPONENT SHOWCASE PAGE
@@ -139,7 +140,7 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
         navigator.clipboard.writeText(text);
     };
 
-    const tabs = [
+    const tabs: { id: string; label: string; icon: IconName }[] = [
         { id: 'selected-components', label: 'Selected Components', icon: 'star' },
         { id: 'buttons', label: 'Buttons', icon: 'zap' },
         { id: 'inputs', label: 'Inputs', icon: 'edit' },
@@ -2503,12 +2504,12 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                                 {/* Mini Nav Rail Preview */}
                                 <div className="w-20 bg-[#0d0e10] rounded-xl overflow-hidden border border-outline-variant/20">
                                     <div className="p-3 flex flex-col items-center gap-1">
-                                        {[
+                                        {([
                                             { icon: 'dashboard', label: 'Dashboard', active: false },
                                             { icon: 'shield', label: 'Library', active: true },
                                             { icon: 'package', label: 'Packs', active: false },
                                             { icon: 'box', label: 'Workspaces', active: false },
-                                        ].map(item => (
+                                        ] as const).map(item => (
                                             <button
                                                 key={item.label}
                                                 className={`w-full py-2.5 px-1.5 rounded-xl flex flex-col items-center gap-1 transition-colors ${
@@ -2562,12 +2563,12 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                             <div className="flex gap-4">
                                 <div className="w-20 hover:w-56 bg-surface-container-low rounded-xl border border-outline-variant/20 transition-all duration-300 overflow-hidden group">
                                     <div className="p-2">
-                                        {[
+                                        {([
                                             { icon: 'target', label: 'Incidents', badge: 3 },
                                             { icon: 'file-text', label: 'Reports', badge: 0 },
                                             { icon: 'users', label: 'Team', badge: 0 },
                                             { icon: 'settings', label: 'Settings', badge: 0 },
-                                        ].map((item, i) => (
+                                        ] as const).map((item, i) => (
                                             <div
                                                 key={item.label}
                                                 className={`flex items-center gap-3 px-3 py-3 rounded-full transition-colors ${
@@ -2679,11 +2680,11 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                             onToggleSelect={toggleSelection}
                         >
                             <div className="inline-flex bg-surface-container-high rounded-lg p-1">
-                                {[
+                                {([
                                     { icon: 'grid', label: 'Grid' },
                                     { icon: 'list', label: 'List' },
                                     { icon: 'matrix', label: 'Table' },
-                                ].map((item, i) => (
+                                ] as const).map((item, i) => (
                                     <button
                                         key={item.label}
                                         className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
@@ -3166,13 +3167,13 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
 
                         <ComponentRow label="Action Menu" description="Context menu with icons and destructive action">
                             <div className="w-52 bg-surface-container border border-outline-variant/20 rounded-xl shadow-xl overflow-hidden py-1">
-                                {[
+                                {([
                                     { icon: 'edit', label: 'Edit' },
                                     { icon: 'copy', label: 'Duplicate' },
                                     { icon: 'external-link', label: 'Share' },
                                     { divider: true },
                                     { icon: 'trash', label: 'Delete', danger: true },
-                                ].map((item, i) =>
+                                ] satisfies { icon?: IconName; label?: string; divider?: boolean; danger?: boolean }[]).map((item, i) =>
                                     item.divider ? (
                                         <div key={i} className="border-t border-outline-variant/20 my-1" />
                                     ) : (

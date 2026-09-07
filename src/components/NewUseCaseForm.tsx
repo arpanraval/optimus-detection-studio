@@ -32,6 +32,7 @@ import { Select } from './ui/Select';
 import { MitreTechniqueSearch } from './detection/MitreTechniqueSearch';
 import { DetectionInsightsPanel } from './detection/DetectionInsightsPanel';
 import { ROUTES } from '../router/routes';
+import type { IconName } from './Icon';
 
 interface NewDetectionFormProps {
   onBack?: () => void;
@@ -92,7 +93,7 @@ const FormInput: React.FC<{
   placeholder?: string; 
   required?: boolean; 
   helper?: string;
-  icon?: string;
+  icon?: IconName;
   name?: string;
 }> = ({ label, value, onChange, placeholder, required, helper, icon, name }) => {
   const inputId = `form-input-${name || label.toLowerCase().replace(/\s+/g, '-')}`;

@@ -66,6 +66,7 @@ import { StatCard, ThreatLevelIndicator, InlineActionButton, TTPMiniMatrix, TTPT
 import type { TTPLike } from './shared';
 import { createStixBundle } from '../../lib/threatIntel/stix';
 import { canManageThreatIntelRecord } from '../../lib/threatIntel/access';
+import type { IconName } from '../Icon';
 
 // =============================================================================
 // TYPES
@@ -265,7 +266,7 @@ const RetryButton: React.FC<{
 
 // Empty State with Retry
 const EmptyStateWithRetry: React.FC<{
-  icon: string;
+  icon: IconName;
   title: string;
   description: string;
   section: RetrySectionType;

@@ -3,6 +3,7 @@
  */
 
 import { CategorizedError, ImportErrorCategory } from '../types';
+import type { IconName } from '../../../components/Icon';
 
 interface ErrorPattern {
   patterns: RegExp[];
@@ -109,7 +110,7 @@ export function categorizeError(
 export function getCategoryDisplayInfo(category: ImportErrorCategory): {
   label: string;
   color: string;
-  icon: string;
+  icon: IconName;
 } {
   switch (category) {
     case 'parse_error':

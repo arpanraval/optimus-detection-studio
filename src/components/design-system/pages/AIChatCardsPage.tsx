@@ -7,6 +7,7 @@
 import React, { useState } from 'react';
 import { DesignSystemPage, Section, ComponentRow } from '../shared';
 import { Icon } from '../../Icon';
+import type { IconName } from '../../Icon';
 
 // =============================================================================
 // MOCK DATA (shared across all options)
@@ -119,7 +120,7 @@ const A_Card: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     </div>
 );
 
-const A_Header: React.FC<{ icon: string; label: string; title: string; subtitle?: string; metric?: string; metricLabel?: string; metricColor?: string }> = ({
+const A_Header: React.FC<{ icon: IconName; label: string; title: string; subtitle?: string; metric?: string; metricLabel?: string; metricColor?: string }> = ({
     icon, label, title, subtitle, metric, metricLabel, metricColor = 'text-on-surface'
 }) => (
     <div className="px-5 py-4 flex items-start justify-between gap-4">
@@ -332,7 +333,7 @@ const B_Card: React.FC<{ children: React.ReactNode; accentColor?: string }> = ({
     </div>
 );
 
-const B_Header: React.FC<{ icon: string; title: string; subtitle?: string; badge?: React.ReactNode }> = ({
+const B_Header: React.FC<{ icon: IconName; title: string; subtitle?: string; badge?: React.ReactNode }> = ({
     icon, title, subtitle, badge
 }) => (
     <div className="px-5 py-4 flex items-center justify-between gap-4">
@@ -373,7 +374,7 @@ const B_DataRow: React.FC<{ id: string; name: string; trailing?: React.ReactNode
     </div>
 );
 
-const B_SectionHeader: React.FC<{ icon: string; label: string; count?: number; color?: string }> = ({
+const B_SectionHeader: React.FC<{ icon: IconName; label: string; count?: number; color?: string }> = ({
     icon, label, count, color = 'text-on-surface-variant'
 }) => (
     <div className="flex items-center gap-1.5 px-1 mb-2">
@@ -460,7 +461,7 @@ const OptionB: React.FC = () => (
                     { icon: 'shield-check', label: 'Production', count: 87, pct: 43, color: 'text-primary', techs: MOCK_COVERAGE.production.techniques },
                     { icon: 'package', label: 'In Library', count: 34, pct: 17, color: 'text-secondary', techs: MOCK_COVERAGE.inLibrary.techniques },
                     { icon: 'alert-triangle', label: 'Gaps', count: 80, pct: 40, color: 'text-error', techs: MOCK_COVERAGE.gaps.techniques },
-                ]).map(tier => (
+                ] as const).map(tier => (
                     <div key={tier.label} className="rounded-xl border border-outline-variant/10 overflow-hidden">
                         <div className="flex items-center gap-3 px-4 py-2.5 bg-surface-container-high/30">
                             <Icon name={tier.icon} className={`w-4 h-4 ${tier.color}`} />
@@ -555,7 +556,7 @@ const C_Card: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     </div>
 );
 
-const C_Header: React.FC<{ icon: string; title: string; meta?: string; metricValue?: string; metricColor?: string }> = ({
+const C_Header: React.FC<{ icon: IconName; title: string; meta?: string; metricValue?: string; metricColor?: string }> = ({
     icon, title, meta, metricValue, metricColor = 'text-on-surface'
 }) => (
     <div className="px-4 py-3 flex items-center gap-3 border-b border-outline-variant/10">

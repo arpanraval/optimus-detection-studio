@@ -6,11 +6,12 @@ import { routeHelpers } from '../../router/routes';
 import { BUCKET_ORDER, BUCKET_LABELS, type TechBucket } from '../../lib/actionPlan/technologyBuckets';
 import { bucketCountsFor, filterGapsByBucket, bucketCoverage } from './scopedActionPlan';
 import type { RecommendedDetection, GapTechnique, TacticThreatCoverage } from '../../hooks/useProfileIntelligence';
+import type { IconName } from '../Icon';
 
 const HIGH_RISK = 50;
 const MED_RISK = 80;
 
-const BUCKET_ICON: Record<TechBucket, string> = {
+const BUCKET_ICON: Record<TechBucket, IconName> = {
   endpoint: 'monitor',
   cloud: 'cloud',
   identity: 'user',

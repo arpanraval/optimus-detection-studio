@@ -1,3 +1,5 @@
+import type { IconName } from '../../components/Icon';
+
 // =============================================================================
 // Playbook Type Definitions
 // =============================================================================
@@ -47,7 +49,7 @@ export interface Playbook {
   id: string;
   name: string;
   description: string;
-  icon: string;
+  icon: IconName;
   category: 'threat-assessment' | 'quality' | 'reporting';
   estimatedDuration: string;
   /** If true, playbook is greyed out and not runnable */

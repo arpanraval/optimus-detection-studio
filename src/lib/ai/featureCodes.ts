@@ -1,3 +1,5 @@
+import type { IconName } from '../../components/Icon';
+
 // src/lib/ai/featureCodes.ts
 // Canonical AI feature taxonomy. Every AI call site imports a code from here.
 // The Cost Center page uses FEATURE_DISPLAY for labels/groups/icons.
@@ -55,7 +57,7 @@ export function isValidFeatureCode(s: string): s is AiFeatureCode {
   return (AI_FEATURE_CODE_VALUES as string[]).includes(s);
 }
 
-export const FEATURE_DISPLAY: Record<AiFeatureCode, { label: string; group: string; icon: string }> = {
+export const FEATURE_DISPLAY: Record<AiFeatureCode, { label: string; group: string; icon: IconName }> = {
   'optimus-chat':           { label: 'Optimus Chat',           group: 'AI Tools',         icon: 'message-square' },
   'ai-query-gen':           { label: 'AI Query Generator',     group: 'AI Tools',         icon: 'spark' },
   'sigma-converter':        { label: 'Sigma Converter',        group: 'AI Tools',         icon: 'shuffle' },

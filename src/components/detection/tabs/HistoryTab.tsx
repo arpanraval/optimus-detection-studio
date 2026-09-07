@@ -7,6 +7,7 @@ import { useDetectionAudit } from '../../../hooks/useDetectionAudit';
 import { supabase } from '../../../lib/supabaseClient';
 import { DetailCard } from '../DetailCard';
 import { getInitials } from '../../../lib/utils/getInitials';
+import type { IconName } from '../../Icon';
 
 interface HistoryTabProps {
   detection: Detection;
@@ -93,9 +94,9 @@ function formatAuditEventAction(action: string): string {
   return labels[action] || action.replace(/[._]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
-function getAuditEventIcon(action: string): string {
+function getAuditEventIcon(action: string): IconName {
   const prefix = action.split('.')[0];
-  const icons: Record<string, string> = {
+  const icons: Record<string, IconName> = {
     'detection.created': 'plus-circle',
     'detection.updated': 'edit',
     'detection.deleted': 'trash',

@@ -8,6 +8,7 @@ import { useEnvironmentProfile } from '../../hooks/useEnvironmentProfile';
 import { SIEM_TO_QUERY_LANGUAGES } from '../../hooks/useProfileIntelligence';
 import { startThreatResearch } from '../../lib/threatResearchService';
 import { routeHelpers } from '../../router/routes';
+import type { IconName } from '../Icon';
 
 const FORM_ID = 'new-research-form';
 
@@ -24,7 +25,7 @@ const MAX_INPUT = 1000;
 // value session — catch it before launch rather than after paying for it.
 const MIN_INPUT = 8;
 
-const EXAMPLES: { label: string; value: string; icon: string }[] = [
+const EXAMPLES: { label: string; value: string; icon: IconName }[] = [
   { label: 'CVE-2024-1234',         value: 'CVE-2024-1234',                                icon: 'shield' },
   { label: 'Lazarus ransomware',    value: 'Lazarus ransomware operations',                icon: 'users' },
   { label: 'LSASS dumping',         value: 'T1003.001 LSASS memory dumping',               icon: 'database' },
@@ -35,7 +36,7 @@ const EXAMPLES: { label: string; value: string; icon: string }[] = [
 // work) is intentionally excluded from this "agents collaborate" count; the
 // Opportunity Planner is included because it genuinely runs and is the step
 // that decides how many detections get written.
-const AGENTS = [
+const AGENTS: { name: string; icon: IconName; color: string; desc: string }[] = [
   { name: 'Research',           icon: 'search',       color: 'text-ext-teal',  desc: 'Threat profile + behaviours' },
   { name: 'Attack Researcher',  icon: 'crosshair',    color: 'text-primary',   desc: 'Per-behaviour deep dive' },
   { name: 'Planner',            icon: 'git-fork',     color: 'text-ext-teal',  desc: 'Canonical detection targets' },

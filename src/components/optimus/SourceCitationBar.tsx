@@ -1,12 +1,13 @@
 import React from 'react';
 import { OptimusSource } from '../../types/optimus';
 import { Icon } from '../Icon';
+import type { IconName } from '../Icon';
 
 interface SourceCitationBarProps {
   sources: OptimusSource[];
 }
 
-const sourceTypeIcons: Record<string, string> = {
+const sourceTypeIcons: Record<string, IconName> = {
   mitre: 'shield',
   library: 'file-code',
   web: 'globe',

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Icon } from '../Icon';
 import { LinkedMitreEntity } from '../../types';
 import { useMitreEntityPicker, toLinkedEntity } from '../../hooks/useMitreEntityPicker';
+import type { IconName } from '../Icon';
 
 type EntityType = 'group' | 'software' | 'campaign';
 
@@ -16,7 +17,7 @@ interface MitreEntityPickerProps {
   isAISuggesting?: boolean;
 }
 
-const ENTITY_CONFIG: Record<EntityType, { icon: string; color: string; bgColor: string; plural: string }> = {
+const ENTITY_CONFIG: Record<EntityType, { icon: IconName; color: string; bgColor: string; plural: string }> = {
   group: { icon: 'users', color: '#7dd3fc', bgColor: '#7dd3fc15', plural: 'Threat Groups' },
   software: { icon: 'box', color: '#c4b5fd', bgColor: '#c4b5fd15', plural: 'Software' },
   campaign: { icon: 'flag', color: '#fcd34d', bgColor: '#fcd34d15', plural: 'Campaigns' }

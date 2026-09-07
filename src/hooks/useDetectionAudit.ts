@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { AuditLogEntry, AuditAction } from '../types';
+import type { IconName } from '../components/Icon';
 
 interface UseDetectionAuditResult {
   addAuditEntry: (
@@ -11,7 +12,7 @@ interface UseDetectionAuditResult {
     changes?: Record<string, { old: any; new: any }>
   ) => AuditLogEntry[];
   formatAuditAction: (action: AuditAction) => string;
-  getActionIcon: (action: AuditAction) => string;
+  getActionIcon: (action: AuditAction) => IconName;
   getActionColor: (action: AuditAction) => string;
 }
 
@@ -63,8 +64,8 @@ export function useDetectionAudit(): UseDetectionAuditResult {
     return labels[action] || action;
   }, []);
 
-  const getActionIcon = useCallback((action: AuditAction): string => {
-    const icons: Record<AuditAction, string> = {
+  const getActionIcon = useCallback((action: AuditAction): IconName => {
+    const icons: Record<AuditAction, IconName> = {
       'created': 'plus-circle',
       'updated': 'edit',
       'status_changed': 'refresh-cw',

@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Icon } from '../Icon';
+import type { IconName } from '../Icon';
 
 interface MatchedDetection {
   detection_id: string;
@@ -42,7 +43,7 @@ const STATUS_CONFIG = {
   covered: { label: 'Covered', color: 'text-green-400', bg: 'bg-green-500/10', border: 'border-green-500/20', icon: 'check-circle' },
   partially_covered: { label: 'Partially Covered', color: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/20', icon: 'alert-circle' },
   blind_spot: { label: 'Blind Spot', color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20', icon: 'x-circle' },
-};
+} satisfies Record<string, { label: string; color: string; bg: string; border: string; icon: IconName }>;
 
 export const PhaseAssessmentSection: React.FC<PhaseAssessmentSectionProps> = ({ data }) => {
   const { phases, metadata } = data;

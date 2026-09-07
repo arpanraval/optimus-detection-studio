@@ -222,12 +222,12 @@ const ExportModal: React.FC<{
         <div className="px-5 py-4 border-b border-outline-variant/20">
           <label className="text-sm font-medium text-on-surface mb-2 block">Export Format</label>
           <div className="grid grid-cols-4 gap-2">
-            {[
+            {([
               { key: 'excel', label: 'Excel', icon: 'file-spreadsheet', desc: 'Full formatting' },
               { key: 'csv', label: 'CSV', icon: 'file-text', desc: 'Simple data' },
               { key: 'json', label: 'JSON', icon: 'file-code', desc: 'Raw data' },
               { key: 'yaml', label: 'YAML', icon: 'file-code', desc: 'Sigma format' },
-            ].map(f => (
+            ] as const).map(f => (
               <button
                 key={f.key}
                 onClick={() => setFormat(f.key as ExportFormat)}

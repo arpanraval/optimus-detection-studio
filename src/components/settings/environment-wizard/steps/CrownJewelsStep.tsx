@@ -1,8 +1,9 @@
 import React from 'react';
 import { SelectionCard } from '../cards/SelectionCard';
 import { CROWN_JEWELS } from '../../../../types/environment';
+import type { IconName } from '../../../Icon';
 
-const CROWN_JEWEL_ICONS: Record<string, string> = {
+const CROWN_JEWEL_ICONS: Record<string, IconName> = {
   'Domain Controllers': 'server',
   'Financial Systems': 'shield',
   'Customer Databases': 'database',

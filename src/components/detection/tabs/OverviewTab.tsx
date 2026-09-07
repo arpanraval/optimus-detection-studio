@@ -9,6 +9,7 @@ import { sourceConfig } from '../../card-utils';
 import { DetailCard } from '../DetailCard';
 import { PackMembershipCard } from '../PackMembershipCard';
 import { DetectionDriftBanner } from '../../sync/DetectionDriftBanner';
+import type { IconName } from '../../Icon';
 
 interface OverviewTabProps {
   detection: Detection;
@@ -30,7 +31,7 @@ const DetailField: React.FC<{ label: string; value: React.ReactNode; fullWidth?:
   </div>
 );
 
-const LinkedEntityChip: React.FC<{ entity: LinkedMitreEntity; icon: string; colorClass: string; onClick?: () => void }> = ({ entity, icon, colorClass, onClick }) => (
+const LinkedEntityChip: React.FC<{ entity: LinkedMitreEntity; icon: IconName; colorClass: string; onClick?: () => void }> = ({ entity, icon, colorClass, onClick }) => (
   <button 
     onClick={onClick}
     className="flex items-center gap-2 px-3 py-1.5 bg-surface-container-high border border-outline-variant/20 rounded-lg hover:bg-surface-variant hover:border-outline-variant/40 transition-all group"
