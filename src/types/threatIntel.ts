@@ -436,7 +436,14 @@ export interface ThreatIntelSessionSummary {
   attackType?: AttackType;
   attribution?: string;
   organization?: string;
-  coveragePercent?: number;
+  /**
+   * `null` means coverage could not be assessed -- distinct from 0, which
+   * claims it was assessed and nothing matched. While this was `number` the
+   * list path could not carry that distinction, so every absent value arrived
+   * as 0 and the same report read "Unknown" on its detail page and a
+   * percentage in the library. The type was the blocker, not the `??`.
+   */
+  coveragePercent?: number | null;
   source?: 'manual' | 'auto';
   sourceFeedName?: string;
   sourceArticleUrl?: string;

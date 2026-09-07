@@ -226,7 +226,11 @@ export function dbRecordToSession(record: ThreatIntelReportDbRecord): ThreatInte
 /**
  * Convert database record to summary (for list view)
  */
-function dbRecordToSummary(record: ThreatIntelReportDbRecord): ThreatIntelSessionSummary {
+// Exported for __tests__/db-record-mapping.test.ts. This is dbRecordToSession's
+// list-path twin and drifted from it the same way: it coerced an absent
+// coverage to 0, so the same report reported two different things depending on
+// which page rendered it.
+export function dbRecordToSummary(record: ThreatIntelReportDbRecord): ThreatIntelSessionSummary {
   return {
     id: record.id,
     ownerUserId: record.user_id,
@@ -240,7 +244,10 @@ function dbRecordToSummary(record: ThreatIntelReportDbRecord): ThreatIntelSessio
     attackType: record.attack_type as AttackType | undefined,
     attribution: record.attribution,
     organization: record.organization,
-    coveragePercent: record.coverage_percent ?? 0,
+    // `?? null`, matching dbRecordToSession. This mapper is the list path's
+    // twin and coerced to 0, so a report the server declined to score showed
+    // as 0% covered in the library while its own page said "Unknown".
+    coveragePercent: record.coverage_percent ?? null,
     source: record.source as 'manual' | 'auto' | undefined,
     sourceFeedName: record.source_feed_name,
     sourceArticleUrl: record.source_article_url,
@@ -420,18 +427,18 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
 
       if (error) throw error;
 
-      // Calculate coverage on the fly if not stored; fall back to JSONB for
-      // cached columns that were null due to a historic field-name mismatch
+      // Fall back to JSONB for cached columns that were null due to a historic
+      // field-name mismatch.
+      //
+      // Coverage is deliberately NOT recomputed here. This used to read the
+      // stored value as 0 when absent and then, seeing a zero, recalculate
+      // from `hasExistingDetection` over ALL TTPs -- a different field over a
+      // different denominator from the one the server uses (C3's third
+      // formula). So a report the server had explicitly declined to score got
+      // a number invented for it, on the list page only, and a genuine 0%
+      // was silently replaced too. The stored value is the verdict; absence
+      // is a verdict as well and now survives to the UI.
       const summaries = (data || []).map((record: any) => {
-        let coveragePercent = record.coverage_percent ?? 0;
-
-        // If coverage is 0 but we have TTPs, calculate it
-        if (coveragePercent === 0 && record.ttps && Array.isArray(record.ttps) && record.ttps.length > 0) {
-          const ttps = record.ttps;
-          const coveredTtps = ttps.filter((ttp: any) => ttp.hasExistingDetection === true).length;
-          coveragePercent = Math.round((coveredTtps / ttps.length) * 100);
-        }
-
         const summary = dbRecordToSummary(record);
 
         // Backfill cached columns from JSONB when missing (older auto-digested reports)
@@ -445,7 +452,7 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
           summary.attribution = record.mitre_mapping.matchedGroups[0].name;
         }
 
-        return { ...summary, coveragePercent };
+        return summary;
       });
       setReports(summaries);
     } catch (err) {

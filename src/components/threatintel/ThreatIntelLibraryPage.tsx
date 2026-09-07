@@ -420,8 +420,16 @@ const formatDate = (ts: number) => {
   return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
+/**
+ * Whether there is a coverage figure worth showing.
+ *
+ * The signature already allowed `null`; the body did not check it, so once the
+ * server started reporting "could not be assessed" as null it arrived here,
+ * got coerced to 0, and rendered as an answer. A report with TTPs but no
+ * assessment is exactly the case this guard exists for.
+ */
 const isCoverageMeaningful = (report: { ttpCount?: number; coveragePercent?: number | null }): boolean => {
-  return (report.ttpCount ?? 0) > 0;
+  return (report.ttpCount ?? 0) > 0 && report.coveragePercent != null;
 };
 
 // =============================================================================
@@ -648,7 +656,15 @@ const THREAT_ORDER: Record<string, number> = {
 };
 
 // Coverage range helper
-const getCoverageRange = (percent: number): string => {
+export const COVERAGE_NOT_COMPUTED = 'Not computed';
+
+/**
+ * Absence gets its own bucket rather than falling into "Low (0-39%)". A report
+ * whose coverage could not be assessed is not a badly-covered report, and
+ * filtering for poor coverage should not surface it as though it were.
+ */
+const getCoverageRange = (percent: number | null | undefined): string => {
+  if (percent == null) return COVERAGE_NOT_COMPUTED;
   if (percent >= 70) return 'High (70%+)';
   if (percent >= 40) return 'Medium (40-69%)';
   return 'Low (0-39%)';
@@ -779,10 +795,15 @@ export const ThreatIntelLibraryPage: React.FC = () => {
     const high = reports.filter(r => r.threatLevel === ThreatLevel.High).length;
     const totalTTPs = reports.reduce((acc, r) => acc + (r.ttpCount || 0), 0);
     const totalIoCs = reports.reduce((acc, r) => acc + (r.iocCount || 0), 0);
-    const avgCoverage = reports.length
-      ? Math.round(reports.reduce((acc, r) => acc + (r.coveragePercent || 0), 0) / reports.length)
-      : 0;
-    return { total, critical, high, totalTTPs, totalIoCs, avgCoverage };
+    // Average only what was actually assessed. Counting an unassessed report
+    // as 0% drags the mean toward zero in proportion to how much we failed to
+    // measure -- the number gets worse the less we know, which reads as the
+    // opposite. `null` when nothing has been assessed at all.
+    const assessed = reports.filter(r => r.coveragePercent != null);
+    const avgCoverage = assessed.length
+      ? Math.round(assessed.reduce((acc, r) => acc + (r.coveragePercent as number), 0) / assessed.length)
+      : null;
+    return { total, critical, high, totalTTPs, totalIoCs, avgCoverage, assessedCount: assessed.length };
   }, [reports]);
 
   // Fields available for filtering (excluding already visible ones)
@@ -794,7 +815,7 @@ export const ThreatIntelLibraryPage: React.FC = () => {
     ALL_FILTER_FIELDS.forEach(f => {
       if (f.type === 'computed') {
         if (f.key === 'coverageRange') {
-          opts[f.key] = ['High (70%+)', 'Medium (40-69%)', 'Low (0-39%)'];
+          opts[f.key] = ['High (70%+)', 'Medium (40-69%)', 'Low (0-39%)', COVERAGE_NOT_COMPUTED];
         }
         return;
       }
@@ -833,7 +854,7 @@ export const ThreatIntelLibraryPage: React.FC = () => {
         // Handle computed fields
         if (cfg.type === 'computed') {
           if (key === 'coverageRange') {
-            const range = getCoverageRange(r.coveragePercent ?? 0);
+            const range = getCoverageRange(r.coveragePercent);
             return vals.includes(range);
           }
           return true;
@@ -857,9 +878,16 @@ export const ThreatIntelLibraryPage: React.FC = () => {
         case 'threatLevel':
           c = (THREAT_ORDER[a.threatLevel || ''] ?? -1) - (THREAT_ORDER[b.threatLevel || ''] ?? -1);
           break;
-        case 'coverage':
-          c = (a.coveragePercent ?? 0) - (b.coveragePercent ?? 0);
+        case 'coverage': {
+          // Unassessed reports sort last in either direction rather than
+          // ranking as 0% -- "we don't know" is not the same as "worst".
+          const av = a.coveragePercent, bv = b.coveragePercent;
+          if (av == null && bv == null) c = 0;
+          else if (av == null) c = sortConfig.direction === 'asc' ? 1 : -1;
+          else if (bv == null) c = sortConfig.direction === 'asc' ? -1 : 1;
+          else c = av - bv;
           break;
+        }
         case 'ttpCount':
           c = (a.ttpCount || 0) - (b.ttpCount || 0);
           break;
@@ -981,10 +1009,13 @@ export const ThreatIntelLibraryPage: React.FC = () => {
               />
               <div className="w-px h-8 bg-outline-variant/30" />
               <StatTile
-                value={`${stats.avgCoverage}%`}
-                label="Avg Coverage"
+                value={stats.avgCoverage == null ? '—' : `${stats.avgCoverage}%`}
+                label={stats.avgCoverage == null || stats.assessedCount === stats.total
+                  ? 'Avg Coverage'
+                  : `Avg Coverage (${stats.assessedCount} assessed)`}
                 valueClassName={
-                  stats.avgCoverage >= 70 ? 'text-green-400' : stats.avgCoverage >= 40 ? 'text-amber-400' : 'text-red-400'
+                  stats.avgCoverage == null ? 'text-on-surface-variant/30'
+                    : stats.avgCoverage >= 70 ? 'text-green-400' : stats.avgCoverage >= 40 ? 'text-amber-400' : 'text-red-400'
                 }
                 onClick={() => {
                   setVisibleFilters(prev => prev.includes('coverageRange') ? prev : [...prev, 'coverageRange']);

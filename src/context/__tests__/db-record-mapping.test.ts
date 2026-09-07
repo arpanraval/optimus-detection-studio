@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dbRecordToSession, sessionToDbRecord, type ThreatIntelReportDbRecord } from '../ThreatIntelContext';
+import { dbRecordToSession, dbRecordToSummary, sessionToDbRecord, type ThreatIntelReportDbRecord } from '../ThreatIntelContext';
 
 /**
  * Guard for the database -> report mapper.
@@ -225,5 +225,35 @@ describe('sessionToDbRecord', () => {
     const written = sessionToDbRecord({ ...rest, report: withoutFeasibility }, 'user-1');
     expect('feasible_gap_count' in written).toBe(false);
     expect('infeasible_gap_count' in written).toBe(false);
+  });
+});
+
+// A2's list path. dbRecordToSession preserved absence; its list-path twin
+// coerced it to 0, so a report the server declined to score read "Unknown" on
+// its own page and a percentage in the library. The type was the blocker.
+describe('dbRecordToSummary', () => {
+  it('preserves an unassessed coverage as null rather than zero', () => {
+    const record = fullRecord();
+    delete record.coverage_percent;
+
+    expect(dbRecordToSummary(record).coveragePercent).toBeNull();
+  });
+
+  it('keeps a genuine zero distinguishable from absence', () => {
+    expect(dbRecordToSummary({ ...fullRecord(), coverage_percent: 0 }).coveragePercent).toBe(0);
+  });
+
+  it('carries a real percentage through unchanged', () => {
+    expect(dbRecordToSummary({ ...fullRecord(), coverage_percent: 42 }).coveragePercent).toBe(42);
+  });
+
+  // The two mappers must agree; they are the same question asked from two
+  // pages, and every defect in this area has been them answering differently.
+  it('agrees with dbRecordToSession on absence', () => {
+    const record = fullRecord();
+    delete record.coverage_percent;
+
+    expect(dbRecordToSummary(record).coveragePercent)
+      .toBe(dbRecordToSession(record).report.coveragePercent);
   });
 });
