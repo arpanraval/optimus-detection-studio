@@ -121,16 +121,22 @@ Your task is to extract the following types of IoCs and artifacts:
 
 6. **Deduplication**: If the same IoC appears multiple times, include it only once in the output
 
+7. **Severity**: Assign every IoC a "severity" of exactly one of "malicious", "suspicious", or "unknown", based only on what this article states:
+   - "malicious" - the article attributes the indicator to the attacker: C2 infrastructure, payload delivery, attacker-registered domains, a hash of the malware itself, an attacker-controlled account, mailbox or wallet.
+   - "suspicious" - the article associates the indicator with the activity but not as attacker-owned: a legitimate service or platform the malware abuses, a dual-use tool or living-off-the-land binary used in the intrusion, a targeted or victim-side asset.
+   - "unknown" - the article gives no basis to judge the indicator, or it appears only as background, comparison, or reference material.
+   Decide each indicator on its own evidence. Do not apply one value to the whole list, and do not guess: if the article does not say what role an indicator played, use "unknown".
+
 After your systematic analysis, provide your output in the following JSON format (return ONLY valid JSON, no other text):
 
 {
   "iocs": {
     "ipv4_addresses": [
-      {"value": "192.168.1.100", "context": "C2 server for malware", "potential_false_positive": false}
+      {"value": "192.168.1.100", "context": "C2 server for malware", "severity": "malicious", "potential_false_positive": false}
     ],
     "ipv6_addresses": [],
     "domains": [
-      {"value": "malicious-domain.com", "context": "Command and control domain", "potential_false_positive": false}
+      {"value": "malicious-domain.com", "context": "Command and control domain", "severity": "malicious", "potential_false_positive": false}
     ],
     "urls": [],
     "email_addresses": [],
@@ -141,7 +147,7 @@ After your systematic analysis, provide your output in the following JSON format
     "ja3s_fingerprints": [],
     "ssl_certificates": [],
     "file_hashes": [
-      {"value": "5d41402abc4b2a76b9719d911017c592", "hash_type": "MD5", "context": "Hash of payload", "potential_false_positive": false}
+      {"value": "5d41402abc4b2a76b9719d911017c592", "hash_type": "MD5", "context": "Hash of payload", "severity": "malicious", "potential_false_positive": false}
     ],
     "ssdeep_hashes": [],
     "imphashes": [],
@@ -183,6 +189,7 @@ After your systematic analysis, provide your output in the following JSON format
 - Preserve context for each IoC
 - Deduplicate repeated IoCs
 - Flag potential false positives with explanation
+- Assign every IoC a severity of "malicious", "suspicious", or "unknown", decided per indicator
 - Extract ALL detection queries regardless of format
 - PRESERVE EXACT FORMATTING of detection queries - include all comments and newlines (use \\n for line breaks in JSON)
 - Only extract from the provided article content, not from external reference links
