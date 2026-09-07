@@ -92,7 +92,11 @@ export async function findLibraryMatches(
 
         for (const detection of eligibleDetections) {
           const detectionTTPs = detection.mitreAttackIds || []
-          const matchedTTPs = [...new Set(detectionTTPs.filter((id: string) => techniqueIdSet.has(id)))]
+          // Typed explicitly: `detection.mitreAttackIds` is untyped JSONB, so
+          // the Set widened to unknown[] and LibraryMatch.matchedTTPs is
+          // string[]. This was the one standing `deno check` error on the
+          // digest function.
+          const matchedTTPs: string[] = [...new Set<string>(detectionTTPs.filter((id: string) => techniqueIdSet.has(id)))]
 
           if (matchedTTPs.length > 0) {
             matches.push({
