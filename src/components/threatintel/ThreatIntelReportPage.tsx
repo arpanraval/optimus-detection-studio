@@ -1063,7 +1063,13 @@ export const ThreatIntelReportPage: React.FC = () => {
   const iocCategories = useMemo(() => {
     if (!report) return [];
     const iocs = report.iocs || [];
-    const cats = new Set(iocs.map(i => i.category));
+    // Falsy values are dropped: an IoC without a category would otherwise
+    // produce a chip literally reading "undefined (N)", whose filter matches
+    // `category === undefined`. Every stored IoC currently has one, so this is
+    // a guard rather than a live fix -- but the category vocabulary has gaps
+    // (D3: `registry` and `crypto` fall through to `other`), so a future type
+    // that maps to nothing must not surface as a chip named after the bug.
+    const cats = new Set(iocs.map(i => i.category).filter(Boolean));
     return Array.from(cats);
   }, [report]);
 
