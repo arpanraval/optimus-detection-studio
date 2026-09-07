@@ -34,6 +34,42 @@ import {
 // In dev mode, bypasses edge functions and uses a local Vite proxy for vendor calls.
 
 const IS_DEV = import.meta.env.DEV;
+const PREFLIGHT_POLL_INTERVAL_MS = 10_000;
+
+interface RunPreflightOptions {
+  signal?: AbortSignal;
+  onStarted?: (run: PreflightResult) => void;
+}
+
+function waitForPreflightPoll(signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Pre-flight cancelled', 'AbortError'));
+      return;
+    }
+    const timer = setTimeout(resolve, PREFLIGHT_POLL_INTERVAL_MS);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException('Pre-flight cancelled', 'AbortError'));
+      },
+      { once: true },
+    );
+  });
+}
+
+async function invokePreflightAction(
+  action: 'poll_preflight' | 'cancel_preflight',
+  preflightRunId: string,
+): Promise<PreflightResult> {
+  const { data, error } = await supabase.functions.invoke('integration-ops', {
+    body: { action, preflightRunId },
+  });
+  if (error) throw new Error(`Pre-flight failed: ${error.message}`);
+  if (data?.error) throw new Error(data.error);
+  return data as PreflightResult;
+}
 
 // =============================================================================
 // Dev Credential Cache (in-memory only, never persisted to DB)
@@ -2682,8 +2718,9 @@ export const integrationService = {
     detectionId: string;
     integrationId: string;
     windowDays: number;
-  }): Promise<PreflightResult> {
-    if (IS_DEV) {
+    provider: IntegrationProvider;
+  }, options: RunPreflightOptions = {}): Promise<PreflightResult> {
+    if (IS_DEV && params.provider !== 'crowdstrike') {
       return devRunPreflightDefenderXdr(params);
     }
     const { data, error } = await supabase.functions.invoke('integration-ops', {
@@ -2696,7 +2733,31 @@ export const integrationService = {
     });
     if (error) throw new Error(`Pre-flight failed: ${error.message}`);
     if (data?.error) throw new Error(data.error);
-    return data as PreflightResult;
+    let run = data as PreflightResult;
+    if (run.status !== 'running') return run;
+
+    options.onStarted?.(run);
+    try {
+      while (run.status === 'running') {
+        await waitForPreflightPoll(options.signal);
+        run = await invokePreflightAction('poll_preflight', run.id);
+      }
+      return run;
+    } catch (pollError) {
+      if (pollError instanceof DOMException && pollError.name === 'AbortError') {
+        return invokePreflightAction('cancel_preflight', run.id);
+      }
+      try {
+        await invokePreflightAction('cancel_preflight', run.id);
+      } catch (cancelError) {
+        logger.warn('[preflight] failed to cancel after polling error:', cancelError);
+      }
+      throw pollError;
+    }
+  },
+
+  async cancelPreflight(preflightRunId: string): Promise<PreflightResult> {
+    return invokePreflightAction('cancel_preflight', preflightRunId);
   },
 
   async listVendorRules(integrationId: string): Promise<unknown[]> {

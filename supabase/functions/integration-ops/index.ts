@@ -3,6 +3,14 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import { getCorsHeaders, handleCorsPreflight, corsErrorResponse } from '../_shared/cors.ts'
 import { validateUrl } from '../_shared/url-validator.ts'
 import { checkRateLimit } from '../_shared/rate-limiter.ts'
+import {
+  buildCrowdStrikeQueries,
+  isCrowdStrikeQueryRepository,
+  mapCrowdStrikeQueryError,
+  parseCrowdStrikeCount,
+  pickCrowdStrikeQuery,
+  type CrowdStrikeQueryRepository,
+} from '../_shared/crowdstrike-preflight.ts'
 
 // =============================================================================
 // Types
@@ -17,6 +25,8 @@ type Action =
   | 'toggle_rule'
   | 'delete_vendor_rule'
   | 'run_preflight'
+  | 'poll_preflight'
+  | 'cancel_preflight'
 
 type Provider =
   | 'splunk'
@@ -48,6 +58,7 @@ interface IntegrationRequest {
   vendorRuleId?: string
   enabled?: boolean
   windowDays?: number
+  preflightRunId?: string
 }
 
 interface ConnectionTestResult {
@@ -112,6 +123,8 @@ const ACTION_PERMISSIONS: Record<Action, GranularPermission> = {
   // run_preflight requires :sync (not :view) by deliberate product decision — it executes
   // arbitrary KQL against the production SIEM and consumes Defender API quota.
   run_preflight: 'integrations:sync',
+  poll_preflight: 'integrations:sync',
+  cancel_preflight: 'integrations:sync',
 }
 
 function computeEffectivePermissions(
@@ -2577,6 +2590,498 @@ function pickKqlQuery(detection: {
   return null
 }
 
+const CROWDSTRIKE_PREFLIGHT_TIMEOUT_MS = 5 * 60 * 1000
+
+interface CrowdStrikeQueryJobState {
+  repository: CrowdStrikeQueryRepository
+  count_job_id: string
+  sample_job_id: string
+  count_done: boolean
+  sample_done: boolean
+}
+
+interface CrowdStrikeQueryJobResult {
+  cancelled?: boolean
+  done?: boolean
+  events?: Record<string, unknown>[]
+  errors?: Array<{ message?: string }>
+}
+
+function crowdStrikeQueryJobsUrl(
+  baseUrl: string,
+  repository: CrowdStrikeQueryRepository,
+  jobId?: string,
+): string {
+  const root = `${baseUrl.replace(/\/+$/, '')}/humio/api/v1/repositories/${encodeURIComponent(repository)}/queryjobs`
+  return jobId ? `${root}/${encodeURIComponent(jobId)}` : root
+}
+
+async function crowdStrikeStartQueryJob(
+  baseUrl: string,
+  repository: CrowdStrikeQueryRepository,
+  token: string,
+  queryString: string,
+  windowDays: number,
+): Promise<{ ok: boolean; status: number; body: string; id?: string }> {
+  let response: Response
+  try {
+    response = await vendorFetch(crowdStrikeQueryJobsUrl(baseUrl, repository), {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({
+        queryString,
+        start: `${windowDays}d`,
+        end: 'now',
+        useIngestTime: false,
+      }),
+    })
+  } catch (error) {
+    return {
+      ok: false,
+      status: 503,
+      body: error instanceof Error ? error.message : 'CrowdStrike query job request failed',
+    }
+  }
+  const responseBody = await response.text()
+  if (!response.ok) return { ok: false, status: response.status, body: responseBody }
+  try {
+    const data = JSON.parse(responseBody)
+    if (typeof data.id !== 'string' || data.id.length === 0) {
+      return { ok: false, status: 502, body: 'CrowdStrike did not return a query job ID' }
+    }
+    return { ok: true, status: response.status, body: responseBody, id: data.id }
+  } catch {
+    return { ok: false, status: 502, body: 'CrowdStrike returned an invalid query job response' }
+  }
+}
+
+async function crowdStrikeGetQueryJob(
+  baseUrl: string,
+  repository: CrowdStrikeQueryRepository,
+  token: string,
+  jobId: string,
+): Promise<{ ok: boolean; status: number; body: string; job?: CrowdStrikeQueryJobResult }> {
+  let response: Response
+  try {
+    response = await vendorFetch(crowdStrikeQueryJobsUrl(baseUrl, repository, jobId), {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
+    })
+  } catch (error) {
+    return {
+      ok: false,
+      status: 503,
+      body: error instanceof Error ? error.message : 'CrowdStrike query job polling failed',
+    }
+  }
+  const responseBody = await response.text()
+  if (!response.ok) return { ok: false, status: response.status, body: responseBody }
+  try {
+    return { ok: true, status: response.status, body: responseBody, job: JSON.parse(responseBody) }
+  } catch {
+    return { ok: false, status: 502, body: 'CrowdStrike returned an invalid query job response' }
+  }
+}
+
+async function crowdStrikeDeleteQueryJob(
+  baseUrl: string,
+  repository: CrowdStrikeQueryRepository,
+  token: string,
+  jobId: string,
+): Promise<void> {
+  await vendorFetch(crowdStrikeQueryJobsUrl(baseUrl, repository, jobId), {
+    method: 'DELETE',
+    headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
+  })
+}
+
+async function crowdStrikeCancelJobState(
+  baseUrl: string,
+  token: string,
+  state: CrowdStrikeQueryJobState,
+): Promise<void> {
+  const jobs = [
+    state.count_done ? null : state.count_job_id,
+    state.sample_done ? null : state.sample_job_id,
+  ].filter((jobId): jobId is string => Boolean(jobId))
+  await Promise.allSettled(
+    jobs.map((jobId) => crowdStrikeDeleteQueryJob(baseUrl, state.repository, token, jobId)),
+  )
+}
+
+type IntegrationServiceClient = ReturnType<typeof getServiceClient>
+
+async function updateCrowdStrikePreflightRun(
+  serviceClient: IntegrationServiceClient,
+  runId: string,
+  changes: Record<string, unknown>,
+) {
+  const { data, error } = await serviceClient
+    .from('detection_preflight_runs')
+    .update(changes)
+    .eq('id', runId)
+    .select()
+    .single()
+  if (error || !data) throw new Error('CrowdStrike pre-flight result could not be updated')
+  return data
+}
+
+function parseCrowdStrikeJobState(value: unknown): CrowdStrikeQueryJobState | null {
+  if (!value || typeof value !== 'object') return null
+  const state = value as Record<string, unknown>
+  if (
+    !isCrowdStrikeQueryRepository(state.repository) ||
+    typeof state.count_job_id !== 'string' ||
+    typeof state.sample_job_id !== 'string'
+  ) {
+    return null
+  }
+  return {
+    repository: state.repository,
+    count_job_id: state.count_job_id,
+    sample_job_id: state.sample_job_id,
+    count_done: state.count_done === true,
+    sample_done: state.sample_done === true,
+  }
+}
+
+async function startCrowdStrikePreflight(
+  serviceClient: IntegrationServiceClient,
+  integration: Record<string, unknown>,
+  detection: {
+    id: string
+    queries?: { language?: string; query?: string }[]
+    queryLanguage?: string
+    detectionQuery?: string
+  },
+  userId: string,
+  windowDays: number,
+  corsHeaders: Record<string, string>,
+): Promise<Response> {
+  const json = (payload: unknown, status = 200) =>
+    new Response(JSON.stringify(payload), {
+      status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  const integrationId = String(integration.id)
+  const cqlQuery = pickCrowdStrikeQuery(detection)
+  if (!cqlQuery) {
+    return json({ error: 'Detection has no CQL query to run', code: 'DETECTION_NO_CQL_QUERY' }, 400)
+  }
+
+  const config = (integration.config || {}) as Record<string, unknown>
+  const baseUrl = String(config.baseUrl || '').replace(/\/+$/, '')
+  if (!baseUrl) {
+    return json({ error: 'Integration is missing its CrowdStrike API base URL', code: 'MISSING_BASE_URL' }, 400)
+  }
+  const configuredRepository = config.repository || 'search-all'
+  if (!isCrowdStrikeQueryRepository(configuredRepository)) {
+    return json({ error: 'Integration has an unsupported CrowdStrike NGSIEM repository' }, 400)
+  }
+
+  const startedAt = new Date()
+  const queries = buildCrowdStrikeQueries(cqlQuery)
+  const insertTerminalResult = async (
+    mapped: { status: string; message: string; guidance: string },
+  ): Promise<Response> => {
+    const completedAt = new Date()
+    const { data, error } = await serviceClient
+      .from('detection_preflight_runs')
+      .insert({
+        user_id: userId,
+        integration_id: integrationId,
+        detection_id: detection.id,
+        provider: 'crowdstrike',
+        window_days: windowDays,
+        status: mapped.status,
+        validation_passed: false,
+        hit_count: null,
+        window_applied: true,
+        error_message: mapped.message,
+        error_guidance: mapped.guidance,
+        schema_warnings: [],
+        query_text: cqlQuery,
+        query_language: 'CQL',
+        sample: [],
+        breakdown: null,
+        duration_ms: completedAt.getTime() - startedAt.getTime(),
+        provider_job_state: null,
+        started_at: startedAt.toISOString(),
+        completed_at: completedAt.toISOString(),
+      })
+      .select()
+      .single()
+    if (error || !data) return json({ error: 'Pre-flight result could not be saved' }, 500)
+    return json(data)
+  }
+
+  let token: string
+  try {
+    const credentials = await getDecryptedCredentials(integrationId)
+    token = await crowdStrikeGetToken(baseUrl, credentials.clientId, credentials.clientSecret)
+  } catch (error) {
+    return insertTerminalResult({
+      status: 'permission_denied',
+      message: error instanceof Error ? error.message : 'CrowdStrike authentication failed',
+      guidance: 'Check the CrowdStrike credentials, cloud region, and API client scopes.',
+    })
+  }
+
+  const countJob = await crowdStrikeStartQueryJob(
+    baseUrl, configuredRepository, token, queries.count, windowDays,
+  )
+  if (!countJob.ok || !countJob.id) {
+    return insertTerminalResult(mapCrowdStrikeQueryError(countJob.status, countJob.body))
+  }
+  const sampleJob = await crowdStrikeStartQueryJob(
+    baseUrl, configuredRepository, token, queries.sample, windowDays,
+  )
+  if (!sampleJob.ok || !sampleJob.id) {
+    await Promise.allSettled([
+      crowdStrikeDeleteQueryJob(baseUrl, configuredRepository, token, countJob.id),
+    ])
+    return insertTerminalResult(mapCrowdStrikeQueryError(sampleJob.status, sampleJob.body))
+  }
+
+  const jobState: CrowdStrikeQueryJobState = {
+    repository: configuredRepository,
+    count_job_id: countJob.id,
+    sample_job_id: sampleJob.id,
+    count_done: false,
+    sample_done: false,
+  }
+  const { data: row, error: insertError } = await serviceClient
+    .from('detection_preflight_runs')
+    .insert({
+      user_id: userId,
+      integration_id: integrationId,
+      detection_id: detection.id,
+      provider: 'crowdstrike',
+      window_days: windowDays,
+      status: 'running',
+      validation_passed: false,
+      hit_count: null,
+      window_applied: true,
+      error_message: null,
+      error_guidance: null,
+      schema_warnings: [],
+      query_text: cqlQuery,
+      query_language: 'CQL',
+      sample: [],
+      breakdown: null,
+      duration_ms: null,
+      provider_job_state: jobState,
+      started_at: startedAt.toISOString(),
+      completed_at: null,
+    })
+    .select()
+    .single()
+  if (insertError || !row) {
+    await crowdStrikeCancelJobState(baseUrl, token, jobState)
+    return json({ error: 'Pre-flight jobs started but the run could not be saved' }, 500)
+  }
+  return json(row)
+}
+
+async function handlePollCrowdStrikePreflight(
+  body: IntegrationRequest,
+  userId: string,
+  corsHeaders: Record<string, string>,
+): Promise<Response> {
+  const json = (payload: unknown, status = 200) =>
+    new Response(JSON.stringify(payload), {
+      status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  if (!body.preflightRunId) return json({ error: 'preflightRunId is required' }, 400)
+
+  const serviceClient = getServiceClient()
+  const { data: run, error: runError } = await serviceClient
+    .from('detection_preflight_runs')
+    .select('*')
+    .eq('id', body.preflightRunId)
+    .eq('user_id', userId)
+    .single()
+  if (runError || !run) return json({ error: 'Pre-flight run not found' }, 404)
+  if (run.provider !== 'crowdstrike') return json({ error: 'Run is not a CrowdStrike pre-flight' }, 400)
+  if (run.status !== 'running') return json(run)
+
+  const state = parseCrowdStrikeJobState(run.provider_job_state)
+  if (!state) {
+    const completedAt = new Date()
+    return json(await updateCrowdStrikePreflightRun(serviceClient, run.id, {
+      status: 'connection_error',
+      error_message: 'CrowdStrike query job state is missing or invalid',
+      error_guidance: 'Run pre-flight again.',
+      duration_ms: completedAt.getTime() - new Date(run.started_at || run.created_at).getTime(),
+      completed_at: completedAt.toISOString(),
+    }))
+  }
+  const { data: integration, error: integrationError } = await serviceClient
+    .from('integrations')
+    .select('*')
+    .eq('id', run.integration_id)
+    .eq('user_id', userId)
+    .single()
+  if (integrationError || !integration) return json({ error: 'Integration not found' }, 404)
+
+  const config = (integration.config || {}) as Record<string, unknown>
+  const baseUrl = String(config.baseUrl || '').replace(/\/+$/, '')
+  let token: string
+  try {
+    const credentials = await getDecryptedCredentials(run.integration_id)
+    token = await crowdStrikeGetToken(baseUrl, credentials.clientId, credentials.clientSecret)
+  } catch (error) {
+    const completedAt = new Date()
+    return json(await updateCrowdStrikePreflightRun(serviceClient, run.id, {
+      status: 'permission_denied',
+      error_message: error instanceof Error ? error.message : 'CrowdStrike authentication failed',
+      error_guidance: 'Check the CrowdStrike credentials, cloud region, and API client scopes.',
+      duration_ms: completedAt.getTime() - new Date(run.started_at || run.created_at).getTime(),
+      completed_at: completedAt.toISOString(),
+    }))
+  }
+
+  const startedAtMs = new Date(run.started_at || run.created_at).getTime()
+  if (Date.now() - startedAtMs > CROWDSTRIKE_PREFLIGHT_TIMEOUT_MS) {
+    await crowdStrikeCancelJobState(baseUrl, token, state)
+    const completedAt = new Date()
+    return json(await updateCrowdStrikePreflightRun(serviceClient, run.id, {
+      status: 'timeout',
+      error_message: 'The CrowdStrike query took too long to run',
+      error_guidance: 'Narrow the CQL query or choose a shorter time range, then try again.',
+      duration_ms: completedAt.getTime() - startedAtMs,
+      completed_at: completedAt.toISOString(),
+    }))
+  }
+
+  const [countResult, sampleResult] = await Promise.all([
+    state.count_done
+      ? Promise.resolve(null)
+      : crowdStrikeGetQueryJob(baseUrl, state.repository, token, state.count_job_id),
+    state.sample_done
+      ? Promise.resolve(null)
+      : crowdStrikeGetQueryJob(baseUrl, state.repository, token, state.sample_job_id),
+  ])
+  for (const result of [countResult, sampleResult]) {
+    if (result && !result.ok) {
+      await crowdStrikeCancelJobState(baseUrl, token, state)
+      const mapped = mapCrowdStrikeQueryError(result.status, result.body)
+      const completedAt = new Date()
+      return json(await updateCrowdStrikePreflightRun(serviceClient, run.id, {
+        status: mapped.status,
+        validation_passed: false,
+        error_message: mapped.message,
+        error_guidance: mapped.guidance,
+        duration_ms: completedAt.getTime() - startedAtMs,
+        completed_at: completedAt.toISOString(),
+      }))
+    }
+    if (result?.job?.errors?.length) {
+      await crowdStrikeCancelJobState(baseUrl, token, state)
+      const mapped = mapCrowdStrikeQueryError(400, JSON.stringify({ message: result.job.errors[0]?.message }))
+      const completedAt = new Date()
+      return json(await updateCrowdStrikePreflightRun(serviceClient, run.id, {
+        status: mapped.status,
+        validation_passed: false,
+        error_message: mapped.message,
+        error_guidance: mapped.guidance,
+        duration_ms: completedAt.getTime() - startedAtMs,
+        completed_at: completedAt.toISOString(),
+      }))
+    }
+    if (result?.job?.cancelled) {
+      await crowdStrikeCancelJobState(baseUrl, token, state)
+      const completedAt = new Date()
+      return json(await updateCrowdStrikePreflightRun(serviceClient, run.id, {
+        status: 'cancelled',
+        error_message: 'CrowdStrike query job was cancelled',
+        error_guidance: null,
+        duration_ms: completedAt.getTime() - startedAtMs,
+        completed_at: completedAt.toISOString(),
+      }))
+    }
+  }
+
+  const nextState: CrowdStrikeQueryJobState = {
+    ...state,
+    count_done: state.count_done || countResult?.job?.done === true,
+    sample_done: state.sample_done || sampleResult?.job?.done === true,
+  }
+  const changes: Record<string, unknown> = { provider_job_state: nextState }
+  if (countResult?.job?.done) changes.hit_count = parseCrowdStrikeCount(countResult.job.events || [])
+  if (sampleResult?.job?.done) changes.sample = (sampleResult.job.events || []).slice(0, 25)
+  if (nextState.count_done && nextState.sample_done) {
+    const completedAt = new Date()
+    Object.assign(changes, {
+      status: 'success',
+      validation_passed: true,
+      error_message: null,
+      error_guidance: null,
+      duration_ms: completedAt.getTime() - startedAtMs,
+      completed_at: completedAt.toISOString(),
+    })
+  }
+  return json(await updateCrowdStrikePreflightRun(serviceClient, run.id, changes))
+}
+
+async function handleCancelCrowdStrikePreflight(
+  body: IntegrationRequest,
+  userId: string,
+  corsHeaders: Record<string, string>,
+): Promise<Response> {
+  const json = (payload: unknown, status = 200) =>
+    new Response(JSON.stringify(payload), {
+      status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  if (!body.preflightRunId) return json({ error: 'preflightRunId is required' }, 400)
+  const serviceClient = getServiceClient()
+  const { data: run, error: runError } = await serviceClient
+    .from('detection_preflight_runs')
+    .select('*')
+    .eq('id', body.preflightRunId)
+    .eq('user_id', userId)
+    .single()
+  if (runError || !run) return json({ error: 'Pre-flight run not found' }, 404)
+  if (run.provider !== 'crowdstrike') return json({ error: 'Run is not a CrowdStrike pre-flight' }, 400)
+  if (run.status !== 'running') return json(run)
+
+  const state = parseCrowdStrikeJobState(run.provider_job_state)
+  if (state) {
+    const { data: integration } = await serviceClient
+      .from('integrations')
+      .select('*')
+      .eq('id', run.integration_id)
+      .eq('user_id', userId)
+      .single()
+    if (integration) {
+      try {
+        const config = (integration.config || {}) as Record<string, unknown>
+        const credentials = await getDecryptedCredentials(run.integration_id)
+        const token = await crowdStrikeGetToken(
+          String(config.baseUrl || '').replace(/\/+$/, ''),
+          credentials.clientId,
+          credentials.clientSecret,
+        )
+        await crowdStrikeCancelJobState(String(config.baseUrl || ''), token, state)
+      } catch (error) {
+        console.error('CrowdStrike query job cancellation failed:', error instanceof Error ? error.message : error)
+      }
+    }
+  }
+  const completedAt = new Date()
+  return json(await updateCrowdStrikePreflightRun(serviceClient, run.id, {
+    status: 'cancelled',
+    validation_passed: false,
+    error_message: 'Pre-flight was cancelled',
+    error_guidance: null,
+    duration_ms: completedAt.getTime() - new Date(run.started_at || run.created_at).getTime(),
+    completed_at: completedAt.toISOString(),
+  }))
+}
+
 async function handleRunPreflight(
   body: IntegrationRequest,
   userId: string,
@@ -2602,7 +3107,7 @@ async function handleRunPreflight(
     return json({ error: 'Pre-flight rate limit reached. Wait a few minutes and try again.' }, 429)
   }
 
-  // Integration must be a connected Defender XDR integration owned by the user.
+  // Integration must be a connected supported pre-flight integration owned by the user.
   const { data: integration, error: intError } = await serviceClient
     .from('integrations')
     .select('*')
@@ -2610,8 +3115,8 @@ async function handleRunPreflight(
     .eq('user_id', userId)
     .single()
   if (intError || !integration) return json({ error: 'Integration not found' }, 404)
-  if (integration.provider !== 'defender_xdr') {
-    return json({ error: 'Pre-flight currently supports Microsoft Defender XDR integrations only' }, 400)
+  if (integration.provider !== 'defender_xdr' && integration.provider !== 'crowdstrike') {
+    return json({ error: 'Pre-flight supports Microsoft Defender XDR and CrowdStrike integrations' }, 400)
   }
   if (integration.status !== 'connected') {
     return json({ error: 'Integration is not connected', code: 'INTEGRATION_NOT_CONNECTED' }, 400)
@@ -2625,6 +3130,17 @@ async function handleRunPreflight(
     .single()
   if (detError || !detection) return json({ error: 'Detection not found' }, 404)
   if (detection.user_id !== userId) return json({ error: 'You do not own this detection' }, 403)
+
+  if (integration.provider === 'crowdstrike') {
+    return startCrowdStrikePreflight(
+      serviceClient,
+      integration,
+      detection,
+      userId,
+      windowDays,
+      corsHeaders,
+    )
+  }
 
   const kqlQuery = pickKqlQuery(detection)
   if (!kqlQuery) {
@@ -2842,6 +3358,10 @@ serve(async (req: Request) => {
         return await handleDeleteVendorRule(body, user.id, corsHeaders)
       case 'run_preflight':
         return await handleRunPreflight(body, user.id, corsHeaders)
+      case 'poll_preflight':
+        return await handlePollCrowdStrikePreflight(body, user.id, corsHeaders)
+      case 'cancel_preflight':
+        return await handleCancelCrowdStrikePreflight(body, user.id, corsHeaders)
       default:
         return new Response(
           JSON.stringify({ error: 'Unknown action' }),

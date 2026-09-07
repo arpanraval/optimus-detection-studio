@@ -47,6 +47,8 @@ interface NewDetectionFormProps {
    *  pre-fills this query and opens the query tab so the user can review before
    *  saving. Nothing is persisted until the user clicks Save Changes. */
   appliedRefinementKql?: string;
+  /** Refined CrowdStrike CQL from the separate NGSIEM finetuning flow. */
+  appliedRefinementCql?: string;
 }
 
 const statuses = Object.values(Status);
@@ -312,6 +314,7 @@ export const NewUseCaseForm: React.FC<NewDetectionFormProps> = ({
   targetLibrary = LIBRARY_PRODUCTION,
   mitreFramework,
   appliedRefinementKql,
+  appliedRefinementCql,
 }) => {
   // Use onBack if provided, otherwise use onCancel
   const onBack = onBackProp || onCancel || (() => {});
@@ -650,6 +653,42 @@ export const NewUseCaseForm: React.FC<NewDetectionFormProps> = ({
     handleQueriesChange(nextQueries);
     setActiveTab('query');
   // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot: intentionally ignores formData changes after mount
+  }, []);
+
+  // === APPLIED CROWDSTRIKE CQL REFINEMENT ===
+  // Kept separate from the Defender/KQL path so the working KQL flow is unchanged.
+  const appliedCqlRefinementHandled = useRef(false);
+  useEffect(() => {
+    if (appliedCqlRefinementHandled.current) return;
+    if (!isEditMode || !appliedRefinementCql) return;
+    appliedCqlRefinementHandled.current = true;
+
+    const current = formData.queries ?? [];
+    const cqlIndex = current.findIndex(
+      (query) => query.language && query.language.toUpperCase() === 'CQL',
+    );
+    let nextQueries: DetectionQuery[];
+    if (cqlIndex !== -1) {
+      nextQueries = current.map((query, index) =>
+        index === cqlIndex ? { ...query, query: appliedRefinementCql } : query,
+      );
+    } else {
+      const now = new Date().toISOString();
+      nextQueries = [
+        ...current.map((query) => ({ ...query, isPrimary: false })),
+        {
+          id: crypto.randomUUID(),
+          language: 'CQL',
+          query: appliedRefinementCql,
+          isPrimary: true,
+          createdDate: now,
+          updatedDate: now,
+        },
+      ];
+    }
+    handleQueriesChange(nextQueries);
+    setActiveTab('query');
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot navigation handoff
   }, []);
 
   // === ATOMIC RED TEAM AUTO-POPULATE ===

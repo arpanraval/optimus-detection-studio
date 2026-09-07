@@ -273,6 +273,43 @@ CREATE TABLE IF NOT EXISTS public.bulk_import_jobs (
   reverted_at timestamp with time zone,
   reverted_by uuid
 );
+CREATE TABLE IF NOT EXISTS public.crowdstrike_finetune_runs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  detection_id text NOT NULL,
+  integration_id uuid NOT NULL,
+  preflight_run_id uuid,
+  anthropic_session_id text,
+  status text NOT NULL DEFAULT 'running'::text,
+  repository text NOT NULL,
+  window_days integer NOT NULL,
+  original_query text NOT NULL,
+  baseline_hit_count bigint,
+  query_count integer NOT NULL DEFAULT 0,
+  nudged boolean NOT NULL DEFAULT false,
+  result jsonb,
+  error_message text,
+  usage jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  completed_at timestamp with time zone
+);
+CREATE TABLE IF NOT EXISTS public.crowdstrike_finetune_query_jobs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  run_id uuid NOT NULL,
+  tool_use_id text NOT NULL,
+  purpose text NOT NULL,
+  query_text text NOT NULL,
+  repository text NOT NULL,
+  provider_job_id text,
+  status text NOT NULL DEFAULT 'queued'::text,
+  row_count integer,
+  result_sample jsonb,
+  error_message text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  completed_at timestamp with time zone
+);
 CREATE TABLE IF NOT EXISTS public.curated_feed_sources (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   name text NOT NULL,
@@ -475,6 +512,9 @@ CREATE TABLE IF NOT EXISTS public.detection_preflight_runs (
   sample jsonb,
   breakdown jsonb,
   duration_ms integer,
+  provider_job_state jsonb,
+  started_at timestamp with time zone,
+  completed_at timestamp with time zone,
   created_at timestamp with time zone NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS public.detection_reviews (
@@ -1072,6 +1112,14 @@ ALTER TABLE public.bulk_import_jobs ADD CONSTRAINT bulk_import_jobs_source_vendo
 ALTER TABLE public.bulk_import_jobs ADD CONSTRAINT bulk_import_jobs_source_type_check CHECK ((source_type = ANY (ARRAY['github'::text, 'zip'::text, 'files'::text])));
 ALTER TABLE public.bulk_import_jobs ADD CONSTRAINT bulk_import_jobs_pkey PRIMARY KEY (id);
 ALTER TABLE public.bulk_import_jobs ADD CONSTRAINT bulk_import_jobs_duplicate_strategy_check CHECK ((duplicate_strategy = ANY (ARRAY['skip'::text, 'update'::text, 'create_new'::text])));
+ALTER TABLE public.crowdstrike_finetune_runs ADD CONSTRAINT crowdstrike_finetune_runs_pkey PRIMARY KEY (id);
+ALTER TABLE public.crowdstrike_finetune_runs ADD CONSTRAINT crowdstrike_finetune_runs_repository_check CHECK ((repository = ANY (ARRAY['search-all'::text, 'investigate_view'::text, 'third-party'::text, 'falcon_for_it_view'::text, 'forensics_view'::text])));
+ALTER TABLE public.crowdstrike_finetune_runs ADD CONSTRAINT crowdstrike_finetune_runs_window_days_check CHECK (((window_days >= 1) AND (window_days <= 90)));
+ALTER TABLE public.crowdstrike_finetune_runs ADD CONSTRAINT crowdstrike_finetune_runs_status_check CHECK ((status = ANY (ARRAY['running'::text, 'completed'::text, 'failed'::text, 'cancelled'::text])));
+ALTER TABLE public.crowdstrike_finetune_query_jobs ADD CONSTRAINT crowdstrike_finetune_query_jobs_pkey PRIMARY KEY (id);
+ALTER TABLE public.crowdstrike_finetune_query_jobs ADD CONSTRAINT crowdstrike_finetune_query_jobs_repository_check CHECK ((repository = ANY (ARRAY['search-all'::text, 'investigate_view'::text, 'third-party'::text, 'falcon_for_it_view'::text, 'forensics_view'::text])));
+ALTER TABLE public.crowdstrike_finetune_query_jobs ADD CONSTRAINT crowdstrike_finetune_query_jobs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'failed'::text, 'cancelled'::text])));
+ALTER TABLE public.crowdstrike_finetune_query_jobs ADD CONSTRAINT crowdstrike_finetune_query_jobs_tool_unique UNIQUE (run_id, tool_use_id);
 ALTER TABLE public.curated_feed_sources ADD CONSTRAINT curated_feed_sources_category_check CHECK ((category = ANY (ARRAY['threat_research'::text, 'government'::text, 'community'::text])));
 ALTER TABLE public.curated_feed_sources ADD CONSTRAINT curated_feed_sources_extraction_method_check CHECK ((extraction_method = ANY (ARRAY['jina_reader'::text, 'direct'::text, 'headless'::text])));
 ALTER TABLE public.curated_feed_sources ADD CONSTRAINT curated_feed_sources_pkey PRIMARY KEY (id);
@@ -1099,9 +1147,9 @@ ALTER TABLE public.detection_packs ADD CONSTRAINT detection_packs_pack_type_chec
 ALTER TABLE public.detection_packs ADD CONSTRAINT detection_packs_pkey PRIMARY KEY (id);
 ALTER TABLE public.detection_patterns ADD CONSTRAINT detection_patterns_pkey PRIMARY KEY (id);
 ALTER TABLE public.detection_patterns ADD CONSTRAINT detection_patterns_unique UNIQUE (user_id, detection_id);
-ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_provider_check CHECK ((provider = 'defender_xdr'::text));
+ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_provider_check CHECK ((provider = ANY (ARRAY['defender_xdr'::text, 'crowdstrike'::text])));
 ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_pkey PRIMARY KEY (id);
-ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'success'::text, 'query_error'::text, 'connection_error'::text, 'timeout'::text, 'permission_denied'::text])));
+ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'success'::text, 'query_error'::text, 'connection_error'::text, 'timeout'::text, 'permission_denied'::text, 'cancelled'::text])));
 ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_window_days_check CHECK (((window_days >= 1) AND (window_days <= 90)));
 ALTER TABLE public.detection_reviews ADD CONSTRAINT detection_reviews_pkey PRIMARY KEY (id);
 ALTER TABLE public.detection_reviews ADD CONSTRAINT detection_reviews_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'in_progress'::text, 'approved'::text, 'rejected'::text, 'cancelled'::text])));
@@ -1218,6 +1266,9 @@ ALTER TABLE public.auto_digest_settings ADD CONSTRAINT auto_digest_settings_user
 ALTER TABLE public.batch_embedding_jobs ADD CONSTRAINT batch_embedding_jobs_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL;
 ALTER TABLE public.bulk_import_jobs ADD CONSTRAINT bulk_import_jobs_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 ALTER TABLE public.bulk_import_jobs ADD CONSTRAINT bulk_import_jobs_reverted_by_fkey FOREIGN KEY (reverted_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+ALTER TABLE public.crowdstrike_finetune_runs ADD CONSTRAINT crowdstrike_finetune_runs_integration_id_fkey FOREIGN KEY (integration_id) REFERENCES integrations(id) ON DELETE CASCADE;
+ALTER TABLE public.crowdstrike_finetune_runs ADD CONSTRAINT crowdstrike_finetune_runs_preflight_run_id_fkey FOREIGN KEY (preflight_run_id) REFERENCES detection_preflight_runs(id) ON DELETE SET NULL;
+ALTER TABLE public.crowdstrike_finetune_query_jobs ADD CONSTRAINT crowdstrike_finetune_query_jobs_run_id_fkey FOREIGN KEY (run_id) REFERENCES crowdstrike_finetune_runs(id) ON DELETE CASCADE;
 ALTER TABLE public.defender_xdr_columns ADD CONSTRAINT defender_xdr_columns_table_name_fkey FOREIGN KEY (table_name) REFERENCES defender_xdr_tables(name) ON DELETE CASCADE;
 ALTER TABLE public.deployment_history ADD CONSTRAINT deployment_history_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 ALTER TABLE public.deployment_history ADD CONSTRAINT deployment_history_integration_id_fkey FOREIGN KEY (integration_id) REFERENCES integrations(id) ON DELETE CASCADE;
@@ -1442,6 +1493,11 @@ CREATE INDEX idx_patterns_platforms ON public.detection_patterns USING gin (plat
 CREATE INDEX idx_patterns_categories ON public.detection_patterns USING gin (detection_categories);
 CREATE INDEX idx_patterns_languages ON public.detection_patterns USING gin (query_languages);
 CREATE INDEX idx_campaigns_review ON public.auto_digest_campaigns USING btree (user_id, review_status);
+CREATE INDEX crowdstrike_finetune_runs_detection_idx ON public.crowdstrike_finetune_runs USING btree (detection_id, created_at DESC);
+CREATE INDEX crowdstrike_finetune_runs_integration_idx ON public.crowdstrike_finetune_runs USING btree (integration_id);
+CREATE INDEX crowdstrike_finetune_runs_preflight_idx ON public.crowdstrike_finetune_runs USING btree (preflight_run_id);
+CREATE UNIQUE INDEX unique_active_crowdstrike_finetune_run ON public.crowdstrike_finetune_runs USING btree (detection_id, user_id) WHERE (status = 'running'::text);
+CREATE INDEX crowdstrike_finetune_query_jobs_run_idx ON public.crowdstrike_finetune_query_jobs USING btree (run_id, created_at);
 CREATE INDEX detection_finetune_runs_detection_idx ON public.detection_finetune_runs USING btree (detection_id, created_at DESC);
 CREATE UNIQUE INDEX unique_active_finetune_run ON public.detection_finetune_runs USING btree (detection_id, user_id) WHERE (status = 'running'::text);
 CREATE INDEX idx_access_requests_email ON public.access_requests USING btree (email, created_at DESC);
@@ -3578,6 +3634,21 @@ BEGIN
   END IF;
 END;
 $function$;
+CREATE OR REPLACE FUNCTION public.reserve_crowdstrike_finetune_query_slot(p_run_id uuid, p_budget integer)
+ RETURNS integer
+ LANGUAGE sql
+ SET search_path TO 'public'
+AS $function$
+  UPDATE public.crowdstrike_finetune_runs
+     SET query_count = query_count + 1,
+         updated_at = now()
+   WHERE id = p_run_id
+     AND status = 'running'
+     AND query_count < p_budget
+  RETURNING query_count;
+$function$;
+REVOKE ALL ON FUNCTION public.reserve_crowdstrike_finetune_query_slot(uuid, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.reserve_crowdstrike_finetune_query_slot(uuid, integer) TO service_role;
 CREATE OR REPLACE FUNCTION public.reserve_finetune_query_slot(p_run_id uuid, p_budget integer)
  RETURNS integer
  LANGUAGE sql
@@ -5706,6 +5777,8 @@ ALTER TABLE public.auto_digest_run_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.auto_digest_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.batch_embedding_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.bulk_import_jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.crowdstrike_finetune_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.crowdstrike_finetune_query_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.curated_feed_sources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.defender_xdr_columns ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.defender_xdr_tables ENABLE ROW LEVEL SECURITY;
@@ -5879,6 +5952,10 @@ CREATE POLICY detection_drift_select ON public.detection_drift AS PERMISSIVE FOR
   WHERE ((d.id = detection_drift.detection_id) AND ((d.library_type = 'production'::text) OR (d.user_id = auth.uid())))))));
 CREATE POLICY detection_drift_write ON public.detection_drift AS PERMISSIVE FOR ALL TO authenticated USING (is_global_admin(auth.uid())) WITH CHECK (is_global_admin(auth.uid()));
 CREATE POLICY detection_embeddings_admin_select ON public.detection_embeddings AS PERMISSIVE FOR SELECT TO authenticated USING (is_global_admin(auth.uid()));
+CREATE POLICY crowdstrike_finetune_runs_select ON public.crowdstrike_finetune_runs AS PERMISSIVE FOR SELECT TO authenticated USING ((( SELECT auth.uid() AS uid) = user_id));
+CREATE POLICY crowdstrike_finetune_query_jobs_select ON public.crowdstrike_finetune_query_jobs AS PERMISSIVE FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
+   FROM crowdstrike_finetune_runs run
+  WHERE ((run.id = crowdstrike_finetune_query_jobs.run_id) AND (run.user_id = ( SELECT auth.uid() AS uid))))));
 CREATE POLICY "Users can view own finetune runs" ON public.detection_finetune_runs AS PERMISSIVE FOR SELECT TO public USING ((auth.uid() = user_id));
 CREATE POLICY "Active packs readable by authenticated users" ON public.detection_packs AS PERMISSIVE FOR SELECT TO public USING (((is_active = true) AND (( SELECT auth.uid() AS uid) IS NOT NULL)));
 CREATE POLICY "Admins delete packs" ON public.detection_packs AS PERMISSIVE FOR DELETE TO public USING ((EXISTS ( SELECT 1
@@ -6164,6 +6241,8 @@ GRANT DELETE ON public.bulk_import_jobs TO anon;
 GRANT DELETE ON public.bulk_import_jobs TO authenticated;
 GRANT DELETE ON public.bulk_import_jobs TO service_role;
 GRANT DELETE ON public.curated_feed_sources TO anon;
+GRANT DELETE ON public.crowdstrike_finetune_runs TO service_role;
+GRANT DELETE ON public.crowdstrike_finetune_query_jobs TO service_role;
 GRANT DELETE ON public.curated_feed_sources TO authenticated;
 GRANT DELETE ON public.curated_feed_sources TO service_role;
 GRANT DELETE ON public.defender_xdr_columns TO anon;
@@ -6430,6 +6509,8 @@ GRANT INSERT ON public.bulk_import_jobs TO anon;
 GRANT INSERT ON public.bulk_import_jobs TO authenticated;
 GRANT INSERT ON public.bulk_import_jobs TO service_role;
 GRANT INSERT ON public.curated_feed_sources TO anon;
+GRANT INSERT ON public.crowdstrike_finetune_runs TO service_role;
+GRANT INSERT ON public.crowdstrike_finetune_query_jobs TO service_role;
 GRANT INSERT ON public.curated_feed_sources TO authenticated;
 GRANT INSERT ON public.curated_feed_sources TO service_role;
 GRANT INSERT ON public.defender_xdr_columns TO anon;
@@ -6964,6 +7045,10 @@ GRANT SELECT ON public.bulk_import_jobs TO anon;
 GRANT SELECT ON public.bulk_import_jobs TO authenticated;
 GRANT SELECT ON public.bulk_import_jobs TO service_role;
 GRANT SELECT ON public.curated_feed_sources TO anon;
+GRANT SELECT ON public.crowdstrike_finetune_runs TO authenticated;
+GRANT SELECT ON public.crowdstrike_finetune_runs TO service_role;
+GRANT SELECT ON public.crowdstrike_finetune_query_jobs TO authenticated;
+GRANT SELECT ON public.crowdstrike_finetune_query_jobs TO service_role;
 GRANT SELECT ON public.curated_feed_sources TO authenticated;
 GRANT SELECT ON public.curated_feed_sources TO service_role;
 GRANT SELECT ON public.defender_xdr_columns TO anon;
@@ -7766,6 +7851,8 @@ GRANT UPDATE ON public.bulk_import_jobs TO anon;
 GRANT UPDATE ON public.bulk_import_jobs TO authenticated;
 GRANT UPDATE ON public.bulk_import_jobs TO service_role;
 GRANT UPDATE ON public.curated_feed_sources TO anon;
+GRANT UPDATE ON public.crowdstrike_finetune_runs TO service_role;
+GRANT UPDATE ON public.crowdstrike_finetune_query_jobs TO service_role;
 GRANT UPDATE ON public.curated_feed_sources TO authenticated;
 GRANT UPDATE ON public.curated_feed_sources TO service_role;
 GRANT UPDATE ON public.defender_xdr_columns TO anon;
@@ -9753,3 +9840,42 @@ BEGIN
   END LOOP;
 END
 $regrant$;
+
+-- ---------------------------------------------------------------------------
+-- Migration-only rollback snapshot lockdown
+-- ---------------------------------------------------------------------------
+-- The one-off Aug 7/11 repair snapshots are intentionally absent from this
+-- canonical snapshot, but may exist in databases upgraded through migrations.
+-- If present, they must never become Data API resources.
+DO $backup_lockdown$
+DECLARE
+  backup_table text;
+BEGIN
+  FOREACH backup_table IN ARRAY ARRAY[
+    '_backup_iocs_d3_20260807',
+    '_backup_rules_e2_20260807',
+    '_backup_rules_e3_20260807',
+    '_backup_rules_e4_20260807',
+    '_backup_rules_e4b_20260811',
+    '_backup_rules_e4c_20260811'
+  ]
+  LOOP
+    CONTINUE WHEN to_regclass(format('public.%I', backup_table)) IS NULL;
+
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', backup_table);
+    EXECUTE format(
+      'REVOKE ALL PRIVILEGES ON TABLE public.%I FROM PUBLIC, anon, authenticated, service_role',
+      backup_table
+    );
+    EXECUTE format('GRANT SELECT ON TABLE public.%I TO service_role', backup_table);
+    EXECUTE format(
+      'DROP POLICY IF EXISTS backup_snapshot_service_select ON public.%I',
+      backup_table
+    );
+    EXECUTE format(
+      'CREATE POLICY backup_snapshot_service_select ON public.%I FOR SELECT TO service_role USING (true)',
+      backup_table
+    );
+  END LOOP;
+END
+$backup_lockdown$;

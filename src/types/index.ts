@@ -8,6 +8,7 @@ export * from './integration';
 export * from './environment';
 export * from './preflight';
 export * from './finetune';
+export * from './crowdstrikeFinetune';
 
 // NOTE: optimus.ts, mitre-stix.ts, attack-rule-map.ts, threatIntel.ts
 // are NOT re-exported here to avoid name collisions (e.g., TacticCoverage).
