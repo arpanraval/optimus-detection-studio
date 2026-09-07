@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Icon } from '../../Icon';
-import type { TTPLike } from './types';
+import type { CoveringDetection, TTPLike } from './types';
 import { TTPCard } from './TTPCard';
 import { MITRE_TACTICS_ORDER } from './TTPMiniMatrix';
 
@@ -22,13 +22,20 @@ interface TTPTacticListProps {
   onToggleSelect?: (id: string) => void;
   // Story-only
   showSources?: boolean;
+  /**
+   * Resolves the detections behind a TTP's coverage badge (G8). Threaded rather
+   * than resolved here so the list stays presentational and the owning page
+   * decides what "covering" means -- the digest resolves against its own
+   * libraryMatches; the story page supplies nothing and the badge stays inert.
+   */
+  getCoveringDetections?: (ttp: TTPLike) => CoveringDetection[];
 }
 
 export const TTPTacticList: React.FC<TTPTacticListProps> = ({
   ttps, search = '',
   editingId, editingValue,
   onCopy, onStartEdit, onSaveEdit, onCancelEdit, onEditChange, onRemove,
-  onCreateDetection, selectedIds, onToggleSelect, showSources,
+  onCreateDetection, selectedIds, onToggleSelect, showSources, getCoveringDetections,
 }) => {
   const [expandedTactics, setExpandedTactics] = useState<Set<string>>(new Set());
 
@@ -163,6 +170,7 @@ export const TTPTacticList: React.FC<TTPTacticListProps> = ({
                       isSelected={ttp.id ? selectedIds?.has(ttp.id) ?? false : false}
                       onToggleSelect={onToggleSelect && ttp.id ? () => onToggleSelect(ttp.id!) : undefined}
                       showSources={showSources}
+                      coveringDetections={getCoveringDetections?.(ttp)}
                     />
                   );
                 })}

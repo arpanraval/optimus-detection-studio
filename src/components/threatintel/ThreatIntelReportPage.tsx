@@ -63,7 +63,8 @@ import {
 import { FeasibilityEmptyState } from './FeasibilityEmptyState';
 import { RetryWithModelButton } from './RetryWithModelButton';
 import { StatCard, ThreatLevelIndicator, InlineActionButton, TTPMiniMatrix, TTPTacticList, IoCTable, RuleListSection, MitreMappingsBlock } from './shared';
-import type { TTPLike } from './shared';
+import type { CoveringDetection, TTPLike } from './shared';
+import { useBoundedList } from './shared/useBoundedList';
 import { createStixBundle } from '../../lib/threatIntel/stix';
 import { canManageThreatIntelRecord } from '../../lib/threatIntel/access';
 import type { IconName } from '../Icon';
@@ -1079,6 +1080,50 @@ export const ThreatIntelReportPage: React.FC = () => {
    * 5-character vendor signature IDs and prose. Classified on the fly when
    * `kind` is absent so reports predating the backfill still count correctly.
    */
+  // G8: a TTP's coverage badge claims N detections. The IDs behind it were
+  // written on every covered TTP by the library matcher and read by nothing, so
+  // the claim could not be checked. `libraryMatches` already carries the names,
+  // and the two agree on every row in the corpus (0 of 973 TTPs disagree, 0 of
+  // 11,986 id references are missing), so resolving needs no extra fetch.
+  const libraryMatchesById = useMemo(() => {
+    const map = new Map<string, LibraryMatch>();
+    for (const m of report?.libraryMatches ?? []) map.set(m.detectionId, m);
+    return map;
+  }, [report?.libraryMatches]);
+
+  const getCoveringDetections = useCallback((ttp: TTPLike): CoveringDetection[] => {
+    const resolved: CoveringDetection[] = [];
+    for (const id of ttp.existingDetectionIds ?? []) {
+      const match = libraryMatchesById.get(id);
+      // An unresolvable id is skipped rather than rendered as a dead link; the
+      // card states the shortfall against the claimed count instead.
+      if (match) {
+        resolved.push({
+          id: match.detectionId,
+          name: match.detectionName,
+          status: match.status,
+          severity: match.severity,
+        });
+      }
+    }
+    return resolved;
+  }, [libraryMatchesById]);
+
+  // G1: the Library Coverage panel rendered every match flat -- 278 on the
+  // worst report. Rank before bounding so the visible slice is the strongest
+  // evidence rather than whatever order the matcher emitted: technique matches
+  // before group-related ones, which is the same distinction the summary line
+  // above the list already draws, then by coverage score.
+  const rankedLibraryMatches = useMemo(() => {
+    const rank = (m: LibraryMatch) =>
+      m.matchType === 'ttp_match' || (m.matchedTTPs?.length ?? 0) > 0 ? 0 : 1;
+    return [...(report?.libraryMatches ?? [])].sort(
+      (a, b) => rank(a) - rank(b) || (b.coverageScore ?? 0) - (a.coverageScore ?? 0),
+    );
+  }, [report?.libraryMatches]);
+
+  const boundedLibraryMatches = useBoundedList(rankedLibraryMatches);
+
   const ruleKindCounts = useMemo(() => {
     const rules = report?.rules ?? [];
     const counts = { query: 0, reference: 0, description: 0, total: rules.length };
@@ -1470,7 +1515,7 @@ export const ThreatIntelReportPage: React.FC = () => {
                       );
                     })()}
 
-                    {report.libraryMatches.map((match: LibraryMatch) => (
+                    {boundedLibraryMatches.visible.map((match: LibraryMatch) => (
                       <div
                         key={match.detectionId}
                         className="flex items-start justify-between p-4 bg-surface-container-low rounded-lg border border-outline-variant/20 hover:border-[#4D7C6F]/30 transition-colors group"
@@ -1558,6 +1603,21 @@ export const ThreatIntelReportPage: React.FC = () => {
                         </Link>
                       </div>
                     ))}
+
+                    {/* Never a silent cap: the control states the full count,
+                        so a bounded list cannot be mistaken for the whole one. */}
+                    {boundedLibraryMatches.canExpand && (
+                      <button
+                        type="button"
+                        onClick={boundedLibraryMatches.toggle}
+                        aria-expanded={boundedLibraryMatches.expanded}
+                        className="w-full rounded-lg border border-outline-variant/30 bg-surface-container-low px-4 py-2.5 text-sm font-bold text-primary hover:bg-surface-container hover:border-primary/30 focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors"
+                      >
+                        {boundedLibraryMatches.expanded
+                          ? `Show fewer — ${boundedLibraryMatches.total} in total`
+                          : `Show all ${boundedLibraryMatches.total} detections (${boundedLibraryMatches.hidden} more)`}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1684,6 +1744,7 @@ export const ThreatIntelReportPage: React.FC = () => {
                   <TTPTacticList
                     ttps={report.ttps || []}
                     search={ttpSearch}
+                    getCoveringDetections={getCoveringDetections}
                     editingId={editingTTPId}
                     editingValue={editingTTPValue}
                     onCreateDetection={handleCreateDetectionFromTTP}

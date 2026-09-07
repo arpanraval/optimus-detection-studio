@@ -1,8 +1,11 @@
-import React from 'react';
+import React, { useId, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Icon } from '../../Icon';
 import { Button } from '../../ui/Button';
+import { routeHelpers } from '../../../router/routes';
 import { badgeSizes, ttpMetaBadgeColors, ttpCoverageColors } from '../../../lib/ui/badges';
-import type { TTPLike } from './types';
+import { useBoundedList } from './useBoundedList';
+import type { CoveringDetection, TTPLike } from './types';
 import { VendorChip } from './VendorChip';
 import { MultiSourceBadge, corroborationCardClasses } from './MultiSourceBadge';
 import { InlineActionButton } from './InlineActionButton';
@@ -27,13 +30,28 @@ interface TTPCardProps {
   onToggleSelect?: () => void;
   // Story-only: vendor attribution and corroboration tier
   showSources?: boolean;
+  /**
+   * The detections behind the coverage badge (G8). Optional on purpose: the
+   * story page has no per-report library matches to resolve against, and
+   * passing nothing leaves the badge exactly as it was -- a plain count with no
+   * interactive affordance that would lead nowhere.
+   */
+  coveringDetections?: CoveringDetection[];
 }
 
 export const TTPCard: React.FC<TTPCardProps> = ({
   ttp, isEditing = false, editValue = '',
   onCopy, onStartEdit, onSaveEdit, onCancelEdit, onEditChange, onRemove,
-  onCreateDetection, isSelected, onToggleSelect, showSources,
+  onCreateDetection, isSelected, onToggleSelect, showSources, coveringDetections,
 }) => {
+  const [showCovering, setShowCovering] = useState(false);
+  const panelId = useId();
+  const covering = coveringDetections ?? [];
+  // A single TTP references as many as 238 detections in the corpus, so the
+  // reveal is bounded the same way the Library Coverage panel is (G1).
+  const boundedCovering = useBoundedList(covering);
+  const claimedCount = ttp.existingDetectionCount ?? 1;
+
   const isCovered = ttp.hasExistingDetection;
   const coverageStyle = isCovered ? coveredColor : gapColor;
   const metaBadge = ttpMetaBadgeColors.sub;
@@ -94,12 +112,33 @@ export const TTPCard: React.FC<TTPCardProps> = ({
               {ttp.confidence}
             </span>
           )}
-          {/* Coverage badge — only when covered */}
+          {/* Coverage badge — only when covered.
+              Becomes a disclosure control once the covering detections have
+              been resolved (G8). The count is a claim, and it was previously
+              unverifiable: the IDs behind it were stored on every covered TTP
+              and read by nothing. Given C1 -- coverage here means a shared
+              technique tag, not evidence the rule fires -- being able to open
+              the list is the only way a reader can catch a bad match. */}
           {isCovered && (
-            <span className={`${badgeSizes.xs} font-bold uppercase tracking-wide inline-flex items-center gap-1 ${coveredColor.bg} ${coveredColor.text} border ${coveredColor.border}`}>
-              <Icon name="shield-check" className="w-3 h-3" />
-              {ttp.existingDetectionCount ?? 1} Rule{(ttp.existingDetectionCount ?? 1) !== 1 ? 's' : ''}
-            </span>
+            covering.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setShowCovering(v => !v)}
+                aria-expanded={showCovering}
+                aria-controls={panelId}
+                title={showCovering ? 'Hide covering detections' : 'Show which detections cover this technique'}
+                className={`${badgeSizes.xs} font-bold uppercase tracking-wide inline-flex items-center gap-1 ${coveredColor.bg} ${coveredColor.text} border ${coveredColor.border} cursor-pointer hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all`}
+              >
+                <Icon name="shield-check" className="w-3 h-3" />
+                {claimedCount} Rule{claimedCount !== 1 ? 's' : ''}
+                <Icon name={showCovering ? 'chevron-up' : 'chevron-down'} className="w-3 h-3" />
+              </button>
+            ) : (
+              <span className={`${badgeSizes.xs} font-bold uppercase tracking-wide inline-flex items-center gap-1 ${coveredColor.bg} ${coveredColor.text} border ${coveredColor.border}`}>
+                <Icon name="shield-check" className="w-3 h-3" />
+                {claimedCount} Rule{claimedCount !== 1 ? 's' : ''}
+              </span>
+            )
           )}
         </div>
 
@@ -172,6 +211,51 @@ export const TTPCard: React.FC<TTPCardProps> = ({
       {showSources && sourceCount > 0 && (
         <div className="flex flex-wrap gap-1 mb-3">
           {sources.map(s => <VendorChip key={s} name={s} size="xs" />)}
+        </div>
+      )}
+
+      {/* Covering detections (G8) — what the badge above is actually claiming */}
+      {isCovered && covering.length > 0 && showCovering && (
+        <div id={panelId} className="mb-3 rounded-lg border border-outline-variant/20 bg-surface-container-low p-2">
+          <p className="text-[10px] uppercase tracking-wide font-bold text-on-surface-variant mb-1.5 px-1">
+            Detections claiming this technique
+          </p>
+          <ul className="space-y-0.5">
+            {boundedCovering.visible.map(d => (
+              <li key={d.id}>
+                <Link
+                  to={routeHelpers.detectionDetail(d.id)}
+                  className="flex items-center gap-2 rounded px-1 py-1 text-xs text-on-surface no-underline hover:bg-surface-container-high hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors"
+                  title={d.name}
+                >
+                  <span className="truncate flex-1">{d.name}</span>
+                  {d.status && (
+                    <span className="text-[10px] uppercase tracking-wide font-bold text-on-surface-variant/70 flex-shrink-0">
+                      {d.status}
+                    </span>
+                  )}
+                  <Icon name="arrowRight" className="w-3 h-3 flex-shrink-0 opacity-40" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+          {boundedCovering.canExpand && (
+            <button
+              type="button"
+              onClick={boundedCovering.toggle}
+              className="mt-1 w-full rounded px-1 py-1 text-[11px] font-bold text-primary hover:bg-surface-container-high focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors"
+            >
+              {boundedCovering.expanded ? 'Show fewer' : `Show all ${boundedCovering.total}`}
+            </button>
+          )}
+          {/* The badge counts what the matcher recorded; this lists what could
+              be resolved to a name. They agree on every row in the corpus, but
+              saying so beats silently showing a shorter list than the count. */}
+          {covering.length < claimedCount && (
+            <p className="mt-1 px-1 text-[10px] text-on-surface-variant/70">
+              {claimedCount - covering.length} of {claimedCount} could not be resolved and are not listed.
+            </p>
+          )}
         </div>
       )}
 
