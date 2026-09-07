@@ -602,7 +602,7 @@ export const LoadingPage: React.FC = () => {
                         {/* Typing indicator style */}
                         <div className="flex items-center gap-3 px-4 py-3 bg-surface-container rounded-2xl w-fit">
                             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#783264] to-[#4D7C6F] flex items-center justify-center">
-                                <Icon name="sparkles" className="w-4 h-4 text-white" />
+                                <Icon name="spark" className="w-4 h-4 text-white" />
                             </div>
                             <div className="flex gap-1">
                                 <span className="w-2 h-2 rounded-full bg-[#783264] animate-pulse" style={{ animationDelay: '0ms' }} />

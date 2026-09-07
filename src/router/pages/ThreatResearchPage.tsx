@@ -408,7 +408,7 @@ export function ThreatResearchPage() {
         }
         confirmLabel="Delete session"
         variant="danger"
-        icon="trash-2"
+        icon="trash"
         loading={deleteBusy}
       />
     </div>

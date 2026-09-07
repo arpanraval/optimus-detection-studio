@@ -57,7 +57,7 @@ export function isValidFeatureCode(s: string): s is AiFeatureCode {
 
 export const FEATURE_DISPLAY: Record<AiFeatureCode, { label: string; group: string; icon: string }> = {
   'optimus-chat':           { label: 'Optimus Chat',           group: 'AI Tools',         icon: 'message-square' },
-  'ai-query-gen':           { label: 'AI Query Generator',     group: 'AI Tools',         icon: 'sparkles' },
+  'ai-query-gen':           { label: 'AI Query Generator',     group: 'AI Tools',         icon: 'spark' },
   'sigma-converter':        { label: 'Sigma Converter',        group: 'AI Tools',         icon: 'shuffle' },
   'detection-form-assist':  { label: 'Detection Form Assist',  group: 'Authoring',        icon: 'edit' },
   'multi-query-assist':     { label: 'Multi-Query Assist',     group: 'Authoring',        icon: 'edit' },

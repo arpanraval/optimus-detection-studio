@@ -69,7 +69,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               color="surface"
               variant="outlined"
               size="sm"
-              leadingIcon="edit-2"
+              leadingIcon="edit"
               onClick={() => setEditingCredentials(true)}
             >
               Edit Credentials

@@ -203,7 +203,7 @@ export function MfaEnrollmentWizard({ isOpen, onClose, onEnrolled }: MfaEnrollme
           {/* Loading state */}
           {loading && (
             <div className="flex flex-col items-center gap-4 py-12">
-              <Icon name="loader-2" className="w-8 h-8 animate-spin text-on-surface-variant/40" />
+              <Icon name="loader" className="w-8 h-8 animate-spin text-on-surface-variant/40" />
               <p className="text-sm text-on-surface-variant/50">Setting up enrollment...</p>
             </div>
           )}

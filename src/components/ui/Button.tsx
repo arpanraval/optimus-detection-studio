@@ -43,7 +43,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
  * @example
  * <Button color="primary">Save</Button>
  * <Button color="secondary" variant="outlined" leadingIcon="download">Export</Button>
- * <Button color="error" leadingIcon="trash-2">Delete</Button>
+ * <Button color="error" leadingIcon="trash">Delete</Button>
  */
 export const Button: React.FC<ButtonProps> = ({
   variant = 'filled',

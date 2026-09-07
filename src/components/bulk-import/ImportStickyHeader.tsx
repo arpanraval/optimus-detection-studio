@@ -58,7 +58,7 @@ export function ImportStickyHeader({
           {sourceType && (
             <div className="flex items-center gap-2">
               <Icon
-                name={SOURCE_ICONS[sourceType] || 'file'}
+                name={SOURCE_ICONS[sourceType] || 'file-text'}
                 className="w-4 h-4"
               />
               {sourceName && (

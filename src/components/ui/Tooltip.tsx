@@ -25,7 +25,7 @@ export interface TooltipProps {
  *
  * @example
  * <Tooltip content="Delete detection" position="top">
- *   <button><Icon name="trash-2" /></button>
+ *   <button><Icon name="trash" /></button>
  * </Tooltip>
  */
 export const Tooltip: React.FC<TooltipProps> = ({

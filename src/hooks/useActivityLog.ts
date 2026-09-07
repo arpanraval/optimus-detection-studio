@@ -275,7 +275,7 @@ export const getActivityIcon = (action: ActivityAction): string => {
   const iconMap: Record<string, string> = {
     detection_created: 'plus-circle',
     detection_updated: 'edit',
-    detection_deleted: 'trash-2',
+    detection_deleted: 'trash',
     detection_status_changed: 'refresh-cw',
     detection_assigned: 'user-plus',
     detection_unassigned: 'user-minus',

@@ -315,7 +315,7 @@ const RuleCard: React.FC<{
                     onClick={(e) => { e.stopPropagation(); onConfirmDelete(rule.vendorRuleId); }}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-on-surface-variant/60 hover:text-[#A63D40] hover:bg-[#A63D40]/5 rounded-lg transition-colors"
                   >
-                    <Icon name="trash-2" className="w-3.5 h-3.5" />
+                    <Icon name="trash" className="w-3.5 h-3.5" />
                     Delete
                   </button>
                 )}

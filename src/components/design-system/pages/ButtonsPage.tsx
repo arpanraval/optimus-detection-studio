@@ -77,7 +77,7 @@ export const ButtonsPage: React.FC = () => {
                 </ComponentRow>
 
                 <ComponentRow id="btn-error-filled" label="Error Filled" description="Destructive actions - Delete, Remove" source="detection-studio" page="Button.tsx" isSelected={selectedComponents.has('btn-error-filled')} onToggleSelect={toggleSelection}>
-                    <Button color="error" variant="filled" leadingIcon="trash-2">Delete</Button>
+                    <Button color="error" variant="filled" leadingIcon="trash">Delete</Button>
                     <Button color="error" variant="filled" leadingIcon="x">Remove</Button>
                     <Button color="error" variant="filled">Clear All</Button>
                 </ComponentRow>
@@ -131,7 +131,7 @@ export const ButtonsPage: React.FC = () => {
                 <ComponentRow id="btn-icons-leading" label="Leading Icon" description="Icon before label" source="detection-studio" page="Button.tsx" isSelected={selectedComponents.has('btn-icons-leading')} onToggleSelect={toggleSelection}>
                     <Button color="primary" leadingIcon="plus">New Detection</Button>
                     <Button color="secondary" leadingIcon="download">Export</Button>
-                    <Button color="error" leadingIcon="trash-2">Delete</Button>
+                    <Button color="error" leadingIcon="trash">Delete</Button>
                 </ComponentRow>
 
                 <ComponentRow id="btn-icons-trailing" label="Trailing Icon" description="Icon after label" source="detection-studio" page="Button.tsx" isSelected={selectedComponents.has('btn-icons-trailing')} onToggleSelect={toggleSelection}>
@@ -169,7 +169,7 @@ export const ButtonsPage: React.FC = () => {
                     <FAB color="primary" icon="plus" />
                     <FAB color="secondary" icon="filter" />
                     <FAB color="surface" icon="settings" />
-                    <FAB color="error" icon="trash-2" />
+                    <FAB color="error" icon="trash" />
                 </ComponentRow>
 
                 <ComponentRow id="fab-sizes-new" label="FAB Sizes" description="Small (40px), Medium (56px), Large (96px)" source="detection-studio" page="FAB.tsx" isSelected={selectedComponents.has('fab-sizes-new')} onToggleSelect={toggleSelection}>
@@ -215,7 +215,7 @@ export const ButtonsPage: React.FC = () => {
                         <p className="text-xs text-on-surface-variant mb-4">This action cannot be undone.</p>
                         <div className="flex gap-2 justify-end">
                             <Button color="surface" variant="text" size="sm">Cancel</Button>
-                            <Button color="error" size="sm" leadingIcon="trash-2">Delete</Button>
+                            <Button color="error" size="sm" leadingIcon="trash">Delete</Button>
                         </div>
                     </div>
                 </ComponentRow>
@@ -233,7 +233,7 @@ export const ButtonsPage: React.FC = () => {
 <Button color="secondary" variant="outlined" leadingIcon="download">Export</Button>
 
 // Destructive actions
-<Button color="error" leadingIcon="trash-2">Delete</Button>
+<Button color="error" leadingIcon="trash">Delete</Button>
 
 // Low emphasis
 <Button color="surface" variant="text">Cancel</Button>

@@ -268,7 +268,7 @@ export const BulkDeployModal: React.FC<BulkDeployModalProps> = ({
 
               {!loadingIntegrations && integrations.length === 0 && (
                 <div className="text-center py-12">
-                  <Icon name="unplug" className="w-8 h-8 text-on-surface-variant/40 mx-auto mb-2" />
+                  <Icon name="unlink" className="w-8 h-8 text-on-surface-variant/40 mx-auto mb-2" />
                   <p className="text-sm text-on-surface-variant">No connected integrations found.</p>
                   <p className="text-xs text-on-surface-variant/60 mt-1">Connect a SIEM first in Settings.</p>
                 </div>

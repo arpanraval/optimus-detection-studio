@@ -1139,7 +1139,7 @@ export const ThreatIntelReportPage: React.FC = () => {
             </div>
             <div className="flex items-center gap-1">
               {canManageReport && (
-                <Button variant="tonal" color="primary" size="sm" leadingIcon="edit-2" onClick={handleStartEdit}>
+                <Button variant="tonal" color="primary" size="sm" leadingIcon="edit" onClick={handleStartEdit}>
                   Edit
                 </Button>
               )}
@@ -1922,7 +1922,7 @@ export const ThreatIntelReportPage: React.FC = () => {
                 <Button
                   variant="filled"
                   color="error"
-                  leadingIcon="trash-2"
+                  leadingIcon="trash"
                   onClick={handleConfirmDiscard}
                 >
                   Discard
