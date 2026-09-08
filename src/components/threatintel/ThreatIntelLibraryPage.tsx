@@ -683,6 +683,13 @@ export const ThreatIntelLibraryPage: React.FC = () => {
   const [filters, setFilters] = useState<Record<string, string[]>>({});
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  // G10: Stories used to sit above the report grid and grow with however many
+  // exist -- 12 of them measured 775px tall, so a page titled "Intelligence
+  // Reports" opened with zero reports on screen and 100 below the fold. The
+  // two lists answer different questions on different clocks ("what campaigns
+  // are running" vs "what came in"), so they get a tab each rather than
+  // competing for one viewport, which the growing one always wins.
+  const [activeSection, setActiveSection] = useState<'reports' | 'stories'>('reports');
   const [listColumns, setListColumns] = useState<string[]>(DEFAULT_LIST_COLUMNS);
   const [showColModal, setShowColModal] = useState(false);
   const [isMigrating, setIsMigrating] = useState(false);
@@ -1061,8 +1068,40 @@ export const ThreatIntelLibraryPage: React.FC = () => {
             />
           )}
 
-          {/* Search & Filters Row */}
-          {reports.length > 0 && (
+          {/* Section tabs. Same markup as the report page's tablist so the two
+              pages in this feature read as one. The Stories tab appears only
+              when stories exist -- an empty tab is a promise of content that
+              isn't there. */}
+          {digestCampaigns.length > 0 && reports.length > 0 && (
+            <div className="flex gap-6 mb-5" role="tablist" aria-label="Intelligence sections">
+              {([
+                { id: 'reports' as const, label: 'Reports', count: reports.length },
+                { id: 'stories' as const, label: 'Stories', count: digestCampaigns.length },
+              ]).map(tab => (
+                <button
+                  key={tab.id}
+                  role="tab"
+                  aria-selected={activeSection === tab.id}
+                  aria-controls={`section-${tab.id}`}
+                  id={`sectiontab-${tab.id}`}
+                  onClick={() => setActiveSection(tab.id)}
+                  className={`pb-2.5 text-xs font-bold uppercase tracking-widest transition-all relative focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                    activeSection === tab.id ? 'text-on-surface' : 'text-on-surface-variant hover:text-on-surface'
+                  }`}
+                >
+                  {tab.label}
+                  <span className="ml-1.5 text-on-surface-variant/70">({tab.count})</span>
+                  {activeSection === tab.id && (
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full" />
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Search & Filters Row. Belongs to Reports -- it searches and counts
+              reports, and none of its filters apply to a story. */}
+          {reports.length > 0 && activeSection === 'reports' && (
             <div className={`${ROW_CONTAINER} px-3 py-2.5 flex items-center gap-2 flex-wrap mb-6`}>
               {/* Search */}
               <div className="relative flex-1 max-w-xs">
@@ -1172,9 +1211,12 @@ export const ThreatIntelLibraryPage: React.FC = () => {
       {/* ========== CONTENT ========== */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
         <div className="max-w-[1920px] mx-auto">
-          {/* Active Stories — auto-digest merged-report clusters */}
-          {digestCampaigns.length > 0 && (
-            <div className="mb-8">
+          {/* Active Stories — auto-digest merged-report clusters. Cards are
+              unchanged; only where they live has moved. Still shown inline
+              when there are no reports to compete with, so a stories-only
+              account is not left staring at an empty page. */}
+          {digestCampaigns.length > 0 && (activeSection === 'stories' || reports.length === 0) && (
+            <div className="mb-8" id="section-stories" role="tabpanel" aria-labelledby="sectiontab-stories">
               <div className="flex items-center gap-2 mb-3">
                 <Icon name="git-merge" className="w-4 h-4 text-primary" />
                 <h2 className="text-sm font-semibold uppercase tracking-widest text-on-surface-variant">
@@ -1190,6 +1232,12 @@ export const ThreatIntelLibraryPage: React.FC = () => {
             </div>
           )}
 
+          <div
+            id="section-reports"
+            role="tabpanel"
+            aria-labelledby="sectiontab-reports"
+            hidden={digestCampaigns.length > 0 && reports.length > 0 && activeSection === 'stories'}
+          >
           {reports.length === 0 ? (
             /* Empty State */
             <div className="flex flex-col items-center justify-center h-full max-w-lg mx-auto text-center py-16">
@@ -1269,6 +1317,7 @@ export const ThreatIntelLibraryPage: React.FC = () => {
               </div>
             </div>
           )}
+          </div>
         </div>
       </div>
 
