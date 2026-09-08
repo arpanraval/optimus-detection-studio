@@ -4,6 +4,13 @@ import { Icon } from '../Icon';
 interface AutoDigestBannerProps {
   pendingCount: number;
   lowCoverageCount: number;
+  /**
+   * Pending reports whose coverage could not be assessed. Stated separately
+   * rather than folded into `lowCoverageCount`: calling an unmeasured report a
+   * coverage gap would be asserting a number nobody computed. Absent stays
+   * distinguishable from low.
+   */
+  unassessedCount?: number;
   onView: () => void;
   onDismiss: () => void;
 }
@@ -11,6 +18,7 @@ interface AutoDigestBannerProps {
 export const AutoDigestBanner: React.FC<AutoDigestBannerProps> = ({
   pendingCount,
   lowCoverageCount,
+  unassessedCount = 0,
   onView,
   onDismiss,
 }) => {
@@ -23,6 +31,9 @@ export const AutoDigestBanner: React.FC<AutoDigestBannerProps> = ({
         <span className="font-semibold">{pendingCount}</span> new report{pendingCount !== 1 ? 's' : ''} auto-digested overnight.
         {lowCoverageCount > 0 && (
           <> <span className="font-semibold">{lowCoverageCount}</span> {lowCoverageCount !== 1 ? 'have' : 'has'} coverage gaps below 50%.</>
+        )}
+        {unassessedCount > 0 && (
+          <> <span className="font-semibold">{unassessedCount}</span> {unassessedCount !== 1 ? 'were' : 'was'} not assessed.</>
         )}
       </span>
       <button

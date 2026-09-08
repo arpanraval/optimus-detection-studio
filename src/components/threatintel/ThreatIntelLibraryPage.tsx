@@ -704,8 +704,17 @@ export const ThreatIntelLibraryPage: React.FC = () => {
     () => reports.filter(r => r.source === 'auto' && r.reviewStatus === 'pending'),
     [reports]
   );
+  // A2's last coercion site, and it read the wrong way round: an unassessed
+  // report counted as 100% covered, so it was excluded from the very count
+  // that tells you what needs attention. Counting it as 0 would be the same
+  // mistake mirrored -- "not measured" is not "no coverage" either. The
+  // buckets are exclusive by construction: assessed-and-low, or unassessed.
   const lowCoverageReports = useMemo(
-    () => pendingReports.filter(r => (r.coveragePercent ?? 100) < 50),
+    () => pendingReports.filter(r => isCoverageMeaningful(r) && r.coveragePercent! < 50),
+    [pendingReports]
+  );
+  const unassessedPendingReports = useMemo(
+    () => pendingReports.filter(r => !isCoverageMeaningful(r)),
     [pendingReports]
   );
 
@@ -1032,6 +1041,7 @@ export const ThreatIntelLibraryPage: React.FC = () => {
             <AutoDigestBanner
               pendingCount={pendingReports.length}
               lowCoverageCount={lowCoverageReports.length}
+              unassessedCount={unassessedPendingReports.length}
               onView={() => {
                 setVisibleFilters(prev => prev.includes('reviewStatus') ? prev : [...prev, 'reviewStatus']);
                 setFilters(prev => ({ ...prev, reviewStatus: ['pending'] }));

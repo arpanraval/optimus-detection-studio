@@ -1163,7 +1163,17 @@ export const ThreatIntelReportPage: React.FC = () => {
         <div className="px-6 max-w-[1920px] mx-auto">
 
           {/* Row 1: Back + Badges + Actions - all in one line */}
-          <div className="flex items-center justify-between py-2.5 border-b border-outline-variant/10">
+          {/*
+            G4: this row and the page root disagree about what happens when the
+            content does not fit. The root is `overflow-hidden` (so the tab body
+            scrolls on its own), which means anything pushed past the right edge
+            here is cut off with no scrollbar to reach it -- measured on the
+            DeadLock report, the row overflows by 143px at a ~630px content
+            width and the Source button becomes unclickable. Wrapping costs
+            nothing when it fits and moves a button down a line when it does
+            not; nothing is hidden and no button changes shape.
+          */}
+          <div className="flex flex-wrap items-center justify-between gap-y-2 py-2.5 border-b border-outline-variant/10">
             <div className="flex items-center gap-3">
               <Button
                 variant="text"
@@ -1778,8 +1788,16 @@ export const ThreatIntelReportPage: React.FC = () => {
                 />
               ) : (
                 <>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3" role="group" aria-label="Filter by category">
+                  {/*
+                    Same G4 clipping as the header row, and worse here because
+                    the chip count is data-driven: a report with seven IoC
+                    categories renders eight chips against three fixed action
+                    buttons. Measured overflow of 259px at a ~480px content
+                    width, which put STIX 2.1 past the clipped edge. Both the
+                    row and the chip group wrap.
+                  */}
+                  <div className="flex flex-wrap items-center justify-between gap-y-2">
+                    <div className="flex flex-wrap items-center gap-3" role="group" aria-label="Filter by category">
                       <button
                         onClick={() => setIocCategory('all')}
                         aria-pressed={iocCategory === 'all'}
