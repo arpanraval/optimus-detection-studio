@@ -200,9 +200,17 @@ export const TTPCard: React.FC<TTPCardProps> = ({
         )
       )}
 
-      {/* Evidence */}
+      {/* Evidence.
+          G12: this quote is verbatim article text, so its longest word is
+          whatever the article contained -- registry paths, hashes, URLs.
+          Without a break rule the box cannot render narrower than that word
+          and the tail is clipped by an ancestor's overflow-hidden. Measured:
+          it overflows below 224px on the DeadLock quote, and 43 of the 2,017
+          stored quotes carry a token over 40 characters (longest 68).
+          `break-words` only acts on a word that would otherwise overflow, so
+          it changes nothing for ordinary prose. */}
       {ttp.evidence && !isEditing && (
-        <div className="text-[10px] text-on-surface-variant/70 italic bg-surface-container-high rounded px-2 py-1 border border-outline-variant/10 line-clamp-2 mb-3">
+        <div className="text-[10px] text-on-surface-variant/70 italic bg-surface-container-high rounded px-2 py-1 border border-outline-variant/10 line-clamp-2 break-words mb-3">
           "{ttp.evidence}"
         </div>
       )}

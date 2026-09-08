@@ -237,7 +237,12 @@ export const IoCTable: React.FC<IoCTableProps> = ({
                   </td>
                 )}
                 <td className="px-4 py-3">
-                  <span className="text-xs text-on-surface-variant">{ioc.context || '-'}</span>
+                  {/* Same G12 case as the TTP evidence quote: model prose that
+                      can carry an unbreakable token. 9 of 4,269 stored
+                      contexts hold one over 40 characters, longest 67, and a
+                      table cell that cannot break its longest word sets a
+                      floor on the whole column's width. */}
+                  <span className="text-xs text-on-surface-variant break-words">{ioc.context || '-'}</span>
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
