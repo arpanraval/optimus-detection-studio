@@ -245,7 +245,13 @@ export const IoCTable: React.FC<IoCTableProps> = ({
                   <span className="text-xs text-on-surface-variant break-words">{ioc.context || '-'}</span>
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {/* G13: these were hover-only, so tabbing to Defang/Copy/
+                      Edit/Remove focused a control that stayed invisible.
+                      `focus-within` on the container rather than
+                      `focus-visible` on each button, because the thing being
+                      focused is a child. Does not help touch, which has no
+                      hover at all — that is the open half of G13. */}
+                  <div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                     {canDefang && onToggleDefang && ioc.id && (
                       <InlineActionButton
                         icon={showDefanged ? 'unlock' : 'shield'}

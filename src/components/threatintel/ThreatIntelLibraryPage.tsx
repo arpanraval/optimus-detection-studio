@@ -132,7 +132,7 @@ const FilterDropdown: React.FC<{
 
       <button
         onClick={(e) => { e.stopPropagation(); onRemove(); }}
-        className="absolute -right-1 -top-1 w-4 h-4 bg-error text-on-error rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+        className="absolute -right-1 -top-1 w-4 h-4 bg-error text-on-error rounded-full opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity flex items-center justify-center"
         aria-label={`Remove ${config.label} filter`}
       >
         <Icon name="x" className="w-2.5 h-2.5" />
@@ -401,7 +401,7 @@ const ReportListItem: React.FC<{
       {onDelete && (
         <button
           onClick={(e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); onDelete(); }}
-          className="p-1.5 rounded text-on-surface-variant/40 hover:text-error hover:bg-error/10 opacity-0 group-hover:opacity-100 transition-all"
+          className="p-1.5 rounded text-on-surface-variant/40 hover:text-error hover:bg-error/10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-all"
           aria-label="Delete report"
           title="Delete report"
         >

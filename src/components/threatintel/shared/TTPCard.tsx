@@ -162,7 +162,10 @@ export const TTPCard: React.FC<TTPCardProps> = ({
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            // G13: same hover-only trap as the indicator row -- the actions
+            // are focusable while invisible. `focus-within` because the focus
+            // lands on a child button, not on this div.
+            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
               {onCopy && (
                 <InlineActionButton icon="copy" label="Copy MITRE ID" onClick={() => onCopy(ttp.mitreId)} />
               )}
