@@ -222,43 +222,52 @@ async function callAnthropicAPI(
 // IoC CATEGORY/TYPE MAPPING
 // =============================================================================
 
-function mapIoCCategory(aiCategory: string): string {
-  const categoryMap: Record<string, string> = {
-    'ipv4_addresses': 'network',
-    'ipv6_addresses': 'network',
-    'domains': 'network',
-    'urls': 'network',
-    'email_addresses': 'network',
-    'asn': 'network',
-    'cidr_ranges': 'network',
-    'user_agents': 'network',
-    'ja3_fingerprints': 'network',
-    'ja3s_fingerprints': 'network',
-    'ssl_certificates': 'network',
-    'file_hashes': 'hashes',
-    'ssdeep_hashes': 'hashes',
-    'imphashes': 'hashes',
-    'file_paths': 'files',
-    'file_names': 'files',
-    'pdb_paths': 'files',
-    'registry_keys': 'windows',
-    'mutexes': 'windows',
-    'named_pipes': 'windows',
-    'service_names': 'windows',
-    'scheduled_tasks': 'windows',
-    'process_names': 'execution',
-    'command_lines': 'execution',
-    'cves': 'vulnerabilities',
-    'crypto_addresses': 'crypto',
-    'android_packages': 'mobile',
-    'ios_bundles': 'mobile',
-    'mac_addresses': 'other',
-    'ssh_keys': 'other'
-  }
-  return categoryMap[aiCategory] || 'other'
+/**
+ * The model's own bucket names, mapped to categories.
+ *
+ * Exported so a test can walk every bucket and check it against the
+ * type-keyed map in `types.ts`. The two are derived from the same source and
+ * must agree; when they silently stopped agreeing, `registry` and `crypto`
+ * indicators spent a month under the OTHER filter chip.
+ */
+export const IOC_BUCKET_TO_CATEGORY: Record<string, string> = {
+  'ipv4_addresses': 'network',
+  'ipv6_addresses': 'network',
+  'domains': 'network',
+  'urls': 'network',
+  'email_addresses': 'network',
+  'asn': 'network',
+  'cidr_ranges': 'network',
+  'user_agents': 'network',
+  'ja3_fingerprints': 'network',
+  'ja3s_fingerprints': 'network',
+  'ssl_certificates': 'network',
+  'file_hashes': 'hashes',
+  'ssdeep_hashes': 'hashes',
+  'imphashes': 'hashes',
+  'file_paths': 'files',
+  'file_names': 'files',
+  'pdb_paths': 'files',
+  'registry_keys': 'windows',
+  'mutexes': 'windows',
+  'named_pipes': 'windows',
+  'service_names': 'windows',
+  'scheduled_tasks': 'windows',
+  'process_names': 'execution',
+  'command_lines': 'execution',
+  'cves': 'vulnerabilities',
+  'crypto_addresses': 'crypto',
+  'android_packages': 'mobile',
+  'ios_bundles': 'mobile',
+  'mac_addresses': 'other',
+  'ssh_keys': 'other',
 }
 
-function mapIoCType(aiCategory: string, item: any): string {
+function mapIoCCategory(aiCategory: string): string {
+  return IOC_BUCKET_TO_CATEGORY[aiCategory] || 'other'
+}
+
+export function mapIoCType(aiCategory: string, item: any): string {
   const typeMap: Record<string, string> = {
     'ipv4_addresses': 'ipv4',
     'ipv6_addresses': 'ipv6',
@@ -456,12 +465,17 @@ function parseAIIoCResponse(aiResponse: any): { iocs: ExtractedIoC[], rules: Ext
       for (const item of items as any[]) {
         if (!item || typeof item.value !== 'string' || !item.value.trim()) continue
         const type = mapIoCType(category, item)
+        // One category for both branches. These used to disagree: the success
+        // path derived it from the type and the failure path from the bucket,
+        // so which chip an indicator landed under depended on whether an
+        // unrelated syntax check happened to throw.
+        const bucketCategory = mapIoCCategory(category)
         let normalized: ReturnType<typeof validateIoC>
         let validationError: string | undefined
         try {
-          normalized = validateIoC(type, item.value)
+          normalized = validateIoC(type, item.value, bucketCategory)
         } catch (error) {
-          normalized = { value: String(item.value).slice(0, 2_000), originalValue: String(item.value).slice(0, 2_000), defanged: false, category: mapIoCCategory(category) }
+          normalized = { value: String(item.value).slice(0, 2_000), originalValue: String(item.value).slice(0, 2_000), defanged: false, category: bucketCategory }
           validationError = error instanceof Error ? error.message : 'IoC syntax validation failed'
         }
         const severity = ['malicious', 'suspicious', 'unknown'].includes(item.severity) ? item.severity : 'unknown'

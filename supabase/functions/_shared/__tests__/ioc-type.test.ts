@@ -4,7 +4,9 @@ import {
   canonicalizeIoCType,
   squashIoCType,
 } from '../ioc-type'
-import { IOC_TYPE_TO_CATEGORY, getIoCCategory } from '../../threat-intel-digest-v2/lib/types'
+import { IOC_TYPE_TO_CATEGORY, getIoCCategory, resolveIoCCategory } from '../../threat-intel-digest-v2/lib/types'
+import { validateIoC } from '../../threat-intel-digest-v2/lib/output-validation'
+import { IOC_BUCKET_TO_CATEGORY, mapIoCType } from '../../threat-intel-digest-v2/lib/ai-extractor'
 import { getStixPattern } from '../../../../src/lib/threatIntel/stix'
 
 describe('canonicalizeIoCType', () => {
@@ -88,6 +90,65 @@ describe('vocabulary consistency across runtimes', () => {
 
   it('still reports a genuinely unknown type as other', () => {
     expect(getIoCCategory('blake2b')).toBe('other')
+  })
+
+  // The live defect: the digest rebuild moved category derivation from the
+  // model's bucket name to the indicator type, and these two types had no key
+  // in the type map -- so every one written after the 2026-08-11 deploy was
+  // filed under OTHER while the identical indicator written in July sat under
+  // WINDOWS / CRYPTO.
+  it('categorises the two types the rebuild left unmapped', () => {
+    expect(getIoCCategory('registry')).toBe('windows')
+    expect(getIoCCategory('crypto')).toBe('crypto')
+  })
+
+  // Categorising `registry` is not merging it into `registry_key`. Both stay
+  // distinct types; they simply agree on which category they belong to.
+  it('keeps registry and registry_key distinct while categorising both', () => {
+    expect(canonicalizeIoCType('registry').type).toBe('registry')
+    expect(canonicalizeIoCType('registry_key').type).toBe('registry_key')
+    expect(getIoCCategory('registry_key')).toBe('windows')
+  })
+
+  it('separates a mapped other from a defaulted one', () => {
+    expect(resolveIoCCategory('mac_address')).toEqual({ category: 'other', recognized: true })
+    expect(resolveIoCCategory('blake2b')).toEqual({ category: 'other', recognized: false })
+  })
+
+  // The guard that would have caught this a month earlier. Two maps are
+  // derived from the same bucket name -- one keyed on the bucket, one on the
+  // type that bucket produces -- and nothing forced them to agree.
+  it('agrees on the category whichever map is consulted', () => {
+    const disagreements = Object.entries(IOC_BUCKET_TO_CATEGORY)
+      .map(([bucket, viaBucket]) => {
+        const type = mapIoCType(bucket, {})
+        return { bucket, type, viaBucket, viaType: resolveIoCCategory(type) }
+      })
+      .filter(({ viaBucket, viaType }) => !viaType.recognized || viaType.category !== viaBucket)
+    expect(disagreements).toEqual([])
+  })
+})
+
+/**
+ * The write path. `validateIoC` decides the stored category, and the value it
+ * returns is what the report page's filter chips and the CSV export read --
+ * there is no read-side derivation to correct it later, unlike the STIX
+ * pattern above.
+ */
+describe('validateIoC category resolution', () => {
+  it('prefers the type when the type is mapped', () => {
+    expect(validateIoC('sha256', 'a'.repeat(64), 'network').category).toBe('hashes')
+  })
+
+  // The bucket is a fixed vocabulary set by the prompt; the type can forward
+  // the model's own word. So an unmapped type falls back to the bucket rather
+  // than to OTHER -- which is what `registry`/`crypto` needed and did not get.
+  it('falls back to the bucket category for a type nobody has mapped', () => {
+    expect(validateIoC('blake2b', 'abc123', 'hashes').category).toBe('hashes')
+  })
+
+  it('answers other when there is no fallback to fall back to', () => {
+    expect(validateIoC('blake2b', 'abc123').category).toBe('other')
   })
 })
 

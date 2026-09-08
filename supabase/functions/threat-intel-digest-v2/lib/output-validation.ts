@@ -5,7 +5,7 @@ import type {
   ReportClassification,
   ReportSummary,
 } from './types.ts'
-import { AttackType, ThreatLevel, getIoCCategory } from './types.ts'
+import { AttackType, ThreatLevel, resolveIoCCategory } from './types.ts'
 import { classifyRule } from '../../_shared/rule-type.ts'
 
 export const MAX_MODEL_OUTPUT_CHARS = 1_000_000
@@ -86,7 +86,15 @@ function normalizeDefanged(value: string): { normalized: string; original: strin
   return { normalized, original }
 }
 
-export function validateIoC(type: string, rawValue: unknown): Pick<ExtractedIoC, 'value' | 'originalValue' | 'defanged' | 'category'> {
+/**
+ * `fallbackCategory` is used only when the type is absent from the category
+ * map. Pass the category derived from the model's own bucket name: the bucket
+ * is a fixed vocabulary set by the prompt, while the type can forward the
+ * model's word (`hash_type`, `currency_type`), so the controlled side backs
+ * the uncontrolled one. Without it, a type nobody has mapped yet is filed
+ * under OTHER regardless of which bucket it arrived in.
+ */
+export function validateIoC(type: string, rawValue: unknown, fallbackCategory?: string): Pick<ExtractedIoC, 'value' | 'originalValue' | 'defanged' | 'category'> {
   if (typeof rawValue !== 'string' || !rawValue.trim() || rawValue.length > 2_000) throw new Error('IoC value is invalid')
   const { normalized, original } = normalizeDefanged(rawValue)
   const lowerType = type.toLowerCase()
@@ -98,7 +106,9 @@ export function validateIoC(type: string, rawValue: unknown): Pick<ExtractedIoC,
   }
   const pattern = patterns[lowerType]
   if (pattern && !pattern.test(normalized)) throw new Error(`IoC ${lowerType} failed syntax validation`)
-  return { value: normalized, originalValue: original, defanged: normalized !== original, category: getIoCCategory(lowerType) }
+  const resolved = resolveIoCCategory(lowerType)
+  const category = resolved.recognized ? resolved.category : (fallbackCategory ?? 'other')
+  return { value: normalized, originalValue: original, defanged: normalized !== original, category }
 }
 
 export function validateRuleCandidate(value: any): ExtractedRule {

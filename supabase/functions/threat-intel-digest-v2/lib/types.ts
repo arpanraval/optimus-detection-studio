@@ -339,11 +339,19 @@ export const IOC_TYPE_TO_CATEGORY: Record<string, string> = {
   sha512: 'hashes',
   ssdeep: 'hashes',
   imphash: 'hashes',
+  // `mapIoCType` falls back to the literal 'hash' when the model names no
+  // `hash_type`, so this is a type this pipeline emits itself.
+  hash: 'hashes',
   // Files
   file_path: 'files',
   file_name: 'files',
   pdb_path: 'files',
   // Windows
+  // `registry` and `registry_key` are separate entries, not a merge: the
+  // client enum declares both as distinct types and `mapIoCType` emits the
+  // former for the `registry_keys` bucket. Whether they should be one type is
+  // a taxonomy question (D3); which category they belong to is not.
+  registry: 'windows',
   registry_key: 'windows',
   mutex: 'windows',
   named_pipe: 'windows',
@@ -357,6 +365,9 @@ export const IOC_TYPE_TO_CATEGORY: Record<string, string> = {
   // Crypto
   bitcoin_address: 'crypto',
   ethereum_address: 'crypto',
+  // `mapIoCType` falls back to the literal 'crypto' when the model names no
+  // `currency_type`, so this is a type this pipeline emits itself.
+  crypto: 'crypto',
   // Mobile
   android_package: 'mobile',
   ios_bundle: 'mobile',
@@ -365,11 +376,34 @@ export const IOC_TYPE_TO_CATEGORY: Record<string, string> = {
   ssh_key: 'other',
 };
 
-export function getIoCCategory(type: string): string {
+export interface ResolvedIoCCategory {
+  /** The mapped category; 'other' when the type has no entry. */
+  category: string;
+  /** False when the type is absent from the map -- then 'other' is a guess. */
+  recognized: boolean;
+}
+
+/**
+ * Resolve a type to its category, reporting whether the answer was looked up
+ * or defaulted.
+ *
+ * The distinction matters because 'other' is a legitimate category
+ * (`mac_address`, `ssh_key`) as well as the default, so a caller reading a
+ * bare string cannot tell "this belongs in Other" from "no idea". That
+ * conflation is how `registry` and `crypto` were filed under OTHER for a
+ * month: both are absent from the map, both got 'other', and nothing
+ * distinguished that from an answer. Same reasoning as
+ * `canonicalizeIoCType`'s `recognized` flag, which exists for the type what
+ * this exists for the category.
+ */
+export function resolveIoCCategory(type: string): ResolvedIoCCategory {
   // Canonicalise first. This map is keyed on canonical spellings, so a
   // `sha-256` from the model missed every key and fell to 'other' -- the
-  // reason 25 stored hashes sit outside the Hashes filter. An unrecognised
-  // type still lands on 'other', but now only when it is genuinely unknown
-  // rather than merely spelled differently.
-  return IOC_TYPE_TO_CATEGORY[canonicalizeIoCType(type).type] || 'other';
+  // reason 25 stored hashes sat outside the Hashes filter.
+  const mapped = IOC_TYPE_TO_CATEGORY[canonicalizeIoCType(type).type];
+  return mapped ? { category: mapped, recognized: true } : { category: 'other', recognized: false };
+}
+
+export function getIoCCategory(type: string): string {
+  return resolveIoCCategory(type).category;
 }

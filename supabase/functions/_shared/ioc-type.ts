@@ -42,8 +42,9 @@ export const CANONICAL_IOC_TYPES: readonly string[] = [
   // Network
   'ipv4', 'ipv6', 'domain', 'subdomain', 'url', 'uri', 'email', 'email_subject',
   'asn', 'cidr', 'user_agent', 'ja3', 'ja3s', 'jarm', 'ssl_cert',
-  // Hashes
-  'md5', 'sha1', 'sha256', 'sha512', 'ssdeep', 'imphash',
+  // Hashes. Bare `hash` is this pipeline's own fallback literal for a hash
+  // whose algorithm the model did not name -- same case as `crypto` below.
+  'md5', 'sha1', 'sha256', 'sha512', 'ssdeep', 'imphash', 'hash',
   // Files
   'file_path', 'file_path_win', 'file_path_unix', 'file_name', 'directory', 'pdb_path',
   // Windows
@@ -53,8 +54,11 @@ export const CANONICAL_IOC_TYPES: readonly string[] = [
   'certificate_serial', 'certificate_thumbprint', 'certificate_issuer',
   // Vulnerabilities
   'cve', 'vulnerability',
-  // Crypto
-  'bitcoin_address', 'ethereum_address',
+  // Crypto. `crypto` is this pipeline's own fallback literal for a
+  // cryptocurrency address whose chain the model did not name -- not a
+  // spelling variant of the two below, and not a model word, so it belongs in
+  // the vocabulary rather than being warned about on every extraction.
+  'bitcoin_address', 'ethereum_address', 'crypto',
   // Mobile
   'android_package', 'ios_bundle',
   // Other
