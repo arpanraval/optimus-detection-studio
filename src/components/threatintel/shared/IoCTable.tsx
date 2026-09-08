@@ -36,6 +36,29 @@ function isDefanged(value: string): boolean {
   return value.includes('[.]') || value.includes('[@]') || /^hxxp/i.test(value) || /^fxp/i.test(value);
 }
 
+/** Types the defang transform can act on. */
+export const DEFANGABLE_IOC_TYPES = ['ipv4', 'ipv6', 'domain', 'url', 'email'];
+
+/**
+ * Whether a row currently READS as defanged, combining the stored value with
+ * the user's per-row toggle. Exported because bulk copy has to agree with what
+ * the row shows -- two implementations of "what does this row say" would drift
+ * the moment one of them changed.
+ */
+export function isDisplayedDefanged(ioc: IoCLike, defangedIds?: Set<string>): boolean {
+  const stored = isDefanged(ioc.value);
+  const toggled = ioc.id ? defangedIds?.has(ioc.id) ?? false : false;
+  return stored ? !toggled : toggled;
+}
+
+/** The exact string a row renders, given the current toggles. */
+export function displayIoCValue(ioc: IoCLike, defangedIds?: Set<string>): string {
+  const stored = isDefanged(ioc.value);
+  return isDisplayedDefanged(ioc, defangedIds)
+    ? (stored ? ioc.value : defangValue(ioc.value, ioc.type))
+    : (stored ? refangValue(ioc.value) : ioc.value);
+}
+
 const severityStyles: Record<string, { bg: string; text: string; border: string }> = {
   malicious:  { bg: 'bg-[#A63D40]/15',         text: 'text-[#A63D40]',                       border: 'border-[#A63D40]/20' },
   suspicious: { bg: 'bg-yellow-500/15',         text: 'text-yellow-600 dark:text-yellow-400', border: 'border-yellow-500/20' },
@@ -55,6 +78,14 @@ interface IoCTableProps {
   onCancelEdit?: () => void;
   onEditValueChange?: (value: string) => void;
   onRemove?: (id: string) => void;
+  // Bulk selection. Optional, and the checkbox column only exists when both
+  // are supplied -- the same convention the story-only props below use, so a
+  // caller that does not want selection gets no column rather than a dead one.
+  // Prop names match TTPTacticList's, which already does this on the same page.
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
+  /** Select-all acts on the rows currently rendered, which is the filtered set. */
+  onToggleSelectAll?: () => void;
   // Story-only
   showSources?: boolean;
   multiSourceHighlight?: boolean;
@@ -66,6 +97,7 @@ export const IoCTable: React.FC<IoCTableProps> = ({
   defangedIoCs,
   editingId, editingValue = '',
   onToggleDefang, onCopy, onStartEdit, onSaveEdit, onCancelEdit, onEditValueChange, onRemove,
+  selectedIds, onToggleSelect, onToggleSelectAll,
   showSources, multiSourceHighlight, sortByCorroboration,
 }) => {
   const orderedIoCs = useMemo(() => {
@@ -74,12 +106,37 @@ export const IoCTable: React.FC<IoCTableProps> = ({
   }, [iocs, sortByCorroboration]);
 
   const canEdit = !!(onStartEdit && onSaveEdit && onCancelEdit && onEditValueChange && onRemove);
+  const canSelect = !!(selectedIds && onToggleSelect);
+
+  // Select-all reflects the rows on screen, not the whole report. A header
+  // checkbox that claims "all" while a category filter is active would be the
+  // same lie the export buttons were telling.
+  const selectableIds = useMemo(
+    () => orderedIoCs.map(i => i.id).filter((v): v is string => !!v),
+    [orderedIoCs],
+  );
+  const selectedHere = selectableIds.filter(id => selectedIds?.has(id)).length;
+  const allSelected = selectableIds.length > 0 && selectedHere === selectableIds.length;
 
   return (
     <div className="overflow-hidden rounded-xl border border-outline-variant/30">
       <table className="w-full">
         <thead className="bg-surface-container-high">
           <tr>
+            {canSelect && (
+              <th className="px-3 py-3 w-10">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={el => { if (el) el.indeterminate = selectedHere > 0 && !allSelected; }}
+                  onChange={() => onToggleSelectAll?.()}
+                  disabled={!onToggleSelectAll || selectableIds.length === 0}
+                  aria-label={allSelected ? 'Clear selection' : `Select all ${selectableIds.length} shown`}
+                  title={allSelected ? 'Clear selection' : `Select all ${selectableIds.length} shown`}
+                  className="w-3.5 h-3.5 accent-primary cursor-pointer disabled:cursor-default"
+                />
+              </th>
+            )}
             {multiSourceHighlight && <th className="px-3 py-3 w-10"></th>}
             <th className="px-4 py-3 text-left text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Type</th>
             <th className="px-4 py-3 text-left text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Value</th>
@@ -93,17 +150,12 @@ export const IoCTable: React.FC<IoCTableProps> = ({
           {orderedIoCs.map((ioc, i) => {
             const sevKey = (ioc.severity || 'unknown').toString().toLowerCase();
             const sevStyle = severityStyles[sevKey] || severityStyles.unknown;
-            const canDefang = ['ipv4', 'ipv6', 'domain', 'url', 'email'].includes(ioc.type);
+            const canDefang = DEFANGABLE_IOC_TYPES.includes(ioc.type);
             const id = ioc.id ?? `${ioc.type}-${ioc.value}-${i}`;
             const isEditingThis = canEdit && editingId === ioc.id;
 
-            const valueIsDefanged = isDefanged(ioc.value);
-            const userToggled = ioc.id ? defangedIoCs?.has(ioc.id) ?? false : false;
-            const showDefanged = valueIsDefanged ? !userToggled : userToggled;
-
-            const displayValue = showDefanged
-              ? (valueIsDefanged ? ioc.value : defangValue(ioc.value, ioc.type))
-              : (valueIsDefanged ? refangValue(ioc.value) : ioc.value);
+            const showDefanged = isDisplayedDefanged(ioc, defangedIoCs);
+            const displayValue = displayIoCValue(ioc, defangedIoCs);
 
             const sources = ioc.sources ?? [];
             const multi = sources.length >= 2;
@@ -111,6 +163,18 @@ export const IoCTable: React.FC<IoCTableProps> = ({
 
             return (
               <tr key={id} className={`hover:bg-surface-container-high transition-colors group ${rowHighlight}`}>
+                {canSelect && (
+                  <td className="px-3 py-3 align-middle">
+                    <input
+                      type="checkbox"
+                      checked={ioc.id ? selectedIds!.has(ioc.id) : false}
+                      onChange={() => ioc.id && onToggleSelect!(ioc.id)}
+                      disabled={!ioc.id}
+                      aria-label={`Select ${ioc.value}`}
+                      className="w-3.5 h-3.5 accent-primary cursor-pointer disabled:cursor-default disabled:opacity-40"
+                    />
+                  </td>
+                )}
                 {multiSourceHighlight && (
                   <td className="px-3 py-3 align-middle">
                     {multi ? (

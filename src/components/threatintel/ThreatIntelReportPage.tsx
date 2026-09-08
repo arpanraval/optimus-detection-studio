@@ -67,7 +67,7 @@ import {
 } from '../../lib/ui/badges';
 import { FeasibilityEmptyState } from './FeasibilityEmptyState';
 import { RetryWithModelButton } from './RetryWithModelButton';
-import { StatCard, ThreatLevelIndicator, InlineActionButton, TTPMiniMatrix, TTPTacticList, IoCTable, RuleListSection, MitreMappingsBlock } from './shared';
+import { StatCard, ThreatLevelIndicator, InlineActionButton, TTPMiniMatrix, TTPTacticList, IoCTable, RuleListSection, MitreMappingsBlock, DEFANGABLE_IOC_TYPES, displayIoCValue, isDisplayedDefanged } from './shared';
 import type { CoveringDetection, TTPLike } from './shared';
 import { useBoundedList } from './shared/useBoundedList';
 import { createStixBundle } from '../../lib/threatIntel/stix';
@@ -352,6 +352,20 @@ export const ThreatIntelReportPage: React.FC = () => {
   }, []);
   const clearTTPSelection = useCallback(() => setSelectedTTPIds(new Set()), []);
 
+  // Bulk-select state for indicators. Same shape as the TTP selection above --
+  // that pattern already works on this page, so this reuses it rather than
+  // introducing a second way to select things in the same view.
+  const [selectedIoCIds, setSelectedIoCIds] = useState<Set<string>>(new Set());
+  const toggleIoCSelection = useCallback((id: string) => {
+    setSelectedIoCIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  const clearIoCSelection = useCallback(() => setSelectedIoCIds(new Set()), []);
+
   useEffect(() => {
     const loadReport = async () => {
       if (!id) {
@@ -386,11 +400,17 @@ export const ThreatIntelReportPage: React.FC = () => {
     showToast('success', 'Copied', 'Copied to clipboard');
   }, [showToast]);
 
-  // Export IoCs as CSV
-  const handleExportCSV = useCallback(() => {
+  // Export IoCs as CSV.
+  //
+  // G3: both exports read `report.iocs` and ignored the category filter
+  // entirely. Filtering to HASHES — one row on screen — and pressing CSV
+  // produced all 48 indicators, led by a domain, with nothing saying so.
+  // Verified in the browser before changing it. They now export exactly what
+  // the caller passes, and the toolbar passes what is on screen.
+  const handleExportCSV = useCallback((iocs: ExtractedIoC[], scope?: string) => {
     if (!report) return;
     const headers = ['Type', 'Value', 'Severity', 'Category', 'Context'];
-    const rows = report.iocs.map(ioc => [
+    const rows = iocs.map(ioc => [
       ioc.type,
       ioc.value,
       ioc.severity,
@@ -402,24 +422,26 @@ export const ThreatIntelReportPage: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `iocs-${report.id}.csv`;
+    // The scope goes in the filename too. A partial export named like a full
+    // one is indistinguishable from a full one once it is on disk.
+    a.download = `iocs-${report.id}${scope ? `-${scope}` : ''}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast('success', 'Exported', 'IoCs exported to CSV');
+    showToast('success', 'Exported', `${iocs.length} indicator${iocs.length === 1 ? '' : 's'} exported to CSV`);
   }, [report, showToast]);
 
-  // Export IoCs as STIX 2.1
-  const handleExportSTIX = useCallback(() => {
+  // Export IoCs as STIX 2.1. Same scoping fix as CSV above.
+  const handleExportSTIX = useCallback((iocs: ExtractedIoC[], scope?: string) => {
     if (!report) return;
-    const stixBundle = createStixBundle(report.iocs, report.createdAt);
+    const stixBundle = createStixBundle(iocs, report.createdAt);
     const blob = new Blob([JSON.stringify(stixBundle, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `iocs-${report.id}.stix.json`;
+    a.download = `iocs-${report.id}${scope ? `-${scope}` : ''}.stix.json`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast('success', 'Exported', 'IoCs exported to STIX 2.1');
+    showToast('success', 'Exported', `${iocs.length} indicator${iocs.length === 1 ? '' : 's'} exported to STIX 2.1`);
   }, [report, showToast]);
 
   // Export full report as JSON
@@ -1080,6 +1102,68 @@ export const ThreatIntelReportPage: React.FC = () => {
     if (iocCategory === 'all') return iocs;
     return iocs.filter(i => i.category === iocCategory);
   }, [report, iocCategory]);
+
+  /**
+   * What the export buttons and the bulk bar act on.
+   *
+   * Selection wins when there is one, otherwise it is whatever the category
+   * chip left on screen. The point is that no control acts on a set the user
+   * cannot see: the old buttons always sent the whole report.
+   */
+  const selectedIoCs = useMemo(
+    () => (report?.iocs ?? []).filter(i => i.id && selectedIoCIds.has(i.id)),
+    [report, selectedIoCIds],
+  );
+  const exportScope = useMemo(() => {
+    if (selectedIoCs.length > 0) return { iocs: selectedIoCs, label: 'selection' };
+    if (iocCategory !== 'all') return { iocs: filteredIoCs, label: iocCategory };
+    return { iocs: filteredIoCs, label: undefined as string | undefined };
+  }, [selectedIoCs, filteredIoCs, iocCategory]);
+
+  // Select-all covers the rows on screen. Pressing it when they are all
+  // already selected clears them, which is what the header checkbox's checked
+  // state promises.
+  const toggleSelectAllVisibleIoCs = useCallback(() => {
+    const visible = filteredIoCs.map(i => i.id).filter((v): v is string => !!v);
+    setSelectedIoCIds(prev => {
+      const allIn = visible.length > 0 && visible.every(id => prev.has(id));
+      const next = new Set(prev);
+      for (const id of visible) { if (allIn) next.delete(id); else next.add(id); }
+      return next;
+    });
+  }, [filteredIoCs]);
+
+  // Copy what the rows SAY, not what the database holds -- if a row is
+  // displaying a defanged value, that is the value the user means to paste.
+  const handleBulkCopy = useCallback(() => {
+    const text = selectedIoCs.map(i => displayIoCValue(i, defangedIoCs)).join('\n');
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    showToast('success', 'Copied', `${selectedIoCs.length} indicator${selectedIoCs.length === 1 ? '' : 's'} copied`);
+  }, [selectedIoCs, defangedIoCs, showToast]);
+
+  const defangableSelection = useMemo(
+    () => selectedIoCs.filter(i => i.id && DEFANGABLE_IOC_TYPES.includes(i.type)),
+    [selectedIoCs],
+  );
+  const selectionReadsDefanged = defangableSelection.length > 0
+    && defangableSelection.every(i => isDisplayedDefanged(i, defangedIoCs));
+
+  // One button, two states, mirroring the per-row control: defang everything
+  // selected, or put it all back. Only rows the transform can act on move.
+  const handleBulkDefang = useCallback(() => {
+    setDefangedIoCs(prev => {
+      const next = new Set(prev);
+      for (const ioc of defangableSelection) {
+        if (!ioc.id) continue;
+        const readsDefanged = isDisplayedDefanged(ioc, prev);
+        if (readsDefanged === !selectionReadsDefanged) continue;
+        if (next.has(ioc.id)) next.delete(ioc.id);
+        else next.add(ioc.id);
+      }
+      return next;
+    });
+  }, [defangableSelection, selectionReadsDefanged]);
 
   const iocCategories = useMemo(() => {
     if (!report) return [];
@@ -1852,14 +1936,80 @@ export const ThreatIntelReportPage: React.FC = () => {
                         onRetry={canManageReport ? handleRetrySection : undefined}
                         label="Re-extract"
                       />
-                      <Button variant="outlined" color="secondary" size="sm" leadingIcon="download" onClick={handleExportCSV}>CSV</Button>
-                      <Button variant="outlined" color="secondary" size="sm" onClick={handleExportSTIX}>STIX 2.1</Button>
+                      {/* The count is on the button because the scope changes
+                          underneath it. "CSV" over a filtered table said
+                          nothing about whether you were getting 1 row or 48,
+                          and it was silently giving you 48. */}
+                      <Button
+                        variant="outlined" color="secondary" size="sm" leadingIcon="download"
+                        onClick={() => handleExportCSV(exportScope.iocs, exportScope.label)}
+                        title={`Export the ${exportScope.iocs.length} indicator${exportScope.iocs.length === 1 ? '' : 's'} shown${exportScope.label ? ` (${exportScope.label})` : ''}`}
+                      >
+                        CSV ({exportScope.iocs.length})
+                      </Button>
+                      <Button
+                        variant="outlined" color="secondary" size="sm"
+                        onClick={() => handleExportSTIX(exportScope.iocs, exportScope.label)}
+                        title={`Export the ${exportScope.iocs.length} indicator${exportScope.iocs.length === 1 ? '' : 's'} shown${exportScope.label ? ` (${exportScope.label})` : ''}`}
+                      >
+                        STIX 2.1 ({exportScope.iocs.length})
+                      </Button>
                     </div>
                   </div>
+
+                  {/* Bulk action bar — same shape and position as the TTP one
+                      above, so selecting things behaves identically in both
+                      tabs of the same page. */}
+                  {selectedIoCIds.size > 0 && (
+                    <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-primary/10 border border-primary/30">
+                      <span className="text-sm text-on-surface">
+                        <strong className="font-mono">{selectedIoCIds.size}</strong> indicator{selectedIoCIds.size === 1 ? '' : 's'} selected
+                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={clearIoCSelection}
+                          className="text-xs text-on-surface-variant hover:text-on-surface px-3 py-1.5 rounded-lg hover:bg-surface-container-high"
+                        >
+                          Clear
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleBulkCopy}
+                          className="text-xs font-medium text-on-surface px-3 py-1.5 rounded-lg hover:bg-surface-container-high inline-flex items-center gap-1.5"
+                        >
+                          <Icon name="copy" className="w-3.5 h-3.5" />
+                          Copy
+                        </button>
+                        {defangableSelection.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleBulkDefang}
+                            title={`${selectionReadsDefanged ? 'Refang' : 'Defang'} ${defangableSelection.length} of ${selectedIoCIds.size} — the rest are types the transform does not apply to`}
+                            className="text-xs font-medium text-on-surface px-3 py-1.5 rounded-lg hover:bg-surface-container-high inline-flex items-center gap-1.5"
+                          >
+                            <Icon name={selectionReadsDefanged ? 'unlock' : 'shield'} className="w-3.5 h-3.5" />
+                            {selectionReadsDefanged ? 'Refang' : 'Defang'} ({defangableSelection.length})
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleExportCSV(selectedIoCs, 'selection')}
+                          className="text-xs font-medium text-white bg-primary hover:brightness-110 px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5"
+                        >
+                          <Icon name="download" className="w-3.5 h-3.5" />
+                          Export {selectedIoCIds.size}
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   <IoCTable
                     iocs={filteredIoCs}
                     defangedIoCs={defangedIoCs}
+                    selectedIds={selectedIoCIds}
+                    onToggleSelect={toggleIoCSelection}
+                    onToggleSelectAll={toggleSelectAllVisibleIoCs}
                     editingId={editingIoCId}
                     editingValue={editingIoCValue}
                     onToggleDefang={handleToggleDefang}
