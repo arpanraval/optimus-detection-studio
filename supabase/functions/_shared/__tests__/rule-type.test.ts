@@ -224,3 +224,54 @@ describe('squashRuleType', () => {
     expect(squashRuleType('  KQL  ')).toBe('kql')
   })
 })
+
+/**
+ * E5: a rule's language is derived once, at fetch time, from whatever code was
+ * deployed that day, and stored. Sentinel analytics/hunting YAML had no name of
+ * its own, so the same kind of file landed as `sigma` (via the `.yaml`
+ * extension fallback) on some rules and `kql` (via the pipe test) on others.
+ */
+describe('Sentinel rule documents', () => {
+  // The shape of Azure-Sentinel hunting YAML, trimmed to its structure.
+  const HUNTING = [
+    'id: a3a09840-1f1b-4a5f-8d67-6b5f0d3c9e21',
+    'name: Account MFA Modifications',
+    'description: |',
+    "  'Identifies MFA modifications on accounts.'",
+    'requiredDataConnectors:',
+    '  - connectorId: AzureActiveDirectory',
+    'query: |',
+    '  AuditLogs',
+    '  | where OperationName has "strong authentication"',
+    '  | project TimeGenerated, UserPrincipalName',
+  ].join('\n')
+
+  it('is a query language in its own right, not sigma and not kql', () => {
+    const c = classifyRuleType('sentinel')
+    expect(c.recognized).toBe(true)
+    expect(c.kind).toBe('query')
+    expect(c.language).toBe('sentinel')
+  })
+
+  it('accepts a rule document as having query shape', () => {
+    expect(hasQueryShape('sentinel', HUNTING)).toBe(true)
+    expect(classifyRule('sentinel', HUNTING).kind).toBe('query')
+    expect(classifyRule('sentinel', HUNTING).demotedByContent).toBe(false)
+  })
+
+  // The `query:` key is the whole discriminator, so a document without one is
+  // not a Sentinel rule however it is labelled.
+  it('demotes a document with no query key', () => {
+    const noQuery = 'id: x\nname: Something\ndescription: prose only'
+    expect(hasQueryShape('sentinel', noQuery)).toBe(false)
+    expect(classifyRule('sentinel', noQuery).kind).toBe('reference')
+    expect(classifyRule('sentinel', noQuery).demotedByContent).toBe(true)
+  })
+
+  // Sigma keeps accepting `query:` deliberately: the extractor can still
+  // label a Sentinel file `sigma`, and tightening this before that is proven
+  // fixed would demote real rules. Recorded in E5 as the remaining half.
+  it('does not break the sigma shape test that still covers mislabelled files', () => {
+    expect(hasQueryShape('sigma', HUNTING)).toBe(true)
+  })
+})

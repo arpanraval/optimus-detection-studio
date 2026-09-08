@@ -43,6 +43,11 @@ import { looksLikeUpstreamError } from '../../../supabase/functions/_shared/gith
  */
 const QUERY_LANGUAGE_LABELS: Record<string, string> = {
   kql: 'KQL',
+  // A draft made from a Sentinel rule is a KQL detection: the rule document is
+  // the wrapper, the query inside it is KQL. 'Sentinel' is not one of this
+  // app's detection query languages and inventing it here would produce a
+  // draft nothing can convert or deploy.
+  sentinel: 'KQL',
   spl: 'SPL',
   sigma: 'Sigma',
   yara: 'YARA',
@@ -618,6 +623,21 @@ export const ThreatIntelReportPage: React.FC = () => {
         // Check for Sigma patterns (YAML with specific fields)
         if (/\blogsource\s*:/.test(lower) && /\bdetection\s*:/.test(lower)) {
           return ExtractedRuleType.Sigma;
+        }
+
+        // Microsoft Sentinel analytics / hunting YAML, before the KQL test.
+        //
+        // It has no `logsource:`/`detection:` so the Sigma test above misses
+        // it, and its KQL body then matched the pipe test below — while the
+        // `.yaml` extension fallback at the bottom called it Sigma. Both
+        // labels are in the corpus for the same kind of file, because
+        // whichever branch was reached first that day decided it and nothing
+        // ever revisited the answer. The discriminator is a top-level
+        // `query:` key alongside the document keys a rule file carries;
+        // neither Sigma nor a bare KQL query has that shape. See E5.
+        if (/(^|\n)\s*query\s*:/.test(lower) &&
+            /(^|\n)\s*(id|requiredDataConnectors|queryFrequency|queryPeriod|triggerOperator|tactics)\s*:/i.test(text)) {
+          return ExtractedRuleType.Sentinel;
         }
 
         // Check for KQL patterns

@@ -50,6 +50,12 @@ export type RuleKind = 'query' | 'reference' | 'description'
 export const QUERY_LANGUAGES: readonly string[] = [
   'sigma', 'yara', 'kql', 'spl', 'eql', 'esql', 'xql', 'wql',
   'snort', 'suricata', 'clamav', 'auditd', 'logscale', 'google_secops',
+  // Microsoft Sentinel analytics and hunting YAML. Not Sigma (no `logsource`
+  // or `detection`) and not raw KQL either -- it is a rule document whose
+  // `query:` field holds KQL. Both labels were in the corpus and both are
+  // wrong; without a name of its own, whichever the detector reached first
+  // won. See E5.
+  'sentinel',
   // A real query language, even though this app has no Wiz deploy target.
   // `kind` answers "is this a detection query"; whether we can ship it to a
   // configured SIEM is a separate question the language mapping answers.
@@ -210,6 +216,9 @@ const REQUIRED_CONTENT_TOKENS: Record<string, RegExp> = {
   // `query:` -- and an earlier draft of this test demoted two of them. Found
   // by dry-running the backfill against the corpus rather than by inspection.
   sigma: /\b(?:detection|query)\s*:/i,
+  // A Sentinel rule document always carries its KQL under a top-level
+  // `query:` key -- that key is the whole reason it is not Sigma.
+  sentinel: /(?:^|\n)\s*query\s*:/i,
   yara: /\bcondition\s*:/i,
   snort: /^\s*(?:alert|drop|reject|pass|log|sdrop)\s+/im,
   suricata: /^\s*(?:alert|drop|reject|pass|log|sdrop)\s+/im,

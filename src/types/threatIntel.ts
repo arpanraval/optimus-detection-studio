@@ -117,6 +117,8 @@ export enum ExtractedRuleType {
   YARA = 'yara',
   Sigma = 'sigma',
   KQL = 'kql',
+  /** Microsoft Sentinel analytics/hunting YAML — a rule document whose `query:` field holds KQL. */
+  Sentinel = 'sentinel',
   SPL = 'spl',
   EQL = 'eql',
   Snort = 'snort',
