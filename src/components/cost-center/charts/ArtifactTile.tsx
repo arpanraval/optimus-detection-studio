@@ -7,10 +7,11 @@ import React from 'react';
 import { Icon } from '../../Icon';
 import { useCountUp } from '../../../hooks/useCountUp';
 import { withAlpha } from '../../dashboard/enterprise/engine/colorUtils';
+import type { IconName } from '../../Icon';
 
 interface Props {
   label: string;
-  icon: string;
+  icon: IconName;
   accent: string;
   count: number;
   costUsd: number;

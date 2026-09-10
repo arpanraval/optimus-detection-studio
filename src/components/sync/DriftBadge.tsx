@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon } from '../Icon';
 import type { DriftState } from '../../services/drift/types';
+import type { IconName } from '../Icon';
 
 type BadgeSize = 'xs' | 'sm' | 'md';
 
@@ -18,7 +19,7 @@ interface DriftBadgeProps {
 //   upstream_removed → neutral grey (informational — rule no longer exists upstream)
 //   in_sync          → green
 //   dismissed        → muted neutral
-const CONFIG: Partial<Record<DriftState, { label: string; icon: string; classes: string }>> = {
+const CONFIG: Partial<Record<DriftState, { label: string; icon: IconName; classes: string }>> = {
   upstream_changed: {
     label: 'Upstream update',
     icon: 'arrow-down',

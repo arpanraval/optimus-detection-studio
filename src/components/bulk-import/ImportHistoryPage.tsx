@@ -15,6 +15,7 @@ import { useLibrary } from '../../context/LibraryContext';
 import { ROUTES } from '../../router/routes';
 import { LIBRARY_LABELS_SHORT } from '../../types/detection';
 import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION, type LibraryType } from '../../constants/library';
+import type { IconName } from '../Icon';
 
 // Colors matching app design system
 const COLORS = {
@@ -175,7 +176,7 @@ function getVendorLabel(vendor: string | null): string {
   }
 }
 
-function getVendorIcon(vendor: string | null): string {
+function getVendorIcon(vendor: string | null): IconName {
   switch (vendor) {
     case 'sigma':
       return 'shield';
@@ -188,11 +189,11 @@ function getVendorIcon(vendor: string | null): string {
     case 'kql':
       return 'code';
     default:
-      return 'file';
+      return 'file-text';
   }
 }
 
-function getSourceIcon(sourceType: string): string {
+function getSourceIcon(sourceType: string): IconName {
   switch (sourceType) {
     case 'github':
       return 'github';
@@ -446,7 +447,7 @@ function EmptyState({
 
 // Supported Sources Info
 function SupportedSources() {
-  const sources = [
+  const sources: { name: string; icon: IconName; color: string; desc: string }[] = [
     { name: 'Sigma', icon: 'shield', color: '#5B8A72', desc: '3,200+ YAML rules' },
     { name: 'Splunk ESCU', icon: 'zap', color: '#FF6B35', desc: '2,100+ detections' },
     { name: 'Elastic', icon: 'search', color: '#00BFB3', desc: '1,500+ TOML rules' },

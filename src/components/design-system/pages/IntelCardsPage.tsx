@@ -393,11 +393,11 @@ const B_Group: React.FC = () => (
 
     {/* Stats bar */}
     <div className="mt-auto px-4 py-3 flex items-center gap-5 border-t border-outline-variant/10 bg-surface-container-lowest/40">
-      {[
+      {([
         { icon: 'matrix', color: THREAT_RED, val: mockGroup.technique_count, label: 'techniques' },
         { icon: 'bug', color: TOOL_AMBER, val: mockGroup.software_count, label: 'software' },
         { icon: 'flag', color: CAMPAIGN_SKY, val: mockGroup.campaign_count, label: 'campaigns' },
-      ].map(s => (
+      ] as const).map(s => (
         <div key={s.label} className="flex items-center gap-1.5">
           <div className="w-5 h-5 rounded-md flex items-center justify-center" style={{ backgroundColor: `${s.color}15` }}>
             <Icon name={s.icon} className="w-3 h-3" style={{ color: s.color }} />

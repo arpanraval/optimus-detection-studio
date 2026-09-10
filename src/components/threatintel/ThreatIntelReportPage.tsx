@@ -23,7 +23,40 @@ import {
   RetrySectionType,
   MitreEntityMatch,
   LibraryMatch,
+  digestProducedUsableReport,
 } from '../../types/threatIntel';
+// Shared with the edge extractor so a reference is named the same way whether
+// it was just extracted or is being upgraded after a fetch.
+import {
+  deriveGitHubReferenceName,
+  deriveRuleTitleFromContent,
+  trimUrlTrailingPunctuation,
+} from '../../../supabase/functions/_shared/github-reference';
+import { classifyRule, classifyRuleType } from '../../../supabase/functions/_shared/rule-type';
+import { looksLikeUpstreamError } from '../../../supabase/functions/_shared/github-reference';
+
+/**
+ * Display labels for the query languages the Detection form accepts. Keyed by
+ * the shared canonical vocabulary, so adding a language in one place is
+ * enough. A language absent here falls back to 'Other' -- which is honest,
+ * because the form genuinely has no better option for it.
+ */
+const QUERY_LANGUAGE_LABELS: Record<string, string> = {
+  kql: 'KQL',
+  // A draft made from a Sentinel rule is a KQL detection: the rule document is
+  // the wrapper, the query inside it is KQL. 'Sentinel' is not one of this
+  // app's detection query languages and inventing it here would produce a
+  // draft nothing can convert or deploy.
+  sentinel: 'KQL',
+  spl: 'SPL',
+  sigma: 'Sigma',
+  yara: 'YARA',
+  snort: 'Snort',
+  suricata: 'Suricata',
+  eql: 'EQL',
+  esql: 'ES|QL',
+  xql: 'XQL',
+};
 import {
   badgeSizes,
   threatLevelColors,
@@ -34,10 +67,12 @@ import {
 } from '../../lib/ui/badges';
 import { FeasibilityEmptyState } from './FeasibilityEmptyState';
 import { RetryWithModelButton } from './RetryWithModelButton';
-import { StatCard, ThreatLevelIndicator, InlineActionButton, TTPMiniMatrix, TTPTacticList, IoCTable, RuleListSection, MitreMappingsBlock } from './shared';
-import type { TTPLike } from './shared';
+import { StatCard, ThreatLevelIndicator, InlineActionButton, TTPMiniMatrix, TTPTacticList, IoCTable, RuleListSection, MitreMappingsBlock, DEFANGABLE_IOC_TYPES, displayIoCValue, isDisplayedDefanged } from './shared';
+import type { CoveringDetection, TTPLike } from './shared';
+import { useBoundedList } from './shared/useBoundedList';
 import { createStixBundle } from '../../lib/threatIntel/stix';
 import { canManageThreatIntelRecord } from '../../lib/threatIntel/access';
+import type { IconName } from '../Icon';
 
 // =============================================================================
 // TYPES
@@ -237,7 +272,7 @@ const RetryButton: React.FC<{
 
 // Empty State with Retry
 const EmptyStateWithRetry: React.FC<{
-  icon: string;
+  icon: IconName;
   title: string;
   description: string;
   section: RetrySectionType;
@@ -317,6 +352,20 @@ export const ThreatIntelReportPage: React.FC = () => {
   }, []);
   const clearTTPSelection = useCallback(() => setSelectedTTPIds(new Set()), []);
 
+  // Bulk-select state for indicators. Same shape as the TTP selection above --
+  // that pattern already works on this page, so this reuses it rather than
+  // introducing a second way to select things in the same view.
+  const [selectedIoCIds, setSelectedIoCIds] = useState<Set<string>>(new Set());
+  const toggleIoCSelection = useCallback((id: string) => {
+    setSelectedIoCIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  const clearIoCSelection = useCallback(() => setSelectedIoCIds(new Set()), []);
+
   useEffect(() => {
     const loadReport = async () => {
       if (!id) {
@@ -351,11 +400,17 @@ export const ThreatIntelReportPage: React.FC = () => {
     showToast('success', 'Copied', 'Copied to clipboard');
   }, [showToast]);
 
-  // Export IoCs as CSV
-  const handleExportCSV = useCallback(() => {
+  // Export IoCs as CSV.
+  //
+  // G3: both exports read `report.iocs` and ignored the category filter
+  // entirely. Filtering to HASHES — one row on screen — and pressing CSV
+  // produced all 48 indicators, led by a domain, with nothing saying so.
+  // Verified in the browser before changing it. They now export exactly what
+  // the caller passes, and the toolbar passes what is on screen.
+  const handleExportCSV = useCallback((iocs: ExtractedIoC[], scope?: string) => {
     if (!report) return;
     const headers = ['Type', 'Value', 'Severity', 'Category', 'Context'];
-    const rows = report.iocs.map(ioc => [
+    const rows = iocs.map(ioc => [
       ioc.type,
       ioc.value,
       ioc.severity,
@@ -367,24 +422,26 @@ export const ThreatIntelReportPage: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `iocs-${report.id}.csv`;
+    // The scope goes in the filename too. A partial export named like a full
+    // one is indistinguishable from a full one once it is on disk.
+    a.download = `iocs-${report.id}${scope ? `-${scope}` : ''}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast('success', 'Exported', 'IoCs exported to CSV');
+    showToast('success', 'Exported', `${iocs.length} indicator${iocs.length === 1 ? '' : 's'} exported to CSV`);
   }, [report, showToast]);
 
-  // Export IoCs as STIX 2.1
-  const handleExportSTIX = useCallback(() => {
+  // Export IoCs as STIX 2.1. Same scoping fix as CSV above.
+  const handleExportSTIX = useCallback((iocs: ExtractedIoC[], scope?: string) => {
     if (!report) return;
-    const stixBundle = createStixBundle(report.iocs, report.createdAt);
+    const stixBundle = createStixBundle(iocs, report.createdAt);
     const blob = new Blob([JSON.stringify(stixBundle, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `iocs-${report.id}.stix.json`;
+    a.download = `iocs-${report.id}${scope ? `-${scope}` : ''}.stix.json`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast('success', 'Exported', 'IoCs exported to STIX 2.1');
+    showToast('success', 'Exported', `${iocs.length} indicator${iocs.length === 1 ? '' : 's'} exported to STIX 2.1`);
   }, [report, showToast]);
 
   // Export full report as JSON
@@ -410,16 +467,17 @@ export const ThreatIntelReportPage: React.FC = () => {
   const handleCreateDraftFromRule = useCallback((rule: ExtractedRule) => {
     if (!report) return;
 
-    // Map rule type to query language for the Detection form
+    // Map rule type to query language for the Detection form.
+    //
+    // This covered five values and defaulted everything else to 'Other', so a
+    // Suricata rule -- a member of ExtractedRuleType -- produced a detection
+    // with no usable query language, as did eql, xql, es|ql and an uppercase
+    // 'KQL'. Classifying first means the label follows the shared vocabulary
+    // instead of a hand-picked list that drifts from it.
     const getQueryLanguage = (type: string): string => {
-      switch (type) {
-        case 'kql': return 'KQL';
-        case 'spl': return 'SPL';
-        case 'sigma': return 'Sigma';
-        case 'yara': return 'YARA';
-        case 'snort': return 'Snort';
-        default: return 'Other';
-      }
+      const { kind, language, recognized } = classifyRuleType(type);
+      if (kind !== 'query' || !recognized) return 'Other';
+      return QUERY_LANGUAGE_LABELS[language] ?? 'Other';
     };
 
     // Try to extract MITRE technique IDs from the rule content itself (for Sigma rules)
@@ -520,9 +578,15 @@ export const ThreatIntelReportPage: React.FC = () => {
     setFetchingRuleId(rule.id);
 
     try {
+      // Strip prose punctuation the extractor captured with the URL. Stored
+      // references predate the extraction-side fix, and 41 of 57 carry a
+      // stray ')' that makes the fetch 404, so trimming here is what makes
+      // the button work on existing reports.
+      const cleanUrl = trimUrlTrailingPunctuation(url);
+
       // Convert GitHub blob URL to raw URL
       // https://github.com/user/repo/blob/branch/path -> https://raw.githubusercontent.com/user/repo/branch/path
-      let rawUrl = url;
+      let rawUrl = cleanUrl;
       if (rawUrl.includes('github.com') && rawUrl.includes('/blob/')) {
         rawUrl = rawUrl
           .replace('github.com', 'raw.githubusercontent.com')
@@ -561,6 +625,14 @@ export const ThreatIntelReportPage: React.FC = () => {
 
       const content = await response.text();
 
+      // Jina returns HTTP 200 for upstream failures with the error in the
+      // body, so response.ok above only proves the reader answered. Without
+      // this, a 404 is saved as rule content -- which is how the string
+      // "404: Not Found" ended up stored as a Sigma rule.
+      if (looksLikeUpstreamError(content)) {
+        throw new Error(`Source returned no rule content (${content.trim().slice(0, 60)})`);
+      }
+
       // Detect rule type from content patterns (more accurate than file extension)
       const detectRuleType = (text: string, fileUrl: string): ExtractedRuleType => {
         const lower = text.toLowerCase();
@@ -573,6 +645,21 @@ export const ThreatIntelReportPage: React.FC = () => {
         // Check for Sigma patterns (YAML with specific fields)
         if (/\blogsource\s*:/.test(lower) && /\bdetection\s*:/.test(lower)) {
           return ExtractedRuleType.Sigma;
+        }
+
+        // Microsoft Sentinel analytics / hunting YAML, before the KQL test.
+        //
+        // It has no `logsource:`/`detection:` so the Sigma test above misses
+        // it, and its KQL body then matched the pipe test below — while the
+        // `.yaml` extension fallback at the bottom called it Sigma. Both
+        // labels are in the corpus for the same kind of file, because
+        // whichever branch was reached first that day decided it and nothing
+        // ever revisited the answer. The discriminator is a top-level
+        // `query:` key alongside the document keys a rule file carries;
+        // neither Sigma nor a bare KQL query has that shape. See E5.
+        if (/(^|\n)\s*query\s*:/.test(lower) &&
+            /(^|\n)\s*(id|requiredDataConnectors|queryFrequency|queryPeriod|triggerOperator|tactics)\s*:/i.test(text)) {
+          return ExtractedRuleType.Sentinel;
         }
 
         // Check for KQL patterns
@@ -602,12 +689,24 @@ export const ThreatIntelReportPage: React.FC = () => {
         return ExtractedRuleType.Other;
       };
 
-      const detectedType = detectRuleType(content, url);
+      const detectedType = detectRuleType(content, cleanUrl);
+
+      // Now that the file is in hand, prefer the rule's own title over the
+      // name derived from its filename. Falls back to the existing name when
+      // the content declares no title -- replacing a derived name with a worse
+      // guess would be a step backwards.
+      const fetchedTitle = deriveRuleTitleFromContent(content);
 
       // Update the rule in the report and persist
       const updatedRules = report.rules.map(r =>
         r.id === rule.id
-          ? { ...r, content, type: detectedType, sourceUrl: url }
+          ? {
+              ...r,
+              content,
+              type: detectedType,
+              sourceUrl: cleanUrl,
+              name: fetchedTitle || deriveGitHubReferenceName(cleanUrl) || r.name,
+            }
           : r
       );
       const updatedReport = { ...report, rules: updatedRules };
@@ -644,7 +743,7 @@ export const ThreatIntelReportPage: React.FC = () => {
     try {
       const result = await retryReportSection(report, section, model);
 
-      if (result.success && result.report) {
+      if (digestProducedUsableReport(result) && result.report) {
         // Update session with new report
         const updatedSession = {
           ...session,
@@ -683,12 +782,24 @@ export const ThreatIntelReportPage: React.FC = () => {
         if (keptExisting) {
           showToast('warning', 'No New Data', `Retry found no results. Kept existing ${countMessage}.`);
         } else if (newCount > 0) {
-          showToast('success', 'Retry Complete', `${countMessage} found`);
+          // A 'partial' outcome still carries a usable report -- it means some
+          // OTHER section has a warning. Saying "Retry Complete" would hide
+          // that; saying it failed is what A3 was. Name what happened.
+          if (result.outcome === 'partial') {
+            showToast('warning', 'Retry Complete, Review Needed', `${countMessage} found. Report still has warnings on other sections.`);
+          } else {
+            showToast('success', 'Retry Complete', `${countMessage} found`);
+          }
         } else {
           showToast('warning', 'No Data Found', `${countMessage} in article. Try a different model or check source.`);
         }
       } else {
-        showToast('error', 'Retry Failed', result.error || 'Failed to retry section');
+        // buildDigestEnvelope guarantees `error` is set whenever success is
+        // false, so this fallback should be unreachable. It previously fired
+        // on every partial report and printed a bare "Failed to retry section"
+        // with no cause -- if it ever fires again, say that it is unexplained
+        // rather than asserting a reason we do not have.
+        showToast('error', 'Retry Failed', result.error || 'The server returned no report and no reason.');
       }
     } catch (error) {
       console.error('Retry error:', error);
@@ -992,12 +1103,142 @@ export const ThreatIntelReportPage: React.FC = () => {
     return iocs.filter(i => i.category === iocCategory);
   }, [report, iocCategory]);
 
+  /**
+   * What the export buttons and the bulk bar act on.
+   *
+   * Selection wins when there is one, otherwise it is whatever the category
+   * chip left on screen. The point is that no control acts on a set the user
+   * cannot see: the old buttons always sent the whole report.
+   */
+  const selectedIoCs = useMemo(
+    () => (report?.iocs ?? []).filter(i => i.id && selectedIoCIds.has(i.id)),
+    [report, selectedIoCIds],
+  );
+  const exportScope = useMemo(() => {
+    if (selectedIoCs.length > 0) return { iocs: selectedIoCs, label: 'selection' };
+    if (iocCategory !== 'all') return { iocs: filteredIoCs, label: iocCategory };
+    return { iocs: filteredIoCs, label: undefined as string | undefined };
+  }, [selectedIoCs, filteredIoCs, iocCategory]);
+
+  // Select-all covers the rows on screen. Pressing it when they are all
+  // already selected clears them, which is what the header checkbox's checked
+  // state promises.
+  const toggleSelectAllVisibleIoCs = useCallback(() => {
+    const visible = filteredIoCs.map(i => i.id).filter((v): v is string => !!v);
+    setSelectedIoCIds(prev => {
+      const allIn = visible.length > 0 && visible.every(id => prev.has(id));
+      const next = new Set(prev);
+      for (const id of visible) { if (allIn) next.delete(id); else next.add(id); }
+      return next;
+    });
+  }, [filteredIoCs]);
+
+  // Copy what the rows SAY, not what the database holds -- if a row is
+  // displaying a defanged value, that is the value the user means to paste.
+  const handleBulkCopy = useCallback(() => {
+    const text = selectedIoCs.map(i => displayIoCValue(i, defangedIoCs)).join('\n');
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    showToast('success', 'Copied', `${selectedIoCs.length} indicator${selectedIoCs.length === 1 ? '' : 's'} copied`);
+  }, [selectedIoCs, defangedIoCs, showToast]);
+
+  const defangableSelection = useMemo(
+    () => selectedIoCs.filter(i => i.id && DEFANGABLE_IOC_TYPES.includes(i.type)),
+    [selectedIoCs],
+  );
+  const selectionReadsDefanged = defangableSelection.length > 0
+    && defangableSelection.every(i => isDisplayedDefanged(i, defangedIoCs));
+
+  // One button, two states, mirroring the per-row control: defang everything
+  // selected, or put it all back. Only rows the transform can act on move.
+  const handleBulkDefang = useCallback(() => {
+    setDefangedIoCs(prev => {
+      const next = new Set(prev);
+      for (const ioc of defangableSelection) {
+        if (!ioc.id) continue;
+        const readsDefanged = isDisplayedDefanged(ioc, prev);
+        if (readsDefanged === !selectionReadsDefanged) continue;
+        if (next.has(ioc.id)) next.delete(ioc.id);
+        else next.add(ioc.id);
+      }
+      return next;
+    });
+  }, [defangableSelection, selectionReadsDefanged]);
+
   const iocCategories = useMemo(() => {
     if (!report) return [];
     const iocs = report.iocs || [];
-    const cats = new Set(iocs.map(i => i.category));
+    // Falsy values are dropped: an IoC without a category would otherwise
+    // produce a chip literally reading "undefined (N)", whose filter matches
+    // `category === undefined`. Every stored IoC currently has one, so this is
+    // a guard rather than a live fix -- but the category vocabulary has gaps
+    // (D3: `registry` and `crypto` fall through to `other`), so a future type
+    // that maps to nothing must not surface as a chip named after the bug.
+    const cats = new Set(iocs.map(i => i.category).filter(Boolean));
     return Array.from(cats);
   }, [report]);
+
+  /**
+   * Rules broken down by what they actually are. The headline stat read
+   * "Candidate queries found: N" over a count that included GitHub links,
+   * 5-character vendor signature IDs and prose. Classified on the fly when
+   * `kind` is absent so reports predating the backfill still count correctly.
+   */
+  // G8: a TTP's coverage badge claims N detections. The IDs behind it were
+  // written on every covered TTP by the library matcher and read by nothing, so
+  // the claim could not be checked. `libraryMatches` already carries the names,
+  // and the two agree on every row in the corpus (0 of 973 TTPs disagree, 0 of
+  // 11,986 id references are missing), so resolving needs no extra fetch.
+  const libraryMatchesById = useMemo(() => {
+    const map = new Map<string, LibraryMatch>();
+    for (const m of report?.libraryMatches ?? []) map.set(m.detectionId, m);
+    return map;
+  }, [report?.libraryMatches]);
+
+  const getCoveringDetections = useCallback((ttp: TTPLike): CoveringDetection[] => {
+    const resolved: CoveringDetection[] = [];
+    for (const id of ttp.existingDetectionIds ?? []) {
+      const match = libraryMatchesById.get(id);
+      // An unresolvable id is skipped rather than rendered as a dead link; the
+      // card states the shortfall against the claimed count instead.
+      if (match) {
+        resolved.push({
+          id: match.detectionId,
+          name: match.detectionName,
+          status: match.status,
+          severity: match.severity,
+        });
+      }
+    }
+    return resolved;
+  }, [libraryMatchesById]);
+
+  // G1: the Library Coverage panel rendered every match flat -- 278 on the
+  // worst report. Rank before bounding so the visible slice is the strongest
+  // evidence rather than whatever order the matcher emitted: technique matches
+  // before group-related ones, which is the same distinction the summary line
+  // above the list already draws, then by coverage score.
+  const rankedLibraryMatches = useMemo(() => {
+    const rank = (m: LibraryMatch) =>
+      m.matchType === 'ttp_match' || (m.matchedTTPs?.length ?? 0) > 0 ? 0 : 1;
+    return [...(report?.libraryMatches ?? [])].sort(
+      (a, b) => rank(a) - rank(b) || (b.coverageScore ?? 0) - (a.coverageScore ?? 0),
+    );
+  }, [report?.libraryMatches]);
+
+  const boundedLibraryMatches = useBoundedList(rankedLibraryMatches);
+
+  const ruleKindCounts = useMemo(() => {
+    const rules = report?.rules ?? [];
+    const counts = { query: 0, reference: 0, description: 0, total: rules.length };
+    for (const rule of rules) {
+      const kind = rule.kind ?? classifyRule(rule.type, rule.content).kind;
+      if (kind === 'query') counts.query++;
+      else if (kind === 'description') counts.description++;
+      else counts.reference++;
+    }
+    return counts;
+  }, [report?.rules]);
 
   if (loading || !report || !stats) {
     return (
@@ -1026,7 +1267,17 @@ export const ThreatIntelReportPage: React.FC = () => {
         <div className="px-6 max-w-[1920px] mx-auto">
 
           {/* Row 1: Back + Badges + Actions - all in one line */}
-          <div className="flex items-center justify-between py-2.5 border-b border-outline-variant/10">
+          {/*
+            G4: this row and the page root disagree about what happens when the
+            content does not fit. The root is `overflow-hidden` (so the tab body
+            scrolls on its own), which means anything pushed past the right edge
+            here is cut off with no scrollbar to reach it -- measured on the
+            DeadLock report, the row overflows by 143px at a ~630px content
+            width and the Source button becomes unclickable. Wrapping costs
+            nothing when it fits and moves a button down a line when it does
+            not; nothing is hidden and no button changes shape.
+          */}
+          <div className="flex flex-wrap items-center justify-between gap-y-2 py-2.5 border-b border-outline-variant/10">
             <div className="flex items-center gap-3">
               <Button
                 variant="text"
@@ -1054,7 +1305,7 @@ export const ThreatIntelReportPage: React.FC = () => {
             </div>
             <div className="flex items-center gap-1">
               {canManageReport && (
-                <Button variant="tonal" color="primary" size="sm" leadingIcon="edit-2" onClick={handleStartEdit}>
+                <Button variant="tonal" color="primary" size="sm" leadingIcon="edit" onClick={handleStartEdit}>
                   Edit
                 </Button>
               )}
@@ -1179,10 +1430,29 @@ export const ThreatIntelReportPage: React.FC = () => {
           {activeTab === 'overview' && (
             <div className="space-y-8 animate-fade-in">
 
+              {/* Renders only for runs that actually went wrong. It used to
+                  fire on every report: the database mapper never copied
+                  `outcome`, so it was undefined, `undefined !== 'complete'`
+                  was true, and the `|| 'degraded'` fallback then asserted a
+                  verdict it did not have. A warning shown on all 170 reports
+                  told you nothing about the 15 that were genuinely partial. */}
               {report.outcome !== 'complete' && (
                 <div role='alert' className='rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-sm'>
-                  <div className='font-semibold'>Analysis requires review</div>
-                  <p>Outcome: {report.outcome || 'degraded'}; source quality: {report.sourceQuality || 'legacy_unverified'}. Automated findings must be verified before operational use.</p>
+                  <div className='font-semibold'>
+                    {report.outcome === 'unknown' ? 'Analysis state unknown' : 'Analysis requires review'}
+                  </div>
+                  <p>
+                    Outcome: {report.outcome}; source quality: {report.sourceQuality}.
+                    {report.sectionErrors && Object.keys(report.sectionErrors).length > 0 && (
+                      <> Sections that failed: {Object.keys(report.sectionErrors).join(', ')}.</>
+                    )}
+                    {' '}Automated findings must be verified before operational use.
+                  </p>
+                  {report.qualityWarnings && report.qualityWarnings.length > 0 && (
+                    <ul className='mt-2 list-disc pl-5 space-y-0.5'>
+                      {report.qualityWarnings.map((w, i) => <li key={i}>{w}</li>)}
+                    </ul>
+                  )}
                 </div>
               )}
 
@@ -1207,7 +1477,14 @@ export const ThreatIntelReportPage: React.FC = () => {
                   color="text-on-surface-variant"
                 />
                 <StatCard label="Indicators" value={report.iocs.length} color="text-secondary" />
-                <StatCard label="Rules Extracted" value={report.rules.length} color="text-primary" />
+                <StatCard
+                  label="Rules Extracted"
+                  value={ruleKindCounts.query}
+                  subtext={ruleKindCounts.total > ruleKindCounts.query
+                    ? `+${ruleKindCounts.total - ruleKindCounts.query} reference${ruleKindCounts.total - ruleKindCounts.query === 1 ? '' : 's'} / notes`
+                    : undefined}
+                  color="text-primary"
+                />
               </div>
 
               {/* Key Findings + Attribution */}
@@ -1352,7 +1629,7 @@ export const ThreatIntelReportPage: React.FC = () => {
                       );
                     })()}
 
-                    {report.libraryMatches.map((match: LibraryMatch) => (
+                    {boundedLibraryMatches.visible.map((match: LibraryMatch) => (
                       <div
                         key={match.detectionId}
                         className="flex items-start justify-between p-4 bg-surface-container-low rounded-lg border border-outline-variant/20 hover:border-[#4D7C6F]/30 transition-colors group"
@@ -1440,6 +1717,21 @@ export const ThreatIntelReportPage: React.FC = () => {
                         </Link>
                       </div>
                     ))}
+
+                    {/* Never a silent cap: the control states the full count,
+                        so a bounded list cannot be mistaken for the whole one. */}
+                    {boundedLibraryMatches.canExpand && (
+                      <button
+                        type="button"
+                        onClick={boundedLibraryMatches.toggle}
+                        aria-expanded={boundedLibraryMatches.expanded}
+                        className="w-full rounded-lg border border-outline-variant/30 bg-surface-container-low px-4 py-2.5 text-sm font-bold text-primary hover:bg-surface-container hover:border-primary/30 focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors"
+                      >
+                        {boundedLibraryMatches.expanded
+                          ? `Show fewer — ${boundedLibraryMatches.total} in total`
+                          : `Show all ${boundedLibraryMatches.total} detections (${boundedLibraryMatches.hidden} more)`}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1566,6 +1858,7 @@ export const ThreatIntelReportPage: React.FC = () => {
                   <TTPTacticList
                     ttps={report.ttps || []}
                     search={ttpSearch}
+                    getCoveringDetections={getCoveringDetections}
                     editingId={editingTTPId}
                     editingValue={editingTTPValue}
                     onCreateDetection={handleCreateDetectionFromTTP}
@@ -1599,8 +1892,16 @@ export const ThreatIntelReportPage: React.FC = () => {
                 />
               ) : (
                 <>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3" role="group" aria-label="Filter by category">
+                  {/*
+                    Same G4 clipping as the header row, and worse here because
+                    the chip count is data-driven: a report with seven IoC
+                    categories renders eight chips against three fixed action
+                    buttons. Measured overflow of 259px at a ~480px content
+                    width, which put STIX 2.1 past the clipped edge. Both the
+                    row and the chip group wrap.
+                  */}
+                  <div className="flex flex-wrap items-center justify-between gap-y-2">
+                    <div className="flex flex-wrap items-center gap-3" role="group" aria-label="Filter by category">
                       <button
                         onClick={() => setIocCategory('all')}
                         aria-pressed={iocCategory === 'all'}
@@ -1635,14 +1936,80 @@ export const ThreatIntelReportPage: React.FC = () => {
                         onRetry={canManageReport ? handleRetrySection : undefined}
                         label="Re-extract"
                       />
-                      <Button variant="outlined" color="secondary" size="sm" leadingIcon="download" onClick={handleExportCSV}>CSV</Button>
-                      <Button variant="outlined" color="secondary" size="sm" onClick={handleExportSTIX}>STIX 2.1</Button>
+                      {/* The count is on the button because the scope changes
+                          underneath it. "CSV" over a filtered table said
+                          nothing about whether you were getting 1 row or 48,
+                          and it was silently giving you 48. */}
+                      <Button
+                        variant="outlined" color="secondary" size="sm" leadingIcon="download"
+                        onClick={() => handleExportCSV(exportScope.iocs, exportScope.label)}
+                        title={`Export the ${exportScope.iocs.length} indicator${exportScope.iocs.length === 1 ? '' : 's'} shown${exportScope.label ? ` (${exportScope.label})` : ''}`}
+                      >
+                        CSV ({exportScope.iocs.length})
+                      </Button>
+                      <Button
+                        variant="outlined" color="secondary" size="sm"
+                        onClick={() => handleExportSTIX(exportScope.iocs, exportScope.label)}
+                        title={`Export the ${exportScope.iocs.length} indicator${exportScope.iocs.length === 1 ? '' : 's'} shown${exportScope.label ? ` (${exportScope.label})` : ''}`}
+                      >
+                        STIX 2.1 ({exportScope.iocs.length})
+                      </Button>
                     </div>
                   </div>
+
+                  {/* Bulk action bar — same shape and position as the TTP one
+                      above, so selecting things behaves identically in both
+                      tabs of the same page. */}
+                  {selectedIoCIds.size > 0 && (
+                    <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-primary/10 border border-primary/30">
+                      <span className="text-sm text-on-surface">
+                        <strong className="font-mono">{selectedIoCIds.size}</strong> indicator{selectedIoCIds.size === 1 ? '' : 's'} selected
+                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={clearIoCSelection}
+                          className="text-xs text-on-surface-variant hover:text-on-surface px-3 py-1.5 rounded-lg hover:bg-surface-container-high"
+                        >
+                          Clear
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleBulkCopy}
+                          className="text-xs font-medium text-on-surface px-3 py-1.5 rounded-lg hover:bg-surface-container-high inline-flex items-center gap-1.5"
+                        >
+                          <Icon name="copy" className="w-3.5 h-3.5" />
+                          Copy
+                        </button>
+                        {defangableSelection.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleBulkDefang}
+                            title={`${selectionReadsDefanged ? 'Refang' : 'Defang'} ${defangableSelection.length} of ${selectedIoCIds.size} — the rest are types the transform does not apply to`}
+                            className="text-xs font-medium text-on-surface px-3 py-1.5 rounded-lg hover:bg-surface-container-high inline-flex items-center gap-1.5"
+                          >
+                            <Icon name={selectionReadsDefanged ? 'unlock' : 'shield'} className="w-3.5 h-3.5" />
+                            {selectionReadsDefanged ? 'Refang' : 'Defang'} ({defangableSelection.length})
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleExportCSV(selectedIoCs, 'selection')}
+                          className="text-xs font-medium text-white bg-primary hover:brightness-110 px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5"
+                        >
+                          <Icon name="download" className="w-3.5 h-3.5" />
+                          Export {selectedIoCIds.size}
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   <IoCTable
                     iocs={filteredIoCs}
                     defangedIoCs={defangedIoCs}
+                    selectedIds={selectedIoCIds}
+                    onToggleSelect={toggleIoCSelection}
+                    onToggleSelectAll={toggleSelectAllVisibleIoCs}
                     editingId={editingIoCId}
                     editingValue={editingIoCValue}
                     onToggleDefang={handleToggleDefang}
@@ -1811,7 +2178,7 @@ export const ThreatIntelReportPage: React.FC = () => {
                 <Button
                   variant="filled"
                   color="error"
-                  leadingIcon="trash-2"
+                  leadingIcon="trash"
                   onClick={handleConfirmDiscard}
                 >
                   Discard

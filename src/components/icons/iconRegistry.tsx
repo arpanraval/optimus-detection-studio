@@ -2,14 +2,22 @@
  * Icon Registry - All SVG icon definitions organized by category.
  *
  * Icons are grouped for easier maintenance:
- * - Brand: App-specific icons (optimus-logo, agent-network, etc.)
+ * - Brand: Optimus marks (optimus-logo, matrix, systems)
  * - Navigation: Arrows, chevrons, menu
  * - Action: Edit, delete, copy, etc.
  * - Status: Alerts, checks, info
  * - Content: File types, code, text
- * - Social: GitHub, GitLab, Slack, etc.
- * - Integration: Vendor-specific icons (Splunk, Elastic, etc.)
- * - UI: Layout, settings, misc interface elements
+ * - User / UI / Object / Data / Device / Theme / Git / Social / Misc
+ *
+ * Rules:
+ * - A name is valid only if it is a key in one of the category objects below
+ *   (`IconName` is derived from them), so a typo is a compile error.
+ * - Generic glyphs follow the Material Design *filled* style; take new paths
+ *   from that set so the app keeps one visual language.
+ * - Vendor and product logos do not live here: use `@icons-pack/react-simple-icons`
+ *   or `/public/logos`.
+ * - Every entry must have a call site. Unused entries are removed, not kept
+ *   "just in case"; the compiler flags any removal that was still referenced.
  */
 import React from 'react';
 
@@ -32,7 +40,7 @@ export type IconFactory = (strokeWidth?: number) => React.ReactNode;
 // ============================================================
 // BRAND ICONS
 // ============================================================
-export const brandIcons: Record<string, IconFactory> = {
+export const brandIcons = {
   'optimus-logo': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" className="w-full h-full">
       <circle cx="12" cy="12" r="11" stroke="currentColor" strokeWidth="1.2" className="text-tertiary"/>
@@ -40,16 +48,6 @@ export const brandIcons: Record<string, IconFactory> = {
       <g>{createTurbineBlades()}</g>
       <circle cx="12" cy="12" r="3" fill="currentColor" className="text-tertiary z-10"/>
       <path d="M12 12 L12 9.5 A 2.5 2.5 0 0 1 14.5 12" stroke="rgba(255,255,255,0.5)" strokeWidth="0.5" fill="none" className="z-20" />
-    </svg>
-  ),
-  'agent-network': () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM11 19.93C7.05 19.44 4 16.08 4 12C4 11.38 4.08 10.79 4.21 10.21L9 15V16C9 17.1 9.9 18 11 18V19.93ZM17.9 17.39C17.64 16.58 16.9 16 16 16H15V13C15 12.45 14.55 12 14 12H8V10H10C10.55 10 11 9.55 11 9V7H13C14.1 7 15 6.1 15 5V4.59C17.93 5.78 20 8.65 20 12C20 14.08 19.2 15.97 17.9 17.39Z"/>
-    </svg>
-  ),
-  intelligence: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 2L1 21h22L12 2zm0 3.45l8.27 14.3H3.73L12 5.45zM11 10v6h2v-6h-2zm0 8v2h2v-2h-2z"/>
     </svg>
   ),
   matrix: () => (
@@ -62,12 +60,12 @@ export const brandIcons: Record<string, IconFactory> = {
       <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // NAVIGATION ICONS
 // ============================================================
-export const navigationIcons: Record<string, IconFactory> = {
+export const navigationIcons = {
   'chevron-down': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
@@ -133,17 +131,22 @@ export const navigationIcons: Record<string, IconFactory> = {
       <path d="M9 19v-6c0-1.1.9-2 2-2h9V9l-5-5-5 5v2h7v6H9zm-2 0H5v-6c0-2.21 1.79-4 4-4h1V5l7 7-7 7v-4H9c-1.1 0-2 .9-2 2v2z"/>
     </svg>
   ),
-};
+  'arrow-right': () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="m12 4-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/>
+    </svg>
+  ),
+  'log-in': () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M11 7 9.6 8.4l2.6 2.6H2v2h10.2l-2.6 2.6L11 17l5-5-5-5zm9 12h-8v2h8c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-8v2h8v14z"/>
+    </svg>
+  ),
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // ACTION ICONS
 // ============================================================
-export const actionIcons: Record<string, IconFactory> = {
-  plus: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
-    </svg>
-  ),
+export const actionIcons = {
   'plus-circle': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/>
@@ -241,12 +244,42 @@ export const actionIcons: Record<string, IconFactory> = {
       <path d="M17 7h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1 0 1.43-.98 2.63-2.31 2.98l1.46 1.46C20.88 15.61 22 13.95 22 12c0-2.76-2.24-5-5-5zm-1 4h-2.19l2 2H16zM2 4.27l3.11 3.11C3.29 8.12 2 9.91 2 12c0 2.76 2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1 0-1.59 1.21-2.9 2.76-3.07L8.73 11H8v2h2.73L13 15.27V17h1.73l4.01 4L20 19.74 3.27 3 2 4.27z"/>
     </svg>
   ),
-};
+  'maximize-2': () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M21 11V3h-8l3.29 3.29-10 10L3 13v8h8l-3.29-3.29 10-10z"/>
+    </svg>
+  ),
+  'minimize-2': () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M22 3.41 16.71 8.7 20 12h-8V4l3.29 3.29L20.59 2 22 3.41zM3.41 22l5.29-5.29L12 20v-8H4l3.29 3.29L2 20.59 3.41 22z"/>
+    </svg>
+  ),
+  maximize: () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+    </svg>
+  ),
+  'share-2': () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/>
+    </svg>
+  ),
+  pin: () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/>
+    </svg>
+  ),
+  shuffle: () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/>
+    </svg>
+  ),
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // STATUS ICONS
 // ============================================================
-export const statusIcons: Record<string, IconFactory> = {
+export const statusIcons = {
   'alert-circle': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
@@ -272,16 +305,6 @@ export const statusIcons: Record<string, IconFactory> = {
       <path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/>
     </svg>
   ),
-  check: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
-    </svg>
-  ),
-  'check-square': () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-    </svg>
-  ),
   'check-check': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41zm22.24-10.83L11.66 13.57 7.48 9.4 6.07 10.82l5.59 5.59L24.06 4l-1.41-1.42zm-5.66 5.66L15.59 6.82 8.41 14l1.41 1.41 7.17-7.17z"/>
@@ -297,19 +320,9 @@ export const statusIcons: Record<string, IconFactory> = {
       <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 3a9 9 0 1 0 9 9"></path>
     </svg>
   ),
-  loader: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M12 2v4m0 12v4m-8-10h4m12 0h4m-3.8-6.2l-2.8 2.8m-8.8 8.8l-2.8 2.8m0-14.2l2.8 2.8m8.8 8.8l2.8 2.8"/>
-    </svg>
-  ),
   circle: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <circle cx="12" cy="12" r="8"/>
-    </svg>
-  ),
-  minus: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M19 13H5v-2h14v2z"/>
     </svg>
   ),
   'help-circle': () => (
@@ -317,12 +330,37 @@ export const statusIcons: Record<string, IconFactory> = {
       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
     </svg>
   ),
-};
+  'shield-alert': () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2 4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3zm1 14h-2v-2h2v2zm0-4h-2V7h2v5z"/>
+    </svg>
+  ),
+  'shield-off': () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="m22.27 21.73-3.54-3.55L5.78 5.23 2.27 1.72 1 2.99 3.01 5H3v6c0 5.55 3.84 10.74 9 12 2.16-.53 4.08-1.76 5.6-3.41L21 23l1.27-1.27zM13 9.92l6.67 6.67C20.51 14.87 21 12.96 21 11V5l-9-4-5.48 2.44L11 7.92l2 2z"/>
+    </svg>
+  ),
+  'wifi-off': () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M22.99 9C19.15 5.16 13.8 3.76 8.84 4.78l2.52 2.52c3.47-.17 6.99 1.05 9.63 3.7l2-2zm-4 4a9.793 9.793 0 0 0-4.49-2.56l3.53 3.53.96-.97zM2 3.05 5.07 6.1C3.6 6.82 2.22 7.78 1 9l1.99 2c1.24-1.24 2.67-2.16 4.2-2.77l2.24 2.24A9.684 9.684 0 0 0 5 13v.01L6.99 15a7.042 7.042 0 0 1 4.92-2.06L18.98 20l1.27-1.26L3.29 1.79 2 3.05zM9 17l3 3 3-3a4.237 4.237 0 0 0-6 0z"/>
+    </svg>
+  ),
+  'pause-circle': () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/>
+    </svg>
+  ),
+  'play-circle': () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM9.5 16.5v-9l7 4.5-7 4.5z"/>
+    </svg>
+  ),
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // CONTENT & FILE ICONS
 // ============================================================
-export const contentIcons: Record<string, IconFactory> = {
+export const contentIcons = {
   'file-code': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
@@ -363,17 +401,38 @@ export const contentIcons: Record<string, IconFactory> = {
       <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
     </svg>
   ),
-  article: () => (
+  'book-open': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
+      <path d="M21 5c-1.11-.35-2.33-.5-3.5-.5-1.95 0-4.05.4-5.5 1.5-1.45-1.1-3.55-1.5-5.5-1.5S2.45 4.9 1 6v14.65c0 .25.25.5.5.5.1 0 .15-.05.25-.05C3.1 20.45 5.05 20 6.5 20c1.95 0 4.05.4 5.5 1.5 1.35-.85 3.8-1.5 5.5-1.5 1.65 0 3.35.3 4.75 1.05.1.05.15.05.25.05.25 0 .5-.25.5-.5V6c-.6-.45-1.25-.75-2-1zm0 13.5c-1.1-.35-2.3-.5-3.5-.5-1.7 0-4.15.65-5.5 1.5V8c1.35-.85 3.8-1.5 5.5-1.5 1.2 0 2.4.15 3.5.5v11.5z"/>
+      <path d="M17.5 10.5c.88 0 1.73.09 2.5.26V9.24c-.79-.15-1.64-.24-2.5-.24-1.7 0-3.24.29-4.5.83v1.66c1.13-.64 2.7-.99 4.5-.99zM13 12.49v1.66c1.13-.64 2.7-.99 4.5-.99.88 0 1.73.09 2.5.26V11.9c-.79-.15-1.64-.24-2.5-.24-1.7 0-3.24.3-4.5.83zm4.5 1.84c-1.7 0-3.24.29-4.5.83v1.66c1.13-.64 2.7-.99 4.5-.99.88 0 1.73.09 2.5.26v-1.52c-.79-.16-1.64-.24-2.5-.24z"/>
     </svg>
   ),
-};
+  table: () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M10 10.02h5V21h-5zM17 21h3c1.1 0 2-.9 2-2v-9h-5v11zm3-18H5c-1.1 0-2 .9-2 2v3h19V5c0-1.1-.9-2-2-2zM3 19c0 1.1.9 2 2 2h3V10H3v9z"/>
+    </svg>
+  ),
+  'file-x': () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path fillRule="evenodd" d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13zM14.94 13.15L14.35 12.56L12.00 14.91L9.65 12.56L9.06 13.15L11.41 15.50L9.06 17.85L9.65 18.44L12.00 16.09L14.35 18.44L14.94 17.85L12.59 15.50z"/>
+    </svg>
+  ),
+  'file-minus': () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path fillRule="evenodd" d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13zM8 14.5h8v2H8z"/>
+    </svg>
+  ),
+  folder: () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+    </svg>
+  ),
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // USER & PEOPLE ICONS
 // ============================================================
-export const userIcons: Record<string, IconFactory> = {
+export const userIcons = {
   'user-circle': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
@@ -404,24 +463,12 @@ export const userIcons: Record<string, IconFactory> = {
       <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // UI & LAYOUT ICONS
 // ============================================================
-export const uiIcons: Record<string, IconFactory> = {
-  pipeline: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="3" width="5" height="18" rx="1" />
-      <rect x="9.5" y="3" width="5" height="12" rx="1" />
-      <rect x="17" y="3" width="5" height="15" rx="1" />
-    </svg>
-  ),
-  x: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-    </svg>
-  ),
+export const uiIcons = {
   list: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/>
@@ -450,11 +497,6 @@ export const uiIcons: Record<string, IconFactory> = {
   'filter-x': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M14.76 20.83L17.6 18l-2.84-2.83 1.41-1.41L19 16.57l2.83-2.81 1.41 1.41L20.43 18l2.81 2.83-1.41 1.41L19 19.43l-2.83 2.81-1.41-1.41zM10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/>
-    </svg>
-  ),
-  'more-vertical': () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
     </svg>
   ),
   'more-horizontal': () => (
@@ -537,12 +579,17 @@ export const uiIcons: Record<string, IconFactory> = {
       <path d="M3.24 6.15C2.51 6.43 2 7.17 2 8v12c0 1.1.89 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2H8.3l8.26-3.34-.37-.92L3.24 6.15zM7 20c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm13-8h-2v-2h-2v2H4V8h16v4z"/>
     </svg>
   ),
-};
+  square: () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M18 4H6c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H6V6h12v12z"/>
+    </svg>
+  ),
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // OBJECT & CONCEPT ICONS
 // ============================================================
-export const objectIcons: Record<string, IconFactory> = {
+export const objectIcons = {
   shield: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/>
@@ -650,32 +697,77 @@ export const objectIcons: Record<string, IconFactory> = {
       <path d="M12 2c-5.33 0-8 2.67-8 8v6c0 5.33 2.67 8 8 8s8-2.67 8-8v-6c0-5.33-2.67-8-8-8zm0 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3-6H9V8h6v2z"/>
     </svg>
   ),
-  autofill: () => (
+  'dollar-sign': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M7.5 22q-1.875 0-3.187-1.312Q3 19.375 3 17.5v-11q0-1.875 1.313-3.187Q5.625 2 7.5 2h9q1.875 0 3.188 1.313Q21 4.625 21 6.5v11q0 1.875-1.312 3.188Q18.375 22 16.5 22Zm0-2h9q1.05 0 1.775-.725.725-.725.725-1.775v-11q0-1.05-.725-1.775Q17.55 4 16.5 4h-9q-1.05 0-1.775.725Q5 5.45 5 6.5v11q0 1.05.725 1.775Q6.45 20 7.5 20ZM9 17h6v-2H9Zm0-4h6v-2H9Zm0-4h6V7H9Zm-1.5 9v-14 14Z" />
+      <path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/>
     </svg>
   ),
-  security: () => (
+  cpu: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>
+      <path d="M15 9H9v6h6V9zm-2 4h-2v-2h2v2zm8-2V9h-2V7c0-1.1-.9-2-2-2h-2V3h-2v2h-2V3H9v2H7c-1.1 0-2 .9-2 2v2H3v2h2v2H3v2h2v2c0 1.1.9 2 2 2h2v2h2v-2h2v2h2v-2h2c1.1 0 2-.9 2-2v-2h2v-2h-2v-2h2zm-4 6H7V7h10v10z"/>
     </svg>
   ),
-  fingerprint: () => (
+  flask: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M17.81 4.47c-.08 0-.16-.02-.23-.06C15.66 3.42 14 3 12.01 3c-1.98 0-3.86.47-5.57 1.41-.24.13-.54.04-.68-.2-.13-.24-.04-.55.2-.68C7.82 2.52 9.86 2 12.01 2c2.13 0 3.99.47 6.03 1.52.25.13.34.43.21.67-.09.18-.26.28-.44.28zM3.5 9.72c-.1 0-.2-.03-.29-.09-.23-.16-.28-.47-.12-.7.99-1.4 2.25-2.51 3.75-3.3C8.37 4.86 10.14 4.5 12 4.5s3.63.36 5.16 1.13c1.5.79 2.76 1.9 3.75 3.3.16.22.11.54-.12.7-.23.16-.54.11-.7-.12-.9-1.26-2.04-2.27-3.39-2.98C15.32 5.87 13.7 5.5 12 5.5s-3.32.37-4.7 1.03C5.96 7.34 4.82 8.35 3.91 9.61c-.08.12-.22.18-.35.18l-.06-.07zM9.75 21.79c-.13 0-.26-.05-.35-.15-.87-.87-1.34-1.43-2.01-2.64-.69-1.23-1.05-2.73-1.05-4.34 0-2.97 2.54-5.39 5.66-5.39s5.66 2.42 5.66 5.39c0 .28-.22.5-.5.5s-.5-.22-.5-.5c0-2.42-2.09-4.39-4.66-4.39-2.57 0-4.66 1.97-4.66 4.39 0 1.44.32 2.77.93 3.85.64 1.15 1.08 1.64 1.85 2.42.19.2.19.51 0 .71-.11.1-.24.15-.37.15zm7.92-4.33c-.01 0-.02 0-.03 0-.28-.01-.49-.24-.48-.52.13-2.74-2.06-5.02-4.88-5.12-1.23-.04-2.45.36-3.4 1.14-.21.17-.52.13-.69-.08-.17-.21-.13-.52.09-.69 1.13-.93 2.56-1.41 4.02-1.37 3.35.12 5.96 2.83 5.81 6.08-.01.26-.23.47-.49.47l.05.09z"/>
+      <path d="M19.8 18.4 14 10.67V6.5l1.35-1.69c.26-.33.03-.81-.39-.81H9.04c-.42 0-.65.48-.39.81L10 6.5v4.17L4.2 18.4c-.49.66-.02 1.6.8 1.6h14c.82 0 1.29-.94.8-1.6z"/>
     </svg>
   ),
-  verified_user: () => (
+  building: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/>
+      <path d="M17 11V3H7v4H3v14h8v-4h2v4h8V11h-4zM7 19H5v-2h2v2zm0-4H5v-2h2v2zm0-4H5V9h2v2zm4 4H9v-2h2v2zm0-4H9V9h2v2zm0-4H9V5h2v2zm4 8h-2v-2h2v2zm0-4h-2V9h2v2zm0-4h-2V5h2v2zm4 12h-2v-2h2v2zm0-4h-2v-2h2v2z"/>
     </svg>
   ),
-};
+  lightbulb: () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M9 21c0 .5.4 1 1 1h4c.6 0 1-.5 1-1v-1H9v1zm3-19C8.1 2 5 5.1 5 9c0 2.4 1.2 4.5 3 5.7V17c0 .5.4 1 1 1h6c.6 0 1-.5 1-1v-2.3c1.8-1.3 3-3.4 3-5.7 0-3.9-3.1-7-7-7z"/>
+    </svg>
+  ),
+  compass: () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 10.9c-.61 0-1.1.49-1.1 1.1s.49 1.1 1.1 1.1c.61 0 1.1-.49 1.1-1.1s-.49-1.1-1.1-1.1zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm2.19 12.19L6 18l3.81-8.19L18 6l-3.81 8.19z"/>
+    </svg>
+  ),
+  briefcase: () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z"/>
+    </svg>
+  ),
+  film: () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="m18 4 2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/>
+    </svg>
+  ),
+  truck: () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9 1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>
+    </svg>
+  ),
+  heart: () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="m12 21.35-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+    </svg>
+  ),
+  leaf: () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M8.55 12zm10.43-1.61zm-3.49-.76c-.18-2.79-1.31-5.51-3.43-7.63a12.188 12.188 0 0 0-3.55 7.63c1.28.68 2.46 1.56 3.49 2.63 1.03-1.06 2.21-1.94 3.49-2.63zm-6.5 2.65c-.14-.1-.3-.19-.45-.29.15.11.31.19.45.29zm6.42-.25c-.13.09-.27.16-.4.26.13-.1.27-.17.4-.26zM12 15.45C9.85 12.17 6.18 10 2 10c0 5.32 3.36 9.82 8.03 11.49.63.23 1.29.4 1.97.51.68-.12 1.33-.29 1.97-.51C18.64 19.82 22 15.32 22 10c-4.18 0-7.85 2.17-10 5.45z"/>
+    </svg>
+  ),
+  anchor: () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="m17 15 1.55 1.55c-.96 1.69-3.33 3.04-5.55 3.37V11h3V9h-3V7.82C14.16 7.4 15 6.3 15 5c0-1.65-1.35-3-3-3S9 3.35 9 5c0 1.3.84 2.4 2 2.82V9H8v2h3v8.92c-2.22-.33-4.59-1.68-5.55-3.37L7 15l-4-3v3c0 3.88 4.92 7 9 7s9-3.12 9-7v-3l-4 3zM12 4c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1z"/>
+    </svg>
+  ),
+  ruler: () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H3V8h2v4h2V8h2v4h2V8h2v4h2V8h2v4h2V8h2v8z"/>
+    </svg>
+  ),
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // DATA & CHART ICONS
 // ============================================================
-export const dataIcons: Record<string, IconFactory> = {
+export const dataIcons = {
   'chart-bar': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M22 21H2V3h2v16h2v-9h4v9h2V6h4v13h2v-5h4v5z"/>
@@ -708,12 +800,12 @@ export const dataIcons: Record<string, IconFactory> = {
       <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // DEVICE & INFRASTRUCTURE ICONS
 // ============================================================
-export const deviceIcons: Record<string, IconFactory> = {
+export const deviceIcons = {
   monitor: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M20 3H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2h3l-1 1v2h12v-2l-1-1h3c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 13H4V5h16v11z"/>
@@ -722,11 +814,6 @@ export const deviceIcons: Record<string, IconFactory> = {
   terminal: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM7.5 17l-1.41-1.41L9.67 12l-3.59-3.59L7.5 7l5 5-5 5zm5.09-1.41H18v2h-5.41v-2z"/>
-    </svg>
-  ),
-  smartphone: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/>
     </svg>
   ),
   server: () => (
@@ -756,12 +843,12 @@ export const deviceIcons: Record<string, IconFactory> = {
       <circle cx="5" cy="19" r="1" />
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // THEME ICONS
 // ============================================================
-export const themeIcons: Record<string, IconFactory> = {
+export const themeIcons = {
   sun: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.79 1.41-1.41-1.79-1.79-1.41 1.41zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z"/>
@@ -772,12 +859,12 @@ export const themeIcons: Record<string, IconFactory> = {
       <path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-2.98 0-5.4-2.42-5.4-5.4 0-1.81.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/>
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // GIT & VCS ICONS
 // ============================================================
-export const gitIcons: Record<string, IconFactory> = {
+export const gitIcons = {
   'git-branch': () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M17.5 13c-2.485 0-4.5 2.015-4.5 4.5s2.015 4.5 4.5 4.5 4.5-2.015 4.5-4.5-2.015-4.5-4.5-4.5zm0 7c-1.378 0-2.5-1.122-2.5-2.5s1.122-2.5 2.5-2.5 2.5 1.122 2.5 2.5-1.122 2.5-2.5 2.5zm-11-20c-2.485 0-4.5 2.015-4.5 4.5s2.015 4.5 4.5 4.5c2.162 0 3.969-1.528 4.398-3.559 1.579 1.074 2.602 2.871 2.602 4.935 0 2.229-1.189 4.156-2.999 5.234l1.399 1.401c2.198-1.465 3.6-3.924 3.6-6.635 0-2.613-1.317-4.887-3.295-6.279-.427-2.037-2.235-3.597-4.405-3.597zm0 7c-1.378 0-2.5-1.122-2.5-2.5s1.122-2.5 2.5-2.5 2.5 1.122 2.5 2.5-1.122 2.5-2.5 2.5zm0 7c-2.485 0-4.5 2.015-4.5 4.5s2.015 4.5 4.5 4.5 4.5-2.015 4.5-4.5-2.015-4.5-4.5-4.5zm0 7c-1.378 0-2.5-1.122-2.5-2.5s1.122-2.5 2.5-2.5 2.5 1.122 2.5 2.5-1.122 2.5-2.5 2.5z"/>
@@ -795,30 +882,15 @@ export const gitIcons: Record<string, IconFactory> = {
       <path d="M6 3a3 3 0 1 0 0 6c1.31 0 2.42-.84 2.83-2H11c1.1 0 2 .9 2 2v2.17A3.001 3.001 0 0 0 12 18a3 3 0 0 0 3-3c0-1.31-.84-2.42-2-2.83V9c0-2.21-1.79-4-4-4H8.83A3.001 3.001 0 0 0 6 3zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm6 8a1 1 0 1 1 0 2 1 1 0 0 1 0-2zM18 3a3 3 0 0 0-2.83 2H13v2h2.17A3.001 3.001 0 0 0 18 9a3 3 0 1 0 0-6zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/>
     </svg>
   ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // SOCIAL & VENDOR ICONS
 // ============================================================
-export const socialIcons: Record<string, IconFactory> = {
+export const socialIcons = {
   github: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-    </svg>
-  ),
-  gitlab: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M22.65 14.39L12 22.13 1.35 14.39a.84.84 0 0 1-.13-.94l2.03-6.26h17.5l2.03 6.26a.84.84 0 0 1-.13.94z"/>
-    </svg>
-  ),
-  'azure-devops': () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M4.6 15.9l1.6-4.2 7.1 2.3L15 22 4.6 15.9zM2 13.1l6.1-8.7L13.4 9 2 13.1zM19.1 2l-3.3 9.4 6.2 2L19.1 2z"/>
-    </svg>
-  ),
-  apple: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M17.5 12.5c0-2.58 2.09-4.21 2.17-4.25-1.18-1.73-3.02-1.97-3.66-2.01-1.56-.16-3.04.91-3.83.91-.78 0-2.01-.89-3.31-.87-1.7.02-3.28.99-4.15 2.51-1.78 3.09-.46 7.66 1.27 10.16.85 1.23 1.86 2.61 3.18 2.57 1.28-.05 1.76-.83 3.31-.83 1.54 0 1.98.83 3.33.81 1.38-.02 2.26-1.25 3.1-2.49.97-1.42 1.37-2.79 1.39-2.86-.03-.01-2.69-1.04-2.69-4.16zM12.99 4.25c.68-.84 1.14-2.01.99-3.18-1.02.04-2.26.68-2.99 1.54-.63.74-1.19 1.93-1.04 3.07 1.14.09 2.31-.55 3.04-1.43z"/>
     </svg>
   ),
   mail: () => (
@@ -827,47 +899,12 @@ export const socialIcons: Record<string, IconFactory> = {
     </svg>
   ),
   // Vendor-specific integrations
-  splunk: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M7.5 4l10 8-10 8v-4l5-4-5-4V4z"/>
-    </svg>
-  ),
-  sentinel: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3z"/>
-    </svg>
-  ),
-  elastic: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 2l-9.5 5.5v9L12 22l9.5-5.5v-9L12 2z M12 4.5l6 3.5-6 3.5-6-3.5 6-3.5z"/>
-    </svg>
-  ),
-  crowdstrike: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 2L2 7l10 15 10-15-10-5zm0 2.8l7 3.5-7 10.5-7-10.5 7-3.5z"/>
-    </svg>
-  ),
-  jira: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M11.5 2H2v9.5L11.5 2z M12.5 2l9.5 9.5V2h-9.5z M2 12.5L11.5 22H2v-9.5z M22 12.5L12.5 22H22v-9.5z"/>
-    </svg>
-  ),
-  slack: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M5.04 15.02a2.52 2.52 0 1 0 2.52 2.52v-2.52H5.04zm2.52-1.26a2.52 2.52 0 1 0-2.52-2.52V13.76h2.52zm1.26-6.3a2.52 2.52 0 1 0-2.52 2.52h2.52V7.46zm1.26 2.52a2.52 2.52 0 1 0 2.52-2.52v2.52h-2.52zm6.3-1.26a2.52 2.52 0 1 0-2.52-2.52v2.52h2.52zm-2.52 1.26a2.52 2.52 0 1 0 2.52 2.52v-2.52h-2.52zm-1.26 6.3a2.52 2.52 0 1 0 2.52-2.52h-2.52v2.52zm-1.26-2.52a2.52 2.52 0 1 0-2.52 2.52v-2.52h2.52z"/>
-    </svg>
-  ),
-  integration: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M20 7h-4V4c0-1.1-.9-2-2-2h-4c-1.1 0-2 .9-2 2v3H4c-1.1 0-2 .9-2 2v4c0 1.1.9 2 2 2h4v3c0 1.1.9 2 2 2h4c1.1 0 2-.9 2-2v-3h4c1.1 0 2-.9 2-2v-4c0-1.1-.9-2-2-2zm-6 3v4h-4v-4h4z"/>
-    </svg>
-  ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // MISC ICONS (formerly unused/backup variants)
 // ============================================================
-export const miscIcons: Record<string, IconFactory> = {
+export const miscIcons = {
   zap: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
@@ -879,21 +916,6 @@ export const miscIcons: Record<string, IconFactory> = {
     </svg>
   ),
   // Backup variants (prefixed with underscore in original)
-  _search_filled: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
-    </svg>
-  ),
-  _users_filled: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
-    </svg>
-  ),
-  _code_filled: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/>
-    </svg>
-  ),
   x: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
@@ -924,69 +946,62 @@ export const miscIcons: Record<string, IconFactory> = {
       <path d="M12 4V2A10 10 0 0 0 2 12h2a8 8 0 0 1 8-8z"/>
     </svg>
   ),
-  'skip-forward': () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
-    </svg>
-  ),
-  content_copy: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
-    </svg>
-  ),
-};
+} satisfies Record<string, IconFactory>;
 
 // ============================================================
 // COMBINED REGISTRY
 // ============================================================
 
+const CATEGORIES = {
+  brand: brandIcons,
+  navigation: navigationIcons,
+  action: actionIcons,
+  status: statusIcons,
+  content: contentIcons,
+  user: userIcons,
+  ui: uiIcons,
+  object: objectIcons,
+  data: dataIcons,
+  device: deviceIcons,
+  theme: themeIcons,
+  git: gitIcons,
+  social: socialIcons,
+  misc: miscIcons,
+} as const;
+
+type Categories = typeof CATEGORIES;
+
 /**
- * Build the complete icon map by merging all categories.
+ * Every valid icon name, derived from the category objects above. Adding an
+ * icon to a category is all it takes to make its name valid; a name that is
+ * not defined anywhere is a compile error at the call site.
+ */
+export type IconName = { [K in keyof Categories]: keyof Categories[K] }[keyof Categories];
+
+/** Name -> factory, merged once at module load (later categories win, as before). */
+export const iconFactories: Record<IconName, IconFactory> = Object.assign({}, ...Object.values(CATEGORIES));
+
+/** Every registered icon name. */
+export const ICON_NAMES = Object.keys(iconFactories) as IconName[];
+
+/** Narrow a plain string (from data, user config, etc.) to an IconName. */
+export function isIconName(name: string): name is IconName {
+  return Object.prototype.hasOwnProperty.call(iconFactories, name);
+}
+
+/**
+ * Build the complete icon map by rendering every factory.
  * Each icon factory receives an optional strokeWidth parameter.
  */
-export function buildIconMap(strokeWidth?: number): Record<string, React.ReactNode> {
-  const allCategories = [
-    brandIcons,
-    navigationIcons,
-    actionIcons,
-    statusIcons,
-    contentIcons,
-    userIcons,
-    uiIcons,
-    objectIcons,
-    dataIcons,
-    deviceIcons,
-    themeIcons,
-    gitIcons,
-    socialIcons,
-    miscIcons,
-  ];
-
-  const result: Record<string, React.ReactNode> = {};
-  for (const category of allCategories) {
-    for (const [name, factory] of Object.entries(category)) {
-      result[name] = factory(strokeWidth);
-    }
-  }
+export function buildIconMap(strokeWidth?: number): Record<IconName, React.ReactNode> {
+  const result = {} as Record<IconName, React.ReactNode>;
+  for (const name of ICON_NAMES) result[name] = iconFactories[name](strokeWidth);
   return result;
 }
 
 /** Get all registered icon names, organized by category */
-export function getIconNames(): Record<string, string[]> {
-  return {
-    brand: Object.keys(brandIcons),
-    navigation: Object.keys(navigationIcons),
-    action: Object.keys(actionIcons),
-    status: Object.keys(statusIcons),
-    content: Object.keys(contentIcons),
-    user: Object.keys(userIcons),
-    ui: Object.keys(uiIcons),
-    object: Object.keys(objectIcons),
-    data: Object.keys(dataIcons),
-    device: Object.keys(deviceIcons),
-    theme: Object.keys(themeIcons),
-    git: Object.keys(gitIcons),
-    social: Object.keys(socialIcons),
-    misc: Object.keys(miscIcons),
-  };
+export function getIconNames(): Record<keyof Categories, string[]> {
+  const out = {} as Record<keyof Categories, string[]>;
+  for (const key of Object.keys(CATEGORIES) as (keyof Categories)[]) out[key] = Object.keys(CATEGORIES[key]);
+  return out;
 }

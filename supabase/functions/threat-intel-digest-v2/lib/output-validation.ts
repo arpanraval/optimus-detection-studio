@@ -5,7 +5,8 @@ import type {
   ReportClassification,
   ReportSummary,
 } from './types.ts'
-import { AttackType, ThreatLevel, getIoCCategory } from './types.ts'
+import { AttackType, ThreatLevel, resolveIoCCategory } from './types.ts'
+import { classifyRule } from '../../_shared/rule-type.ts'
 
 export const MAX_MODEL_OUTPUT_CHARS = 1_000_000
 export const ALLOWED_MODEL_IDS = new Set([
@@ -85,7 +86,15 @@ function normalizeDefanged(value: string): { normalized: string; original: strin
   return { normalized, original }
 }
 
-export function validateIoC(type: string, rawValue: unknown): Pick<ExtractedIoC, 'value' | 'originalValue' | 'defanged' | 'category'> {
+/**
+ * `fallbackCategory` is used only when the type is absent from the category
+ * map. Pass the category derived from the model's own bucket name: the bucket
+ * is a fixed vocabulary set by the prompt, while the type can forward the
+ * model's word (`hash_type`, `currency_type`), so the controlled side backs
+ * the uncontrolled one. Without it, a type nobody has mapped yet is filed
+ * under OTHER regardless of which bucket it arrived in.
+ */
+export function validateIoC(type: string, rawValue: unknown, fallbackCategory?: string): Pick<ExtractedIoC, 'value' | 'originalValue' | 'defanged' | 'category'> {
   if (typeof rawValue !== 'string' || !rawValue.trim() || rawValue.length > 2_000) throw new Error('IoC value is invalid')
   const { normalized, original } = normalizeDefanged(rawValue)
   const lowerType = type.toLowerCase()
@@ -97,7 +106,9 @@ export function validateIoC(type: string, rawValue: unknown): Pick<ExtractedIoC,
   }
   const pattern = patterns[lowerType]
   if (pattern && !pattern.test(normalized)) throw new Error(`IoC ${lowerType} failed syntax validation`)
-  return { value: normalized, originalValue: original, defanged: normalized !== original, category: getIoCCategory(lowerType) }
+  const resolved = resolveIoCCategory(lowerType)
+  const category = resolved.recognized ? resolved.category : (fallbackCategory ?? 'other')
+  return { value: normalized, originalValue: original, defanged: normalized !== original, category }
 }
 
 export function validateRuleCandidate(value: any): ExtractedRule {
@@ -105,8 +116,26 @@ export function validateRuleCandidate(value: any): ExtractedRule {
     throw new Error('Detection query candidate is invalid')
   }
   const content = value.query_content.slice(0, 100_000)
+  // The model's own word for the type is kept, but it no longer travels
+  // alone: `kind` records whether this is a deployable query at all. Storing
+  // only the raw string is what let a 5-character Palo Alto signature ID and
+  // a Sigma rule occupy the same field with nothing to tell them apart.
+  // Classified from type AND content: a Snort SID and a Snort rule both
+  // declare `snort`, and only the content tells them apart.
+  const classification = classifyRule(value.query_type, content)
+  if (!classification.recognized) {
+    console.warn(`validateRuleCandidate: unrecognised rule type "${classification.language}"; kept as an unknown query language`)
+  }
   return {
-    id: crypto.randomUUID(), type: String(value.query_type || 'other').slice(0, 100),
+    id: crypto.randomUUID(),
+    // Canonical spelling for anything recognised, query or not -- grouping
+    // "all Palo Alto signature IDs" should work as well as grouping all KQL.
+    // An unrecognised type keeps the model's own words.
+    type: classification.recognized
+      ? classification.language.slice(0, 100)
+      : String(value.query_type || 'other').slice(0, 100),
+    kind: classification.kind,
+    typeRecognized: classification.recognized,
     name: String(value.description || `${value.query_type || 'Candidate'} query`).slice(0, 300),
     content, description: String(value.context || value.description || '').slice(0, 2_000),
     provenance: ['verbatim', 'pattern_extracted', 'reconstructed', 'generated', 'external_link'].includes(value.provenance)

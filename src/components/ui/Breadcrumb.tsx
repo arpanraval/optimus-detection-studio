@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '../Icon';
+import type { IconName } from '../Icon';
 
 export interface BreadcrumbItem {
   /** Display label */
@@ -8,7 +9,7 @@ export interface BreadcrumbItem {
   /** Route path (omit for current/last item) */
   href?: string;
   /** Optional icon */
-  icon?: string;
+  icon?: IconName;
 }
 
 export interface BreadcrumbProps {

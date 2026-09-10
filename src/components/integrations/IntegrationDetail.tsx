@@ -12,6 +12,7 @@ import { hasPermission } from '../../types';
 import { usePermissions } from '../../context/PermissionsContext';
 import { Breadcrumb } from '../ui';
 import { ROUTES } from '../../router/routes';
+import type { IconName } from '../Icon';
 
 // =============================================================================
 // Types
@@ -19,7 +20,7 @@ import { ROUTES } from '../../router/routes';
 
 type DetailTab = 'detections' | 'deployments' | 'settings';
 
-const TABS: { id: DetailTab; label: string; icon: string }[] = [
+const TABS: { id: DetailTab; label: string; icon: IconName }[] = [
   { id: 'detections', label: 'Detection Management', icon: 'shield' },
   { id: 'deployments', label: 'Deployment History', icon: 'clock' },
   { id: 'settings', label: 'Settings', icon: 'settings' },

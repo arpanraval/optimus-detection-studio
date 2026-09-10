@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from '../Icon';
+import type { IconName } from '../Icon';
 
 export type ButtonVariant = 'filled' | 'tonal' | 'outlined' | 'elevated' | 'text';
 export type ButtonSize = 'sm' | 'md' | 'lg';
@@ -13,9 +14,9 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   /** Button size */
   size?: ButtonSize;
   /** Leading icon name (uses Icon component) */
-  leadingIcon?: string;
+  leadingIcon?: IconName;
   /** Trailing icon name (uses Icon component) */
-  trailingIcon?: string;
+  trailingIcon?: IconName;
   /** Full width button */
   fullWidth?: boolean;
   /** Loading state */
@@ -43,7 +44,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
  * @example
  * <Button color="primary">Save</Button>
  * <Button color="secondary" variant="outlined" leadingIcon="download">Export</Button>
- * <Button color="error" leadingIcon="trash-2">Delete</Button>
+ * <Button color="error" leadingIcon="trash">Delete</Button>
  */
 export const Button: React.FC<ButtonProps> = ({
   variant = 'filled',

@@ -1,3 +1,11 @@
+// Shared with the edge functions that write indicators, so the vocabulary used
+// to store a type and the vocabulary used to export it cannot drift apart. The
+// module is dependency-free for exactly this reason. Every case below is
+// written against canonical spellings, so without this a stored `sha-256`
+// missed them all and fell to the base64 `artifact:payload_bin` default --
+// 546 hashes exported as opaque blobs instead of file-hash indicators.
+import { canonicalizeIoCType } from '../../../supabase/functions/_shared/ioc-type';
+
 export interface StixExportIoC {
   type: string;
   value: string;
@@ -45,7 +53,10 @@ const asBase64 = (value: string): string => {
 
 export const getStixPattern = (ioc: StixExportIoC): string => {
   const value = escapeStixString(ioc.value);
-  switch (ioc.type.toLowerCase()) {
+  // Canonicalise rather than merely lowercase: stored data predates the
+  // write-side fix and will always contain legacy spellings, so correctness
+  // here cannot depend on a backfill having run.
+  switch (canonicalizeIoCType(ioc.type).type) {
     case 'ipv4': return `[ipv4-addr:value = '${value}']`;
     case 'ipv6': return `[ipv6-addr:value = '${value}']`;
     case 'domain':

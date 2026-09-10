@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Icon } from './Icon';
 import { QualityWeightsPage } from './settings/QualityWeightsPage';
+import type { IconName } from './Icon';
 
 // =============================================================================
 // TYPES
@@ -47,7 +48,7 @@ export const ScoringDocumentationPage: React.FC<ScoringDocumentationPageProps> =
   const [topTab, setTopTab] = useState<TopTab>('quality');
   const [activeSection, setActiveSection] = useState<Section>('overview');
 
-  const navItems: { id: Section; label: string; icon: string }[] = [
+  const navItems: { id: Section; label: string; icon: IconName }[] = [
     { id: 'overview', label: 'Overview', icon: 'file-text' },
     { id: 'taw', label: 'TAW Score', icon: 'users' },
     { id: 'tis', label: 'TIS Score', icon: 'target' },

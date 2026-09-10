@@ -8,6 +8,7 @@ import { MITREQueryService } from '@/lib/mitre/services';
 import { supabase } from '../lib/supabaseClient';
 import { useAppData } from '../router/AppDataContext';
 import { routeHelpers, ROUTES } from '../router/routes';
+import type { IconName } from './Icon';
 
 interface SearchResultsProps {
   query: string;
@@ -80,7 +81,7 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ query: initialQuer
 
   const totalResults = Object.values(results).reduce((sum, arr) => sum + arr.length, 0);
 
-  const getLibraryInfo = (detection: Detection) => {
+  const getLibraryInfo = (detection: Detection): { icon: IconName; label: string; className: string } => {
     const isDevelopment = detection.library_type === LIBRARY_DEVELOPMENT;
     return {
       icon: isDevelopment ? 'globe' : 'user',
@@ -89,7 +90,7 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ query: initialQuer
     };
   };
 
-  const sections: { key: keyof Results; title: string; icon: string; iconBg: string; iconColor: string; idColor: string }[] = [
+  const sections: { key: keyof Results; title: string; icon: IconName; iconBg: string; iconColor: string; idColor: string }[] = [
     { key: 'detections', title: 'Detections', icon: 'shield-check', iconBg: 'bg-primary-container/20', iconColor: 'text-primary', idColor: 'text-primary' },
     { key: 'groups', title: 'Threat Groups', icon: 'users', iconBg: 'bg-tertiary-container/20', iconColor: 'text-tertiary', idColor: 'text-tertiary' },
     { key: 'software', title: 'Software & Tools', icon: 'package', iconBg: 'bg-secondary-container/20', iconColor: 'text-secondary', idColor: 'text-secondary' },

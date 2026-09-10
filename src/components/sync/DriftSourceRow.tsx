@@ -10,6 +10,7 @@ import { useAppData } from '../../router/AppDataContext';
 import { bulkApplyUpstream, bulkAcceptCosmetic, bulkKeepMine } from '../../services/drift/driftMutations';
 import { LIBRARY_LABELS_SHORT } from '../../constants/library';
 import type { DriftSourceWithStats, DriftSource, DriftItem, DriftCheckProgress, DriftCheckResult, SourceReachability, NewUpstreamRule } from '../../services/drift/types';
+import type { IconName } from '../Icon';
 
 const CANONICAL_OWNERS = new Set(['sigmahq', 'splunk', 'elastic', 'azure', 'chronicle', 'crowdstrike', 'mitre-attack', 'google']);
 
@@ -32,7 +33,7 @@ const STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;      // > 7d  → stale (red)
 interface Freshness {
   label: string;
   classes: string;
-  iconName: string;
+  iconName: IconName;
 }
 
 function freshnessFor(iso: string | null, pinned?: boolean): Freshness {

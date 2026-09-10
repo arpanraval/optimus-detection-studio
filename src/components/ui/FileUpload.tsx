@@ -347,7 +347,7 @@ export const FileUpload = forwardRef<HTMLInputElement, FileUploadProps>(({
               className="flex items-center justify-between p-3 bg-surface-container rounded-lg"
             >
               <div className="flex items-center gap-3 min-w-0">
-                <Icon name="file" className="w-5 h-5 text-on-surface-variant/50 flex-shrink-0" />
+                <Icon name="file-text" className="w-5 h-5 text-on-surface-variant/50 flex-shrink-0" />
                 <div className="min-w-0">
                   <p className="text-sm text-on-surface truncate">{file.name}</p>
                   <p className="text-xs text-on-surface-variant/60">{formatSize(file.size)}</p>

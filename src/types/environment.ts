@@ -1,3 +1,5 @@
+import type { IconName } from '../components/Icon';
+
 // Environment Profile types — v2
 
 // ── Legacy: retained for runtime profile data migration (industry → sectors auto-fill in useEnvironmentProfile) ──
@@ -19,7 +21,7 @@ export type Industry = typeof INDUSTRIES[number];
 // ── Sector Groups: maps display categories to exact DB target_sectors values ──
 export interface SectorGroup {
   label: string;
-  icon: string;
+  icon: IconName;
   sectors: string[];
 }
 

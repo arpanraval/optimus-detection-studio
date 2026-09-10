@@ -20,6 +20,7 @@ import type { TTPLike, IoCLike, RuleLike, MitreMappingEntity } from './shared';
 import { createStixBundle } from '../../lib/threatIntel/stix';
 import { useThreatIntel } from '../../context/ThreatIntelContext';
 import { canManageThreatIntelRecord } from '../../lib/threatIntel/access';
+import type { IconName } from '../Icon';
 
 // =============================================================================
 // TYPES
@@ -93,7 +94,7 @@ function getSeverityTone(severity?: string) {
   return threatLevelColors.Informational;
 }
 
-const reviewStatusConfig: Record<ReviewStatus, { label: string; icon: string; color: string }> = {
+const reviewStatusConfig: Record<ReviewStatus, { label: string; icon: IconName; color: string }> = {
   pending:   { label: 'Pending Review', icon: 'clock',        color: 'text-yellow-600 dark:text-yellow-400' },
   reviewed:  { label: 'Reviewed',       icon: 'check-circle', color: 'text-[#4D7C6F]' },
   actioned:  { label: 'Actioned',       icon: 'check-circle', color: 'text-primary' },

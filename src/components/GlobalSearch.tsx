@@ -7,6 +7,7 @@ import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION } from '../constants/library';
 import { MITREQueryService } from '@/lib/mitre/services';
 import { supabase } from '../lib/supabaseClient';
 import { ROUTES, routeHelpers } from '../router/routes';
+import type { IconName } from './Icon';
 
 interface GlobalSearchProps {
   detections: Detection[];
@@ -117,7 +118,7 @@ export const GlobalSearch: React.FC<GlobalSearchProps> = ({ detections, onNaviga
   const hasResults = Object.values(results).some((arr: any) => arr.length > 0);
 
   // Helper to determine library type
-  const getLibraryInfo = (detection: Detection) => {
+  const getLibraryInfo = (detection: Detection): { icon: IconName; label: string; className: string } => {
     const isDevelopment = detection.library_type === LIBRARY_DEVELOPMENT;
     return {
       icon: isDevelopment ? 'globe' : 'user',

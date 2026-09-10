@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Icon } from '../Icon';
 import { useNotifications } from '../../context/NotificationContext';
 import { UserNotification } from '../../types';
+import type { IconName } from '../Icon';
 
 interface NotificationsHubProps {
   onNavigateToDetection: (id: string) => void;
@@ -24,7 +25,7 @@ const extractDetectionName = (notification: UserNotification): string | null => 
   return match ? match[1] : null;
 };
 
-const NOTIFICATION_STYLES: Record<string, { icon: string; color: string; bg: string }> = {
+const NOTIFICATION_STYLES: Record<string, { icon: IconName; color: string; bg: string }> = {
   publish_approved:       { icon: 'check',        color: 'text-[#4D7C6F]', bg: 'bg-[#4D7C6F]/10' },
   publish_rejected:       { icon: 'x',            color: 'text-[#A63D40]', bg: 'bg-[#A63D40]/10' },
   publish_approved_as_new:{ icon: 'plus',          color: 'text-secondary', bg: 'bg-secondary/10' },

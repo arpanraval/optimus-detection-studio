@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useDetectionStrategies, DetectionStrategy } from '../../hooks/useDetectionStrategies';
 import { Icon } from '../Icon';
 import { ImpactScoreBadge } from '../impact/ImpactScoreBadge';
+import type { IconName } from '../Icon';
 
 export interface DetectionPrefill {
   name?: string;
@@ -298,7 +299,7 @@ export const DetectionStrategiesLibrary: React.FC<DetectionStrategiesLibraryProp
 };
 
 // Stat Card Component
-const StatCard: React.FC<{ label: string; value: number; icon: string; color: string }> = ({ label, value, icon, color }) => (
+const StatCard: React.FC<{ label: string; value: number; icon: IconName; color: string }> = ({ label, value, icon, color }) => (
   <div className="bg-surface-container rounded-xl border border-outline-variant/10 p-3 flex items-center gap-3">
     <div className={`w-8 h-8 rounded-lg bg-${color}/10 flex items-center justify-center flex-shrink-0`}>
       <Icon name={icon} className={`w-4 h-4 text-${color}`} />

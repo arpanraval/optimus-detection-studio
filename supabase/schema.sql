@@ -9840,3 +9840,42 @@ BEGIN
   END LOOP;
 END
 $regrant$;
+
+-- ---------------------------------------------------------------------------
+-- Migration-only rollback snapshot lockdown
+-- ---------------------------------------------------------------------------
+-- The one-off Aug 7/11 repair snapshots are intentionally absent from this
+-- canonical snapshot, but may exist in databases upgraded through migrations.
+-- If present, they must never become Data API resources.
+DO $backup_lockdown$
+DECLARE
+  backup_table text;
+BEGIN
+  FOREACH backup_table IN ARRAY ARRAY[
+    '_backup_iocs_d3_20260807',
+    '_backup_rules_e2_20260807',
+    '_backup_rules_e3_20260807',
+    '_backup_rules_e4_20260807',
+    '_backup_rules_e4b_20260811',
+    '_backup_rules_e4c_20260811'
+  ]
+  LOOP
+    CONTINUE WHEN to_regclass(format('public.%I', backup_table)) IS NULL;
+
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', backup_table);
+    EXECUTE format(
+      'REVOKE ALL PRIVILEGES ON TABLE public.%I FROM PUBLIC, anon, authenticated, service_role',
+      backup_table
+    );
+    EXECUTE format('GRANT SELECT ON TABLE public.%I TO service_role', backup_table);
+    EXECUTE format(
+      'DROP POLICY IF EXISTS backup_snapshot_service_select ON public.%I',
+      backup_table
+    );
+    EXECUTE format(
+      'CREATE POLICY backup_snapshot_service_select ON public.%I FOR SELECT TO service_role USING (true)',
+      backup_table
+    );
+  END LOOP;
+END
+$backup_lockdown$;

@@ -1,9 +1,10 @@
 import React from 'react';
 import { Icon } from '../Icon';
+import type { IconName } from '../Icon';
 
 export interface EmptyStateProps {
   /** Icon name from Icon component */
-  icon?: string;
+  icon?: IconName;
   /** Main heading */
   title: string;
   /** Description text */
@@ -12,7 +13,7 @@ export interface EmptyStateProps {
   action?: {
     label: string;
     onClick: () => void;
-    icon?: string;
+    icon?: IconName;
   };
   /** Optional secondary action */
   secondaryAction?: {

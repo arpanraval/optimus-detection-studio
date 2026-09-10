@@ -2,6 +2,8 @@
  * Type definitions for the Threat Intel Digest v2 edge function.
  */
 
+import { canonicalizeIoCType } from '../../_shared/ioc-type.ts'
+
 // =============================================================================
 // REQUEST/RESPONSE TYPES
 // =============================================================================
@@ -116,6 +118,16 @@ export interface ThreatReport {
   libraryOverlapPercent?: number | null;
   validatedOverlapPercent?: number | null;
   deploymentReadinessPercent?: number | null;
+  /**
+   * Assessed by the auto-digest orchestrator, which has the environment
+   * profile; this function has no feasibility stage. Carried on the report
+   * anyway because the client swaps its whole session for this object, so a
+   * missing field reads as "feasibility not computed" on a report whose row
+   * holds a number. `null` means a retry replaced the TTP set and the previous
+   * assessment is void -- distinct from 0, which claims nothing is feasible.
+   */
+  feasibleGapCount?: number | null;
+  infeasibleGapCount?: number | null;
   overlapCalculatedAt?: string;
   processingStage: ProcessingStage;
   processingError?: string;
@@ -192,6 +204,9 @@ export interface ExtractedIoC {
 export interface ExtractedRule {
   id: string;
   type: string;
+  /** See E3 -- `type` conflated query languages with references and prose. */
+  kind?: 'query' | 'reference' | 'description';
+  typeRecognized?: boolean;
   name: string;
   content: string;
   description?: string;
@@ -324,11 +339,19 @@ export const IOC_TYPE_TO_CATEGORY: Record<string, string> = {
   sha512: 'hashes',
   ssdeep: 'hashes',
   imphash: 'hashes',
+  // `mapIoCType` falls back to the literal 'hash' when the model names no
+  // `hash_type`, so this is a type this pipeline emits itself.
+  hash: 'hashes',
   // Files
   file_path: 'files',
   file_name: 'files',
   pdb_path: 'files',
   // Windows
+  // `registry` and `registry_key` are separate entries, not a merge: the
+  // client enum declares both as distinct types and `mapIoCType` emits the
+  // former for the `registry_keys` bucket. Whether they should be one type is
+  // a taxonomy question (D3); which category they belong to is not.
+  registry: 'windows',
   registry_key: 'windows',
   mutex: 'windows',
   named_pipe: 'windows',
@@ -342,6 +365,9 @@ export const IOC_TYPE_TO_CATEGORY: Record<string, string> = {
   // Crypto
   bitcoin_address: 'crypto',
   ethereum_address: 'crypto',
+  // `mapIoCType` falls back to the literal 'crypto' when the model names no
+  // `currency_type`, so this is a type this pipeline emits itself.
+  crypto: 'crypto',
   // Mobile
   android_package: 'mobile',
   ios_bundle: 'mobile',
@@ -350,6 +376,34 @@ export const IOC_TYPE_TO_CATEGORY: Record<string, string> = {
   ssh_key: 'other',
 };
 
+export interface ResolvedIoCCategory {
+  /** The mapped category; 'other' when the type has no entry. */
+  category: string;
+  /** False when the type is absent from the map -- then 'other' is a guess. */
+  recognized: boolean;
+}
+
+/**
+ * Resolve a type to its category, reporting whether the answer was looked up
+ * or defaulted.
+ *
+ * The distinction matters because 'other' is a legitimate category
+ * (`mac_address`, `ssh_key`) as well as the default, so a caller reading a
+ * bare string cannot tell "this belongs in Other" from "no idea". That
+ * conflation is how `registry` and `crypto` were filed under OTHER for a
+ * month: both are absent from the map, both got 'other', and nothing
+ * distinguished that from an answer. Same reasoning as
+ * `canonicalizeIoCType`'s `recognized` flag, which exists for the type what
+ * this exists for the category.
+ */
+export function resolveIoCCategory(type: string): ResolvedIoCCategory {
+  // Canonicalise first. This map is keyed on canonical spellings, so a
+  // `sha-256` from the model missed every key and fell to 'other' -- the
+  // reason 25 stored hashes sat outside the Hashes filter.
+  const mapped = IOC_TYPE_TO_CATEGORY[canonicalizeIoCType(type).type];
+  return mapped ? { category: mapped, recognized: true } : { category: 'other', recognized: false };
+}
+
 export function getIoCCategory(type: string): string {
-  return IOC_TYPE_TO_CATEGORY[type] || 'other';
+  return resolveIoCCategory(type).category;
 }

@@ -6,10 +6,11 @@ import { OverviewTab } from './cost-center/OverviewTab';
 import { UsageTab } from './cost-center/UsageTab';
 import { BudgetsTab } from './cost-center/BudgetsTab';
 import { FailuresTab } from './cost-center/FailuresTab';
+import type { IconName } from '../Icon';
 
 type TabId = 'overview' | 'usage' | 'budgets' | 'failures';
 
-const TABS: { id: TabId; label: string; icon: string }[] = [
+const TABS: { id: TabId; label: string; icon: IconName }[] = [
   { id: 'overview', label: 'Overview', icon: 'chart-bar' },
   { id: 'usage',    label: 'Usage',    icon: 'list' },
   { id: 'budgets',  label: 'Budgets',  icon: 'shield' },

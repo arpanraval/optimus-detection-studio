@@ -4,6 +4,7 @@ import { Icon } from '../../Icon';
 import { badgeSizes } from '../../../lib/ui/badges';
 import { routeHelpers } from '../../../router/routes';
 import { VendorChip } from './VendorChip';
+import type { IconName } from '../../Icon';
 
 export interface MitreMappingEntity {
   stixId: string;
@@ -47,7 +48,7 @@ const EntityChip: React.FC<EntityRowProps> = ({ entity, to, toneClass, showSourc
 );
 
 interface RowProps {
-  icon: string;
+  icon: IconName;
   iconColor: string;
   label: string;
   entities: MitreMappingEntity[];

@@ -42,12 +42,12 @@ export const NavigationPage: React.FC = () => {
                         {/* Mini Nav Rail Preview */}
                         <div className="w-20 bg-[#0d0e10] rounded-xl overflow-hidden border border-outline-variant/20">
                             <div className="p-3 flex flex-col items-center gap-1">
-                                {[
+                                {([
                                     { icon: 'dashboard', label: 'Dashboard', active: false },
                                     { icon: 'shield', label: 'Library', active: true },
                                     { icon: 'package', label: 'Packs', active: false },
                                     { icon: 'box', label: 'Workspaces', active: false },
-                                ].map(item => (
+                                ] as const).map(item => (
                                     <button
                                         key={item.label}
                                         className={`w-full py-2.5 px-1.5 rounded-xl flex flex-col items-center gap-1 transition-colors ${
@@ -101,12 +101,12 @@ export const NavigationPage: React.FC = () => {
                     <div className="flex gap-4">
                         <div className="w-20 hover:w-56 bg-surface-container-low rounded-xl border border-outline-variant/20 transition-all duration-300 overflow-hidden group">
                             <div className="p-2">
-                                {[
+                                {([
                                     { icon: 'target', label: 'Incidents', badge: 3 },
                                     { icon: 'file-text', label: 'Reports', badge: 0 },
                                     { icon: 'users', label: 'Team', badge: 0 },
                                     { icon: 'settings', label: 'Settings', badge: 0 },
-                                ].map((item, i) => (
+                                ] as const).map((item, i) => (
                                     <div
                                         key={item.label}
                                         className={`flex items-center gap-3 px-3 py-3 rounded-full transition-colors ${
@@ -218,11 +218,11 @@ export const NavigationPage: React.FC = () => {
                     onToggleSelect={toggleSelection}
                 >
                     <div className="inline-flex bg-surface-container-high rounded-lg p-1">
-                        {[
+                        {([
                             { icon: 'grid', label: 'Grid' },
                             { icon: 'list', label: 'List' },
                             { icon: 'matrix', label: 'Table' },
-                        ].map((item, i) => (
+                        ] as const).map((item, i) => (
                             <button
                                 key={item.label}
                                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${

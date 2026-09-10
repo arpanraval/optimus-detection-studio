@@ -6,8 +6,9 @@
 #
 # Context: a full git-history audit (all 613 commits, every branch, all blobs)
 # found NO real secrets ever committed. The only pattern hits were UI
-# placeholders and a throwaway CI-local database URL — documented below. See the
-# `gitleaks` GitHub Actions workflow that consumes this file.
+# placeholders, a throwaway CI-local database URL, and UUID test fixtures —
+# documented below. See the `gitleaks` GitHub Actions workflow that consumes
+# this file.
 
 title = "optimus-detection-studio gitleaks config"
 
@@ -28,3 +29,11 @@ useDefault = true
   description = "Throwaway localhost Postgres (user 'postgres', password 'postgres') spun up and destroyed per-run by the schema-check CI job. Not a real credential."
   regexTarget = "line"
   regexes = ['''postgres://postgres:postgres@localhost''']
+
+[[allowlists]]
+  description = "UUID test fixtures in the detection-identity unit test. The generic-api-key rule fires on the field name `key_value` (the identity-key column) paired with a canonical UUID's entropy; the values are hand-written v4 UUIDs standing in for a Sentinel `external_id`. The file was reverted in 65cdfe2 and no longer exists at HEAD, but gitleaks walks full history so the blob in ec0bda0 is still scanned. Scoped with condition = AND to this one rule, this one path, and lines containing a canonical UUID -- a real API key in this file would still be caught."
+  condition = "AND"
+  targetRules = ["generic-api-key"]
+  paths = ['''supabase/functions/_shared/__tests__/detection-identity\.test\.ts''']
+  regexTarget = "line"
+  regexes = ['''[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}''']

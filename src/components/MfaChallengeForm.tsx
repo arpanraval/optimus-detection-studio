@@ -174,7 +174,7 @@ export function MfaChallengeForm({
         >
           {isVerifying ? (
             <>
-              <Icon name="loader-2" className="w-4 h-4 animate-spin" />
+              <Icon name="loader" className="w-4 h-4 animate-spin" />
               Verifying…
             </>
           ) : (

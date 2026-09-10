@@ -133,6 +133,5 @@ export async function getActiveBatchJob(): Promise<BatchJob | null> {
     failedItems: data.job.failed_items,
     errorMessage: data.job.error_message,
     createdAt: data.job.created_at,
-    lastCheckedAt: Date.now(),
   };
 }

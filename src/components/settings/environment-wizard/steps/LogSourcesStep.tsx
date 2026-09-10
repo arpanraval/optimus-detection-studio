@@ -165,7 +165,7 @@ export const LogSourcesStep: React.FC<LogSourcesStepProps> = ({
           return (
             <CategoryAccordion
               key={category}
-              icon={CATEGORY_ICONS[category] || 'file'}
+              icon={CATEGORY_ICONS[category] || 'file-text'}
               title={category}
               selectedCount={selectedInCat}
               defaultOpen={category === 'Windows'}

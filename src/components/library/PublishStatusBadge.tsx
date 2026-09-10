@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon } from '../Icon';
 import { PromotionStatus, PROMOTION_NONE, PROMOTION_PENDING, PROMOTION_PROMOTED, PROMOTION_REJECTED } from '../../constants/library';
+import type { IconName } from '../Icon';
 
 export type BadgeSize = 'xs' | 'sm' | 'md' | 'lg';
 
@@ -22,7 +23,7 @@ interface PromotionStatusBadgeProps {
  * Sizes: xs (16px), sm (20px), md (24px), lg (28px)
  */
 const statusConfig: Record<PromotionStatus, {
-  icon: string;
+  icon: IconName;
   label: string;
   className: string;
   iconClassName: string;

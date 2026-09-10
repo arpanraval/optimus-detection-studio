@@ -7,6 +7,7 @@ import { routeHelpers } from '../../router/routes';
 import { digestThreatReport } from '../../lib/aiService';
 import { supabase } from '../../lib/supabaseClient';
 import { useToast } from '../../hooks/useToast';
+import { digestProducedUsableReport } from '../../types/threatIntel';
 import type { ThreatIntelFeed, FeedEntry } from '../../hooks/useThreatIntelFeeds';
 
 // =============================================================================
@@ -89,8 +90,11 @@ export const FeedEntries: React.FC<FeedEntriesProps> = ({
         content: entry.content,
       });
 
+      // This call site was already correct -- it read `outcome` rather than
+      // `success`. Routed through the shared helper so the three digest
+      // callers cannot drift apart again.
       const reportId = result?.report?.id;
-      if (!reportId || result.outcome === 'failed' || result.outcome === 'cancelled') {
+      if (!reportId || !digestProducedUsableReport(result)) {
         throw new Error(result.error || 'Digest did not persist a usable report');
       }
       const { error: completionError } = await supabase.rpc('complete_feed_entry_processing', {

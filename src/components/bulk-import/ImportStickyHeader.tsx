@@ -8,6 +8,7 @@ import { LIBRARY_LABELS_SHORT } from '../../types/detection';
 import { LIBRARY_DEVELOPMENT, type LibraryType } from '../../constants/library';
 import { ImportJobStatus } from '../../services/bulk-import/types';
 import { Icon } from '../Icon';
+import type { IconName } from '../Icon';
 
 interface ImportStickyHeaderProps {
   sourceType?: 'zip' | 'files' | 'github';
@@ -18,7 +19,7 @@ interface ImportStickyHeaderProps {
   targetLibrary?: LibraryType;
 }
 
-const SOURCE_ICONS: Record<string, string> = {
+const SOURCE_ICONS: Record<string, IconName> = {
   zip: 'archive',
   files: 'file-text',
   github: 'github',
@@ -58,7 +59,7 @@ export function ImportStickyHeader({
           {sourceType && (
             <div className="flex items-center gap-2">
               <Icon
-                name={SOURCE_ICONS[sourceType] || 'file'}
+                name={SOURCE_ICONS[sourceType] || 'file-text'}
                 className="w-4 h-4"
               />
               {sourceName && (

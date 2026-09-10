@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from '../../Icon';
+import type { IconName } from '../../Icon';
 
 interface Props {
   sectors: { sector: string; count: number }[];
@@ -15,7 +16,7 @@ function BarChart({
   items: { name: string; count: number }[];
   label: string;
   barColor: string;
-  icon: string;
+  icon: IconName;
 }): React.ReactElement {
   const maxCount = items.length > 0 ? Math.max(...items.map((i) => i.count)) : 0;
 

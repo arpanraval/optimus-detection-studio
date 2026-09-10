@@ -258,7 +258,7 @@ export function ResultsStep() {
               onClick={handleCopyErrorReport}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-full transition-colors"
             >
-              <Icon name={copied ? 'check' : 'clipboard'} className="w-3.5 h-3.5" />
+              <Icon name={copied ? 'check' : 'copy'} className="w-3.5 h-3.5" />
               {copied ? 'Copied!' : 'Copy Error Report'}
             </button>
           </div>

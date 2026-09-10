@@ -8,7 +8,7 @@ export { InlineActionButton } from './InlineActionButton';
 export { TTPMiniMatrix, MITRE_TACTICS_ORDER, findTacticIdFromName } from './TTPMiniMatrix';
 export { TTPCard } from './TTPCard';
 export { TTPTacticList } from './TTPTacticList';
-export { IoCTable } from './IoCTable';
+export { IoCTable, DEFANGABLE_IOC_TYPES, displayIoCValue, isDisplayedDefanged } from './IoCTable';
 export { RuleListSection } from './RuleListSection';
 export { MitreMappingsBlock } from './MitreMappingsBlock';
 export type { MitreMappingEntity } from './MitreMappingsBlock';

@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabaseClient';
 import { getEmbeddingStats, backfillDetectionEmbeddings, backfillMitreEmbeddings } from '../lib/embeddingService';
 import { submitBatchJob, checkBatchJob, processBatchResults, getActiveBatchJob, cancelBatchJob, type BatchJob } from '../lib/batchEmbeddingService';
 import { VendorDriftSection } from './sync/VendorDriftSection';
+import type { IconName } from './Icon';
 
 // =============================================================================
 // TYPES
@@ -1719,7 +1720,7 @@ const StatusBadge: React.FC<{ status: SyncCardStatus }> = ({ status }) => {
     };
     // Icon per tone so state is decodable without color (a11y — color-blindness,
     // low-contrast environments). Icons are tiny and sit left of the label.
-    const toneIcons: Record<StatusTone, string> = {
+    const toneIcons: Record<StatusTone, IconName> = {
         success: 'check',
         warning: 'alert-circle',
         error: 'alert-circle',

@@ -5,6 +5,7 @@ import { Detection, Status } from '../../types';
 import { Icon } from '../Icon';
 import { KanbanCard } from './KanbanCard';
 import type { UserLookup } from './KanbanBoard';
+import type { IconName } from '../Icon';
 
 interface KanbanColumnProps {
   status: Status;
@@ -27,7 +28,7 @@ interface KanbanColumnProps {
 }
 
 // Design system aligned column themes
-const COLUMN_THEME: Record<Status, { dot: string; accent: string; icon: string }> = {
+const COLUMN_THEME: Record<Status, { dot: string; accent: string; icon: IconName }> = {
   [Status.Backlog]:     { dot: 'bg-on-surface-variant/40', accent: 'text-on-surface-variant', icon: 'inbox' },
   [Status.Draft]:       { dot: 'bg-on-surface-variant/60', accent: 'text-on-surface-variant', icon: 'file-text' },
   [Status.Development]: { dot: 'bg-purple-500',            accent: 'text-purple-400',         icon: 'code' },

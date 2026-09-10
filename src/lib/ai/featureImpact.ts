@@ -8,6 +8,7 @@
 // usage data. Pure data — no React — so it can also be reused server-side.
 
 import type { AiFeatureCode } from './featureCodes';
+import type { IconName } from '../../components/Icon';
 
 /**
  * High-level artifact buckets we surface as headline impact tiles.
@@ -86,7 +87,7 @@ export const FEATURE_IMPACT: Record<AiFeatureCode, ImpactDef> = {
 /** Display metadata for the headline artifact buckets (in render order). */
 export const BUCKET_DISPLAY: Record<
   ImpactBucket,
-  { label: string; icon: string; accent: string }
+  { label: string; icon: IconName; accent: string }
 > = {
   'detection-draft':    { label: 'Detections drafted',  icon: 'edit',           accent: 'rgb(var(--md-sys-color-primary))' },
   'sigma-conversion':   { label: 'Sigma converted',     icon: 'exchange',       accent: 'rgb(var(--md-ext-color-cyan))' },

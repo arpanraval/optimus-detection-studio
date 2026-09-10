@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import type { IconName } from '../../Icon';
 import { DesignSystemPage, Section, ComponentRow } from '../shared';
 import { Icon } from '../../Icon';
 
@@ -74,13 +75,13 @@ export const DropdownsPage: React.FC = () => {
 
                 <ComponentRow label="Action Menu" description="Context menu with icons and destructive action">
                     <div className="w-52 bg-surface-container border border-outline-variant/20 rounded-xl shadow-xl overflow-hidden py-1">
-                        {[
+                        {([
                             { icon: 'edit', label: 'Edit' },
                             { icon: 'copy', label: 'Duplicate' },
                             { icon: 'external-link', label: 'Share' },
                             { divider: true },
                             { icon: 'trash', label: 'Delete', danger: true },
-                        ].map((item, i) =>
+                        ] satisfies { icon?: IconName; label?: string; divider?: boolean; danger?: boolean }[]).map((item, i) =>
                             item.divider ? (
                                 <div key={i} className="border-t border-outline-variant/20 my-1" />
                             ) : (

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Icon } from '../Icon';
 import { useTheme } from '../../context/ThemeContext';
 import { ScrollArea, Button, FAB } from '../ui';
+import type { IconName } from '../Icon';
 
 // =============================================================================
 // M3 COMPONENT SHOWCASE PAGE
@@ -139,7 +140,7 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
         navigator.clipboard.writeText(text);
     };
 
-    const tabs = [
+    const tabs: { id: string; label: string; icon: IconName }[] = [
         { id: 'selected-components', label: 'Selected Components', icon: 'star' },
         { id: 'buttons', label: 'Buttons', icon: 'zap' },
         { id: 'inputs', label: 'Inputs', icon: 'edit' },
@@ -385,7 +386,7 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                                         <Button color="primary" leadingIcon="plus">Create</Button>
                                         <Button color="secondary" leadingIcon="download">Export</Button>
                                         <Button color="surface">Cancel</Button>
-                                        <Button color="error" leadingIcon="trash-2">Delete</Button>
+                                        <Button color="error" leadingIcon="trash">Delete</Button>
                                     </div>
                                 </div>
 
@@ -418,7 +419,7 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
 <Button color="secondary" variant="outlined" leadingIcon="download">Export</Button>
 
 // Destructive
-<Button color="error" leadingIcon="trash-2">Delete</Button>
+<Button color="error" leadingIcon="trash">Delete</Button>
 
 // Low emphasis
 <Button color="surface" variant="text">Cancel</Button>`}</pre>
@@ -469,7 +470,7 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                                         <FAB color="primary" icon="plus" />
                                         <FAB color="secondary" icon="filter" />
                                         <FAB color="surface" icon="settings" />
-                                        <FAB color="error" icon="trash-2" />
+                                        <FAB color="error" icon="trash" />
                                     </div>
                                 </div>
 
@@ -620,7 +621,7 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                             </ComponentRow>
 
                             <ComponentRow id="btn-error-filled" label="Error Filled" description="Destructive actions - Delete, Remove" source="detection-studio" page="Button.tsx" isSelected={selectedComponents.has('btn-error-filled')} onToggleSelect={toggleSelection}>
-                                <Button color="error" variant="filled" leadingIcon="trash-2">Delete</Button>
+                                <Button color="error" variant="filled" leadingIcon="trash">Delete</Button>
                                 <Button color="error" variant="filled" leadingIcon="x">Remove</Button>
                                 <Button color="error" variant="filled">Clear All</Button>
                             </ComponentRow>
@@ -704,7 +705,7 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                             <ComponentRow id="btn-icons-leading" label="Leading Icon" description="Icon before label" source="detection-studio" page="Button.tsx" isSelected={selectedComponents.has('btn-icons-leading')} onToggleSelect={toggleSelection}>
                                 <Button color="primary" leadingIcon="plus">New Detection</Button>
                                 <Button color="secondary" leadingIcon="download">Export</Button>
-                                <Button color="error" leadingIcon="trash-2">Delete</Button>
+                                <Button color="error" leadingIcon="trash">Delete</Button>
                             </ComponentRow>
 
                             <ComponentRow id="btn-icons-trailing" label="Trailing Icon" description="Icon after label" source="detection-studio" page="Button.tsx" isSelected={selectedComponents.has('btn-icons-trailing')} onToggleSelect={toggleSelection}>
@@ -754,7 +755,7 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                                 <FAB color="primary" icon="plus" />
                                 <FAB color="secondary" icon="filter" />
                                 <FAB color="surface" icon="settings" />
-                                <FAB color="error" icon="trash-2" />
+                                <FAB color="error" icon="trash" />
                             </ComponentRow>
 
                             <ComponentRow id="fab-sizes-new" label="FAB Sizes" description="Small (40px), Medium (56px), Large (96px)" source="detection-studio" page="FAB.tsx" isSelected={selectedComponents.has('fab-sizes-new')} onToggleSelect={toggleSelection}>
@@ -806,7 +807,7 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                                     <p className="text-xs text-on-surface-variant mb-4">This action cannot be undone.</p>
                                     <div className="flex gap-2 justify-end">
                                         <Button color="surface" variant="text" size="sm">Cancel</Button>
-                                        <Button color="error" size="sm" leadingIcon="trash-2">Delete</Button>
+                                        <Button color="error" size="sm" leadingIcon="trash">Delete</Button>
                                     </div>
                                 </div>
                             </ComponentRow>
@@ -824,7 +825,7 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
 <Button color="secondary" variant="outlined" leadingIcon="download">Export</Button>
 
 // Destructive actions
-<Button color="error" leadingIcon="trash-2">Delete</Button>
+<Button color="error" leadingIcon="trash">Delete</Button>
 
 // Low emphasis
 <Button color="surface" variant="text">Cancel</Button>
@@ -2503,12 +2504,12 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                                 {/* Mini Nav Rail Preview */}
                                 <div className="w-20 bg-[#0d0e10] rounded-xl overflow-hidden border border-outline-variant/20">
                                     <div className="p-3 flex flex-col items-center gap-1">
-                                        {[
+                                        {([
                                             { icon: 'dashboard', label: 'Dashboard', active: false },
                                             { icon: 'shield', label: 'Library', active: true },
                                             { icon: 'package', label: 'Packs', active: false },
                                             { icon: 'box', label: 'Workspaces', active: false },
-                                        ].map(item => (
+                                        ] as const).map(item => (
                                             <button
                                                 key={item.label}
                                                 className={`w-full py-2.5 px-1.5 rounded-xl flex flex-col items-center gap-1 transition-colors ${
@@ -2562,12 +2563,12 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                             <div className="flex gap-4">
                                 <div className="w-20 hover:w-56 bg-surface-container-low rounded-xl border border-outline-variant/20 transition-all duration-300 overflow-hidden group">
                                     <div className="p-2">
-                                        {[
+                                        {([
                                             { icon: 'target', label: 'Incidents', badge: 3 },
                                             { icon: 'file-text', label: 'Reports', badge: 0 },
                                             { icon: 'users', label: 'Team', badge: 0 },
                                             { icon: 'settings', label: 'Settings', badge: 0 },
-                                        ].map((item, i) => (
+                                        ] as const).map((item, i) => (
                                             <div
                                                 key={item.label}
                                                 className={`flex items-center gap-3 px-3 py-3 rounded-full transition-colors ${
@@ -2679,11 +2680,11 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                             onToggleSelect={toggleSelection}
                         >
                             <div className="inline-flex bg-surface-container-high rounded-lg p-1">
-                                {[
+                                {([
                                     { icon: 'grid', label: 'Grid' },
                                     { icon: 'list', label: 'List' },
                                     { icon: 'matrix', label: 'Table' },
-                                ].map((item, i) => (
+                                ] as const).map((item, i) => (
                                     <button
                                         key={item.label}
                                         className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
@@ -3166,13 +3167,13 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
 
                         <ComponentRow label="Action Menu" description="Context menu with icons and destructive action">
                             <div className="w-52 bg-surface-container border border-outline-variant/20 rounded-xl shadow-xl overflow-hidden py-1">
-                                {[
+                                {([
                                     { icon: 'edit', label: 'Edit' },
                                     { icon: 'copy', label: 'Duplicate' },
                                     { icon: 'external-link', label: 'Share' },
                                     { divider: true },
                                     { icon: 'trash', label: 'Delete', danger: true },
-                                ].map((item, i) =>
+                                ] satisfies { icon?: IconName; label?: string; divider?: boolean; danger?: boolean }[]).map((item, i) =>
                                     item.divider ? (
                                         <div key={i} className="border-t border-outline-variant/20 my-1" />
                                     ) : (
@@ -3393,7 +3394,7 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                                 {/* Typing indicator style */}
                                 <div className="flex items-center gap-3 px-4 py-3 bg-surface-container rounded-2xl w-fit">
                                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#783264] to-[#4D7C6F] flex items-center justify-center">
-                                        <Icon name="sparkles" className="w-4 h-4 text-white" />
+                                        <Icon name="spark" className="w-4 h-4 text-white" />
                                     </div>
                                     <div className="flex gap-1">
                                         <span className="w-2 h-2 rounded-full bg-[#783264] animate-pulse" style={{ animationDelay: '0ms' }} />
@@ -3739,7 +3740,7 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                                 <div className="relative w-[340px]">
                                     <div className="absolute inset-0 bg-gradient-to-r from-[#4D7C6F] to-[#0284C7] rounded-2xl" />
                                     <div className="relative m-[2px] p-4 bg-surface-container rounded-[14px] flex items-center gap-3">
-                                        <Icon name="sparkles" className="w-6 h-6 text-[#4D7C6F]" />
+                                        <Icon name="spark" className="w-6 h-6 text-[#4D7C6F]" />
                                         <div className="flex-1">
                                             <p className="text-sm font-semibold text-on-surface">AI Analysis Complete</p>
                                             <p className="text-xs text-on-surface-variant">3 optimization suggestions found</p>

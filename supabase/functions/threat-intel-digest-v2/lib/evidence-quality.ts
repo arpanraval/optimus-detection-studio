@@ -1,4 +1,5 @@
 import type { ExtractedIoC, ExtractedRule, ExtractedTTP } from './types.ts'
+import { hasUrlScheme, refangBrackets, stripUrlScheme } from '../../_shared/refang.ts'
 
 export type SourceQuality = 'full_article' | 'partial_article' | 'feed_summary' | 'title_only' | 'unavailable' | 'legacy_unverified'
 
@@ -23,10 +24,7 @@ export function classifySourceQuality(content: string | null | undefined): Sourc
 }
 
 export function normalizeEvidenceText(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/\[\.\]|\(\.\)/g, '.')
-    .replace(/\[at\]|\(at\)/g, '@')
+  return refangBrackets(value.toLowerCase())
     .replace(/[^a-z0-9@.]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -50,10 +48,27 @@ export function evidenceIsSupported(source: string, evidence: string | null | un
   return overlap >= 0.45
 }
 
+/**
+ * Shortest scheme-less remainder we will accept as identifying. A URL whose
+ * host and path together normalise to fewer characters than this carries too
+ * little to be evidence of anything, so it must match in full or not at all.
+ */
+const MIN_SCHEMELESS_MATCH_LENGTH = 4
+
 function indicatorAppearsInSource(source: string, value: string): boolean {
   const normalizedSource = normalizeEvidenceText(source)
   const normalizedValue = normalizeEvidenceText(value)
-  return Boolean(normalizedValue) && normalizedSource.includes(normalizedValue)
+  if (!normalizedValue) return false
+  if (normalizedSource.includes(normalizedValue)) return true
+
+  // The scheme is the one part defanging rewrites alphabetically, so a live
+  // `http://...` indicator will not be found inside a `hxxp[:]//...` article no
+  // matter how the punctuation is normalised. Compare on host and path, which
+  // is what actually identifies the indicator. Checked only as a fallback, so
+  // this can rescue a real match but never loosen one that already succeeded.
+  if (!hasUrlScheme(value)) return false
+  const schemeless = normalizeEvidenceText(stripUrlScheme(value))
+  return schemeless.length >= MIN_SCHEMELESS_MATCH_LENGTH && normalizedSource.includes(schemeless)
 }
 
 export function namesAreCompatible(aiName: string | undefined, canonicalName: string | undefined): boolean {

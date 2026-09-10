@@ -9,6 +9,7 @@ import type {
   MitreTacticName,
   ResearchStatus,
 } from '../../types/threatResearch';
+import type { IconName } from '../Icon';
 
 interface Props {
   tree: ThreatResearchTree;
@@ -854,7 +855,7 @@ function tileColors(state: NodeState): TileColors {
   }
 }
 
-function tileIcon(node: CanvasNode): string {
+function tileIcon(node: CanvasNode): IconName {
   // One distinct icon per layer + per terminal verdict on behaviour tiles.
   // Semantic mapping:
   //   threat-actor      — the threat / campaign / actor under study

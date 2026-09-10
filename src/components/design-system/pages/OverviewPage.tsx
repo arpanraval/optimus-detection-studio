@@ -2,8 +2,9 @@ import React from 'react';
 import { DesignSystemPage, Section } from '../shared';
 import { Icon } from '../../Icon';
 import { useNavigate } from 'react-router-dom';
+import type { IconName } from '../../Icon';
 
-const categories = [
+const categories: { id: string; label: string; icon: IconName; description: string; path: string }[] = [
     { id: 'buttons', label: 'Buttons', icon: 'zap', description: 'Button variants, FABs, and action components', path: '/design-system/buttons' },
     { id: 'inputs', label: 'Inputs', icon: 'edit', description: 'Text fields, selects, and form controls', path: '/design-system/inputs' },
     { id: 'badges', label: 'Badges & Chips', icon: 'flag', description: 'Status badges, tags, and filter chips', path: '/design-system/badges' },

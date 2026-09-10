@@ -17,6 +17,7 @@ import { DetectionLeafCard } from '../../components/threat-research/DetectionLea
 import { ROUTES } from '../routes';
 import type { AttackBehaviour, DetectionOpportunity } from '../../types/threatResearch';
 import { usePermissions } from '../../context/PermissionsContext';
+import type { IconName } from '../../components/Icon';
 
 /** Behaviour ids with an agent currently working on them, derived from the
  *  jobs table (authoritative). The previous events-derived implementation
@@ -71,7 +72,7 @@ export function ThreatResearchDetailPage() {
   const outcome = useMemo((): {
     label: string;
     detail: string;
-    icon: string;
+    icon: IconName;
     tone: string;
     canResume: boolean;
     resumeLabel: string;

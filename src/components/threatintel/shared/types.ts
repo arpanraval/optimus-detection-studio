@@ -18,8 +18,28 @@ export interface TTPLike {
   isSubTechnique?: boolean;
   hasExistingDetection?: boolean;
   existingDetectionCount?: number;
+  /**
+   * The detections behind `existingDetectionCount`. Written by the library
+   * matcher alongside the count and, until G8, read by nothing -- so the card
+   * asserted coverage the reader had no way to check.
+   */
+  existingDetectionIds?: string[];
   /** Vendor names that mentioned this TTP. Undefined or single-item on digest. */
   sources?: string[];
+}
+
+/**
+ * A library detection claimed as covering a TTP, resolved for display (G8).
+ *
+ * Deliberately not `LibraryMatch`: the card needs a name and a link target, and
+ * coupling it to the digest's match shape would stop the story page ever
+ * supplying one from a different source.
+ */
+export interface CoveringDetection {
+  id: string;
+  name: string;
+  status?: string;
+  severity?: string;
 }
 
 export interface IoCLike {

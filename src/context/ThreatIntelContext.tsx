@@ -38,7 +38,7 @@ const SESSION_PREFIX = 'optimus_threat_intel_session_v1_';
 // DATABASE RECORD TYPES
 // ============================================
 
-interface ThreatIntelReportDbRecord {
+export interface ThreatIntelReportDbRecord {
   id: string;
   user_id: string;
   name: string;
@@ -57,6 +57,21 @@ interface ThreatIntelReportDbRecord {
   processing_stage: string;
   processing_error?: string;
   section_errors?: any;
+  // Trust metadata. Present on every row and fetched by the `select('*')` in
+  // loadSession, but absent from this interface until now -- which is why the
+  // mapper below never copied them and nobody got a type error for it.
+  outcome?: 'complete' | 'partial' | 'failed' | 'cancelled';
+  source_quality?: 'full_article' | 'partial_article' | 'feed_summary' | 'title_only' | 'unavailable' | 'legacy_unverified';
+  source_content_length?: number;
+  source_content_hash?: string;
+  fetched_url?: string;
+  quality_warnings?: string[];
+  possible_actor_mentions?: string[];
+  section_outcomes?: Record<string, 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'retained_previous'>;
+  library_overlap_percent?: number | null;
+  validated_overlap_percent?: number | null;
+  overlap_calculated_at?: string | null;
+  deployment_readiness_percent?: number | null;
   selected_ttp_ids: string[];
   selected_ioc_ids: string[];
   report_title?: string;
@@ -145,7 +160,11 @@ const ThreatIntelContext = createContext<ThreatIntelContextType | undefined>(und
 /**
  * Convert database record to ThreatIntelSession
  */
-function dbRecordToSession(record: ThreatIntelReportDbRecord): ThreatIntelSession {
+// Exported for the round-trip test in __tests__/db-record-mapping.test.ts.
+// That test is the guard against this mapper silently dropping fields again:
+// it is hand-maintained and field-by-field, which is how five of them went
+// missing at once without a single type error.
+export function dbRecordToSession(record: ThreatIntelReportDbRecord): ThreatIntelSession {
   const report: ThreatReport = {
     id: record.id,
     createdAt: record.created_at,
@@ -163,6 +182,26 @@ function dbRecordToSession(record: ThreatIntelReportDbRecord): ThreatIntelSessio
     processingStage: record.processing_stage as any,
     processingError: record.processing_error,
     sectionErrors: record.section_errors,
+
+    // Trust metadata. Falling back to 'complete'/'full_article' would assert
+    // something we do not know; falling back to 'failed'/'legacy_unverified'
+    // is what produced the every-report-is-degraded bug. Both are required on
+    // ThreatReport, so a row genuinely missing them is a data defect worth
+    // seeing rather than papering over -- the banner renders "unknown".
+    outcome: record.outcome ?? 'unknown',
+    sourceQuality: record.source_quality ?? 'unknown',
+    sourceContentLength: record.source_content_length,
+    sourceContentHash: record.source_content_hash,
+    fetchedUrl: record.fetched_url,
+    qualityWarnings: record.quality_warnings ?? [],
+    possibleActorMentions: record.possible_actor_mentions ?? [],
+    sectionOutcomes: record.section_outcomes,
+    libraryOverlapPercent: record.library_overlap_percent,
+    validatedOverlapPercent: record.validated_overlap_percent,
+    deploymentReadinessPercent: record.deployment_readiness_percent,
+    // Deliberately NOT `?? 0` -- see A2. Absent coverage and zero coverage are
+    // different facts and must stay distinguishable.
+    coveragePercent: record.coverage_percent ?? null,
   };
 
   return {
@@ -187,7 +226,11 @@ function dbRecordToSession(record: ThreatIntelReportDbRecord): ThreatIntelSessio
 /**
  * Convert database record to summary (for list view)
  */
-function dbRecordToSummary(record: ThreatIntelReportDbRecord): ThreatIntelSessionSummary {
+// Exported for __tests__/db-record-mapping.test.ts. This is dbRecordToSession's
+// list-path twin and drifted from it the same way: it coerced an absent
+// coverage to 0, so the same report reported two different things depending on
+// which page rendered it.
+export function dbRecordToSummary(record: ThreatIntelReportDbRecord): ThreatIntelSessionSummary {
   return {
     id: record.id,
     ownerUserId: record.user_id,
@@ -201,7 +244,10 @@ function dbRecordToSummary(record: ThreatIntelReportDbRecord): ThreatIntelSessio
     attackType: record.attack_type as AttackType | undefined,
     attribution: record.attribution,
     organization: record.organization,
-    coveragePercent: record.coverage_percent ?? 0,
+    // `?? null`, matching dbRecordToSession. This mapper is the list path's
+    // twin and coerced to 0, so a report the server declined to score showed
+    // as 0% covered in the library while its own page said "Unknown".
+    coveragePercent: record.coverage_percent ?? null,
     source: record.source as 'manual' | 'auto' | undefined,
     sourceFeedName: record.source_feed_name,
     sourceArticleUrl: record.source_article_url,
@@ -217,14 +263,27 @@ function dbRecordToSummary(record: ThreatIntelReportDbRecord): ThreatIntelSessio
 /**
  * Convert ThreatIntelSession to database record
  */
-function sessionToDbRecord(session: ThreatIntelSession, userId: string): Partial<ThreatIntelReportDbRecord> {
+// Exported for the write-side half of __tests__/db-record-mapping.test.ts.
+// This mapper is the twin of dbRecordToSession and drifted the same way: it
+// wrote section_errors but not the outcome those errors belonged to.
+export function sessionToDbRecord(session: ThreatIntelSession, userId: string): Partial<ThreatIntelReportDbRecord> {
   const report = session.report;
 
-  // Calculate coverage: percentage of TTPs that have existing detections
   const ttps = report?.ttps || [];
   const ttpCount = ttps.length;
+
+  // The server decides coverage; this mapper must not overrule it. It used to
+  // recompute from `hasExistingDetection` over every TTP and upsert the result,
+  // which is a fourth formula and the only one that writes -- so a save could
+  // overwrite the server's verdict with its own (C3). It also defaulted to 0,
+  // which turns "could not be assessed" into "assessed as none" the moment a
+  // report is opened and saved. Absence is preserved deliberately: `null` from
+  // the server is written as null, and only a report that carries no coverage
+  // field at all (legacy sessions) falls back to computing one.
   const coveredTtps = ttps.filter((ttp: any) => ttp.hasExistingDetection === true).length;
-  const coveragePercent = ttpCount > 0 ? Math.round((coveredTtps / ttpCount) * 100) : 0;
+  const coveragePercent = report?.coveragePercent !== undefined
+    ? report.coveragePercent
+    : (ttpCount > 0 ? Math.round((coveredTtps / ttpCount) * 100) : null);
 
   return {
     id: session.id,
@@ -244,7 +303,33 @@ function sessionToDbRecord(session: ThreatIntelSession, userId: string): Partial
     library_matches: report?.libraryMatches || [],
     processing_stage: report?.processingStage || 'complete',
     processing_error: report?.processingError,
-    section_errors: report?.sectionErrors,
+    // `?? {}` so a report with no section errors can actually say so. Passing
+    // `undefined` makes PostgREST omit the column, which on an upsert means
+    // "leave it as it was" -- so section errors could be written but never
+    // retracted, and a fully resolved report kept its old failures in the row.
+    // Defensive as well as correct: it holds even against a digest function
+    // deployed before the server-side half of this fix.
+    section_errors: report?.sectionErrors ?? {},
+
+    // Trust metadata -- the write-side twin of A1. This mapper already wrote
+    // section_errors but none of these, so a client-side save (which is what a
+    // successful Re-extract performs) refreshed the section errors and left
+    // the verdict describing the PREVIOUS run. The banner reads both, so the
+    // row contradicted itself. Omitting them is not neutral just because
+    // PostgREST leaves absent columns alone on update.
+    // 'unknown' is a read-side sentinel meaning "this row did not tell us".
+    // Persisting it would invent a value the column has never held and would
+    // overwrite whatever the server did know. Omitting the key instead leaves
+    // the stored value untouched, which is the honest move: not knowing the
+    // outcome is not the same as knowing it is unknown.
+    outcome: report?.outcome === 'unknown' ? undefined : report?.outcome,
+    source_quality: report?.sourceQuality === 'unknown' ? undefined : report?.sourceQuality,
+    quality_warnings: report?.qualityWarnings,
+    possible_actor_mentions: report?.possibleActorMentions,
+    section_outcomes: report?.sectionOutcomes,
+    source_content_length: report?.sourceContentLength,
+    source_content_hash: report?.sourceContentHash,
+    fetched_url: report?.fetchedUrl,
     selected_ttp_ids: session.selectedTTPIds || [],
     selected_ioc_ids: session.selectedIoCIds || [],
     // Cached fields for list queries
@@ -257,6 +342,23 @@ function sessionToDbRecord(session: ThreatIntelSession, userId: string): Partial
     ioc_count: report?.iocs?.length || 0,
     rule_count: report?.rules?.length || 0,
     coverage_percent: coveragePercent,
+    // Feasibility is the orchestrator's to compute and the digest's to
+    // invalidate. Persisting it here is what makes a re-extraction that
+    // replaced the TTP set actually clear the stale counts, instead of the
+    // row keeping "9 feasible" about techniques the report no longer has.
+    // Written only when the report carries the field, so a legacy session
+    // cannot blank a row the orchestrator populated.
+    ...(report?.feasibleGapCount !== undefined ? { feasible_gap_count: report.feasibleGapCount } : {}),
+    ...(report?.infeasibleGapCount !== undefined ? { infeasible_gap_count: report.infeasibleGapCount } : {}),
+    // Read at load (dbRecordToSession:198) but never written -- so the server
+    // could compute an overlap and the row kept whatever it held before. The
+    // stat tile reads `library_overlap_percent`, so a fresh "could not be
+    // assessed" (null) still rendered as the previous run's 0%, i.e. as an
+    // answer. Written only when the report carries them, so a legacy session
+    // cannot blank a row that was populated by a real run.
+    ...(report?.libraryOverlapPercent !== undefined ? { library_overlap_percent: report.libraryOverlapPercent } : {}),
+    ...(report?.validatedOverlapPercent !== undefined ? { validated_overlap_percent: report.validatedOverlapPercent } : {}),
+    ...(report?.overlapCalculatedAt !== undefined ? { overlap_calculated_at: report.overlapCalculatedAt } : {}),
   };
 }
 
@@ -325,18 +427,18 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
 
       if (error) throw error;
 
-      // Calculate coverage on the fly if not stored; fall back to JSONB for
-      // cached columns that were null due to a historic field-name mismatch
+      // Fall back to JSONB for cached columns that were null due to a historic
+      // field-name mismatch.
+      //
+      // Coverage is deliberately NOT recomputed here. This used to read the
+      // stored value as 0 when absent and then, seeing a zero, recalculate
+      // from `hasExistingDetection` over ALL TTPs -- a different field over a
+      // different denominator from the one the server uses (C3's third
+      // formula). So a report the server had explicitly declined to score got
+      // a number invented for it, on the list page only, and a genuine 0%
+      // was silently replaced too. The stored value is the verdict; absence
+      // is a verdict as well and now survives to the UI.
       const summaries = (data || []).map((record: any) => {
-        let coveragePercent = record.coverage_percent ?? 0;
-
-        // If coverage is 0 but we have TTPs, calculate it
-        if (coveragePercent === 0 && record.ttps && Array.isArray(record.ttps) && record.ttps.length > 0) {
-          const ttps = record.ttps;
-          const coveredTtps = ttps.filter((ttp: any) => ttp.hasExistingDetection === true).length;
-          coveragePercent = Math.round((coveredTtps / ttps.length) * 100);
-        }
-
         const summary = dbRecordToSummary(record);
 
         // Backfill cached columns from JSONB when missing (older auto-digested reports)
@@ -350,7 +452,7 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
           summary.attribution = record.mitre_mapping.matchedGroups[0].name;
         }
 
-        return { ...summary, coveragePercent };
+        return summary;
       });
       setReports(summaries);
     } catch (err) {

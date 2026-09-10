@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from '../Icon';
+import type { IconName } from '../Icon';
 
 export type SelectSize = 'sm' | 'md' | 'lg';
 export type SelectState = 'default' | 'error' | 'success';
@@ -35,7 +36,7 @@ export interface SelectProps {
   /** Show required indicator */
   required?: boolean;
   /** Leading icon name */
-  leadingIcon?: string;
+  leadingIcon?: IconName;
   /** Disabled state */
   disabled?: boolean;
   /** Full width */

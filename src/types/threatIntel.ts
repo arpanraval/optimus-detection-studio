@@ -117,6 +117,8 @@ export enum ExtractedRuleType {
   YARA = 'yara',
   Sigma = 'sigma',
   KQL = 'kql',
+  /** Microsoft Sentinel analytics/hunting YAML — a rule document whose `query:` field holds KQL. */
+  Sentinel = 'sentinel',
   SPL = 'spl',
   EQL = 'eql',
   Snort = 'snort',
@@ -147,8 +149,19 @@ export interface ThreatReport {
   id: string;
   createdAt: string;
   updatedAt: string;
-  outcome?: 'complete' | 'partial' | 'failed' | 'cancelled';
-  sourceQuality?: 'full_article' | 'partial_article' | 'feed_summary' | 'title_only' | 'unavailable' | 'legacy_unverified';
+  // REQUIRED, deliberately. These describe whether the report can be trusted,
+  // and the review banner keys off them. They were optional, so the database
+  // mapper could omit them and still compile -- which it did, leaving outcome
+  // undefined on every report and making all 170 render as "degraded". Every
+  // persisted row has both populated, so requiring them is accurate rather
+  // than defensive, and it makes dropping them a build failure instead of a
+  // silent mislabel.
+  // 'unknown' is a real state, not a placeholder: it means the row did not
+  // carry the value. Modelling it in the union keeps "we don't know" separate
+  // from "we know it went badly", which is the distinction this whole bug
+  // erased. No persisted row needs it today (all 170 have both populated).
+  outcome: 'complete' | 'partial' | 'failed' | 'cancelled' | 'unknown';
+  sourceQuality: 'full_article' | 'partial_article' | 'feed_summary' | 'title_only' | 'unavailable' | 'legacy_unverified' | 'unknown';
   sourceContentLength?: number;
   sourceContentHash?: string;
   fetchedUrl?: string;
@@ -156,8 +169,19 @@ export interface ThreatReport {
   possibleActorMentions?: string[];
   libraryOverlapPercent?: number | null;
   validatedOverlapPercent?: number | null;
+  /** When the overlap percentages above were last actually computed. */
+  overlapCalculatedAt?: string;
   deploymentReadinessPercent?: number | null;
   coveragePercent?: number | null;
+
+  // Assessed by the auto-digest orchestrator, not by the digest function, but
+  // carried on the report so a retry response cannot silently drop them: the
+  // client swaps its whole session for that response, and a missing field
+  // rendered as "feasibility not computed" on a report whose row said 9.
+  // `null` means the TTP set changed and the previous assessment is void --
+  // distinct from 0, which would claim nothing is feasible.
+  feasibleGapCount?: number | null;
+  infeasibleGapCount?: number | null;
 
   // Input
   sourceType: 'url' | 'paste';
@@ -190,6 +214,13 @@ export interface ThreatReport {
     library?: string;
     evidence?: string;
   };
+
+  // Per-section verdict. Produced by the edge function and stored in
+  // section_outcomes, but missing from this interface until now -- A1 listed
+  // it among the dropped fields and then did not add it, so the client had no
+  // field to receive it into. Mirrors the edge-side declaration in
+  // supabase/functions/threat-intel-digest-v2/lib/types.ts.
+  sectionOutcomes?: Record<string, 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'retained_previous'>;
 }
 
 export interface ReportSummary {
@@ -259,6 +290,16 @@ export interface ExtractedIoC {
 export interface ExtractedRule {
   id: string;
   type: ExtractedRuleType;
+  /**
+   * What this artifact actually is. `type` alone could not say: it held both
+   * query languages (`kql`) and things that are not languages at all
+   * (`github_reference`, a Palo Alto signature ID averaging 5 characters,
+   * prose reading "log analysis"). Only `kind: 'query'` is deployable.
+   * See E3 in the intel-digest problem inventory.
+   */
+  kind?: 'query' | 'reference' | 'description';
+  /** False when the type string matched no known vocabulary entry. */
+  typeRecognized?: boolean;
   name?: string;
   content: string;
   sourceUrl?: string;        // GitHub link or original source
@@ -372,8 +413,8 @@ export interface ThreatIntelSession {
   source?: 'manual' | 'auto';
   sourceFeedName?: string;
   sourceArticleUrl?: string;
-  feasibleGapCount?: number;
-  infeasibleGapCount?: number;
+  feasibleGapCount?: number | null;
+  infeasibleGapCount?: number | null;
 }
 
 export interface UpdatedEntityRecord {
@@ -397,7 +438,14 @@ export interface ThreatIntelSessionSummary {
   attackType?: AttackType;
   attribution?: string;
   organization?: string;
-  coveragePercent?: number;
+  /**
+   * `null` means coverage could not be assessed -- distinct from 0, which
+   * claims it was assessed and nothing matched. While this was `number` the
+   * list path could not carry that distinction, so every absent value arrived
+   * as 0 and the same report read "Unknown" on its detail page and a
+   * percentage in the library. The type was the blocker, not the `??`.
+   */
+  coveragePercent?: number | null;
   source?: 'manual' | 'auto';
   sourceFeedName?: string;
   sourceArticleUrl?: string;
@@ -434,11 +482,38 @@ export interface DigestOptions {
 }
 
 export interface DigestReportResponse {
+  /**
+   * "A usable report is attached" -- NOT "nothing went wrong". A partial run
+   * is a success that has something to warn about. Read `outcome` for the
+   * completeness verdict. Prefer `digestProducedUsableReport` over reading
+   * this directly; see A3 in the intel-digest problem inventory.
+   */
   success: boolean;
   report?: ThreatReport;
   outcome?: 'complete' | 'partial' | 'failed' | 'cancelled';
   error?: string;
   processingTimeMs?: number;
+}
+
+/**
+ * Whether a digest response carries a report the caller can persist and render.
+ *
+ * Three call sites each answered this differently. Two tested `success`, which
+ * the edge function set to `outcome === 'complete'` -- so both discarded every
+ * partial report and displayed an unexplained failure (A3). The third read
+ * `outcome` and was correct.
+ *
+ * `outcome` is the authoritative field and is checked first, which also makes
+ * this correct against a digest function deployed before that fix: an old
+ * response for a partial run says `success: false` but `outcome: 'partial'`.
+ * Deploys are not atomic, so the client must not depend on version parity.
+ */
+export function digestProducedUsableReport(
+  response: Pick<DigestReportResponse, 'success' | 'outcome' | 'report'>,
+): boolean {
+  if (!response.report) return false;
+  if (response.outcome) return response.outcome !== 'failed' && response.outcome !== 'cancelled';
+  return response.success;
 }
 
 // ============================================
@@ -540,6 +615,7 @@ export function getRuleTypeLabel(type: ExtractedRuleType): string {
     [ExtractedRuleType.YARA]: 'YARA',
     [ExtractedRuleType.Sigma]: 'Sigma',
     [ExtractedRuleType.KQL]: 'KQL',
+    [ExtractedRuleType.Sentinel]: 'Microsoft Sentinel',
     [ExtractedRuleType.SPL]: 'Splunk SPL',
     [ExtractedRuleType.EQL]: 'EQL',
     [ExtractedRuleType.Snort]: 'Snort',

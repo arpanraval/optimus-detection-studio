@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from '../Icon';
+import type { IconName } from '../Icon';
 
 export type FABSize = 'small' | 'medium' | 'large';
 export type FABColor = 'primary' | 'secondary' | 'surface' | 'error';
@@ -10,7 +11,7 @@ export interface FABProps extends React.ButtonHTMLAttributes<HTMLButtonElement> 
   /** FAB color - primary (#783264), secondary (#4D7C6F), surface (grey), error (#A63D40) */
   color?: FABColor;
   /** Icon name (uses Icon component) */
-  icon: string;
+  icon: IconName;
   /** Label text (makes it an Extended FAB) */
   label?: string;
   /** Position fixed in viewport */

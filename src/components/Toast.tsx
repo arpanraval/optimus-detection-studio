@@ -43,25 +43,25 @@ export const Toast: React.FC<ToastProps> = ({ toast, onClose }) => {
   // Option A: Floating Card Toast with glow effect - Detection Studio colors
   const config = {
     success: {
-      icon: 'check',
+      icon: 'check' as const,
       iconBg: 'bg-gradient-to-br from-[#4D7C6F] to-[#3d6358]',
       glow: 'shadow-[0_8px_32px_rgba(77,124,111,0.25)]',
       border: 'border-[#4D7C6F]/30',
     },
     error: {
-      icon: 'x',
+      icon: 'x' as const,
       iconBg: 'bg-gradient-to-br from-[#A63D40] to-[#8a3234]',
       glow: 'shadow-[0_8px_32px_rgba(166,61,64,0.25)]',
       border: 'border-[#A63D40]/30',
     },
     warning: {
-      icon: 'alert-triangle',
+      icon: 'alert-triangle' as const,
       iconBg: 'bg-gradient-to-br from-[#F97316] to-[#ea580c]',
       glow: 'shadow-[0_8px_32px_rgba(249,115,22,0.25)]',
       border: 'border-[#F97316]/30',
     },
     info: {
-      icon: 'info',
+      icon: 'info' as const,
       iconBg: 'bg-gradient-to-br from-[#005091] to-[#003d6e]',
       glow: 'shadow-[0_8px_32px_rgba(0,80,145,0.25)]',
       border: 'border-[#005091]/30',

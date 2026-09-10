@@ -22,8 +22,32 @@ const MAX_INPUT_LENGTH = 8000
 const BATCH_FETCH_SIZE = 500
 const MAX_BATCH_ITEMS = 500
 const ID_SCAN_PAGE_SIZE = 1000
+// HNSW maintenance makes large vector upserts exceed PostgREST's statement
+// timeout. Keep each transaction small; retries ignore rows already persisted.
+const DB_WRITE_BATCH_SIZE = 25
+// Gemini's Batch API targets completion within 24 hours. Allow a full
+// additional day for provider variance, then fail abandoned records.
+const MAX_ACTIVE_JOB_AGE_MS = 48 * 60 * 60 * 1000
 
 interface MappingEntry { t: 'd' | 'm'; id: string; h: string; mid?: string; ot?: string }
+function isStaleActiveJob(job: { created_at?: string | null; status: string }): boolean {
+  if (!['pending', 'submitted', 'running', 'processing', 'succeeded'].includes(job.status)) return false
+  if (!job.created_at) return false
+  const createdAt = new Date(job.created_at).getTime()
+  return Number.isFinite(createdAt) && Date.now() - createdAt > MAX_ACTIVE_JOB_AGE_MS
+}
+
+async function markStaleJobFailed(supabase: any, job: any): Promise<any> {
+  const errorMessage = 'Batch exceeded the 48-hour maximum age and was marked failed automatically'
+  const completedAt = new Date().toISOString()
+  await supabase.from('batch_embedding_jobs').update({
+    status: 'failed',
+    error_message: errorMessage,
+    updated_at: completedAt,
+    completed_at: completedAt,
+  }).eq('id', job.id)
+  return { ...job, status: 'failed', error_message: errorMessage, updated_at: completedAt, completed_at: completedAt }
+}
 
 function safeSlice(str: string, maxLen: number): string {
   if (str.length <= maxLen) return str
@@ -62,15 +86,115 @@ async function geminiRequest(path: string, method: string, body?: unknown) {
   return res.json()
 }
 
+interface BatchResultSummary {
+  state: string | null
+  stats: Record<string, unknown> | null
+  responseCount: number
+  embeddingCount: number
+  providerErrorCount: number
+  invalidResponseCount: number
+  embeddingDimensions: number[]
+  providerErrors: Array<{ signature: string; count: number }>
+}
+
+function getBatchResponses(batchResult: any): any[] {
+  const batchPayload = batchResult.response ?? batchResult.metadata ?? batchResult
+  const batchOutput = batchPayload.output ?? batchPayload
+  const responses = batchOutput?.inlinedResponses?.inlinedResponses
+    || (Array.isArray(batchOutput?.inlinedResponses) ? batchOutput.inlinedResponses : null)
+    || batchResult.dest?.inlinedEmbedContentResponses
+    || batchResult.dest?.inlined_embed_content_responses
+    || []
+  return Array.isArray(responses) ? responses : []
+}
+
+function providerErrorSignature(error: any): string {
+  const code = error?.code ?? 'unknown-code'
+  const status = error?.status ? ` ${error.status}` : ''
+  const message = error?.message ?? JSON.stringify(error ?? 'missing error payload')
+  return `[${code}${status}] ${String(message).slice(0, 700)}`
+}
+
+function summarizeBatchResult(batchResult: any): BatchResultSummary {
+  const batchPayload = batchResult.response ?? batchResult.metadata ?? batchResult
+  const responses = getBatchResponses(batchResult)
+  const errorCounts = new Map<string, number>()
+  const dimensions = new Set<number>()
+  let embeddingCount = 0
+  let providerErrorCount = 0
+  let invalidResponseCount = 0
+
+  for (const item of responses) {
+    const values = item?.response?.embedding?.values
+    if (Array.isArray(values)) {
+      embeddingCount++
+      dimensions.add(values.length)
+      continue
+    }
+    if (item?.error) {
+      providerErrorCount++
+      const signature = providerErrorSignature(item.error)
+      errorCounts.set(signature, (errorCounts.get(signature) ?? 0) + 1)
+      continue
+    }
+    invalidResponseCount++
+  }
+
+  return {
+    state: batchPayload.state ?? batchResult.state ?? null,
+    stats: batchPayload.batchStats ?? batchResult.batchStats ?? null,
+    responseCount: responses.length,
+    embeddingCount,
+    providerErrorCount,
+    invalidResponseCount,
+    embeddingDimensions: [...dimensions].sort((a, b) => a - b),
+    providerErrors: [...errorCounts.entries()]
+      .map(([signature, count]) => ({ signature, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10),
+  }
+}
+
+function formatBatchFailure(summary: BatchResultSummary, databaseErrors: string[] = []): string {
+  const parts: string[] = []
+  if (summary.providerErrorCount > 0) {
+    const examples = summary.providerErrors.map(error => `${error.count}x ${error.signature}`).join('; ')
+    parts.push(`Gemini rejected ${summary.providerErrorCount}/${summary.responseCount} items: ${examples}`)
+  }
+  if (summary.invalidResponseCount > 0) {
+    parts.push(`${summary.invalidResponseCount}/${summary.responseCount} Gemini items had neither an embedding nor an error`)
+  }
+  if (databaseErrors.length > 0) {
+    parts.push(`Database errors: ${databaseErrors.join('; ')}`)
+  }
+  return parts.join(' | ').slice(0, 4000) || 'Batch failed without a diagnostic detail'
+}
+
+function toDatabaseEmbedding(values: unknown): number[] {
+  if (!Array.isArray(values)) throw new Error('Gemini response has no embedding values array')
+  if (values.length < EMBEDDING_DIMENSIONS) {
+    throw new Error(`Gemini returned ${values.length} dimensions; expected at least ${EMBEDDING_DIMENSIONS}`)
+  }
+  const embedding = values.slice(0, EMBEDDING_DIMENSIONS)
+  if (!embedding.every(value => typeof value === 'number' && Number.isFinite(value))) {
+    throw new Error('Gemini embedding contains a non-finite value')
+  }
+  return embedding
+}
+
 async function handleSubmit(supabase: any, userId: string, req: Request): Promise<Response> {
   const corsHeaders = getCorsHeaders(req)
   const diag: Record<string, unknown> = { phase: 'start' }
 
   try {
     diag.phase = 'check_active'
-    const { data: activeJobs } = await supabase.from('batch_embedding_jobs').select('id, status').in('status', ['pending', 'submitted', 'running', 'processing']).limit(1)
+    const { data: activeJobs } = await supabase.from('batch_embedding_jobs').select('id, status, created_at').in('status', ['pending', 'submitted', 'running', 'processing']).limit(1)
     if (activeJobs?.length > 0) {
-      return new Response(JSON.stringify({ error: 'A batch job is already active', jobId: activeJobs[0].id }), { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      if (isStaleActiveJob(activeJobs[0])) {
+        await markStaleJobFailed(supabase, activeJobs[0])
+      } else {
+        return new Response(JSON.stringify({ error: 'A batch job is already active', jobId: activeJobs[0].id }), { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      }
     }
 
     diag.phase = 'scan_embedded_detections'
@@ -138,12 +262,12 @@ async function handleSubmit(supabase: any, userId: string, req: Request): Promis
     for (const d of pendingDetections) {
       const text = buildDetectionText(d)
       mapping.push({ t: 'd', id: d.id, h: hashContent(text) })
-      inlinedRequests.push({ request: { model: `models/${EMBEDDING_MODEL}`, content: { parts: [{ text }] }, taskType: 'RETRIEVAL_DOCUMENT', outputDimensionality: EMBEDDING_DIMENSIONS } })
+      inlinedRequests.push({ request: { model: `models/${EMBEDDING_MODEL}`, content: { parts: [{ text }] }, embedContentConfig: { taskType: 'RETRIEVAL_DOCUMENT', outputDimensionality: EMBEDDING_DIMENSIONS } } })
     }
     for (const m of pendingMitre) {
       const text = buildMitreText(m)
       mapping.push({ t: 'm', id: m.stix_id, h: hashContent(text), mid: m.mitre_id, ot: m.type })
-      inlinedRequests.push({ request: { model: `models/${EMBEDDING_MODEL}`, content: { parts: [{ text }] }, taskType: 'RETRIEVAL_DOCUMENT', outputDimensionality: EMBEDDING_DIMENSIONS } })
+      inlinedRequests.push({ request: { model: `models/${EMBEDDING_MODEL}`, content: { parts: [{ text }] }, embedContentConfig: { taskType: 'RETRIEVAL_DOCUMENT', outputDimensionality: EMBEDDING_DIMENSIONS } } })
     }
     diag.requestCount = inlinedRequests.length
 
@@ -210,69 +334,164 @@ async function handleCheck(supabase: any, jobId: string, req: Request): Promise<
   if (['completed', 'failed', 'cancelled'].includes(job.status)) {
     return new Response(JSON.stringify({ jobId: job.id, status: job.status, totalItems: job.total_items, processedItems: job.processed_items, failedItems: job.failed_items, errorMessage: job.error_message, completedAt: job.completed_at, createdAt: job.created_at }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   }
+  if (isStaleActiveJob(job)) {
+    const failedJob = await markStaleJobFailed(supabase, job)
+    return new Response(JSON.stringify({ jobId: failedJob.id, status: failedJob.status, totalItems: failedJob.total_items, processedItems: failedJob.processed_items, failedItems: failedJob.failed_items, errorMessage: failedJob.error_message, completedAt: failedJob.completed_at, createdAt: failedJob.created_at }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+  }
   try {
     const batchStatus = await geminiRequest(`/${job.gemini_batch_name}`, 'GET')
-    const stateMap: Record<string, string> = { 'JOB_STATE_PENDING': 'submitted', 'JOB_STATE_RUNNING': 'running', 'JOB_STATE_SUCCEEDED': 'succeeded', 'JOB_STATE_FAILED': 'failed', 'JOB_STATE_CANCELLED': 'cancelled', 'JOB_STATE_EXPIRED': 'failed' }
-    const newStatus = stateMap[batchStatus.state] || job.status
+    // batches.get returns an Operation wrapper; state/output are under metadata.
+    const batchPayload = batchStatus.metadata ?? batchStatus.response ?? batchStatus
+    const batchState = batchPayload.state ?? batchStatus.state
+    // Gemini's Batch API uses BATCH_STATE_* values (not JOB_STATE_*).
+    // Keep the older aliases for compatibility with any legacy responses.
+    const stateMap: Record<string, string> = {
+      'BATCH_STATE_PENDING': 'submitted',
+      'BATCH_STATE_RUNNING': 'running',
+      'BATCH_STATE_SUCCEEDED': 'succeeded',
+      'BATCH_STATE_FAILED': 'failed',
+      'BATCH_STATE_CANCELLED': 'cancelled',
+      'BATCH_STATE_EXPIRED': 'failed',
+      'JOB_STATE_PENDING': 'submitted',
+      'JOB_STATE_RUNNING': 'running',
+      'JOB_STATE_SUCCEEDED': 'succeeded',
+      'JOB_STATE_FAILED': 'failed',
+      'JOB_STATE_CANCELLED': 'cancelled',
+      'JOB_STATE_EXPIRED': 'failed',
+    }
+    const newStatus = stateMap[batchState] || job.status
     if (newStatus !== job.status) {
       const updateData: any = { status: newStatus, updated_at: new Date().toISOString() }
       if (['failed', 'cancelled'].includes(newStatus)) {
-        updateData.error_message = batchStatus.error?.message || `Job ${batchStatus.state}`
+        updateData.error_message = batchPayload.error?.message || batchStatus.error?.message || ('Job ' + batchState)
         updateData.completed_at = new Date().toISOString()
       }
       await supabase.from('batch_embedding_jobs').update(updateData).eq('id', jobId)
     }
-    return new Response(JSON.stringify({ jobId: job.id, status: newStatus, totalItems: job.total_items, processedItems: job.processed_items, failedItems: job.failed_items, batchStats: batchStatus.batchStats || null, errorMessage: newStatus === 'failed' ? (batchStatus.error?.message || 'Job failed') : null, createdAt: job.created_at }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    return new Response(JSON.stringify({ jobId: job.id, status: newStatus, totalItems: job.total_items, processedItems: job.processed_items, failedItems: job.failed_items, batchStats: batchPayload.batchStats || batchStatus.batchStats || null, errorMessage: newStatus === 'failed' ? (batchPayload.error?.message || batchStatus.error?.message || 'Job failed') : null, createdAt: job.created_at }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   } catch (e: any) {
     return new Response(JSON.stringify({ jobId: job.id, status: job.status, error: e.message, createdAt: job.created_at }), { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   }
 }
 
-async function handleProcess(supabase: any, jobId: string, req: Request): Promise<Response> {
+async function handleProcess(supabase: any, jobId: string, req: Request, allowFailedRecovery = false): Promise<Response> {
   const corsHeaders = getCorsHeaders(req)
   const { data: job, error } = await supabase.from('batch_embedding_jobs').select('*').eq('id', jobId).single()
   if (error || !job) return new Response(JSON.stringify({ error: 'Job not found' }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-  if (job.status !== 'succeeded') return new Response(JSON.stringify({ error: `Job is ${job.status}, not ready for processing` }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+  const canProcess = job.status === 'succeeded' || (allowFailedRecovery && job.status === 'failed')
+  if (!canProcess) return new Response(JSON.stringify({ error: `Job is ${job.status}, not ready for processing` }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   await supabase.from('batch_embedding_jobs').update({ status: 'processing', updated_at: new Date().toISOString() }).eq('id', jobId)
   try {
     const batchResult = await geminiRequest(`/${job.gemini_batch_name}`, 'GET')
-    const responses = batchResult.output?.inlinedResponses || batchResult.dest?.inlinedEmbedContentResponses || batchResult.dest?.inlined_embed_content_responses || []
-    console.log(`[batch-embedding] process: got ${responses.length} responses for ${job.request_mapping?.length || 0} mapping entries`)
+    const responses = getBatchResponses(batchResult)
+    const providerSummary = summarizeBatchResult(batchResult)
     const mapping: MappingEntry[] = job.request_mapping
+    console.log('[batch-embedding] provider result summary', JSON.stringify({ jobId, ...providerSummary }))
+    // Never convert an unparsed/empty provider response into a successful terminal job.
+    if (!Array.isArray(mapping) || mapping.length === 0) {
+      throw new Error('Batch job has no request mapping; refusing to process results')
+    }
+    if (responses.length !== mapping.length) {
+      throw new Error(`Gemini returned ${responses.length} responses for ${mapping.length} requests`)
+    }
     let processed = 0, failed = 0
+    const databaseErrors: string[] = []
     const DET_BATCH: any[] = []
     const MITRE_BATCH: any[] = []
     for (let i = 0; i < mapping.length; i++) {
       const entry = mapping[i]
       const resp = responses[i]
       if (!resp?.response?.embedding?.values) { failed++; continue }
-      const embedding = `[${resp.response.embedding.values.join(',')}]`
+      let embeddingValues: number[]
+      try {
+        embeddingValues = toDatabaseEmbedding(resp.response.embedding.values)
+      } catch (error) {
+        failed++
+        databaseErrors.push(`item ${entry.id}: ${error instanceof Error ? error.message : String(error)}`)
+        continue
+      }
+      const embedding = `[${embeddingValues.join(',')}]`
       if (entry.t === 'd') DET_BATCH.push({ detection_id: entry.id, embedding, content_hash: entry.h, embedded_text: '', updated_at: new Date().toISOString() })
       else MITRE_BATCH.push({ stix_id: entry.id, mitre_id: entry.mid, type: entry.ot, embedding, content_hash: entry.h, embedded_text: '' })
-      if (DET_BATCH.length >= 100) {
-        const { error: uErr } = await supabase.from('detection_embeddings').upsert(DET_BATCH, { onConflict: 'detection_id' })
-        if (uErr) failed += DET_BATCH.length; else processed += DET_BATCH.length
+      if (DET_BATCH.length >= DB_WRITE_BATCH_SIZE) {
+        const { error: uErr } = await supabase.from('detection_embeddings').upsert(DET_BATCH, { onConflict: 'detection_id', ignoreDuplicates: true })
+        if (uErr) {
+          failed += DET_BATCH.length
+          databaseErrors.push(`detection_embeddings (${DET_BATCH.length} rows): ${uErr.message}`)
+          console.error('[batch-embedding] detection upsert failed', JSON.stringify({ jobId, rows: DET_BATCH.length, error: uErr }))
+        } else processed += DET_BATCH.length
         DET_BATCH.length = 0
       }
-      if (MITRE_BATCH.length >= 100) {
-        const { error: uErr } = await supabase.from('mitre_embeddings').upsert(MITRE_BATCH, { onConflict: 'stix_id' })
-        if (uErr) failed += MITRE_BATCH.length; else processed += MITRE_BATCH.length
+      if (MITRE_BATCH.length >= DB_WRITE_BATCH_SIZE) {
+        const { error: uErr } = await supabase.from('mitre_embeddings').upsert(MITRE_BATCH, { onConflict: 'stix_id', ignoreDuplicates: true })
+        if (uErr) {
+          failed += MITRE_BATCH.length
+          databaseErrors.push(`mitre_embeddings (${MITRE_BATCH.length} rows): ${uErr.message}`)
+          console.error('[batch-embedding] MITRE upsert failed', JSON.stringify({ jobId, rows: MITRE_BATCH.length, error: uErr }))
+        } else processed += MITRE_BATCH.length
         MITRE_BATCH.length = 0
       }
     }
     if (DET_BATCH.length > 0) {
-      const { error: uErr } = await supabase.from('detection_embeddings').upsert(DET_BATCH, { onConflict: 'detection_id' })
-      if (uErr) failed += DET_BATCH.length; else processed += DET_BATCH.length
+      const { error: uErr } = await supabase.from('detection_embeddings').upsert(DET_BATCH, { onConflict: 'detection_id', ignoreDuplicates: true })
+      if (uErr) {
+        failed += DET_BATCH.length
+        databaseErrors.push(`detection_embeddings (${DET_BATCH.length} rows): ${uErr.message}`)
+        console.error('[batch-embedding] detection upsert failed', JSON.stringify({ jobId, rows: DET_BATCH.length, error: uErr }))
+      } else processed += DET_BATCH.length
     }
     if (MITRE_BATCH.length > 0) {
-      const { error: uErr } = await supabase.from('mitre_embeddings').upsert(MITRE_BATCH, { onConflict: 'stix_id' })
-      if (uErr) failed += MITRE_BATCH.length; else processed += MITRE_BATCH.length
+      const { error: uErr } = await supabase.from('mitre_embeddings').upsert(MITRE_BATCH, { onConflict: 'stix_id', ignoreDuplicates: true })
+      if (uErr) {
+        failed += MITRE_BATCH.length
+        databaseErrors.push(`mitre_embeddings (${MITRE_BATCH.length} rows): ${uErr.message}`)
+        console.error('[batch-embedding] MITRE upsert failed', JSON.stringify({ jobId, rows: MITRE_BATCH.length, error: uErr }))
+      } else processed += MITRE_BATCH.length
     }
-    await supabase.from('batch_embedding_jobs').update({ status: 'completed', processed_items: processed, failed_items: failed, updated_at: new Date().toISOString(), completed_at: new Date().toISOString() }).eq('id', jobId)
-    return new Response(JSON.stringify({ jobId, status: 'completed', processed, failed }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    const terminalStatus = failed === 0 ? 'completed' : 'failed'
+    const terminalError = failed === 0 ? null : formatBatchFailure(providerSummary, databaseErrors)
+    await supabase.from('batch_embedding_jobs').update({ status: terminalStatus, processed_items: processed, failed_items: failed, error_message: terminalError, updated_at: new Date().toISOString(), completed_at: new Date().toISOString() }).eq('id', jobId)
+    return new Response(JSON.stringify({ jobId, status: terminalStatus, processed, failed, errorMessage: terminalError }), { status: failed === 0 ? 200 : 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   } catch (e: any) {
     await supabase.from('batch_embedding_jobs').update({ status: 'failed', error_message: e.message, updated_at: new Date().toISOString(), completed_at: new Date().toISOString() }).eq('id', jobId)
     return new Response(JSON.stringify({ error: 'Failed to process results', detail: e.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+  }
+}
+
+async function handleDiagnose(supabase: any, jobId: string, req: Request): Promise<Response> {
+  const corsHeaders = getCorsHeaders(req)
+  const { data: job, error } = await supabase.from('batch_embedding_jobs')
+    .select('id, gemini_batch_name, status, total_items')
+    .eq('id', jobId)
+    .single()
+  if (error || !job) {
+    return new Response(JSON.stringify({ error: 'Job not found' }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+  }
+  if (!job.gemini_batch_name) {
+    return new Response(JSON.stringify({ error: 'Job has no Gemini batch name' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+  }
+
+  try {
+    const batchResult = await geminiRequest(`/${job.gemini_batch_name}`, 'GET')
+    const summary = summarizeBatchResult(batchResult)
+    const diagnostic = formatBatchFailure(summary)
+    console.log('[batch-embedding] diagnostic result', JSON.stringify({ jobId, ...summary }))
+    if (job.status === 'failed') {
+      await supabase.from('batch_embedding_jobs').update({
+        error_message: diagnostic,
+        updated_at: new Date().toISOString(),
+      }).eq('id', jobId)
+    }
+    return new Response(JSON.stringify({
+      jobId,
+      storedStatus: job.status,
+      totalItems: job.total_items,
+      diagnostic,
+      ...summary,
+    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+  } catch (e: any) {
+    console.error('[batch-embedding] diagnostic fetch failed', JSON.stringify({ jobId, error: e?.message }))
+    return new Response(JSON.stringify({ error: 'Failed to inspect Gemini batch', detail: e?.message }), { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   }
 }
 
@@ -320,34 +539,48 @@ serve(async (req: Request) => {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader?.startsWith('Bearer ')) return new Response(JSON.stringify({ error: 'Missing authorization' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     const token = authHeader.replace('Bearer ', '')
-    const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-    if (authError || !user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const supabase = createClient(Deno.env.get('SUPABASE_URL')!, serviceRoleKey)
+    const body = await req.json()
+    const { action, jobId } = body
+    const isInternalDiagnostic = token === serviceRoleKey && ['diagnose', 'recover'].includes(action)
+    const { data: { user }, error: authError } = isInternalDiagnostic
+      ? { data: { user: null }, error: null }
+      : await supabase.auth.getUser(token)
+    if (!isInternalDiagnostic && (authError || !user)) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     // ADMIN GATE: batch embedding is a global maintenance operation -- it scans
     // and re-embeds the entire detection corpus and drives Gemini batch jobs.
     // Restrict to owner/admin (the Data Sync page). Non-admin callers that reach
     // here (e.g. a bulk import using the 'batch' strategy) get 403; that path is
     // fire-and-forget and degrades gracefully.
-    const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-    if (!profile || !['owner', 'admin'].includes(profile.role)) {
-      return new Response(JSON.stringify({ error: 'Forbidden: admin access required' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    if (!isInternalDiagnostic) {
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', user!.id).single()
+      if (!profile || !['owner', 'admin'].includes(profile.role)) {
+        return new Response(JSON.stringify({ error: 'Forbidden: admin access required' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      }
     }
-    const body = await req.json()
-    const { action, jobId } = body
     switch (action) {
-      case 'submit': return handleSubmit(supabase, user.id, req)
+      case 'submit': return handleSubmit(supabase, user!.id, req)
       case 'check':
         if (!jobId) return new Response(JSON.stringify({ error: 'jobId required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
         return handleCheck(supabase, jobId, req)
       case 'process':
         if (!jobId) return new Response(JSON.stringify({ error: 'jobId required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
         return handleProcess(supabase, jobId, req)
+      case 'diagnose':
+        if (!jobId) return new Response(JSON.stringify({ error: 'jobId required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        return handleDiagnose(supabase, jobId, req)
+      case 'recover':
+        if (!isInternalDiagnostic) return new Response(JSON.stringify({ error: 'Forbidden: internal recovery only' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        if (!jobId) return new Response(JSON.stringify({ error: 'jobId required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        return handleProcess(supabase, jobId, req, true)
       case 'cancel':
         if (!jobId) return new Response(JSON.stringify({ error: 'jobId required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
         return handleCancel(supabase, jobId, req)
       case 'active': {
         const { data: activeJob } = await supabase.from('batch_embedding_jobs').select('id, status, total_items, processed_items, failed_items, gemini_batch_name, created_at, error_message').in('status', ['pending', 'submitted', 'running', 'succeeded', 'processing']).order('created_at', { ascending: false }).limit(1).maybeSingle()
-        return new Response(JSON.stringify({ job: activeJob || null }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        const recoveredJob = activeJob && isStaleActiveJob(activeJob) ? await markStaleJobFailed(supabase, activeJob) : activeJob
+        return new Response(JSON.stringify({ job: recoveredJob || null }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
       }
       default:
         return new Response(JSON.stringify({ error: `Invalid action: ${action}` }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })

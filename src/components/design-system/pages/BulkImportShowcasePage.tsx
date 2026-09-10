@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DesignSystemPage, Section } from '../shared';
 import { Icon } from '../../Icon';
+import type { IconName } from '../../Icon';
 
 const BRAND = '#783264';
 const COLORS = {
@@ -50,7 +51,7 @@ const AnimationStyles = () => (
 // SHARED: Wizard Step Indicator
 // ============================================================================
 function WizardStepIndicator({ activeIndex, variant = 'default' }: { activeIndex: number; variant?: 'default' | 'intel' | 'forge' }) {
-  const steps = [
+  const steps: { label: string; icon: IconName }[] = [
     { label: 'Source', icon: 'upload' },
     { label: 'Scan', icon: 'search' },
     { label: 'Parsing', icon: 'refresh-cw' },
@@ -111,12 +112,12 @@ function CountUpNumber({ value, suffix = '', className = '' }: { value: number; 
 // ============================================================================
 // SHARED DATA
 // ============================================================================
-const SOURCES = [
+const SOURCES: { id: 'zip' | 'files' | 'github'; label: string; desc: string; icon: IconName }[] = [
   { id: 'zip' as const, label: 'ZIP Archive', desc: 'Upload a ZIP file containing detection rules', icon: 'archive' },
   { id: 'files' as const, label: 'Individual Files', desc: 'Upload one or more YAML/JSON detection rule files', icon: 'file-text' },
   { id: 'github' as const, label: 'GitHub Repository', desc: 'Import directly from a public GitHub repository', icon: 'github' },
 ];
-const VENDORS = [
+const VENDORS: { id: string; label: string; icon: IconName }[] = [
   { id: 'auto', label: 'Auto-Detect', icon: 'zap' },
   { id: 'sigma', label: 'Sigma', icon: 'shield' },
   { id: 'splunk_escu', label: 'Splunk ESCU', icon: 'database' },
@@ -125,7 +126,7 @@ const VENDORS = [
   { id: 'crowdstrike', label: 'CrowdStrike', icon: 'crosshair' },
   { id: 'chronicle', label: 'Chronicle', icon: 'layers' },
 ];
-const DUP_OPTIONS = [
+const DUP_OPTIONS: { id: string; label: string; icon: IconName }[] = [
   { id: 'skip', label: 'Skip Duplicates', icon: 'chevron-right' },
   { id: 'update', label: 'Update Existing', icon: 'refresh-cw' },
   { id: 'create_new', label: 'Create New', icon: 'copy' },
@@ -139,7 +140,7 @@ const MOCK_RULES = [
 ];
 const SEVERITY_COLORS: Record<string, string> = { Critical: '#DC2626', High: '#D97706', Medium: '#0D9488', Low: '#3B82F6', Informational: '#6B7280' };
 const STATUS_COLORS: Record<string, string> = { valid: COLORS.success, warning: COLORS.warning, error: COLORS.failure, duplicate: BRAND };
-const STATUS_ICONS: Record<string, string> = { valid: 'check-circle', warning: 'alert-triangle', error: 'x-circle', duplicate: 'copy' };
+const STATUS_ICONS: Record<string, IconName> = { valid: 'check-circle', warning: 'alert-triangle', error: 'x-circle', duplicate: 'copy' };
 const TERMINAL_FILES = [
   'rules/windows/process_creation/proc_creation_win_susp_powershell.yml',
   'rules/windows/registry/registry_set_persistence_run_key.yml',
@@ -170,7 +171,7 @@ const ERROR_GROUPS = [
   { category: 'database_error', label: 'Database Errors', icon: 'database', color: COLORS.failure, count: 2,
     rules: [{ title: 'Large Rule Payload', msg: 'Row exceeds maximum size limit', suggestion: 'Reduce rule content size' }]
   },
-];
+] satisfies { icon: IconName; [key: string]: unknown }[];
 
 // ============================================================================
 // OPTION A: "INTELLIGENCE FEED" — Reusable SVG Components
@@ -541,11 +542,11 @@ function IntelScanStep() {
 
         {/* Stats at compass points around the radar */}
         <div className="grid grid-cols-3 gap-4 mt-4">
-          {[
+          {([
             { label: 'Matching files', value: 3247, icon: 'file-text' },
             { label: 'Estimated rules', value: 3247, icon: 'shield', prefix: '~' },
             { label: 'Rate limit remaining', value: 4892, icon: 'clock', suffix: '/5,000' },
-          ].map((stat, i) => (
+          ] satisfies { label: string; value: number; icon: IconName; prefix?: string; suffix?: string }[]).map((stat, i) => (
             <div key={stat.label} className="text-center p-3 rounded-xl bg-surface-variant/10 border border-outline-variant/15"
               style={{ animation: `reveal-up 0.4s ease-out ${0.5 + i * 0.3}s both` }}>
               <Icon name={stat.icon} className="w-4 h-4 mx-auto mb-1" style={{ color: BRAND }} />

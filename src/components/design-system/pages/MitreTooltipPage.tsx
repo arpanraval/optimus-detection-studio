@@ -1,6 +1,7 @@
 import React from 'react';
 import { DesignSystemPage, Section, ComponentRow } from '../shared';
 import { Icon } from '../../Icon';
+import type { IconName } from '../../Icon';
 
 // =============================================================================
 // MITRE ATT&CK TECHNIQUE TOOLTIP REDESIGN
@@ -19,7 +20,7 @@ const MOCK_GROUPS = [
     { name: 'GALLIUM' },
     { name: 'Dragonfly' },
 ];
-const MOCK_SOFTWARE = [
+const MOCK_SOFTWARE: { name: string; icon: IconName }[] = [
     { name: 'Mimikatz', icon: 'key' },
     { name: 'Cobalt Strike', icon: 'crosshair' },
     { name: 'SeaDuke', icon: 'terminal' },
