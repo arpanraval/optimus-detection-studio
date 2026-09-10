@@ -615,6 +615,7 @@ export function getRuleTypeLabel(type: ExtractedRuleType): string {
     [ExtractedRuleType.YARA]: 'YARA',
     [ExtractedRuleType.Sigma]: 'Sigma',
     [ExtractedRuleType.KQL]: 'KQL',
+    [ExtractedRuleType.Sentinel]: 'Microsoft Sentinel',
     [ExtractedRuleType.SPL]: 'Splunk SPL',
     [ExtractedRuleType.EQL]: 'EQL',
     [ExtractedRuleType.Snort]: 'Snort',
