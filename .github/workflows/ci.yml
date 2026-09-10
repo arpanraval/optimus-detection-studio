@@ -49,7 +49,7 @@ jobs:
     # here is GATED. Burn this list down to empty, then delete the advisory
     # step below — that deletion is the point of the step existing.
     env:
-      KNOWN_FAILING: detection-finetune optimus-tools threat-intel-digest-v2
+      KNOWN_FAILING: detection-finetune optimus-tools
     steps:
       - uses: actions/checkout@v4
 
@@ -117,7 +117,6 @@ jobs:
       # Pre-existing debt, ADVISORY so it annotates without blocking:
       #   detection-finetune      63 errors (TS2339, TS2345, TS2322, TS18046)
       #   optimus-tools            6 errors (TS7006, TS2339, TS7034, TS7005)
-      #   threat-intel-digest-v2   1 error  (TS2322)
       - name: Deno check — known-failing edge functions (advisory)
         continue-on-error: true
         run: |
