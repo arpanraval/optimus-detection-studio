@@ -119,3 +119,59 @@ export function crowdStrikeUpdate(id: string, content: RuleContent): Record<stri
     operation, status: content.enabled ? 'active' : 'inactive',
   };
 }
+
+/** How a remote rule relates to the shared library. Classification itself lives in SQL
+ *  (public.siem_inventory_relationship); this type only names the results. */
+export type InventoryRelationship =
+  | 'not_in_library'
+  | 'already_in_library'
+  | 'archived_in_library'
+  | 'match_needed'
+  | 'unsupported';
+
+export type InventoryRow = {
+  id: string;
+  integration_id: string;
+  vendor_rule_id: string;
+  rule_family: string;
+  display_name: string;
+  observed_enabled: boolean | null;
+  availability: 'present' | 'missing' | 'unknown';
+  normalization_error: string | null;
+  match_candidate_count: number;
+  relationship: InventoryRelationship;
+  binding_id: string | null;
+  binding_status: string | null;
+  detection_id: string | null;
+  last_seen_at: string;
+};
+
+export const RELATIONSHIP_LABELS: Record<InventoryRelationship, string> = {
+  not_in_library: 'Not in library',
+  already_in_library: 'Already in library',
+  archived_in_library: 'Archived in library',
+  match_needed: 'Match needed',
+  unsupported: 'Unsupported',
+};
+
+/** Per-rule outcome of one submitted import job. Deliberately disjoint from
+ *  RELATIONSHIP_LABELS: membership and job result are different columns. */
+export const IMPORT_OUTCOME_LABELS: Record<string, string> = {
+  pending: 'Waiting to import',
+  imported: 'Newly imported',
+  linked: 'Already present',
+  unchanged: 'Already present',
+  changed: 'Already present',
+  changed_since_preview: 'Changed since you reviewed it',
+  skipped: 'Skipped',
+  cancelled: 'Cancelled',
+  ignored: 'Tracking stopped',
+  unsupported: 'Not supported',
+  ambiguous: 'Match needed',
+  failed: 'Import failed',
+  observed: 'Seen in CrowdStrike',
+};
+
+export function isImportEligible(relationship: InventoryRelationship): boolean {
+  return relationship === 'not_in_library';
+}
