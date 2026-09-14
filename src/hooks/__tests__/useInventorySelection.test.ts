@@ -63,4 +63,38 @@ describe('inventory selection', () => {
   it('does not offer all-matching selection when nothing is eligible', () => {
     expect(setup({ eligibleTotal: 0 }).result.current.canSelectAllMatching).toBe(false);
   });
+
+  it('keeps a page-1 exclusion applied on a later page, in all-matching mode', () => {
+    const { result, rerender } = setup();
+    act(() => result.current.selectAllMatching());
+    act(() => result.current.toggle('a'));
+    expect(result.current.selectedCount).toBe(499);
+    rerender({ rows: [row('d'), row('e')], eligibleTotal: 500, filterKey: 'all|', discoveryComplete: true });
+    expect(result.current.isSelected('d')).toBe(true);
+    expect(result.current.selectedCount).toBe(499);
+    act(() => result.current.toggle('d'));
+    expect(result.current.selectedCount).toBe(498);
+    expect(result.current.isSelected('a')).toBe(false);
+  });
+
+  it('un-excludes a row from a different page than where it was excluded', () => {
+    const { result, rerender } = setup();
+    act(() => result.current.selectAllMatching());
+    act(() => result.current.toggle('a'));
+    rerender({ rows: [row('d'), row('e')], eligibleTotal: 500, filterKey: 'all|', discoveryComplete: true });
+    rerender({ rows: [row('a'), row('b'), row('c', 'already_in_library')], eligibleTotal: 500, filterKey: 'all|',
+      discoveryComplete: true });
+    act(() => result.current.toggle('a'));
+    expect(result.current.isSelected('a')).toBe(true);
+    expect(result.current.selectedCount).toBe(500);
+  });
+
+  it('reflects a partial exclusion on the current page in pageAllSelected', () => {
+    const { result } = setup({ rows: [row('a'), row('b')] });
+    act(() => result.current.selectAllMatching());
+    act(() => result.current.toggle('a'));
+    expect(result.current.pageAllSelected).toBe(false);
+    act(() => result.current.toggle('a'));
+    expect(result.current.pageAllSelected).toBe(true);
+  });
 });
