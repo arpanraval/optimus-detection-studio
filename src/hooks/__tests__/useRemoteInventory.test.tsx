@@ -9,6 +9,7 @@ vi.mock('@/services/nativeSiemService', () => ({
     inventoryCounts: vi.fn(),
     startInventory: vi.fn(),
     refreshTracked: vi.fn(),
+    latestRun: vi.fn(),
   },
 }));
 
@@ -36,6 +37,7 @@ describe('useRemoteInventory', () => {
     vi.resetAllMocks();
     vi.mocked(nativeSiemService.inventoryPage).mockResolvedValue(emptyPage);
     vi.mocked(nativeSiemService.inventoryCounts).mockResolvedValue(zeroCounts);
+    vi.mocked(nativeSiemService.latestRun).mockResolvedValue(null);
     vi.useFakeTimers();
   });
   afterEach(() => {
@@ -94,8 +96,22 @@ describe('useRemoteInventory', () => {
     );
   });
 
-  it('polls while a run is queued or running and stops once it completes', async () => {
-    vi.mocked(nativeSiemService.startInventory).mockResolvedValueOnce(queuedRun).mockResolvedValueOnce(completeRun);
+  it('picks up a run already in flight on mount, without starting one', async () => {
+    vi.mocked(nativeSiemService.latestRun).mockResolvedValue(queuedRun);
+    const { result } = renderHook(() => useRemoteInventory('connection'));
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    expect(result.current.running).toBe(true);
+    expect(result.current.run).toEqual(queuedRun);
+    expect(nativeSiemService.startInventory).not.toHaveBeenCalled();
+    expect(nativeSiemService.refreshTracked).not.toHaveBeenCalled();
+    expect(nativeSiemService.latestRun).toHaveBeenCalledWith('connection', ['inventory', 'refresh_tracked']);
+  });
+
+  it('polls status via latestRun (never a job starter) and stops once the run completes', async () => {
+    vi.mocked(nativeSiemService.startInventory).mockResolvedValueOnce(queuedRun);
+    vi.mocked(nativeSiemService.latestRun).mockResolvedValueOnce(null).mockResolvedValueOnce(completeRun);
     const { result } = renderHook(() => useRemoteInventory('connection'));
     await act(async () => {
       await vi.runOnlyPendingTimersAsync();
@@ -108,19 +124,26 @@ describe('useRemoteInventory', () => {
 
     vi.mocked(nativeSiemService.inventoryPage).mockClear();
     vi.mocked(nativeSiemService.inventoryCounts).mockClear();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000);
-    });
-
-    expect(nativeSiemService.startInventory).toHaveBeenCalledTimes(2);
-    expect(nativeSiemService.inventoryPage).toHaveBeenCalled();
-    expect(nativeSiemService.inventoryCounts).toHaveBeenCalled();
-    expect(result.current.running).toBe(false);
-
     vi.mocked(nativeSiemService.startInventory).mockClear();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
+
+    // The regression guard for the endless-scan bug: status polling must go through
+    // latestRun over PostgREST, and never re-invoke a job starter (which would create
+    // a brand-new run once the previous one is no longer active).
     expect(nativeSiemService.startInventory).not.toHaveBeenCalled();
+    expect(nativeSiemService.refreshTracked).not.toHaveBeenCalled();
+    expect(nativeSiemService.latestRun).toHaveBeenCalledWith('connection', ['inventory', 'refresh_tracked']);
+    expect(nativeSiemService.inventoryPage).toHaveBeenCalled();
+    expect(nativeSiemService.inventoryCounts).toHaveBeenCalled();
+    expect(result.current.running).toBe(false);
+
+    // The run just transitioned to complete: no further poll tick should fire.
+    vi.mocked(nativeSiemService.latestRun).mockClear();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(nativeSiemService.latestRun).not.toHaveBeenCalled();
   });
 });

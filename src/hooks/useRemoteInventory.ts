@@ -10,9 +10,7 @@ const ZERO_COUNTS: Record<InventoryRelationship, number> = {
   unsupported: 0,
 };
 
-/** Which job starter last set `run` — the poll re-invokes it (idempotent status refresh)
- *  rather than calling a separate status endpoint, since none exists. */
-type ActiveKind = 'start' | 'refresh' | null;
+const RUN_KINDS = ['inventory', 'refresh_tracked'];
 
 export function useRemoteInventory(integrationId: string) {
   const [page, setPage] = useState<InventoryPage | null>(null);
@@ -25,7 +23,6 @@ export function useRemoteInventory(integrationId: string) {
   const [search, setSearchState] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [pageIndex, setPageIndexState] = useState(0);
-  const activeKind = useRef<ActiveKind>(null);
   const generation = useRef(0);
 
   useEffect(() => {
@@ -72,10 +69,24 @@ export function useRemoteInventory(integrationId: string) {
     }
   }, [integrationId, debouncedSearch]);
 
+  /** Reads the latest job's status over RLS-protected PostgREST. Never re-invokes a job
+   *  starter to check status: the starters create a new run when none is active, so
+   *  polling one would kick off a fresh scan every tick. */
+  const loadRun = useCallback(async () => {
+    const current = generation.current;
+    try {
+      const result = await nativeSiemService.latestRun(integrationId, RUN_KINDS);
+      if (generation.current === current) setRun(result);
+    } catch {
+      /* run status is supplementary; a failure here does not block the page from rendering */
+    }
+  }, [integrationId]);
+
   // Reset on connection change and load the first page.
   useEffect(() => {
     const activeGeneration = ++generation.current;
     setPage(null);
+    setRun(null);
     setLoading(true);
     setError(null);
     return () => {
@@ -91,23 +102,25 @@ export function useRemoteInventory(integrationId: string) {
     void loadCounts();
   }, [loadCounts]);
 
+  // Pick up a run already in flight when the page opens, not only one this hook started.
+  useEffect(() => {
+    void loadRun();
+  }, [loadRun]);
+
   const running = starting || ['queued', 'running'].includes(run?.status || '');
 
   useEffect(() => {
-    if (!running || !activeKind.current) return;
+    if (!running) return;
     // Sequential polling avoids overlapping reloads; the server owns job execution.
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     let stillRunning = true;
     const poll = async () => {
       try {
-        const result =
-          activeKind.current === 'refresh'
-            ? await nativeSiemService.refreshTracked(integrationId)
-            : await nativeSiemService.startInventory(integrationId);
+        const result = await nativeSiemService.latestRun(integrationId, RUN_KINDS);
         if (!cancelled) {
           setRun(result);
-          stillRunning = ['queued', 'running'].includes(result.status);
+          stillRunning = ['queued', 'running'].includes(result?.status || '');
           await Promise.all([loadPage(), loadCounts()]);
         }
       } catch (err) {
@@ -129,7 +142,6 @@ export function useRemoteInventory(integrationId: string) {
   const startInventory = useCallback(async () => {
     setStarting(true);
     setError(null);
-    activeKind.current = 'start';
     try {
       const result = await nativeSiemService.startInventory(integrationId);
       setRun(result);
@@ -143,7 +155,6 @@ export function useRemoteInventory(integrationId: string) {
   const refreshTracked = useCallback(async () => {
     setStarting(true);
     setError(null);
-    activeKind.current = 'refresh';
     try {
       const result = await nativeSiemService.refreshTracked(integrationId);
       setRun(result);

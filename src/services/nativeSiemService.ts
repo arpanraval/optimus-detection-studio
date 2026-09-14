@@ -41,6 +41,8 @@ export interface NativeSyncRun {
   id: string;
   status: string;
   phase: string;
+  kind?: string;
+  discovery_complete?: boolean;
   created_at: string;
   completed_at: string | null;
   heartbeat_at: string | null;
@@ -253,7 +255,10 @@ export const nativeSiemService = {
     const term = safeSearch(search);
     if (term) query = query.or(`display_name.ilike.%${term}%,vendor_rule_id.ilike.%${term}%`);
     const from = page * pageSize;
-    const { data, error } = await query.order('display_name').range(from, from + pageSize);
+    const { data, error } = await query
+      .order('display_name')
+      .order('vendor_rule_id')
+      .range(from, from + pageSize);
     if (error) throw new Error(error.message);
     const rows = (data || []) as unknown as InventoryRow[];
     return { rows: rows.slice(0, pageSize), hasMore: rows.length > pageSize };
@@ -278,4 +283,19 @@ export const nativeSiemService = {
   },
   startInventory: (integrationId: string) => invoke<NativeSyncRun>({ action: 'native_inventory_start', integrationId }),
   refreshTracked: (integrationId: string) => invoke<NativeSyncRun>({ action: 'native_refresh_tracked', integrationId }),
+  /** Latest job of the given kinds for a connection, read over RLS-protected PostgREST.
+   *  Status polling must never re-invoke a job starter: siem_start_inventory creates a new
+   *  run when none is active, so polling it would start a fresh scan on every tick. */
+  async latestRun(integrationId: string, kinds: string[]): Promise<NativeSyncRun | null> {
+    const { data, error } = await supabase
+      .from('siem_sync_runs')
+      .select('id,status,phase,kind,created_at,completed_at,heartbeat_at,error_message,discovery_complete')
+      .eq('integration_id', integrationId)
+      .in('kind', kinds)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return (data as NativeSyncRun | null) ?? null;
+  },
 };

@@ -46,8 +46,9 @@ describe('inventory reads', () => {
         error: null,
       }),
     );
-    const or = vi.fn(() => ({ order: () => ({ range }) }));
-    const eq = vi.fn(() => ({ eq: () => ({ or, order: () => ({ range }) }), or, order: () => ({ range }) }));
+    const chain: { order: () => typeof chain; range: typeof range } = { order: () => chain, range };
+    const or = vi.fn(() => chain);
+    const eq = vi.fn(() => ({ eq: () => ({ or, ...chain }), or, ...chain }));
     vi.mocked(supabase.from).mockReturnValue({ select: () => ({ eq }) } as never);
 
     const page = await nativeSiemService.inventoryPage({
@@ -65,9 +66,10 @@ describe('inventory reads', () => {
 
   it('neutralises PostgREST filter metacharacters in search input', async () => {
     const range = vi.fn(() => Promise.resolve({ data: [], error: null }));
-    const or = vi.fn((_filter: string) => ({ order: () => ({ range }) }));
+    const chain: { order: () => typeof chain; range: typeof range } = { order: () => chain, range };
+    const or = vi.fn((_filter: string) => chain);
     vi.mocked(supabase.from).mockReturnValue({
-      select: () => ({ eq: () => ({ or, order: () => ({ range }) }) }),
+      select: () => ({ eq: () => ({ or, ...chain }) }),
     } as never);
 
     await nativeSiemService.inventoryPage({ integrationId: 'c', search: 'a,b)(c%' });
