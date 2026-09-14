@@ -15,6 +15,7 @@ INSERT INTO public.integrations(id,user_id,name,provider,category,status,config,
 DO $$
 DECLARE integration uuid := '04000000-0000-0000-0000-000000000001';
   actor uuid := '03000000-0000-0000-0000-000000000001'; rule uuid; detections_before bigint;
+  did text := 'inv-fixture-detection-1'; qid text := 'inv-fixture-query-1'; binding uuid;
 BEGIN
   SELECT count(*) INTO detections_before FROM public.detections;
 
@@ -39,6 +40,43 @@ BEGIN
   PERFORM pg_temp.assert_true(
     (SELECT relationship FROM public.siem_inventory_rows WHERE id=rule) = 'match_needed',
     'candidate library rules require explicit matching');
+  UPDATE public.siem_remote_rules SET match_candidate_count=0 WHERE id=rule;
+
+  -- The binding-status branches of siem_inventory_relationship, and their ordering against
+  -- normalization_error / match_candidate_count, are the part of the CASE that matters.
+  INSERT INTO public.detections(id,user_id,version,name,description,status,"detectionType",severity,
+    "logSource",technology,"testedAndValidated","queryLanguage","detectionQuery","updatedDate",queries,
+    library_type,promotion_status,review_status,source)
+  VALUES(did,actor,1,'Inventory fixture rule','Imported','Draft','Detection','High','','',false,'CQL',
+    '#event_simpleName=ProcessRollup2',now(),
+    jsonb_build_array(jsonb_build_object('id',qid,'language','CQL','query','#event_simpleName=ProcessRollup2',
+      'isPrimary',true,'createdDate',now(),'updatedDate',now())),
+    'production','none','none','crowdstrike');
+  INSERT INTO public.siem_rule_bindings(detection_id,integration_id,provider,provider_scope,vendor_rule_id,
+    selected_query_id,query_language,desired_content)
+    VALUES(did,integration,'crowdstrike','scope-a','remote-1',qid,'CQL','{}'::jsonb)
+    RETURNING id INTO binding;
+
+  PERFORM pg_temp.assert_true(
+    (SELECT relationship FROM public.siem_inventory_rows WHERE id=rule) = 'already_in_library',
+    'an actively bound rule is already in the library');
+
+  UPDATE public.siem_remote_rules SET normalization_error='Unsupported rule: no CQL query' WHERE id=rule;
+  PERFORM pg_temp.assert_true(
+    (SELECT relationship FROM public.siem_inventory_rows WHERE id=rule) = 'already_in_library',
+    'binding status wins over a later normalisation error: an adopted rule stays already_in_library');
+
+  UPDATE public.siem_rule_bindings SET binding_status='tombstone' WHERE id=binding;
+  PERFORM pg_temp.assert_true(
+    (SELECT relationship FROM public.siem_inventory_rows WHERE id=rule) = 'archived_in_library',
+    'a tombstoned binding reads as archived_in_library');
+
+  UPDATE public.siem_remote_rules SET normalization_error=NULL, match_candidate_count=2 WHERE id=rule;
+  PERFORM pg_temp.assert_true(
+    (SELECT relationship FROM public.siem_inventory_rows WHERE id=rule) = 'archived_in_library',
+    'an archived rule is not re-offered as a match even with match candidates present');
+
+  UPDATE public.siem_remote_rules SET normalization_error=NULL, match_candidate_count=0 WHERE id=rule;
 
   -- The backfill must leave an already-adopted rule visible and correctly classified.
   PERFORM pg_temp.assert_true(

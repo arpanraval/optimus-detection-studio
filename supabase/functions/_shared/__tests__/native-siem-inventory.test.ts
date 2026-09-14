@@ -25,4 +25,9 @@ describe('inventory relationship contract', () => {
   it('records a successfully-observed rule distinctly from an import outcome', () => {
     expect(IMPORT_OUTCOME_LABELS.observed).toBe('Seen in CrowdStrike');
   });
+  it('shares no wording between membership and job-outcome vocabularies', () => {
+    const membership = new Set(Object.values(RELATIONSHIP_LABELS));
+    const overlap = Object.values(IMPORT_OUTCOME_LABELS).filter(label => membership.has(label));
+    expect(overlap).toEqual([]);
+  });
 });

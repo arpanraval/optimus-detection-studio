@@ -167,7 +167,7 @@ export const IMPORT_OUTCOME_LABELS: Record<string, string> = {
   cancelled: 'Cancelled',
   ignored: 'Tracking stopped',
   unsupported: 'Not supported',
-  ambiguous: 'Match needed',
+  ambiguous: 'Skipped · needs matching',
   failed: 'Import failed',
   observed: 'Seen in CrowdStrike',
 };
