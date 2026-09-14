@@ -81,6 +81,20 @@ describe('inventory worker', () => {
     expect(call?.[1].p_results[0]).not.toHaveProperty('content');
   });
 
+  it('distinguishes an unreadable rule from an unsupported one', async () => {
+    const omitted = inventoryFixture({ phase: 'hydration', resource: [] });
+    await processNativeSync(omitted.deps);
+    const omittedCall = omitted.rpc.mock.calls.find(([name]) => name === 'siem_commit_inventory_chunk');
+    expect(omittedCall?.[1].p_results[0]).toMatchObject({ id: 'remote-1', status: 'failed' });
+
+    const unnormalisable = inventoryFixture({ phase: 'hydration', resource: [{ ...rawRule, search: {} }] });
+    await processNativeSync(unnormalisable.deps);
+    const unnormalisableCall = unnormalisable.rpc.mock.calls.find(([name]) => name === 'siem_commit_inventory_chunk');
+    expect(unnormalisableCall?.[1].p_results[0]).toMatchObject({ id: 'remote-1', status: 'unsupported' });
+
+    expect(omittedCall?.[1].p_results[0].status).not.toBe(unnormalisableCall?.[1].p_results[0].status);
+  });
+
   it('refuses to claim a legacy auto-import run', async () => {
     const { deps, rpc } = inventoryFixture();
     rpc.mockImplementation(async (name: string) => ({

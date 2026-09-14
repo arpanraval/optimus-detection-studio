@@ -244,22 +244,59 @@ BEGIN
   SELECT * INTO r FROM public.siem_claim_sync();
   PERFORM public.siem_commit_inventory_chunk(r.id, r.lease_token, ARRAY['remote-inv-4'], 1, true, '[]');
 
-  -- Simulate an item that a worker gave up on (e.g. after repeated lease-expiry retries): a
-  -- 'failed' status, not the 'unsupported' this migration's own commit RPC produces for an
-  -- error-carrying result. Nothing in this task's worker code sets 'failed' on a
-  -- siem_sync_items row; this directly exercises the terminal block's own guard.
-  UPDATE public.siem_sync_items SET status='failed', error_message='fixture: forced failed read'
-    WHERE run_id=r.id AND vendor_rule_id='remote-inv-4';
-
+  -- The real path: the worker hints 'status':'failed' for a rule CrowdStrike did not return
+  -- in the detail batch (an unreadable-this-time outcome), distinct from an item carrying
+  -- only 'error' with no status hint, which lands as 'unsupported' (a permanent property of
+  -- the rule). The allowlisted CASE in siem_commit_inventory_chunk must honour this hint.
   SELECT * INTO r FROM public.siem_claim_sync();
-  PERFORM public.siem_commit_inventory_chunk(r.id, r.lease_token, '{}', 1, true, '[]');
+  PERFORM public.siem_commit_inventory_chunk(r.id, r.lease_token, '{}', 1, true,
+    jsonb_build_array(jsonb_build_object('id','remote-inv-4','status','failed',
+      'error','Rule detail was omitted; no deletion inferred')));
 
+  PERFORM pg_temp.assert_true(
+    (SELECT status FROM public.siem_sync_items WHERE run_id=r.id AND vendor_rule_id='remote-inv-4') = 'failed',
+    'a worker-hinted failed read lands as failed, not unsupported');
   PERFORM pg_temp.assert_true((SELECT status='partial' FROM public.siem_sync_runs WHERE id=r.id),
     'a run with a failed item completes as partial');
   PERFORM pg_temp.assert_true(
     (SELECT count(*) FILTER (WHERE availability='missing') = 0 FROM public.siem_remote_rules
        WHERE integration_id=integration AND provider_scope='scope-d'),
     'a run with a failed item marks nothing missing, including rules it never even discovered');
+END $$;
+
+-- A worker-supplied status hint is only ever trusted from an allowlist. This RPC runs as
+-- service_role on worker-supplied JSON; a malformed hint like 'imported' (a legal
+-- siem_sync_items status, but library-membership vocabulary that must never leak into an
+-- inventory-only job) must never be written verbatim -- it must fall back through the
+-- 'error' branch instead. Its own connection/scope, isolated from every other block.
+INSERT INTO auth.users(id,email) VALUES
+  ('09000000-0000-0000-0000-000000000001','inventory-worker-malformed-owner@example.test');
+INSERT INTO public.profiles(id,role,status) VALUES
+  ('09000000-0000-0000-0000-000000000001','admin','active')
+  ON CONFLICT(id) DO UPDATE SET role='admin',status='active';
+INSERT INTO public.integrations(id,user_id,name,provider,category,status,config,auth_type) VALUES
+  ('10000000-0000-0000-0000-000000000001','09000000-0000-0000-0000-000000000001',
+   'Falcon inventory worker malformed-hint fixture','crowdstrike','siem','connected','{}','oauth2_client_credentials');
+
+DO $$
+DECLARE integration uuid := '10000000-0000-0000-0000-000000000001';
+  actor uuid := '09000000-0000-0000-0000-000000000001';
+  r public.siem_sync_runs;
+BEGIN
+  UPDATE public.siem_sync_runs SET status='cancelled', completed_at=now(), lease_token=NULL, lease_expires_at=NULL
+    WHERE status IN ('queued','running');
+
+  r := public.siem_start_inventory(actor, integration, 'scope-e');
+  SELECT * INTO r FROM public.siem_claim_sync();
+  PERFORM public.siem_commit_inventory_chunk(r.id, r.lease_token, ARRAY['remote-inv-5'], 1, true, '[]');
+  SELECT * INTO r FROM public.siem_claim_sync();
+  PERFORM public.siem_commit_inventory_chunk(r.id, r.lease_token, '{}', 1, true,
+    jsonb_build_array(jsonb_build_object('id','remote-inv-5','status','imported',
+      'error','forced malformed status hint')));
+
+  PERFORM pg_temp.assert_true(
+    (SELECT status FROM public.siem_sync_items WHERE run_id=r.id AND vendor_rule_id='remote-inv-5') = 'unsupported',
+    'a malformed status hint is rejected and never written verbatim; only failed/unsupported pass the allowlist');
 END $$;
 
 -- The catalog is owner scoped. Another authenticated user sees nothing.

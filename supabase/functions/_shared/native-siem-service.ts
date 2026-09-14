@@ -87,7 +87,7 @@ export async function processNativeSync(deps: Dependencies): Promise<{ processed
         if (kind === 'inventory') {
           for (const id of requested) {
             const raw = byId.get(id);
-            if (!raw) { results.push({ id, error: 'Rule detail was omitted; no deletion inferred' }); continue; }
+            if (!raw) { results.push({ id, status: 'failed', error: 'Rule detail was omitted; no deletion inferred' }); continue; }
             const sanitized = sanitizeSnapshot(raw) as Record<string, Json>;
             const name = typeof sanitized.name === 'string' ? sanitized.name : id;
             try {
@@ -96,7 +96,7 @@ export async function processNativeSync(deps: Dependencies): Promise<{ processed
                 hash: await contentHash(content), raw_hash: await contentHash(sanitized),
                 enabled: content.enabled, family: 'correlation' });
             } catch (error) {
-              results.push({ id, name, family: 'correlation',
+              results.push({ id, name, family: 'correlation', status: 'unsupported',
                 error: error instanceof Error ? error.message : 'Unsupported rule' });
             }
           }

@@ -82,8 +82,15 @@ BEGIN
 
       -- 'observed' (not 'unchanged') keeps job-outcome vocabulary distinct from library
       -- membership: an inventory scan never claims something was imported.
+      -- The worker distinguishes "we read it but cannot normalise it" ('unsupported', a
+      -- permanent property of the rule) from "CrowdStrike did not return it" ('failed', a
+      -- transient read outcome). Only the latter blocks absence inference, so the hint is
+      -- allowlisted rather than trusted verbatim.
       UPDATE siem_sync_items
-         SET status = CASE WHEN item ? 'error' THEN 'unsupported' ELSE 'observed' END,
+         SET status = CASE
+               WHEN item->>'status' IN ('failed','unsupported') THEN item->>'status'
+               WHEN item ? 'error' THEN 'unsupported'
+               ELSE 'observed' END,
              error_message = item->>'error'
        WHERE run_id = r.id AND vendor_rule_id = item->>'id';
     END LOOP;
