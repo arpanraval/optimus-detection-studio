@@ -174,6 +174,7 @@ export type GranularPermission =
   | 'integrations:view'
   | 'integrations:configure'
   | 'integrations:sync'
+  | 'integrations:import'
   // Settings
   | 'settings:edit_profile'
   | 'settings:change_password'
@@ -267,6 +268,7 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
       { key: 'integrations:view', label: 'View integrations', description: 'See configured integrations' },
       { key: 'integrations:configure', label: 'Configure integrations', description: 'Set up new integrations' },
       { key: 'integrations:sync', label: 'Sync to SIEM', description: 'Push rules to connected SIEMs' },
+      { key: 'integrations:import', label: 'Import from SIEM', description: 'Import production rules into the shared library' },
     ],
   },
   {
@@ -292,7 +294,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, GranularPermission[]> = {
     'library:view_personal', 'library:view_development', 'library:copy_development', 'library:publish', 'library:approve_publish',
     'tools:ai_query_gen', 'tools:sigma_converter', 'tools:ai_agent', 'tools:export_reports',
     'mitre:view_coverage', 'mitre:view_groups', 'mitre:view_software', 'mitre:view_campaigns', 'mitre:link_entities',
-    'integrations:view', 'integrations:configure', 'integrations:sync',
+    'integrations:view', 'integrations:configure', 'integrations:sync', 'integrations:import',
     'settings:edit_profile', 'settings:change_password', 'settings:enable_mfa',
   ],
   admin: [
@@ -301,7 +303,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, GranularPermission[]> = {
     'library:view_personal', 'library:view_development', 'library:copy_development', 'library:publish', 'library:approve_publish',
     'tools:ai_query_gen', 'tools:sigma_converter', 'tools:ai_agent', 'tools:export_reports',
     'mitre:view_coverage', 'mitre:view_groups', 'mitre:view_software', 'mitre:view_campaigns', 'mitre:link_entities',
-    'integrations:view', 'integrations:configure', 'integrations:sync',
+    'integrations:view', 'integrations:configure', 'integrations:sync', 'integrations:import',
     'settings:edit_profile', 'settings:change_password', 'settings:enable_mfa',
   ],
   lead: [
@@ -310,7 +312,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, GranularPermission[]> = {
     'library:view_personal', 'library:view_development', 'library:copy_development', 'library:publish',
     'tools:ai_query_gen', 'tools:sigma_converter', 'tools:ai_agent', 'tools:export_reports',
     'mitre:view_coverage', 'mitre:view_groups', 'mitre:view_software', 'mitre:view_campaigns', 'mitre:link_entities',
-    'integrations:view', 'integrations:sync',
+    'integrations:view', 'integrations:sync', 'integrations:import',
     'settings:edit_profile', 'settings:change_password', 'settings:enable_mfa',
   ],
   analyst: [
