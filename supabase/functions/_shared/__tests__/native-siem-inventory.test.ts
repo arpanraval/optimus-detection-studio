@@ -31,3 +31,66 @@ describe('inventory relationship contract', () => {
     expect(overlap).toEqual([]);
   });
 });
+
+import { vi } from 'vitest';
+import { processNativeSync } from '../native-siem-service';
+
+const config = { baseUrl: 'https://api.crowdstrike.com', customerId: 'a'.repeat(32) };
+const rawRule = { id: 'remote-1', name: 'Inventory rule', description: '', status: 'active', severity: 50,
+  search: { filter: 'query', outcome: 'detection', lookback: '1h' },
+  operation: { schedule: { definition: '@every 1h' } } };
+
+function inventoryFixture(options: { phase?: string; resource?: unknown } = {}) {
+  const run = { id: 'run', kind: 'inventory', actor_id: 'owner', integration_id: 'connection',
+    provider_scope: `https://api.crowdstrike.com/correlation-rules/${'a'.repeat(32)}`,
+    phase: options.phase || 'discovery', cursor_offset: 0, lease_token: 'lease', attempts: 0 };
+  const from = vi.fn((table: string) => {
+    const data = table === 'integrations' ? { id: 'connection', config, provider: 'crowdstrike' }
+      : table === 'siem_sync_items' ? [{ vendor_rule_id: 'remote-1' }] : null;
+    const query: Record<string, unknown> = {};
+    for (const method of ['select', 'eq', 'in', 'order', 'limit', 'single', 'update'])
+      query[method] = vi.fn(() => query);
+    query.then = (resolve: (result: unknown) => void) => resolve({ data, error: null });
+    return query;
+  });
+  const rpc = vi.fn(async (name: string) => ({
+    data: name === 'siem_claim_sync' ? [run] : name === 'siem_can_import' ? true : null, error: null }));
+  const fetch = vi.fn(async () => new Response(JSON.stringify({
+    resources: options.resource ?? ['remote-1'] })));
+  return { deps: { db: { from, rpc } as never,
+    credentials: vi.fn(async () => ({ clientId: 'c', clientSecret: 's' })),
+    token: vi.fn(async () => 't'), fetch, writesEnabled: false }, rpc };
+}
+
+describe('inventory worker', () => {
+  it('checkpoints discovery into the catalog, not the library', async () => {
+    const { deps, rpc } = inventoryFixture();
+    await processNativeSync(deps);
+    expect(rpc).toHaveBeenCalledWith('siem_commit_inventory_chunk', expect.objectContaining({
+      p_ids: ['remote-1'], p_next: 1, p_discovery_complete: false }));
+    expect(rpc).not.toHaveBeenCalledWith('siem_commit_chunk', expect.anything());
+  });
+
+  it('records an unsupported rule as an observation instead of failing the job', async () => {
+    const { deps, rpc } = inventoryFixture({ phase: 'hydration',
+      resource: [{ ...rawRule, search: {} }] });
+    await processNativeSync(deps);
+    const call = rpc.mock.calls.find(([name]) => name === 'siem_commit_inventory_chunk');
+    expect(call?.[1].p_results[0]).toMatchObject({ id: 'remote-1', name: 'Inventory rule',
+      error: expect.stringContaining('no CQL query') });
+    expect(call?.[1].p_results[0]).not.toHaveProperty('content');
+  });
+
+  it('refuses to claim a legacy auto-import run', async () => {
+    const { deps, rpc } = inventoryFixture();
+    rpc.mockImplementation(async (name: string) => ({
+      data: name === 'siem_claim_sync'
+        ? [{ id: 'old', kind: 'legacy_import', actor_id: 'owner', integration_id: 'connection',
+             provider_scope: 'scope', phase: 'discovery', cursor_offset: 0, lease_token: 'l', attempts: 0 }]
+        : name === 'siem_can_import' ? true : null, error: null }));
+    await processNativeSync(deps);
+    expect(deps.fetch).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalledWith('siem_commit_chunk', expect.anything());
+    expect(rpc).not.toHaveBeenCalledWith('siem_commit_inventory_chunk', expect.anything());
+  });
+});

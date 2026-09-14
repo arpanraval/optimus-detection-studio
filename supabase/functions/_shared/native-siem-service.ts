@@ -49,6 +49,16 @@ export async function processNativeSync(deps: Dependencies): Promise<{ processed
   const run = runs?.[0];
   if (!run) return { processed: false };
   try {
+    const kind: string = run.kind ?? 'legacy_import';
+    if (kind === 'legacy_import') {
+      // Superseded semantics. Park it rather than importing rules nobody selected.
+      checked(await deps.db.from('siem_sync_runs').update({
+        status: 'cancelled', completed_at: new Date().toISOString(),
+        error_message: 'This import used an earlier workflow. Open the connection and fetch rules again.',
+        lease_token: null, lease_expires_at: null,
+      }).eq('id', run.id).eq('lease_token', run.lease_token));
+      return { processed: true };
+    }
     if (!checked(await deps.db.rpc('siem_can_import', { p_actor: run.actor_id, p_integration: run.integration_id }))) {
       throw new Error('Native import permission revoked');
     }
@@ -74,22 +84,45 @@ export async function processNativeSync(deps: Dependencies): Promise<{ processed
         const page = await request(`entities/rules/v1?${requested.map(id => `ids=${encodeURIComponent(id)}`).join('&')}`);
         if (!Array.isArray(page.resources)) throw new Error('Invalid rule detail response');
         const byId = new Map((page.resources as Record<string, Json>[]).map(raw => [raw.id, raw]));
-        for (const id of requested) {
-          const raw = byId.get(id);
-          if (!raw) { results.push({ id, status: 'failed', error: 'Rule detail was omitted; no deletion inferred' }); continue; }
-          try {
+        if (kind === 'inventory') {
+          for (const id of requested) {
+            const raw = byId.get(id);
+            if (!raw) { results.push({ id, error: 'Rule detail was omitted; no deletion inferred' }); continue; }
             const sanitized = sanitizeSnapshot(raw) as Record<string, Json>;
-            const content = normalizeCrowdStrike(sanitized);
-            results.push({ id, content, raw: sanitized, adapter: ADAPTER_VERSION,
-              hash: await contentHash(content), raw_hash: await contentHash(sanitized) });
-          } catch (error) {
-            results.push({ id, status: 'unsupported', error: error instanceof Error ? error.message : 'Unsupported rule' });
+            const name = typeof sanitized.name === 'string' ? sanitized.name : id;
+            try {
+              const content = normalizeCrowdStrike(sanitized);
+              results.push({ id, name, content, raw: sanitized, adapter: ADAPTER_VERSION,
+                hash: await contentHash(content), raw_hash: await contentHash(sanitized),
+                enabled: content.enabled, family: 'correlation' });
+            } catch (error) {
+              results.push({ id, name, family: 'correlation',
+                error: error instanceof Error ? error.message : 'Unsupported rule' });
+            }
+          }
+        } else {
+          for (const id of requested) {
+            const raw = byId.get(id);
+            if (!raw) { results.push({ id, status: 'failed', error: 'Rule detail was omitted; no deletion inferred' }); continue; }
+            try {
+              const sanitized = sanitizeSnapshot(raw) as Record<string, Json>;
+              const content = normalizeCrowdStrike(sanitized);
+              results.push({ id, content, raw: sanitized, adapter: ADAPTER_VERSION,
+                hash: await contentHash(content), raw_hash: await contentHash(sanitized) });
+            } catch (error) {
+              results.push({ id, status: 'unsupported', error: error instanceof Error ? error.message : 'Unsupported rule' });
+            }
           }
         }
       }
     }
-    checked(await deps.db.rpc('siem_commit_chunk', { p_run: run.id, p_lease: run.lease_token,
-      p_ids: ids, p_next: next, p_discovery_complete: done, p_results: results }));
+    if (kind === 'inventory') {
+      checked(await deps.db.rpc('siem_commit_inventory_chunk', { p_run: run.id, p_lease: run.lease_token,
+        p_ids: ids, p_next: next, p_discovery_complete: done, p_results: results }));
+    } else {
+      checked(await deps.db.rpc('siem_commit_chunk', { p_run: run.id, p_lease: run.lease_token,
+        p_ids: ids, p_next: next, p_discovery_complete: done, p_results: results }));
+    }
   } catch (error) {
     // Fenced failure: an expired worker cannot change a replacement worker's state.
     checked(await deps.db.from('siem_sync_runs').update({

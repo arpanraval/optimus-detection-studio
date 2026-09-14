@@ -9,7 +9,7 @@ const raw = { id: 'remote-1', name: 'Rule', description: '', status: 'active', s
 
 async function fixture(options: { phase?: string; enabled?: boolean; resource?: unknown; stale?: boolean } = {}) {
   const content = normalizeCrowdStrike(raw), hash = await contentHash(content);
-  const run = { id: 'run', actor_id: 'owner', integration_id: 'connection', provider_scope: crowdStrikeScope(config),
+  const run = { id: 'run', kind: 'import_selection', actor_id: 'owner', integration_id: 'connection', provider_scope: crowdStrikeScope(config),
     phase: options.phase || 'discovery', cursor_offset: 0, lease_token: 'lease', attempts: 0 };
   const binding = { id: 'binding', detection_id: 'detection', integration_id: 'connection', provider_scope: crowdStrikeScope(config),
     selected_query_id: 'query-id', desired_content: content, baseline_snapshot_id: 'snap', latest_remote_snapshot_id: 'snap',
