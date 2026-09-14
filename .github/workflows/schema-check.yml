@@ -60,8 +60,12 @@ jobs:
           create role service_role nologin;
           -- Minimal auth surface the schema references
           create schema if not exists auth;
-          create table if not exists auth.users (id uuid primary key default gen_random_uuid(), email text);
-          create or replace function auth.uid()  returns uuid  language sql stable as $$ select null::uuid  $$;
+          create table if not exists auth.users (id uuid primary key default gen_random_uuid(), email text,
+            raw_user_meta_data jsonb default '{}', raw_app_meta_data jsonb default '{}');
+          create or replace function auth.uid() returns uuid language sql stable as $$
+            select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+          $$;
+          grant usage on schema auth to authenticated, service_role;
           create or replace function auth.jwt()  returns jsonb language sql stable as $$ select null::jsonb $$;
           create or replace function auth.role() returns text  language sql stable as $$ select null::text  $$;
           -- Realtime publication that the schema adds tables to
@@ -184,3 +188,6 @@ jobs:
 
           [ "$fail" -eq 0 ] && echo "✅ supabase/schema.sql applies cleanly on an empty database"
           exit $fail
+
+      - name: Verify native SIEM identity, transactions, and private snapshot access
+        run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/tests/native-siem.sql
