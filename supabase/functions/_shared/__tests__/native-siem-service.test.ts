@@ -99,3 +99,26 @@ describe('native production mutation boundary', () => {
     expect(rpc).toHaveBeenCalledWith('siem_fail_deployment', expect.objectContaining({ p_uncertain: true }));
   });
 });
+
+describe('import entry point', () => {
+  it('starting from a connection opens an inventory job, not an auto-import', async () => {
+    const { deps, rpc } = await fixture();
+    await handleNativeRequest(deps, { action: 'native_inventory_start', integrationId: 'connection' }, 'owner');
+    expect(rpc).toHaveBeenCalledWith('siem_start_inventory', expect.objectContaining({
+      p_actor: 'owner', p_integration: 'connection' }));
+    expect(rpc).not.toHaveBeenCalledWith('siem_start_sync', expect.anything());
+  });
+
+  it('keeps the legacy action name working without importing anything', async () => {
+    const { deps, rpc } = await fixture();
+    await handleNativeRequest(deps, { action: 'native_sync_start', integrationId: 'connection' }, 'owner');
+    expect(rpc).toHaveBeenCalledWith('siem_start_inventory', expect.anything());
+    expect(rpc).not.toHaveBeenCalledWith('siem_start_sync', expect.anything());
+  });
+
+  it('refreshing tracked rules is a distinct job that imports nothing new', async () => {
+    const { deps, rpc } = await fixture();
+    await handleNativeRequest(deps, { action: 'native_refresh_tracked', integrationId: 'connection' }, 'owner');
+    expect(rpc).toHaveBeenCalledWith('siem_start_refresh', expect.anything());
+  });
+});

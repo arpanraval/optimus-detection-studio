@@ -29,6 +29,8 @@ type Action =
   | 'poll_preflight'
   | 'cancel_preflight'
   | 'native_sync_start'
+  | 'native_inventory_start'
+  | 'native_refresh_tracked'
   | 'native_disconnect'
   | 'native_preview'
   | 'native_accept'
@@ -129,6 +131,8 @@ const ROLE_DEFAULT_PERMISSIONS: Record<string, GranularPermission[]> = {
 
 const ACTION_PERMISSIONS: Record<Action, GranularPermission> = {
   native_sync_start: 'integrations:import',
+  native_inventory_start: 'integrations:import',
+  native_refresh_tracked: 'integrations:import',
   native_disconnect: 'integrations:configure',
   native_preview: 'integrations:view',
   native_accept: 'integrations:import',
@@ -3385,7 +3389,7 @@ serve(async (req: Request) => {
     if (body.action.startsWith('native_')) {
       try {
         const result = await handleNativeRequest(nativeDependencies, body, user.id)
-        if (body.action === 'native_sync_start') kickNativeWorker()
+        if (['native_sync_start', 'native_inventory_start', 'native_refresh_tracked'].includes(body.action)) kickNativeWorker()
         return new Response(JSON.stringify(result), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
       } catch (error) {
         return corsErrorResponse(error instanceof Error ? error.message : 'Native SIEM operation failed', req, 400)

@@ -155,9 +155,14 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
     checked(await deps.db.rpc('siem_disconnect', { p_actor: actor, p_integration: body.integrationId }));
     return { success: true };
   }
-  if (body.action === 'native_sync_start') {
+  if (body.action === 'native_sync_start' || body.action === 'native_inventory_start') {
     const integration = await connection(deps, body.integrationId || '', actor);
-    return checked(await deps.db.rpc('siem_start_sync', { p_actor: actor, p_integration: integration.id,
+    return checked(await deps.db.rpc('siem_start_inventory', { p_actor: actor, p_integration: integration.id,
+      p_scope: crowdStrikeScope(integration.config) }));
+  }
+  if (body.action === 'native_refresh_tracked') {
+    const integration = await connection(deps, body.integrationId || '', actor);
+    return checked(await deps.db.rpc('siem_start_refresh', { p_actor: actor, p_integration: integration.id,
       p_scope: crowdStrikeScope(integration.config) }));
   }
   const state = await boundRule(deps, body.bindingId || '', actor);

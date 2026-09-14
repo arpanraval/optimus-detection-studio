@@ -14,6 +14,10 @@ The migration registers the `native-siem-sync` cron dispatcher when `pg_cron`, `
 
 The adapter requires a valid CrowdStrike API origin and customer ID. Configure encrypted credentials through the normal integration settings. Legacy browser-only development credentials must be migrated through that existing settings flow; the native worker never receives browser-supplied credentials or rule payloads.
 
+## Job kinds
+
+Fetching a connection builds a read-only **inventory**: the worker discovers and normalizes every supported rule but creates no Production Library detection. The user reviews the inventory and imports selectively. Three run kinds exist: `inventory` (browse, nothing imported), `refresh_tracked` (re-observes rules that already have an active binding, updating their latest snapshot without creating anything new), and `import_selection` (creates detections and bindings only for the rules the user chose). `native_sync_start` is kept as an alias for `native_inventory_start` so the current frontend keeps working without importing anything.
+
 ## Production write gate
 
 Keep `NATIVE_SIEM_MUTATIONS` unset or `false` until sandbox verification succeeds. This permits persistence, local query/configuration editing, comparisons, accepting production changes, and local revision restore. It blocks native production mutations on the server. Existing legacy deploy/toggle/delete paths also reject linked rules, including bulk callers and the development proxy entry points.
