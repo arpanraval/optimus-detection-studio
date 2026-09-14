@@ -194,3 +194,6 @@ jobs:
 
       - name: Verify native SIEM inventory catalog and relationship contract
         run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/tests/native-siem-inventory.sql
+
+      - name: Verify native SIEM import selection freeze and idempotency
+        run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/tests/native-siem-import.sql

@@ -14,6 +14,11 @@ export type NativeRequest = {
   operation?: 'update' | 'enable' | 'disable' | 'delete';
   localChanges?: { name: string; description: string; query: string; severity: string; schedule: string; lookback: string };
   revisionId?: string;
+  ids?: string[];
+  excludeIds?: string[];
+  allMatching?: boolean;
+  sourceRunId?: string;
+  idempotencyKey?: string;
 };
 
 function checked<T>(result: { data: T; error: { message: string } | null }): T {
@@ -164,6 +169,16 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
     const integration = await connection(deps, body.integrationId || '', actor);
     return checked(await deps.db.rpc('siem_start_refresh', { p_actor: actor, p_integration: integration.id,
       p_scope: crowdStrikeScope(integration.config) }));
+  }
+  if (body.action === 'native_import_start') {
+    const integration = await connection(deps, body.integrationId || '', actor);
+    const ids = body.ids || [];
+    if (!body.allMatching && !ids.length) throw new Error('Select the rules you want to import');
+    if (!body.idempotencyKey) throw new Error('An import request key is required');
+    return checked(await deps.db.rpc('siem_start_import', {
+      p_actor: actor, p_integration: integration.id, p_source_run: body.sourceRunId,
+      p_ids: body.allMatching ? [] : ids, p_exclude: body.excludeIds || [],
+      p_all_matching: Boolean(body.allMatching), p_idempotency: body.idempotencyKey }));
   }
   const state = await boundRule(deps, body.bindingId || '', actor);
   const { binding, detection, baseline, remote, local, integration } = state;
