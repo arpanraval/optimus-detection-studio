@@ -1,96 +1,135 @@
 import React from 'react';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NativeRulesPanel } from '../NativeRulesPanel';
 import { SiemLibraryBadge } from '../SiemLibraryBadge';
+import { nativeSiemService } from '@/services/nativeSiemService';
 import type { Detection, Integration } from '@/types';
+import type { InventoryRow } from '../../../../supabase/functions/_shared/native-siem-model';
 
-const { start, state } = vi.hoisted(() => ({ start: vi.fn(), state: { result: 'imported' } }));
-vi.mock('@/hooks/useNativeSiemInventory', () => ({
-  useNativeSiemInventory: () => ({
-    loading: false,
-    running: false,
-    error: null,
-    start,
-    reload: vi.fn(),
-    inventory: {
-      counts: {},
-      issues: [],
-      run: null,
-      rules: Array.from({ length: 125 }, (_, i) => ({
-        id: String(i),
-        detection_id: String(i),
-        vendor_rule_id: `vendor-${i}`,
-        binding_status: 'active',
-        availability: 'present',
-        observed_enabled: true,
-        drift: 'in_sync',
-        importResult: state.result,
-        last_seen_at: '2026-09-14T10:00:00Z',
-        detection: { name: `Rule ${i}`, status: 'Draft' },
-      })),
-    },
-  }),
-}));
-vi.mock('../NativeRuleReview', () => ({
-  NativeRuleReview: () => <div>Comparison detail</div>,
-  NATIVE_DRIFT_LABELS: { in_sync: 'Matches CrowdStrike' },
-}));
+const integrationFixture = { id: 'connection', name: 'Falcon', provider: 'crowdstrike' } as Integration;
 
-describe('Native SIEM inventory language and scale', () => {
-  it('offers an explicit import and identifies newly imported rules in a large inventory', () => {
+function rowsFixture(count: number): InventoryRow[] {
+  return Array.from({ length: count }, (_, i) => ({
+    id: String(i),
+    integration_id: 'connection',
+    vendor_rule_id: `vendor-${i}`,
+    rule_family: 'correlation',
+    display_name: `Suspicious process ${i}`,
+    observed_enabled: true,
+    availability: 'present',
+    normalization_error: null,
+    match_candidate_count: 0,
+    relationship: 'not_in_library',
+    binding_id: null,
+    binding_status: null,
+    detection_id: null,
+    last_seen_at: '2026-09-15T00:00:00Z',
+  }));
+}
+
+const ZERO_COUNTS = {
+  not_in_library: 0,
+  already_in_library: 0,
+  archived_in_library: 0,
+  match_needed: 0,
+  unsupported: 0,
+};
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+  vi.spyOn(nativeSiemService, 'latestRun').mockResolvedValue(null);
+  vi.spyOn(nativeSiemService, 'inventoryCounts').mockResolvedValue(ZERO_COUNTS);
+  vi.spyOn(nativeSiemService, 'inventoryPage').mockResolvedValue({ rows: [], hasMore: false });
+});
+
+describe('NativeRulesPanel', () => {
+  it('shows the fetch action and the never-fetched empty state', async () => {
     render(
       <MemoryRouter>
-        <NativeRulesPanel integration={{ id: 'connection', name: 'Falcon' } as Integration} />
+        <NativeRulesPanel integration={integrationFixture} />
       </MemoryRouter>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Import rules from CrowdStrike' }));
-    expect(start).toHaveBeenCalledOnce();
-    expect(within(screen.getByRole('table')).getAllByText('Newly imported')).toHaveLength(50);
-    expect(screen.queryByText('Already in library')).toBeNull();
-    expect(screen.queryByText('Comparison detail')).toBeNull();
-    expect(screen.getByText('1–50 of 125 rules')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-    expect(screen.getByText('51–100 of 125 rules')).toBeTruthy();
-    fireEvent.click(screen.getAllByRole('button', { name: 'View changes' })[0]);
-    expect(within(screen.getByRole('dialog')).getByText('Comparison detail')).toBeTruthy();
-    fireEvent.keyDown(document, { key: 'Escape' });
-    expect(screen.queryByRole('dialog')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Needs attention 0' }));
-    expect(screen.getByText('Nothing needs attention')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'All rules 125' }));
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search production rules' }), {
-      target: { value: 'vendor-124' },
+    expect(await screen.findByRole('button', { name: 'Fetch rules from CrowdStrike' })).toBeTruthy();
+    expect(await screen.findByText('No inventory yet')).toBeTruthy();
+  });
+
+  it('renders the six classification chips with counts', async () => {
+    vi.spyOn(nativeSiemService, 'inventoryCounts').mockResolvedValue({
+      not_in_library: 3,
+      already_in_library: 1,
+      archived_in_library: 2,
+      match_needed: 1,
+      unsupported: 1,
     });
-    expect(screen.getByText('Rule 124')).toBeTruthy();
-    expect(screen.getByText('1–1 of 1 rules')).toBeTruthy();
+    render(
+      <MemoryRouter>
+        <NativeRulesPanel integration={integrationFixture} />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('button', { name: 'All rules 8' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Not in library 3' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Already in library 1' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Match needed 1' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Archived in library 2' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Unsupported 1' })).toBeTruthy();
   });
 
-  it('distinguishes a repeat import from a fresh import after deletion', () => {
-    const view = render(
+  it('creates no detection and issues no write calls by rendering', async () => {
+    const startInventory = vi.spyOn(nativeSiemService, 'startInventory');
+    render(
       <MemoryRouter>
-        <NativeRulesPanel integration={{ id: 'connection' } as Integration} />
+        <NativeRulesPanel integration={integrationFixture} />
       </MemoryRouter>,
     );
-    expect(within(screen.getByRole('table')).getAllByText('Newly imported')).toHaveLength(50);
-    state.result = 'unchanged';
-    view.rerender(
-      <MemoryRouter>
-        <NativeRulesPanel integration={{ id: 'connection' } as Integration} />
-      </MemoryRouter>,
-    );
-    expect(screen.getAllByText('Already present · unchanged')).toHaveLength(50);
-    expect(within(screen.getByRole('table')).queryByText('Newly imported')).toBeNull();
-    state.result = 'imported';
-    view.rerender(
-      <MemoryRouter>
-        <NativeRulesPanel integration={{ id: 'connection' } as Integration} />
-      </MemoryRouter>,
-    );
-    expect(within(screen.getByRole('table')).getAllByText('Newly imported')).toHaveLength(50);
+    await screen.findByText('No inventory yet');
+    expect(startInventory).not.toHaveBeenCalled();
   });
 
+  it('renders one page at a time regardless of inventory size', async () => {
+    const inventoryPage = vi
+      .spyOn(nativeSiemService, 'inventoryPage')
+      .mockResolvedValue({ rows: rowsFixture(50), hasMore: true });
+    vi.spyOn(nativeSiemService, 'inventoryCounts').mockResolvedValue({
+      not_in_library: 2000,
+      already_in_library: 0,
+      archived_in_library: 0,
+      match_needed: 0,
+      unsupported: 0,
+    });
+
+    render(
+      <MemoryRouter>
+        <NativeRulesPanel integration={integrationFixture} />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('Suspicious process 0');
+    expect(screen.getAllByRole('row')).toHaveLength(51); // 50 rows + header
+    expect(inventoryPage).toHaveBeenCalledWith(expect.objectContaining({ page: 0 }));
+    // 2,000 rules in the account, one page in the browser.
+    expect(inventoryPage).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks the server for the next page instead of slicing a full download', async () => {
+    const inventoryPage = vi
+      .spyOn(nativeSiemService, 'inventoryPage')
+      .mockResolvedValue({ rows: rowsFixture(50), hasMore: true });
+    render(
+      <MemoryRouter>
+        <NativeRulesPanel integration={integrationFixture} />
+      </MemoryRouter>,
+    );
+    await screen.findByText('Suspicious process 0');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    expect(inventoryPage).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1 }));
+  });
+});
+
+describe('SiemLibraryBadge', () => {
   it('does not infer deployment from library status or hidden connection data', () => {
     render(
       <SiemLibraryBadge
