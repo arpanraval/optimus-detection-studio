@@ -5,10 +5,12 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Icon } from '@/components/Icon';
 import { useRemoteInventory } from '@/hooks/useRemoteInventory';
+import { useInventorySelection } from '@/hooks/useInventorySelection';
 import { routeHelpers } from '@/router/routes';
 import type { Integration } from '@/types';
 import { NativeRuleReview } from './NativeRuleReview';
 import { InventoryTable } from './InventoryTable';
+import { InventorySelectionBar } from './InventorySelectionBar';
 import type { InventoryRelationship, InventoryRow } from '../../../supabase/functions/_shared/native-siem-model';
 import { RELATIONSHIP_LABELS } from '../../../supabase/functions/_shared/native-siem-model';
 
@@ -45,6 +47,17 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
   const rows = page?.rows ?? [];
   const totalCount = Object.values(counts).reduce((sum, value) => sum + value, 0);
   const hasEverFetched = !!run;
+
+  const filterKey = `${relationship}|${search}`;
+  const selection = useInventorySelection({
+    rows,
+    eligibleTotal: counts.not_in_library,
+    filterKey,
+    discoveryComplete: run?.discovery_complete === true,
+  });
+  // InventoryTable takes a concrete Set, not a predicate: compute this page's checked
+  // ids from either selection mode so an "all matching" selection still renders as checked.
+  const pageSelectedIds = new Set(rows.map((row) => row.vendor_rule_id).filter((id) => selection.isSelected(id)));
 
   const handleReview = (row: InventoryRow, opener?: HTMLElement | null) => {
     openerRef.current = opener ?? document.activeElement as HTMLElement | null;
@@ -197,7 +210,14 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
         ) : (
           // onResolveMatch is left unwired here: Task 12 gives `match_needed` rows a
           // resolution dialog. Nothing this task could do with the callback would be real.
-          <InventoryTable rows={rows} loading={false} onReview={(row) => handleReview(row)} />
+          <InventoryTable
+            rows={rows}
+            loading={false}
+            onReview={(row) => handleReview(row)}
+            selectedIds={pageSelectedIds}
+            onToggle={selection.toggle}
+            onTogglePage={selection.togglePage}
+          />
         )}
         {rows.length > 0 && (
           <div className="flex items-center justify-between gap-3 border-t border-outline-variant/20 px-5 py-2 text-xs text-on-surface-variant">
@@ -214,6 +234,17 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
             </div>
           </div>
         )}
+        <InventorySelectionBar
+          selectedCount={selection.selectedCount}
+          eligibleTotal={counts.not_in_library}
+          canSelectAllMatching={selection.canSelectAllMatching}
+          discoveryComplete={run?.discovery_complete === true}
+          clearedByFilterChange={selection.clearedByFilterChange}
+          onSelectAllMatching={selection.selectAllMatching}
+          onClear={selection.clear}
+          // TODO(Task 9): wire this to the import worker started in Task 8.
+          onSubmit={() => {}}
+        />
       </section>
       {selected && selected.binding_id && (
         <Modal
