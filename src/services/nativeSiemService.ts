@@ -4,6 +4,8 @@ import {
   localContent,
   type RuleContent,
   type NativeDrift,
+  type InventoryRow,
+  type InventoryRelationship,
 } from '../../supabase/functions/_shared/native-siem-model';
 export type { RuleContent, NativeDrift };
 
@@ -78,6 +80,27 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
     window.dispatchEvent(new Event('native-siem-library-updated'));
   }
   return data as T;
+}
+
+const INVENTORY_COLUMNS =
+  'id,integration_id,vendor_rule_id,rule_family,display_name,observed_enabled,availability,' +
+  'normalization_error,match_candidate_count,relationship,binding_id,binding_status,detection_id,last_seen_at';
+
+/** PostgREST parses , ( ) inside or() and % inside ilike. Strip them before interpolation. */
+function safeSearch(value: string): string {
+  return value.replace(/[,()%*\\]/g, '').trim().slice(0, 120);
+}
+
+export interface InventoryPage {
+  rows: InventoryRow[];
+  hasMore: boolean;
+}
+export interface InventoryQuery {
+  integrationId: string;
+  relationship?: InventoryRelationship | 'all';
+  search?: string;
+  page?: number;
+  pageSize?: number;
 }
 
 export const nativeSiemService = {
@@ -218,4 +241,41 @@ export const nativeSiemService = {
       expectedHash: preview.remoteHash,
       expectedVersion: preview.localVersion,
     }),
+  async inventoryPage({
+    integrationId,
+    relationship = 'all',
+    search = '',
+    page = 0,
+    pageSize = 50,
+  }: InventoryQuery): Promise<InventoryPage> {
+    let query = supabase.from('siem_inventory_rows').select(INVENTORY_COLUMNS).eq('integration_id', integrationId);
+    if (relationship !== 'all') query = query.eq('relationship', relationship);
+    const term = safeSearch(search);
+    if (term) query = query.or(`display_name.ilike.%${term}%,vendor_rule_id.ilike.%${term}%`);
+    const from = page * pageSize;
+    const { data, error } = await query.order('display_name').range(from, from + pageSize);
+    if (error) throw new Error(error.message);
+    const rows = (data || []) as unknown as InventoryRow[];
+    return { rows: rows.slice(0, pageSize), hasMore: rows.length > pageSize };
+  },
+  async inventoryCounts(integrationId: string, search = ''): Promise<Record<InventoryRelationship, number>> {
+    const { data, error } = await supabase.rpc('siem_inventory_counts', {
+      p_integration: integrationId,
+      p_search: safeSearch(search) || null,
+    });
+    if (error) throw new Error(error.message);
+    const counts: Record<InventoryRelationship, number> = {
+      not_in_library: 0,
+      already_in_library: 0,
+      archived_in_library: 0,
+      match_needed: 0,
+      unsupported: 0,
+    };
+    for (const row of (data || []) as Array<{ relationship: InventoryRelationship; rules: number }>) {
+      counts[row.relationship] = Number(row.rules);
+    }
+    return counts;
+  },
+  startInventory: (integrationId: string) => invoke<NativeSyncRun>({ action: 'native_inventory_start', integrationId }),
+  refreshTracked: (integrationId: string) => invoke<NativeSyncRun>({ action: 'native_refresh_tracked', integrationId }),
 };
