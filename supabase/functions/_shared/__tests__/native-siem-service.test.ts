@@ -9,6 +9,10 @@ const raw = { id: 'remote-1', name: 'Rule', description: '', status: 'active', s
 
 async function fixture(options: { phase?: string; enabled?: boolean; resource?: unknown; stale?: boolean } = {}) {
   const content = normalizeCrowdStrike(raw), hash = await contentHash(content);
+  // TODO(Task 8): this fixture rides the pre-inventory siem_commit_chunk path, which today is
+  // where any kind other than 'inventory' or 'legacy_import' falls through. When Task 8 gives
+  // import_selection its own branch, re-point this fixture rather than letting it keep passing
+  // against a path it no longer represents.
   const run = { id: 'run', kind: 'import_selection', actor_id: 'owner', integration_id: 'connection', provider_scope: crowdStrikeScope(config),
     phase: options.phase || 'discovery', cursor_offset: 0, lease_token: 'lease', attempts: 0 };
   const binding = { id: 'binding', detection_id: 'detection', integration_id: 'connection', provider_scope: crowdStrikeScope(config),

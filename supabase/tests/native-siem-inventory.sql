@@ -116,6 +116,90 @@ BEGIN
   END;
 END $$;
 
+-- A full inventory run (discovery + hydration, one normalisable rule, one unsupported rule)
+-- must create zero library rows and never infer absence from a partial scan.
+INSERT INTO auth.users(id,email) VALUES
+  ('05000000-0000-0000-0000-000000000001','inventory-worker-owner@example.test');
+INSERT INTO public.profiles(id,role,status) VALUES
+  ('05000000-0000-0000-0000-000000000001','admin','active')
+  ON CONFLICT(id) DO UPDATE SET role='admin',status='active';
+INSERT INTO public.integrations(id,user_id,name,provider,category,status,config,auth_type) VALUES
+  ('06000000-0000-0000-0000-000000000001','05000000-0000-0000-0000-000000000001',
+   'Falcon inventory worker fixture','crowdstrike','siem','connected','{}','oauth2_client_credentials');
+
+DO $$
+DECLARE integration uuid := '06000000-0000-0000-0000-000000000001';
+  actor uuid := '05000000-0000-0000-0000-000000000001';
+  r public.siem_sync_runs; content jsonb; results jsonb; rule_ok uuid; rule_bad uuid;
+  detections_before bigint; bindings_before bigint; revisions_before bigint;
+BEGIN
+  -- Other fixtures in this file leave 'running' runs behind with no lease; clear them so
+  -- siem_claim_sync() below claims the run this block starts, not an older dangling one.
+  UPDATE public.siem_sync_runs SET status='cancelled', completed_at=now(), lease_token=NULL, lease_expires_at=NULL
+    WHERE status IN ('queued','running');
+
+  SELECT count(*) INTO detections_before FROM public.detections;
+  SELECT count(*) INTO bindings_before FROM public.siem_rule_bindings;
+  SELECT count(*) INTO revisions_before FROM public.siem_local_revisions;
+
+  r := public.siem_start_inventory(actor, integration, 'scope-c');
+  SELECT * INTO r FROM public.siem_claim_sync();
+  PERFORM public.siem_commit_inventory_chunk(r.id, r.lease_token, ARRAY['remote-inv-1','remote-inv-2'], 2, true, '[]');
+
+  content := '{"name":"Inventory rule ok","description":"","query":"#event_simpleName=ProcessRollup2","language":"CQL","severity":"High","enabled":true,"config":{"search":{"outcome":"detection","lookback":"1h0m"},"operation":{"schedule":{"definition":"@every 1h0m"}}}}';
+  results := jsonb_build_array(
+    jsonb_build_object('id','remote-inv-1','name','Inventory rule ok','content',content,'raw','{}'::jsonb,
+      'adapter','test-v1','hash','h1','raw_hash','r1','enabled',true,'family','correlation'),
+    jsonb_build_object('id','remote-inv-2','name','Inventory rule bad','family','correlation',
+      'error','Unsupported rule: no CQL query'));
+
+  SELECT * INTO r FROM public.siem_claim_sync();
+  PERFORM public.siem_commit_inventory_chunk(r.id, r.lease_token, '{}', 2, true, results);
+
+  PERFORM pg_temp.assert_true((SELECT count(*) FROM public.detections) = detections_before,
+    'an inventory run creates no library detection');
+  PERFORM pg_temp.assert_true((SELECT count(*) FROM public.siem_rule_bindings) = bindings_before,
+    'an inventory run creates no binding');
+  PERFORM pg_temp.assert_true((SELECT count(*) FROM public.siem_local_revisions) = revisions_before,
+    'an inventory run creates no local revision');
+
+  PERFORM pg_temp.assert_true(
+    (SELECT count(*) FROM public.siem_remote_rules WHERE integration_id=integration AND provider_scope='scope-c'
+       AND vendor_rule_id IN ('remote-inv-1','remote-inv-2')) = 2,
+    'two catalog rows exist for this connection and scope');
+
+  SELECT id INTO rule_ok FROM public.siem_remote_rules
+    WHERE integration_id=integration AND provider_scope='scope-c' AND vendor_rule_id='remote-inv-1';
+  SELECT id INTO rule_bad FROM public.siem_remote_rules
+    WHERE integration_id=integration AND provider_scope='scope-c' AND vendor_rule_id='remote-inv-2';
+
+  PERFORM pg_temp.assert_true(
+    (SELECT status FROM public.siem_sync_items WHERE run_id=r.id AND vendor_rule_id='remote-inv-1') = 'observed',
+    'a normalisable rule is recorded as observed, distinct from an import outcome');
+  PERFORM pg_temp.assert_true(
+    (SELECT status='unsupported' AND error_message='Unsupported rule: no CQL query' FROM public.siem_sync_items
+       WHERE run_id=r.id AND vendor_rule_id='remote-inv-2'),
+    'an unsupported rule is recorded with its error message instead of failing the job');
+
+  PERFORM pg_temp.assert_true(
+    (SELECT display_name FROM public.siem_remote_rules WHERE id=rule_bad) = 'Inventory rule bad',
+    'an unsupported rule keeps its display name, not its vendor id, so it stays identifiable in the UI');
+
+  PERFORM pg_temp.assert_true(
+    (SELECT latest_snapshot_id IS NOT NULL FROM public.siem_remote_rules WHERE id=rule_ok),
+    'a normalisable rule has a stored snapshot');
+  PERFORM pg_temp.assert_true(
+    (SELECT latest_snapshot_id IS NULL FROM public.siem_remote_rules WHERE id=rule_bad),
+    'an unsupported rule has no snapshot');
+
+  PERFORM pg_temp.assert_true((SELECT status='partial' FROM public.siem_sync_runs WHERE id=r.id),
+    'a run with an unsupported item completes as partial, not complete');
+  PERFORM pg_temp.assert_true(
+    (SELECT count(*) FILTER (WHERE availability='missing') = 0 FROM public.siem_remote_rules
+       WHERE integration_id=integration AND provider_scope='scope-c'),
+    'a partial scan never infers absence');
+END $$;
+
 -- The catalog is owner scoped. Another authenticated user sees nothing.
 SET LOCAL ROLE authenticated;
 SET LOCAL request.jwt.claim.sub = '03000000-0000-0000-0000-000000000002';
