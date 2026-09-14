@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import { getCorsHeaders, handleCorsPreflight, corsErrorResponse } from '../_shared/cors.ts'
 import { validateUrl } from '../_shared/url-validator.ts'
 import { checkRateLimit } from '../_shared/rate-limiter.ts'
+import { handleNativeRequest, processNativeSync } from '../_shared/native-siem-service.ts'
 import {
   buildCrowdStrikeQueries,
   isCrowdStrikeQueryRepository,
@@ -27,6 +28,14 @@ type Action =
   | 'run_preflight'
   | 'poll_preflight'
   | 'cancel_preflight'
+  | 'native_sync_start'
+  | 'native_disconnect'
+  | 'native_preview'
+  | 'native_accept'
+  | 'native_save'
+  | 'native_restore'
+  | 'native_apply'
+  | 'native_sync_tick'
 
 type Provider =
   | 'splunk'
@@ -59,6 +68,12 @@ interface IntegrationRequest {
   enabled?: boolean
   windowDays?: number
   preflightRunId?: string
+  bindingId?: string
+  expectedHash?: string
+  expectedVersion?: number
+  operation?: 'update' | 'enable' | 'disable' | 'delete'
+  localChanges?: { name: string; description: string; query: string; severity: string; schedule: string; lookback: string }
+  revisionId?: string
 }
 
 interface ConnectionTestResult {
@@ -96,13 +111,13 @@ type GranularPermission = string
 
 const ROLE_DEFAULT_PERMISSIONS: Record<string, GranularPermission[]> = {
   owner: [
-    'integrations:view', 'integrations:configure', 'integrations:sync',
+    'integrations:view', 'integrations:configure', 'integrations:sync', 'integrations:import',
   ],
   admin: [
-    'integrations:view', 'integrations:configure', 'integrations:sync',
+    'integrations:view', 'integrations:configure', 'integrations:sync', 'integrations:import',
   ],
   lead: [
-    'integrations:view', 'integrations:sync',
+    'integrations:view', 'integrations:sync', 'integrations:import',
   ],
   analyst: [
     'integrations:view',
@@ -113,6 +128,14 @@ const ROLE_DEFAULT_PERMISSIONS: Record<string, GranularPermission[]> = {
 }
 
 const ACTION_PERMISSIONS: Record<Action, GranularPermission> = {
+  native_sync_start: 'integrations:import',
+  native_disconnect: 'integrations:configure',
+  native_preview: 'integrations:view',
+  native_accept: 'integrations:import',
+  native_save: 'integrations:import',
+  native_restore: 'integrations:import',
+  native_apply: 'integrations:sync',
+  native_sync_tick: 'internal:worker',
   save_credentials: 'integrations:configure',
   test_connection: 'integrations:configure',
   deploy_rule: 'integrations:sync',
@@ -392,6 +415,18 @@ function getServiceClient() {
     Deno.env.get('SUPABASE_URL') ?? '',
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
   )
+}
+
+function kickNativeWorker() {
+  // The durable queue/cron recovers a lost hand-off; background execution is only a latency optimization.
+  const runtime = (globalThis as unknown as { EdgeRuntime?: { waitUntil: (promise: Promise<unknown>) => void } }).EdgeRuntime
+  if (!runtime) return
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
+  runtime.waitUntil(fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/integration-ops`, {
+    method: 'POST', headers: { Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'native_sync_tick' }), signal: AbortSignal.timeout(30000),
+  }).then(response => { if (!response.ok) console.warn('Native SIEM worker hand-off will retry via scheduler') })
+    .catch(() => console.warn('Native SIEM worker hand-off will retry via scheduler')))
 }
 
 async function getDecryptedCredentials(integrationId: string): Promise<Record<string, string>> {
@@ -3287,6 +3322,19 @@ serve(async (req: Request) => {
     }
 
     const token = authHeader.replace('Bearer ', '')
+    const body: IntegrationRequest = await req.json()
+    const nativeDependencies = {
+      db: getServiceClient(), credentials: getDecryptedCredentials, token: crowdStrikeGetToken,
+      fetch: vendorFetch, writesEnabled: Deno.env.get('NATIVE_SIEM_MUTATIONS') === 'true',
+    }
+    if (body.action === 'native_sync_tick') {
+      if (!Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || token !== Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')) {
+        return corsErrorResponse('Worker authorization required', req, 403)
+      }
+      const result = await processNativeSync(nativeDependencies)
+      if (result.processed) kickNativeWorker()
+      return new Response(JSON.stringify(result), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? ''
@@ -3311,9 +3359,6 @@ serve(async (req: Request) => {
       return corsErrorResponse('Rate limit exceeded. Try again shortly.', req, 429)
     }
 
-    // Parse body
-    const body: IntegrationRequest = await req.json()
-
     if (!body.action) {
       return new Response(
         JSON.stringify({ error: 'action is required' }),
@@ -3335,6 +3380,34 @@ serve(async (req: Request) => {
           { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
       }
+    }
+
+    if (body.action.startsWith('native_')) {
+      try {
+        const result = await handleNativeRequest(nativeDependencies, body, user.id)
+        if (body.action === 'native_sync_start') kickNativeWorker()
+        return new Response(JSON.stringify(result), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      } catch (error) {
+        return corsErrorResponse(error instanceof Error ? error.message : 'Native SIEM operation failed', req, 400)
+      }
+    }
+
+    // Imported targets must use the reviewed binding path, including direct API and bulk callers.
+    if (['deploy_rule', 'toggle_rule', 'delete_rule', 'delete_vendor_rule'].includes(body.action)) {
+      let detectionId = body.detectionId, integrationId = body.integrationId, vendorRuleId = body.vendorRuleId
+      if (body.deploymentId) {
+        const { data: deployment, error } = await getServiceClient().from('deployment_history')
+          .select('detection_id,integration_id,vendor_rule_id').eq('id', body.deploymentId).single()
+        if (error) return corsErrorResponse('Deployment not found', req, 404)
+        detectionId = deployment.detection_id; integrationId = deployment.integration_id; vendorRuleId = deployment.vendor_rule_id
+      }
+      let bindings = getServiceClient().from('siem_rule_bindings').select('id').limit(1)
+      if (detectionId) bindings = bindings.eq('detection_id', detectionId)
+      else if (integrationId && vendorRuleId) bindings = bindings.eq('integration_id', integrationId).eq('vendor_rule_id', vendorRuleId)
+      else return corsErrorResponse('A detection or target rule is required', req, 400)
+      const { data, error } = await bindings
+      if (error) return corsErrorResponse('Unable to verify native rule bindings', req, 503)
+      if (data?.length) return corsErrorResponse('This rule is linked to production. Use its Production comparison to review and deploy changes.', req, 409)
     }
 
     // Route to action handler
