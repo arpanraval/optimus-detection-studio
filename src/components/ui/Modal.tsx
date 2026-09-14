@@ -13,7 +13,7 @@ interface ModalProps {
   /** Called on close — backdrop click, Escape, or the close button. */
   onClose: () => void;
   /** Card width. Defaults to 'lg' (max-w-2xl). */
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
   /** Optional sticky footer region (actions). */
   footer?: React.ReactNode;
   children: React.ReactNode;
@@ -23,6 +23,7 @@ const SIZE_CLASS: Record<NonNullable<ModalProps['size']>, string> = {
   sm: 'max-w-md',
   md: 'max-w-xl',
   lg: 'max-w-2xl',
+  xl: 'max-w-6xl',
 };
 
 /**

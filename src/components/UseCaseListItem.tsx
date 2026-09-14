@@ -1,3 +1,4 @@
+import { SiemLibraryBadge } from '@/components/siem/SiemLibraryBadge';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Detection, LibraryType, LIBRARY_LABELS } from '../types';
@@ -106,6 +107,7 @@ export const UseCaseListItem: React.FC<UseCaseListItemProps> = ({
         return (
           <span className="text-sm text-on-surface font-medium truncate" title={detection.name}>
             {detection.name}
+            <SiemLibraryBadge detection={detection} />
           </span>
         );
 

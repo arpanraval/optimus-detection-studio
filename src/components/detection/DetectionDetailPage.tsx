@@ -14,6 +14,7 @@ import { QualityScore } from '../QualityScore';
 import { PublishStatusBadge, PublishModal, PDFExportModal } from '../library';
 import { useLibrary } from '../../context/LibraryContext';
 import { sourceConfig } from '../card-utils';
+import { NativeDetectionBindings } from '../siem/NativeDetectionBindings';
 import { CollaborationTab } from './tabs/CollaborationTab';
 import { DeployDetectionModal } from '../integrations/DeployDetectionModal';
 import { SiemPreflightModal } from '../integrations/SiemPreflightModal';
@@ -410,6 +411,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                  <h1 className="text-xl font-medium text-on-surface truncate leading-tight" title={detection.name}>
                    {detection.name}
                  </h1>
+                 {detection.native_provenance?.kind === 'native_siem' && <p className="text-xs text-primary mt-1">Imported from SIEM · {detection.native_provenance.provider} · {detection.native_provenance.connection_name}</p>}
                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                     <span className="font-mono text-[11px] text-on-surface-variant/70">#{detection.id.slice(0,8)}</span>
 
@@ -498,12 +500,12 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                  isProductionRule ? (
                    /* Production Library (library_type='production') → full Deploy */
                    <button
-                     onClick={() => setIsDeployModalOpen(true)}
+                     onClick={() => detection.native_provenance ? setActiveTab('deployments') : setIsDeployModalOpen(true)}
                      className="h-9 px-3 flex items-center gap-2 rounded-full text-sm font-medium bg-surface-container-highest text-on-surface border border-outline-variant/30 hover:bg-surface-container-high transition-all"
-                     title="Deploy to SIEM"
+                     title={detection.native_provenance ? 'Review the existing CrowdStrike rule' : 'Deploy to SIEM'}
                    >
                      <Icon name="upload" className="w-4 h-4" />
-                     <span className="hidden sm:inline">Deploy</span>
+                     <span className="hidden sm:inline">{detection.native_provenance ? 'Review SIEM changes' : 'Deploy'}</span>
                    </button>
                  ) : (
                    /* Development Library (library_type='development') → Preview only */
@@ -674,6 +676,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
         )}
         {activeTab === 'deployments' && (
           <TabErrorBoundary tabName="Deployments">
+            <NativeDetectionBindings detectionId={localDetection.id} />
             <DeploymentHistoryTab detection={localDetection} />
           </TabErrorBoundary>
         )}
@@ -776,6 +779,10 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
             <div className="px-6 pb-4">
               <p className="text-on-surface-variant">
                 Are you sure you want to delete <span className="font-medium text-on-surface">"{detection.name}"</span>?
+                {detection.native_provenance && <span className="block mt-2">
+                  This deletes the library copy and its imported version history. The rule in CrowdStrike stays unchanged.
+                  Fetching from CrowdStrike again will import a new library copy.
+                </span>}
                 {isDevelopmentRule && (
                   <span className="block mt-2 text-warning font-medium">
                     ⚠️ This is a {LIBRARY_LABELS[LIBRARY_DEVELOPMENT]} rule. Deleting it will affect all users.

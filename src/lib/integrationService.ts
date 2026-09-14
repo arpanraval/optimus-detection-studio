@@ -34,6 +34,16 @@ import {
 // In dev mode, bypasses edge functions and uses a local Vite proxy for vendor calls.
 
 const IS_DEV = import.meta.env.DEV;
+
+async function requireUnboundTarget(detectionId?: string, integrationId?: string, vendorRuleId?: string) {
+  let query = supabase.from('siem_rule_bindings').select('id').limit(1);
+  if (detectionId) query = query.eq('detection_id', detectionId);
+  else if (integrationId && vendorRuleId) query = query.eq('integration_id', integrationId).eq('vendor_rule_id', vendorRuleId);
+  else throw new Error('A detection or target rule is required');
+  const { data, error } = await query;
+  if (error) throw new Error('Unable to verify production rule bindings');
+  if (data?.length) throw new Error('Open the detection’s Deployments tab to compare and update its linked production rule.');
+}
 const PREFLIGHT_POLL_INTERVAL_MS = 10_000;
 
 interface RunPreflightOptions {
@@ -2249,7 +2259,8 @@ export const integrationService = {
       .order('created_at', { ascending: false });
 
     if (error) throw new Error(`Failed to list integrations: ${error.message}`);
-    return (data || []) as Integration[];
+    // select('*') works before archived_at is introduced by the native SIEM migration.
+    return (data || []).filter((integration) => !integration.archived_at) as Integration[];
   },
 
   async getIntegration(id: string): Promise<Integration> {
@@ -2317,6 +2328,15 @@ export const integrationService = {
   },
 
   async deleteIntegration(id: string): Promise<void> {
+    const { data: runs, error: runError } = await supabase.from('siem_sync_runs').select('id').eq('integration_id', id).limit(1);
+    const { data: bindings, error: bindingError } = await supabase.from('siem_rule_bindings').select('id').eq('integration_id', id).limit(1);
+    if (runError || bindingError) throw new Error('Unable to verify connection history');
+    if (runs?.length || bindings?.length) {
+      const { data, error } = await supabase.functions.invoke('integration-ops', { body: { action: 'native_disconnect', integrationId: id } });
+      if (error || data?.error) throw new Error(data?.error || error?.message);
+      devCredentialCache.delete(id);
+      return;
+    }
     const { error } = await supabase
       .from('integrations')
       .delete()
@@ -2543,6 +2563,7 @@ export const integrationService = {
     ruleConfig?: Partial<VendorRuleConfig> & { name?: string; description?: string; action?: string };
     vendorRuleId?: string;
   }): Promise<DeploymentRecord> {
+    await requireUnboundTarget(params.detectionId, params.integrationId, params.vendorRuleId);
     // Guard: only Production Library detections can be deployed
     const { data: detectionCheck } = await supabase
       .from('detections')
@@ -2836,6 +2857,7 @@ export const integrationService = {
   },
 
   async toggleVendorRule(integrationId: string, vendorRuleId: string, enabled: boolean): Promise<void> {
+    await requireUnboundTarget(undefined, integrationId, vendorRuleId);
     if (IS_DEV) {
       const { data: integration, error } = await supabase
         .from('integrations')
@@ -2887,6 +2909,7 @@ export const integrationService = {
   },
 
   async deleteVendorRule(integrationId: string, vendorRuleId: string): Promise<void> {
+    await requireUnboundTarget(undefined, integrationId, vendorRuleId);
     if (IS_DEV) {
       const { data: integration, error } = await supabase
         .from('integrations')
@@ -2946,6 +2969,7 @@ export const integrationService = {
   },
 
   async importVendorRule(rule: VendorRule): Promise<string> {
+    if (rule.provider === 'crowdstrike') throw new Error('Use “Sync rules to Production Library” on the connection to import and link this rule.');
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
@@ -3051,6 +3075,10 @@ export const integrationService = {
   },
 
   async deleteDeployedRule(deploymentId: string): Promise<void> {
+    const { data: target, error: targetError } = await supabase.from('deployment_history')
+      .select('detection_id,integration_id,vendor_rule_id').eq('id', deploymentId).single();
+    if (targetError) throw new Error('Deployment not found');
+    await requireUnboundTarget(target.detection_id, target.integration_id, target.vendor_rule_id);
     if (IS_DEV) {
       const { data: deployment, error: depErr } = await supabase
         .from('deployment_history')

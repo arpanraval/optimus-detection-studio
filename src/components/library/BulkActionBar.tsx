@@ -251,7 +251,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
       iconBg: 'bg-error/10',
       iconColor: 'text-error',
       title: `Delete ${effectiveCount.toLocaleString()} detection${effectiveCount > 1 ? 's' : ''}?`,
-      description: `This action cannot be undone. ${selectAllMatchingMode ? 'All detections matching your current filters' : 'The selected detections'} will be permanently removed.`,
+      description: `This action cannot be undone. ${selectAllMatchingMode ? 'All detections matching your current filters' : 'The selected detections'} will be permanently removed from the library, including imported version history. Rules in connected SIEMs are not deleted. Fetching them again can import new library copies.`,
       buttonText: 'Delete',
       buttonClass: 'bg-error text-on-error',
     };

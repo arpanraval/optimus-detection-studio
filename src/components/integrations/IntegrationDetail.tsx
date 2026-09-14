@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
 import { DetectionManagementTab } from './DetectionManagementTab';
+import { NativeRulesPanel } from '../siem/NativeRulesPanel';
 import { DeploymentActivityTab } from './DeploymentActivityTab';
 import { SettingsTab } from './SettingsTab';
 import { integrationService } from '../../lib/integrationService';
@@ -269,7 +270,7 @@ export const IntegrationDetail: React.FC<IntegrationDetailProps> = ({
 
         {/* Tab Content */}
         {activeTab === 'detections' && (
-          <DetectionManagementTab integration={integration} />
+          integration.provider === 'crowdstrike' ? <NativeRulesPanel key={integration.id} integration={integration} /> : <DetectionManagementTab integration={integration} />
         )}
 
         {activeTab === 'deployments' && (

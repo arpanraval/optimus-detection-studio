@@ -14,6 +14,7 @@ import { supabase } from '../../lib/supabaseClient';
 import type { Integration, ConnectionTestResult, DeploymentRecord, VendorRule } from '../../types';
 import { SiemHomeOverviewTab } from './SiemHomeOverviewTab';
 import { SiemHomeRulesTab } from './SiemHomeRulesTab';
+import { NativeRulesPanel } from './NativeRulesPanel';
 import { SiemHomeDeployTab } from './SiemHomeDeployTab';
 import { SiemHomeHistoryTab } from './SiemHomeHistoryTab';
 import { SiemSettingsPanel } from './SiemSettingsPanel';
@@ -414,7 +415,7 @@ export function SiemHomePage({ integrationId }: SiemHomePageProps) {
             onSwitchTab={(tab) => setActiveTab(tab)}
           />
         )}
-        {activeTab === 'rules' && <SiemHomeRulesTab integration={integration} />}
+        {activeTab === 'rules' && (integration.provider === 'crowdstrike' ? <NativeRulesPanel key={integration.id} integration={integration} /> : <SiemHomeRulesTab integration={integration} />)}
         {activeTab === 'deploy' && (
           <SiemHomeDeployTab
             integration={integration}

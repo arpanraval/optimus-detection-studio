@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { optionalColumnQuery } from '../lib/optionalColumnQuery';
+import { withSiemLibraryState } from '../lib/siemLibraryState';
 import {
   Detection,
   PublishRequest,
@@ -233,6 +235,8 @@ const LIBRARY_COLUMNS = [
   'auditLog',
 ].join(',');
 
+const queryLibrary = optionalColumnQuery('native_provenance');
+
 // ============================================
 // CONTEXT TYPE
 // ============================================
@@ -454,17 +458,17 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       const totalPages = Math.ceil(totalCount / currentPageSize);
 
       // Data query WITH filters (lightweight columns only)
-      let dataQ = supabase
-        .from('detections')
-        .select(LIBRARY_COLUMNS)
-        .or(`library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null`);
-      dataQ = applyServerFilters(dataQ, activeFilters);
-      dataQ = dataQ.order(sortColumn, { ascending: sortAscending }).range(from, to);
-
-      const { data, error } = await dataQ;
+      const { data, error } = await queryLibrary((includeProvenance) => {
+        let dataQ = supabase
+          .from('detections')
+          .select(includeProvenance ? `${LIBRARY_COLUMNS},native_provenance` : LIBRARY_COLUMNS)
+          .or(`library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null`);
+        dataQ = applyServerFilters(dataQ, activeFilters);
+        return dataQ.order(sortColumn, { ascending: sortAscending }).range(from, to);
+      });
       if (error) throw error;
 
-      setProductionDetections((data as unknown as Detection[]) || []);
+      setProductionDetections(await withSiemLibraryState((data as unknown as Detection[]) || []));
       setProductionPagination(prev => ({
         ...prev,
         page: currentPage,
@@ -504,14 +508,14 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       const totalPages = Math.ceil(totalCount / currentPageSize);
 
       // Data query WITH filters (lightweight columns only)
-      let dataQ = supabase
-        .from('detections')
-        .select(LIBRARY_COLUMNS)
-        .eq('library_type', LIBRARY_DEVELOPMENT);
-      dataQ = applyServerFilters(dataQ, activeFilters);
-      dataQ = dataQ.order(sortColumn, { ascending: sortAscending }).range(from, to);
-
-      const { data, error } = await dataQ;
+      const { data, error } = await queryLibrary((includeProvenance) => {
+        let dataQ = supabase
+          .from('detections')
+          .select(includeProvenance ? `${LIBRARY_COLUMNS},native_provenance` : LIBRARY_COLUMNS)
+          .eq('library_type', LIBRARY_DEVELOPMENT);
+        dataQ = applyServerFilters(dataQ, activeFilters);
+        return dataQ.order(sortColumn, { ascending: sortAscending }).range(from, to);
+      });
       if (error) throw error;
 
       setDevelopmentDetections((data as unknown as Detection[]) || []);
@@ -544,6 +548,12 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       if (!silent) setIsLoading(false);
     }
   }, [refreshProductionLibrary, refreshDevelopmentLibrary]);
+
+  useEffect(() => {
+    const onNativeImport = () => { void refreshProductionLibrary(); };
+    window.addEventListener('native-siem-library-updated', onNativeImport);
+    return () => window.removeEventListener('native-siem-library-updated', onNativeImport);
+  }, [refreshProductionLibrary]);
 
   // H1: Enhanced pending requests - fetch submitter profile separately if needed
   const refreshPendingRequests = useCallback(async () => {

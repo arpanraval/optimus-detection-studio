@@ -232,9 +232,11 @@ function RuleRow({
                     color="secondary"
                     size="sm"
                     leadingIcon="upload"
-                    onClick={onToggleEnable}
+                    onClick={() => {
+                      if (rule.optimusDetectionId) navigate(routeHelpers.detectionDetail(rule.optimusDetectionId));
+                    }}
                   >
-                    Re-deploy
+                    Review deployment
                   </Button>
                 )}
                 <Button
