@@ -55,6 +55,67 @@ describe('NativeRulesPanel', () => {
     expect(await screen.findByText('No inventory yet')).toBeTruthy();
   });
 
+  it('prefers the search empty state over the never-fetched state', async () => {
+    // Regression: an existing connection whose catalog came from the Task 1 backfill has no
+    // 'inventory'/'refresh_tracked' run (hasEverFetched is false) even though rows exist. A
+    // non-matching search on it must explain the search, not claim there is no inventory.
+    render(
+      <MemoryRouter>
+        <NativeRulesPanel integration={integrationFixture} />
+      </MemoryRouter>,
+    );
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search production rules' }), {
+      target: { value: 'nonexistent-rule' },
+    });
+    expect(await screen.findByText('No matching rules')).toBeTruthy();
+    expect(screen.queryByText('No inventory yet')).toBeNull();
+  });
+
+  it('prefers the filter empty state over the never-fetched state', async () => {
+    vi.spyOn(nativeSiemService, 'inventoryCounts').mockResolvedValue({
+      ...ZERO_COUNTS,
+      already_in_library: 5,
+    });
+    render(
+      <MemoryRouter>
+        <NativeRulesPanel integration={integrationFixture} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Match needed 0' }));
+    expect(await screen.findByText('Nothing in this view')).toBeTruthy();
+    expect(screen.queryByText('No inventory yet')).toBeNull();
+  });
+
+  it('still shows the never-fetched state with no search and no filter active', async () => {
+    render(
+      <MemoryRouter>
+        <NativeRulesPanel integration={integrationFixture} />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('No inventory yet')).toBeTruthy();
+  });
+
+  it('shows the empty-account state once a run has completed and found nothing', async () => {
+    vi.spyOn(nativeSiemService, 'latestRun').mockResolvedValue({
+      id: 'run-1',
+      status: 'complete',
+      phase: 'complete',
+      kind: 'inventory',
+      discovery_complete: true,
+      created_at: '2026-09-15T00:00:00Z',
+      completed_at: '2026-09-15T00:05:00Z',
+      heartbeat_at: null,
+      error_message: null,
+    });
+    render(
+      <MemoryRouter>
+        <NativeRulesPanel integration={integrationFixture} />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('No rules in this CrowdStrike account')).toBeTruthy();
+    expect(screen.queryByText('No inventory yet')).toBeNull();
+  });
+
   it('renders the six classification chips with counts', async () => {
     vi.spyOn(nativeSiemService, 'inventoryCounts').mockResolvedValue({
       not_in_library: 3,

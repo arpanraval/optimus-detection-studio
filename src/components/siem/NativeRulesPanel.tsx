@@ -63,16 +63,16 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
   let emptyHeading: string | null = null;
   let emptyBody: string | null = null;
   if (!loading && rows.length === 0) {
-    if (!hasEverFetched) {
-      emptyHeading = 'No inventory yet';
-      emptyBody =
-        'Fetch rules from CrowdStrike to see what exists in production. Nothing is added to your library until you choose it.';
-    } else if (search.trim()) {
+    if (search.trim()) {
       emptyHeading = 'No matching rules';
       emptyBody = 'Try another rule name or CrowdStrike ID.';
     } else if (relationship !== 'all') {
       emptyHeading = 'Nothing in this view';
       emptyBody = 'Choose All rules to return to the full inventory.';
+    } else if (!hasEverFetched) {
+      emptyHeading = 'No inventory yet';
+      emptyBody =
+        'Fetch rules from CrowdStrike to see what exists in production. Nothing is added to your library until you choose it.';
     } else {
       emptyHeading = 'No rules in this CrowdStrike account';
       emptyBody = "This connection's scope contains no correlation rules.";
