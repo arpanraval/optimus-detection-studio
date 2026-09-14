@@ -142,6 +142,13 @@ BEGIN
   SELECT count(*) INTO bindings_before FROM public.siem_rule_bindings;
   SELECT count(*) INTO revisions_before FROM public.siem_local_revisions;
 
+  -- A rule already in the catalog from an earlier scope-c scan, but absent from this run's
+  -- discovery. Proves the missing-inference still fires despite the unsupported item below
+  -- and the resulting 'partial' status.
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'crowdstrike','scope-c','remote-inv-stale','Stale rule',true,'present');
+
   r := public.siem_start_inventory(actor, integration, 'scope-c');
   SELECT * INTO r FROM public.siem_claim_sync();
   PERFORM public.siem_commit_inventory_chunk(r.id, r.lease_token, ARRAY['remote-inv-1','remote-inv-2'], 2, true, '[]');
@@ -194,10 +201,65 @@ BEGIN
 
   PERFORM pg_temp.assert_true((SELECT status='partial' FROM public.siem_sync_runs WHERE id=r.id),
     'a run with an unsupported item completes as partial, not complete');
+
+  -- Status and absence-inference are separate: a partial scan (one unsupported item) CAN
+  -- still infer absence for a rule it never even saw in discovery.
+  PERFORM pg_temp.assert_true(
+    (SELECT availability='missing' FROM public.siem_remote_rules
+       WHERE integration_id=integration AND provider_scope='scope-c' AND vendor_rule_id='remote-inv-stale'),
+    'a rule absent from a completed discovery is inferred missing even though the run is only partial');
+  PERFORM pg_temp.assert_true(
+    (SELECT availability<>'missing' FROM public.siem_remote_rules WHERE id=rule_bad),
+    'a rule that was read but could not be normalised is never treated as absent');
+END $$;
+
+-- A run containing a 'failed' item (a definite non-answer, unlike 'unsupported') must mark
+-- nothing missing at all, even for rules never seen in this run's discovery -- a failed read
+-- means the scan cannot be trusted to have proven anything absent. Separate connection/scope
+-- from the block above so the two cannot interfere.
+INSERT INTO auth.users(id,email) VALUES
+  ('07000000-0000-0000-0000-000000000001','inventory-worker-failed-owner@example.test');
+INSERT INTO public.profiles(id,role,status) VALUES
+  ('07000000-0000-0000-0000-000000000001','admin','active')
+  ON CONFLICT(id) DO UPDATE SET role='admin',status='active';
+INSERT INTO public.integrations(id,user_id,name,provider,category,status,config,auth_type) VALUES
+  ('08000000-0000-0000-0000-000000000001','07000000-0000-0000-0000-000000000001',
+   'Falcon inventory worker failed-read fixture','crowdstrike','siem','connected','{}','oauth2_client_credentials');
+
+DO $$
+DECLARE integration uuid := '08000000-0000-0000-0000-000000000001';
+  actor uuid := '07000000-0000-0000-0000-000000000001';
+  r public.siem_sync_runs;
+BEGIN
+  UPDATE public.siem_sync_runs SET status='cancelled', completed_at=now(), lease_token=NULL, lease_expires_at=NULL
+    WHERE status IN ('queued','running');
+
+  -- A catalog rule from an earlier scan of this same scope, absent from this run's discovery.
+  -- If the failed item below did not block inference, this would be wrongly marked missing.
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'crowdstrike','scope-d','remote-inv-stale-2','Stale rule two',true,'present');
+
+  r := public.siem_start_inventory(actor, integration, 'scope-d');
+  SELECT * INTO r FROM public.siem_claim_sync();
+  PERFORM public.siem_commit_inventory_chunk(r.id, r.lease_token, ARRAY['remote-inv-4'], 1, true, '[]');
+
+  -- Simulate an item that a worker gave up on (e.g. after repeated lease-expiry retries): a
+  -- 'failed' status, not the 'unsupported' this migration's own commit RPC produces for an
+  -- error-carrying result. Nothing in this task's worker code sets 'failed' on a
+  -- siem_sync_items row; this directly exercises the terminal block's own guard.
+  UPDATE public.siem_sync_items SET status='failed', error_message='fixture: forced failed read'
+    WHERE run_id=r.id AND vendor_rule_id='remote-inv-4';
+
+  SELECT * INTO r FROM public.siem_claim_sync();
+  PERFORM public.siem_commit_inventory_chunk(r.id, r.lease_token, '{}', 1, true, '[]');
+
+  PERFORM pg_temp.assert_true((SELECT status='partial' FROM public.siem_sync_runs WHERE id=r.id),
+    'a run with a failed item completes as partial');
   PERFORM pg_temp.assert_true(
     (SELECT count(*) FILTER (WHERE availability='missing') = 0 FROM public.siem_remote_rules
-       WHERE integration_id=integration AND provider_scope='scope-c'),
-    'a partial scan never infers absence');
+       WHERE integration_id=integration AND provider_scope='scope-d'),
+    'a run with a failed item marks nothing missing, including rules it never even discovered');
 END $$;
 
 -- The catalog is owner scoped. Another authenticated user sees nothing.

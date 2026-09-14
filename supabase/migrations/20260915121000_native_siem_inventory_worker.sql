@@ -89,11 +89,22 @@ BEGIN
     END LOOP;
 
     IF NOT EXISTS (SELECT 1 FROM siem_sync_items WHERE run_id = r.id AND status = 'pending') THEN
-      IF EXISTS (SELECT 1 FROM siem_sync_items WHERE run_id = r.id AND status = 'failed') THEN
-        UPDATE siem_sync_runs SET status = 'partial', completed_at = now() WHERE id = r.id;
-      ELSE
-        UPDATE siem_sync_runs SET status = 'complete', completed_at = now() WHERE id = r.id;
-        -- Only a fully completed scan of this scope may infer absence.
+      -- Status and absence-inference are two different questions. Status reflects whether
+      -- every item got a definite answer of any kind (matches legacy siem_commit_chunk's
+      -- status IN ('failed','unsupported','ambiguous') reading of "partial").
+      UPDATE siem_sync_runs
+         SET status = CASE WHEN EXISTS (SELECT 1 FROM siem_sync_items
+                                         WHERE run_id = r.id AND status IN ('failed','unsupported'))
+                            THEN 'partial' ELSE 'complete' END,
+             completed_at = now()
+       WHERE id = r.id;
+      -- Absence is a separate question from status. A rule we read but could not normalise
+      -- ('unsupported') is still a definite answer that it exists, so it must not block the
+      -- inference -- otherwise one permanently unsupported rule family would stop this
+      -- connection from ever noticing a deleted rule. A 'failed' item is not a definite
+      -- answer, so it does block it.
+      IF r.discovery_complete AND NOT EXISTS (SELECT 1 FROM siem_sync_items
+                                               WHERE run_id = r.id AND status = 'failed') THEN
         UPDATE siem_remote_rules SET availability = 'missing'
          WHERE integration_id = r.integration_id AND provider_scope = r.provider_scope
            AND NOT EXISTS (SELECT 1 FROM siem_sync_items
