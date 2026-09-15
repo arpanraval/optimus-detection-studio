@@ -461,6 +461,10 @@ export async function applyNativeMutation(
   const operationId = checked(await deps.db.rpc('siem_begin_deployment', { p_actor: actor, p_binding: binding.id,
     p_version: reviewedVersion, p_hash: reviewedHash, p_content: desired, p_action: operation }));
   let attempted = false;
+  // Set once a vendor request has actually come back OK. A later refusal after this point means
+  // production is PARTLY changed, which is uncertain however cleanly that later request was
+  // refused -- so the two flags are not the same question.
+  let applied = false;
   try {
     const request = await client(deps, integration);
     const read = async () => {
@@ -477,6 +481,15 @@ export async function applyNativeMutation(
     attempted = true;
     await request(operation === 'delete' ? `entities/rules/v1?ids=${encodeURIComponent(binding.vendor_rule_id)}` : 'entities/rules/v1',
       { method: operation === 'delete' ? 'DELETE' : 'PATCH', ...(payload ? { body: JSON.stringify([payload]) } : {}) });
+    applied = true;
+    // CrowdStrike refuses a status change made in the same request as the schedule attributes:
+    // "these operations should be performed one at a time". So an update never carries `status`,
+    // and a rule that also has to start or stop running gets a second request for that alone --
+    // and only when it really changes, which keeps the ordinary update a single call.
+    if (!isToggle && operation === 'update' && before.content.enabled !== desired.enabled) {
+      await request('entities/rules/v1', { method: 'PATCH', body: JSON.stringify([
+        { id: binding.vendor_rule_id, status: desired.enabled ? 'active' : 'inactive' }]) });
+    }
     let after: { raw: Record<string, Json>; content: RuleContent } | null = null;
     if (operation === 'delete') {
       const response = await request(`entities/rules/v1?ids=${encodeURIComponent(binding.vendor_rule_id)}`);
@@ -496,7 +509,7 @@ export async function applyNativeMutation(
     // "We sent it and never learned the outcome" and "CrowdStrike read it and refused it" are
     // different facts. Only the first is uncertain; the second leaves production untouched, so the
     // rule stays usable and the user is told what to fix.
-    const uncertain = attempted && !(error instanceof VendorRequestError && error.refusedWithoutWriting);
+    const uncertain = attempted && (applied || !(error instanceof VendorRequestError && error.refusedWithoutWriting));
     checked(await deps.db.rpc('siem_fail_deployment', { p_operation: operationId, p_actor: actor,
       p_uncertain: uncertain, p_error: uncertain ? 'Vendor write attempted; sync and verify production before retrying' :
         error instanceof Error ? error.message : 'Deployment failed' }));

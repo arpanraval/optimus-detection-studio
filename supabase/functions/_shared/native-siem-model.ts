@@ -238,7 +238,8 @@ export function crowdStrikeUpdate(id: string, content: RuleContent): Record<stri
     ...(technique ? { technique } : {}),
     search: { outcome: search.outcome, filter: content.query, lookback: search.lookback },
     operation: { schedule: { definition: schedule.definition } },
-    status: content.enabled ? 'active' : 'inactive',
+    // No `status`: CrowdStrike refuses a status transition made in the same request as the
+    // schedule attributes, so the caller sends that as its own request when it changes.
   };
 }
 

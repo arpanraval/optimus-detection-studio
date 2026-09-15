@@ -30,8 +30,16 @@ describe('native SIEM content contracts', () => {
       severity: 70,
       search: { outcome: 'detection', filter: 'field="new"', lookback: '1h0m' },
       operation: { schedule: { definition: '@every 5m' } },
-      status: 'active',
     });
+  });
+
+  // "can't be transitioned in state 'inactive' and also update attributes 'schedule', 'start_on'
+  // or 'stop_on', these operations should be performed one at a time" -- CrowdStrike, on a body
+  // that carried both. The status transition is sent separately by the caller when it changes.
+  it('leaves the status transition out of an attribute update', () => {
+    const rule = normalizeCrowdStrike(raw);
+    expect(crowdStrikeUpdate(raw.id, rule)).not.toHaveProperty('status');
+    expect(crowdStrikeUpdate(raw.id, { ...rule, enabled: false })).not.toHaveProperty('status');
   });
 
   // Every one of these comes back on a read and none is an input parameter. `start_on` is worse

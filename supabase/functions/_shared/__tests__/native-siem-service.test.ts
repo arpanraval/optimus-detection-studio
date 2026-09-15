@@ -12,6 +12,7 @@ const raw = { id: 'remote-1', name: 'Rule', description: '', status: 'active', s
 async function fixture(options: { phase?: string; enabled?: boolean; resource?: unknown; stale?: boolean;
   noBaseline?: boolean; localQuery?: string; afterResource?: unknown;
   pendingOperation?: boolean; ruleFamily?: string; connectionStatus?: string;
+  desiredEnabled?: boolean; statusRejection?: { status: number; message: string };
   writeRejection?: { status: number; message: string } } = {}) {
   const content = normalizeCrowdStrike(raw), hash = await contentHash(content);
   // This fixture exercises the legacy siem_commit_chunk path: kind 'refresh_tracked' is a real
@@ -21,7 +22,8 @@ async function fixture(options: { phase?: string; enabled?: boolean; resource?: 
   const run = { id: 'run', kind: 'refresh_tracked', actor_id: 'owner', integration_id: 'connection', provider_scope: crowdStrikeScope(config),
     phase: options.phase || 'discovery', cursor_offset: 0, lease_token: 'lease', attempts: 0 };
   const binding = { id: 'binding', detection_id: 'detection', integration_id: 'connection', provider_scope: crowdStrikeScope(config),
-    selected_query_id: 'query-id', desired_content: content,
+    selected_query_id: 'query-id',
+    desired_content: options.desiredEnabled === undefined ? content : { ...content, enabled: options.desiredEnabled },
     baseline_snapshot_id: options.noBaseline ? null : 'snap', latest_remote_snapshot_id: 'snap',
     binding_status: 'active', availability: 'present', vendor_rule_id: raw.id,
     // Set by siem_fail_deployment when a vendor write ended UNCERTAIN: the request was sent and
@@ -48,9 +50,12 @@ async function fixture(options: { phase?: string; enabled?: boolean; resource?: 
   let written = false;
   const fetch = vi.fn(async (_url: string, request: RequestInit) => {
     if (request.method === 'PATCH' || request.method === 'DELETE') {
-      if (options.writeRejection) {
-        return new Response(JSON.stringify({ errors: [{ message: options.writeRejection.message }] }),
-          { status: options.writeRejection.status });
+      const body = typeof request.body === 'string' ? JSON.parse(request.body)[0] : {};
+      const statusOnly = body && body.status !== undefined && body.search === undefined;
+      const rejection = options.writeRejection ?? (statusOnly ? options.statusRejection : undefined);
+      if (rejection) {
+        return new Response(JSON.stringify({ errors: [{ message: rejection.message }] }),
+          { status: rejection.status });
       }
       written = true;
       return new Response(JSON.stringify({ resources: [raw] }));
@@ -455,6 +460,49 @@ describe('applyNativeMutation as a shared entry point', () => {
       { bindingId: 'binding', operation: 'update', expectedVersion: 1, expectedHash: hash }, 'owner'))
       .rejects.toThrow(/not enabled for this installation/);
     expect(deps.fetch).not.toHaveBeenCalled();
+  });
+
+  // CrowdStrike: "can't be transitioned in state 'inactive' and also update attributes
+  // 'schedule', 'start_on' or 'stop_on', these operations should be performed one at a time".
+  it('sends a status change as its own request, after the attributes', async () => {
+    const { deps, hash } = await fixture({
+      enabled: true, localQuery: EDITED_QUERY, desiredEnabled: false,
+      afterResource: [{ ...raw, status: 'inactive', search: { ...raw.search, filter: EDITED_QUERY } }],
+    });
+    await applyNativeMutation(deps,
+      { bindingId: 'binding', operation: 'update', expectedVersion: 1, expectedHash: hash }, 'owner');
+
+    const patches = (deps.fetch as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([, request]: [string, RequestInit]) => request.method === 'PATCH')
+      .map(([, request]: [string, RequestInit]) => JSON.parse(String(request.body))[0]);
+    expect(patches).toHaveLength(2);
+    expect(patches[0]).not.toHaveProperty('status');
+    expect(patches[0].search).toMatchObject({ filter: EDITED_QUERY });
+    expect(patches[1]).toEqual({ id: raw.id, status: 'inactive' });
+  });
+
+  it('keeps an ordinary update to one request when the rule keeps running', async () => {
+    const { deps, hash } = await fixture({
+      enabled: true, localQuery: EDITED_QUERY,
+      afterResource: [{ ...raw, search: { ...raw.search, filter: EDITED_QUERY } }],
+    });
+    await applyNativeMutation(deps,
+      { bindingId: 'binding', operation: 'update', expectedVersion: 1, expectedHash: hash }, 'owner');
+    expect((deps.fetch as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([, request]: [string, RequestInit]) => request.method === 'PATCH')).toHaveLength(1);
+  });
+
+  // The attributes landed and the transition did not: production is PARTLY changed, which is
+  // uncertain however cleanly the second request was refused.
+  it('records a half-applied update as uncertain, not as a clean refusal', async () => {
+    const { deps, rpc, hash } = await fixture({
+      enabled: true, localQuery: EDITED_QUERY, desiredEnabled: false,
+      statusRejection: { status: 400, message: 'cannot transition right now' },
+    });
+    await expect(applyNativeMutation(deps,
+      { bindingId: 'binding', operation: 'update', expectedVersion: 1, expectedHash: hash }, 'owner'))
+      .rejects.toThrow(/cannot transition right now/);
+    expect(rpc).toHaveBeenCalledWith('siem_fail_deployment', expect.objectContaining({ p_uncertain: true }));
   });
 
   // A rejected request and a lost one are different facts. CrowdStrike read this one and refused
