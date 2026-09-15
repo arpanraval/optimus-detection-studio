@@ -9,7 +9,8 @@ export type RuleContent = {
   enabled: boolean | null;
   config: Record<string, Json>;
 };
-export type NativeDrift = 'in_sync' | 'local_changed' | 'remote_changed' | 'conflict' | 'missing' | 'unknown';
+export type NativeDrift = 'in_sync' | 'local_changed' | 'remote_changed' | 'conflict' | 'missing'
+  | 'no_baseline' | 'unknown';
 export const ADAPTER_VERSION = 'crowdstrike-correlation-v1';
 
 export function canonicalJson(value: Json): string {
@@ -73,10 +74,15 @@ export function normalizeCrowdStrike(raw: Record<string, Json>): RuleContent {
   };
 }
 
-export function classifyDrift(baseline: RuleContent, local: RuleContent, remote: RuleContent,
+export function classifyDrift(baseline: RuleContent | null, local: RuleContent, remote: RuleContent,
   availability = 'present'): NativeDrift {
   if (availability === 'missing') return 'missing';
   if (availability !== 'present') return 'unknown';
+  // Linked, but never reconciled. siem_link_existing refuses to invent a baseline when the chosen
+  // query already differs from production, and without a common ancestor "who changed what" has no
+  // answer -- local_changed and remote_changed are indistinguishable. Saying so is the only honest
+  // classification; guessing one manufactures agreement nobody decided on.
+  if (baseline === null) return canonicalJson(local) === canonicalJson(remote) ? 'in_sync' : 'no_baseline';
   const b = canonicalJson(baseline), l = canonicalJson(local), r = canonicalJson(remote);
   if (l === r) return 'in_sync';
   if (l === b) return 'remote_changed';

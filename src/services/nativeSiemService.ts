@@ -73,7 +73,9 @@ export interface MatchCandidate {
 }
 export interface NativePreview {
   binding: NativeBinding;
-  baseline: RuleContent;
+  /** null when the rule is linked but not yet reconciled: siem_link_existing refuses to invent an
+   *  agreed baseline when the chosen query already differs from production. */
+  baseline: RuleContent | null;
   local: RuleContent;
   remote: RuleContent;
   drift: NativeDrift;
@@ -94,7 +96,7 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
     throw new Error(message);
   }
   if (data?.error) throw new Error(data.error);
-  if (['native_accept', 'native_save', 'native_restore'].includes(String(body.action))) {
+  if (['native_accept', 'native_save', 'native_restore', 'native_reconcile'].includes(String(body.action))) {
     window.dispatchEvent(new Event('native-siem-library-updated'));
   }
   return data as T;
@@ -211,6 +213,15 @@ export const nativeSiemService = {
   },
   start: (integrationId: string) => invoke<NativeSyncRun>({ action: 'native_sync_start', integrationId }),
   preview: (bindingId: string) => invoke<NativePreview>({ action: 'native_preview', bindingId }),
+  /** Keep the library version and record it as reconciled against this production revision.
+   *  The sibling decision is accept(), which replaces the library copy instead. */
+  reconcile: (preview: NativePreview) =>
+    invoke({
+      action: 'native_reconcile',
+      bindingId: preview.binding.id,
+      expectedHash: preview.remoteHash,
+      expectedVersion: preview.localVersion,
+    }),
   accept: (preview: NativePreview) =>
     invoke({
       action: 'native_accept',

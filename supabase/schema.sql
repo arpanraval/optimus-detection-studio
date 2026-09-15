@@ -10088,6 +10088,15 @@ BEGIN
       IF item ? 'error' THEN
         UPDATE siem_sync_items SET status=coalesce(item->>'status','failed'), error_message=item->>'error'
           WHERE run_id=r.id AND vendor_rule_id=item->>'id';
+        -- A read that did not complete says nothing about production. Keeping the last
+        -- 'present' shows a confident, stale answer; 'missing' would be a lie. Only a failed
+        -- READ gets 'unknown' -- a rule we read but could not normalise ('unsupported') is
+        -- still present, and last_seen_at is deliberately not advanced either way.
+        IF coalesce(item->>'status','failed') = 'failed' THEN
+          UPDATE siem_rule_bindings SET availability='unknown'
+           WHERE integration_id=r.integration_id AND provider_scope=r.provider_scope
+             AND vendor_rule_id=item->>'id' AND binding_status='active';
+        END IF;
         CONTINUE;
       END IF;
       c := item->'content';
@@ -10143,7 +10152,11 @@ BEGIN
         VALUES(b.id,item->>'adapter',item->>'hash',item->>'raw_hash',c,item->'raw') ON CONFLICT DO NOTHING;
       SELECT id INTO snap FROM siem_rule_snapshots WHERE binding_id=b.id AND adapter_version=item->>'adapter'
         AND content_hash=item->>'hash' AND raw_hash=item->>'raw_hash';
-      UPDATE siem_rule_bindings SET latest_remote_snapshot_id=snap,baseline_snapshot_id=coalesce(baseline_snapshot_id,snap),
+      -- Only adoption establishes a baseline. For a binding that already existed, this run is an
+      -- observation, and an observation is not a reconciliation decision.
+      UPDATE siem_rule_bindings SET latest_remote_snapshot_id=snap,
+        baseline_snapshot_id=CASE WHEN outcome IN ('imported','linked')
+                                  THEN coalesce(baseline_snapshot_id,snap) ELSE baseline_snapshot_id END,
         availability='present', observed_enabled=(c->>'enabled')::boolean,last_seen_at=now(),last_sync_run_id=r.id,
         pending_operation_id=NULL WHERE id=b.id;
       IF outcome='unchanged' AND old_hash IS DISTINCT FROM item->>'hash' THEN outcome:='changed'; END IF;
@@ -10315,6 +10328,43 @@ BEGIN
       WHERE id=op.native_binding_id AND pending_operation_id=p_operation;
   END IF;
 END $$;
+-- An explicit reconciliation decision, for a link whose query differs from production.
+-- siem_link_existing leaves baseline_snapshot_id NULL in that case, which the comparison now
+-- reports as 'no_baseline' rather than refusing to open. Two decisions can resolve it:
+-- siem_accept_remote (take production's version, overwriting the library copy), or this one --
+-- keep the library version and record that it was reconciled against this production revision.
+-- Both set the baseline; only accept_remote changes content. Guards mirror siem_accept_remote.
+CREATE OR REPLACE FUNCTION public.siem_reconcile_baseline(p_actor uuid, p_binding uuid, p_snapshot uuid,
+  p_version integer, p_hash text)
+RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE b siem_rule_bindings; d detections;
+BEGIN
+  SELECT * INTO b FROM siem_rule_bindings WHERE id = p_binding FOR UPDATE;
+  IF NOT FOUND OR NOT siem_can_import(p_actor, b.integration_id) OR b.binding_status <> 'active' THEN
+    RAISE EXCEPTION 'Binding access denied';
+  END IF;
+  SELECT * INTO d FROM detections WHERE id = b.detection_id FOR UPDATE;
+  IF d.user_id IS DISTINCT FROM p_actor OR NOT siem_can_edit(p_actor) THEN
+    RAISE EXCEPTION 'Only an authorized detection owner can reconcile this rule';
+  END IF;
+  IF d.version IS DISTINCT FROM p_version OR b.latest_remote_snapshot_id IS DISTINCT FROM p_snapshot
+     OR b.pending_operation_id IS NOT NULL OR b.availability <> 'present' THEN
+    RAISE EXCEPTION 'Review is stale';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM siem_rule_snapshots
+                  WHERE id = p_snapshot AND binding_id = b.id AND content_hash = p_hash) THEN
+    RAISE EXCEPTION 'Review is stale';
+  END IF;
+
+  -- Content is untouched on purpose: the user is keeping the library version and agreeing that
+  -- this is the production revision they diverged from. The comparison then reads 'local_changed'.
+  UPDATE siem_rule_bindings SET baseline_snapshot_id = p_snapshot WHERE id = b.id;
+  INSERT INTO siem_rule_events(binding_id, actor_id, action, detail)
+  VALUES(b.id, p_actor, 'reconciled_baseline', jsonb_build_object('snapshot_id', p_snapshot));
+END $$;
+REVOKE ALL ON FUNCTION public.siem_reconcile_baseline(uuid,uuid,uuid,integer,text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_reconcile_baseline(uuid,uuid,uuid,integer,text) TO service_role;
+
 REVOKE ALL ON FUNCTION public.siem_accept_remote(uuid,uuid,uuid,integer,text),
   public.siem_begin_deployment(uuid,uuid,integer,text,jsonb,text), public.siem_finish_deployment(uuid,uuid,jsonb,jsonb,text,text,text),
   public.siem_fail_deployment(uuid,uuid,boolean,text) FROM PUBLIC,anon,authenticated;
@@ -10762,6 +10812,22 @@ BEGIN
         match_candidate_count = excluded.match_candidate_count, last_seen_at = now()
       RETURNING * INTO rr;
 
+      -- The same observation the catalog just recorded, applied to the tracked binding. Without
+      -- this the inventory table and the rule's own comparison disagree about the rule the user
+      -- is looking at. desired_content and baseline_snapshot_id are deliberately untouched:
+      -- local edits and agreed baselines are decisions, not observations.
+      IF item->>'status' IS DISTINCT FROM 'failed' THEN
+        UPDATE siem_rule_bindings SET availability='present',
+          observed_enabled=CASE WHEN item ? 'enabled' THEN (item->>'enabled')::boolean ELSE observed_enabled END,
+          last_seen_at=now(), last_sync_run_id=r.id
+         WHERE integration_id=r.integration_id AND provider_scope=r.provider_scope
+           AND vendor_rule_id=item->>'id' AND binding_status='active';
+      ELSE
+        UPDATE siem_rule_bindings SET availability='unknown'
+         WHERE integration_id=r.integration_id AND provider_scope=r.provider_scope
+           AND vendor_rule_id=item->>'id' AND binding_status='active';
+      END IF;
+
       IF item ? 'content' THEN
         INSERT INTO siem_remote_rule_snapshots(remote_rule_id, adapter_version, content_hash, raw_hash,
           content, raw_payload)
@@ -10816,6 +10882,14 @@ BEGIN
                             WHERE run_id = r.id AND vendor_rule_id = siem_remote_rules.vendor_rule_id);
         UPDATE siem_remote_rules SET last_complete_run_id = r.id
          WHERE integration_id = r.integration_id AND provider_scope = r.provider_scope;
+        -- Absence is only knowable from a job that enumerates production. refresh_tracked probes
+        -- known ids one by one and pre-queues an item for each, so it can never observe that
+        -- something is gone; a complete, failure-free discovery can.
+        UPDATE siem_rule_bindings SET availability = 'missing', pending_operation_id = NULL
+         WHERE integration_id = r.integration_id AND provider_scope = r.provider_scope
+           AND binding_status = 'active'
+           AND NOT EXISTS (SELECT 1 FROM siem_sync_items
+                            WHERE run_id = r.id AND vendor_rule_id = siem_rule_bindings.vendor_rule_id);
       END IF;
     END IF;
   END IF;

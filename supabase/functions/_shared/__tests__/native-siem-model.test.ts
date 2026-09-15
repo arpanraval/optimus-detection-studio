@@ -63,6 +63,18 @@ describe('native SIEM content contracts', () => {
     expect(classifyDrift(base, base, base, 'missing')).toBe('missing');
     expect(classifyDrift(base, base, base, 'unknown')).toBe('unknown');
   });
+  // siem_link_existing refuses to invent a baseline when the linked query already differs from
+  // production. Without a common ancestor, local_changed and remote_changed are indistinguishable,
+  // so picking either would be a guess presented as a fact.
+  it('reports a link with no agreed baseline rather than guessing a direction', () => {
+    const base = normalizeCrowdStrike(raw), local = { ...base, query: 'local' };
+    expect(classifyDrift(null, local, base)).toBe('no_baseline');
+    // Nothing to reconcile when the two sides already agree, baseline or not.
+    expect(classifyDrift(null, base, base)).toBe('in_sync');
+    // Availability still wins: we cannot compare against a rule that is gone.
+    expect(classifyDrift(null, local, base, 'missing')).toBe('missing');
+  });
+
   it('detects schedule-only changes but ignores vendor timestamps', () => {
     const base = normalizeCrowdStrike(raw);
     expect(classifyDrift(base, base, normalizeCrowdStrike({ ...raw, last_updated_on: 'later' }))).toBe('in_sync');

@@ -222,9 +222,12 @@ async function boundRule(deps: Dependencies, bindingId: string, actor: string) {
   const detection = checked(await deps.db.from('detections').select('*').eq('id', binding.detection_id).single());
   const snapshots = checked(await deps.db.from('siem_rule_snapshots').select('*')
     .in('id', [binding.baseline_snapshot_id, binding.latest_remote_snapshot_id])) ?? [];
-  const baseline = snapshots.find(s => s.id === binding.baseline_snapshot_id);
+  // A missing baseline is a real, reviewable state -- a link whose query differs from production
+  // is created that way on purpose -- so only the remote observation is required to open a
+  // comparison. Refusing here is what made the match dialog offer a review that could not open.
+  const baseline = snapshots.find(s => s.id === binding.baseline_snapshot_id) ?? null;
   const remote = snapshots.find(s => s.id === binding.latest_remote_snapshot_id);
-  if (!baseline || !remote) throw new Error('Sync this rule before reviewing changes');
+  if (!remote) throw new Error('Sync this rule before reviewing changes');
   const local = localContent(detection, binding.selected_query_id, binding.desired_content);
   return { binding, integration, detection, baseline, remote, local };
 }
@@ -293,12 +296,19 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
   const state = await boundRule(deps, body.bindingId || '', actor);
   const { binding, detection, baseline, remote, local, integration } = state;
   if (body.action === 'native_preview') return {
-    binding, baseline: baseline.content, remote: remote.content, local,
-    drift: classifyDrift(baseline.content, local, remote.content, binding.availability),
+    binding, baseline: baseline?.content ?? null, remote: remote.content, local,
+    drift: classifyDrift(baseline?.content ?? null, local, remote.content, binding.availability),
     remoteHash: remote.content_hash, localVersion: detection.version, writesEnabled: deps.writesEnabled,
   };
   if (!checked(await deps.db.rpc('siem_can_import', { p_actor: actor, p_integration: integration.id }))) {
     throw new Error('Native import permission denied');
+  }
+  if (body.action === 'native_reconcile') {
+    // Keep the library version and agree that this is the production revision it diverged from.
+    // The sibling decision is native_accept, which takes production's version instead.
+    checked(await deps.db.rpc('siem_reconcile_baseline', { p_actor: actor, p_binding: binding.id,
+      p_snapshot: remote.id, p_version: detection.version, p_hash: body.expectedHash }));
+    return { success: true };
   }
   if (body.action === 'native_accept') {
     checked(await deps.db.rpc('siem_accept_remote', { p_actor: actor, p_binding: binding.id,
@@ -332,7 +342,8 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
   if (binding.binding_status !== 'active' || binding.availability !== 'present') throw new Error('Binding is not active in production');
   if (body.expectedVersion !== detection.version || body.expectedHash !== remote.content_hash) throw new Error('Review is stale; refresh the diff');
   const isToggle = body.operation === 'enable' || body.operation === 'disable';
-  if (isToggle && ['remote_changed', 'conflict'].includes(classifyDrift(baseline.content, local, remote.content))) {
+  if (isToggle && ['remote_changed', 'conflict', 'no_baseline']
+      .includes(classifyDrift(baseline?.content ?? null, local, remote.content))) {
     throw new Error('Resolve production drift before changing enabled state');
   }
   const desired = isToggle ? { ...remote.content, enabled: body.operation === 'enable' } : local;

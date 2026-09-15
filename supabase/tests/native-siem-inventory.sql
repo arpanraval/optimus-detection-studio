@@ -321,6 +321,157 @@ BEGIN
     'a malformed status hint is rejected and never written verbatim; only failed/unsupported pass the allowlist');
 END $$;
 
+
+-- Hardening milestone 2: observation and reconciliation.
+-- One observation feeds both projections; a read that failed says 'unknown' rather than repeating
+-- a stale 'present'; absence is only claimed by the job that enumerates production; and a
+-- read-only refresh never manufactures the agreed baseline that siem_link_existing withheld.
+INSERT INTO auth.users(id,email) VALUES
+  ('22000000-0000-0000-0000-000000000001','observation-owner@example.test');
+INSERT INTO public.profiles(id,role,status) VALUES
+  ('22000000-0000-0000-0000-000000000001','admin','active')
+  ON CONFLICT(id) DO UPDATE SET role='admin',status='active';
+INSERT INTO public.integrations(id,user_id,name,provider,category,status,config,auth_type) VALUES
+  ('23000000-0000-0000-0000-000000000001','22000000-0000-0000-0000-000000000001',
+   'Falcon observation fixture','crowdstrike','siem','connected','{}','oauth2_client_credentials');
+
+DO $$
+DECLARE integration uuid := '23000000-0000-0000-0000-000000000001';
+  actor uuid := '22000000-0000-0000-0000-000000000001';
+  scope text := 'scope-observe-1';
+  run public.siem_sync_runs;
+  did text := 'observe-detection-1'; qid text := 'observe-query-1'; binding uuid;
+  gone_did text := 'observe-detection-2'; gone_qid text := 'observe-query-2'; gone_binding uuid;
+  snap uuid; b public.siem_rule_bindings;
+BEGIN
+  -- Two tracked rules. 'observe-rule-1' is still in production; 'observe-rule-gone' is not.
+  INSERT INTO public.detections(id,user_id,version,name,description,status,"detectionType",severity,
+    "logSource",technology,"testedAndValidated","queryLanguage","detectionQuery","updatedDate",queries,
+    library_type,promotion_status,review_status,source)
+  VALUES(did,actor,1,'Observed rule','Tracked','Draft','Detection','High','','',false,'CQL','#event_simpleName=A',
+    now(),jsonb_build_array(jsonb_build_object('id',qid,'language','CQL','query','#event_simpleName=A',
+      'isPrimary',true,'createdDate',now(),'updatedDate',now())),'production','none','none','github'),
+   (gone_did,actor,1,'Deleted rule','Tracked','Draft','Detection','High','','',false,'CQL','#event_simpleName=B',
+    now(),jsonb_build_array(jsonb_build_object('id',gone_qid,'language','CQL','query','#event_simpleName=B',
+      'isPrimary',true,'createdDate',now(),'updatedDate',now())),'production','none','none','github');
+
+  -- A link created the way siem_link_existing creates one when the queries differ: no baseline.
+  INSERT INTO public.siem_rule_bindings(detection_id,integration_id,provider,provider_scope,vendor_rule_id,
+    selected_query_id,query_language,desired_content,availability,observed_enabled)
+    VALUES(did,integration,'crowdstrike',scope,'observe-rule-1',qid,'CQL','{}'::jsonb,'present',true)
+    RETURNING id INTO binding;
+  INSERT INTO public.siem_rule_bindings(detection_id,integration_id,provider,provider_scope,vendor_rule_id,
+    selected_query_id,query_language,desired_content,availability,observed_enabled)
+    VALUES(gone_did,integration,'crowdstrike',scope,'observe-rule-gone',gone_qid,'CQL','{}'::jsonb,'present',true)
+    RETURNING id INTO gone_binding;
+  PERFORM pg_temp.assert_true(
+    (SELECT baseline_snapshot_id IS NULL FROM public.siem_rule_bindings WHERE id=binding),
+    'sanity: the linked binding starts with no agreed baseline');
+
+  -- === A complete inventory scan that sees only observe-rule-1 ===
+  run := public.siem_start_inventory(actor, integration, scope);
+  UPDATE public.siem_sync_runs SET status='running', phase='discovery',
+    lease_token=gen_random_uuid(), lease_expires_at=now()+interval '45 seconds'
+    WHERE id=run.id RETURNING * INTO run;
+  PERFORM public.siem_commit_inventory_chunk(run.id, run.lease_token,
+    ARRAY['observe-rule-1'], 1, true, '[]'::jsonb);
+  UPDATE public.siem_sync_runs SET status='running',
+    lease_token=gen_random_uuid(), lease_expires_at=now()+interval '45 seconds'
+    WHERE id=run.id RETURNING * INTO run;
+  PERFORM public.siem_commit_inventory_chunk(run.id, run.lease_token, '{}', 1, true,
+    jsonb_build_array(jsonb_build_object('id','observe-rule-1','name','Observed rule','enabled',false,
+      'adapter','test-v1','hash','observe-hash-1','raw_hash','observe-raw-1',
+      'content','{"query":"#event_simpleName=A"}'::jsonb,'raw','{}'::jsonb)));
+
+  SELECT * INTO b FROM public.siem_rule_bindings WHERE id=binding;
+  -- One observation, both projections: the binding now agrees with the catalog row.
+  PERFORM pg_temp.assert_true(b.availability='present' AND b.observed_enabled=false AND b.last_seen_at IS NOT NULL,
+    'an inventory observation reaches the tracked binding, not only the catalog');
+  -- ...but it is an observation, not a reconciliation decision.
+  PERFORM pg_temp.assert_true(b.baseline_snapshot_id IS NULL,
+    'observing a rule never manufactures the agreed baseline siem_link_existing withheld');
+  PERFORM pg_temp.assert_true(b.desired_content = '{}'::jsonb,
+    'observation never overwrites the local desired content');
+
+  -- Absence: the scan enumerated production completely and never saw observe-rule-gone.
+  PERFORM pg_temp.assert_true(
+    (SELECT availability='missing' FROM public.siem_rule_bindings WHERE id=gone_binding),
+    'a complete, failure-free scan marks a tracked rule it never enumerated as missing');
+
+  -- === The refresh_tracked path is where a baseline could be manufactured ===
+  -- siem_start_refresh pre-queues an item per tracked binding and hydration runs through the
+  -- legacy siem_commit_chunk, whose binding update used to coalesce a baseline in on every read.
+  run := public.siem_start_refresh(actor, integration, scope);
+  UPDATE public.siem_sync_runs SET status='running', phase='hydration', discovery_complete=true,
+    lease_token=gen_random_uuid(), lease_expires_at=now()+interval '45 seconds'
+    WHERE id=run.id RETURNING * INTO run;
+  PERFORM public.siem_commit_chunk(run.id, run.lease_token, '{}', 1, true,
+    jsonb_build_array(
+      jsonb_build_object('id','observe-rule-1','adapter','test-v1','hash','refresh-hash-1',
+        'raw_hash','refresh-raw-1','content','{"query":"#event_simpleName=A","enabled":true}'::jsonb,
+        'raw','{}'::jsonb),
+      jsonb_build_object('id','observe-rule-gone','status','failed',
+        'error','CrowdStrike did not return this rule.')));
+
+  SELECT * INTO b FROM public.siem_rule_bindings WHERE id=binding;
+  PERFORM pg_temp.assert_true(b.baseline_snapshot_id IS NULL,
+    'a read-only refresh never establishes the baseline a reconciliation decision owns');
+  PERFORM pg_temp.assert_true(b.latest_remote_snapshot_id IS NOT NULL,
+    'the refresh still records what it observed');
+
+  -- A read that did not complete is not evidence of anything about production.
+  PERFORM pg_temp.assert_true(
+    (SELECT availability='unknown' FROM public.siem_rule_bindings WHERE id=gone_binding),
+    'a failed detail read reports unknown rather than repeating a confident stale answer');
+
+  RAISE NOTICE 'observation/baseline assertions passed';
+END $$;
+
+-- siem_reconcile_baseline is the explicit decision: it establishes the baseline and changes nothing else.
+DO $$
+DECLARE integration uuid := '23000000-0000-0000-0000-000000000001';
+  actor uuid := '22000000-0000-0000-0000-000000000001';
+  binding uuid; snap uuid; before_version integer; before_content jsonb;
+BEGIN
+  SELECT id INTO binding FROM public.siem_rule_bindings
+   WHERE integration_id=integration AND vendor_rule_id='observe-rule-1';
+
+  INSERT INTO public.siem_rule_snapshots(binding_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+    VALUES(binding,'test-v1','reconcile-hash','reconcile-raw','{"query":"#event_simpleName=A"}'::jsonb,'{}'::jsonb)
+    RETURNING id INTO snap;
+  UPDATE public.siem_rule_bindings SET latest_remote_snapshot_id=snap, availability='present' WHERE id=binding;
+
+  SELECT version INTO before_version FROM public.detections WHERE id='observe-detection-1';
+  SELECT desired_content INTO before_content FROM public.siem_rule_bindings WHERE id=binding;
+
+  PERFORM public.siem_reconcile_baseline(actor, binding, snap, before_version, 'reconcile-hash');
+
+  PERFORM pg_temp.assert_true(
+    (SELECT baseline_snapshot_id = snap FROM public.siem_rule_bindings WHERE id=binding),
+    'reconciling establishes the agreed baseline at the reviewed production revision');
+  PERFORM pg_temp.assert_true(
+    (SELECT version = before_version FROM public.detections WHERE id='observe-detection-1'),
+    'reconciling keeps the library version untouched -- it is not accept_remote');
+  PERFORM pg_temp.assert_true(
+    (SELECT desired_content = before_content FROM public.siem_rule_bindings WHERE id=binding),
+    'reconciling does not rewrite the desired content');
+  PERFORM pg_temp.assert_true(
+    (SELECT count(*) FROM public.siem_rule_events
+      WHERE binding_id=binding AND action='reconciled_baseline') = 1,
+    'the decision is recorded as an auditable event');
+
+  -- A stale review cannot slip a baseline in behind the user.
+  BEGIN
+    PERFORM public.siem_reconcile_baseline(actor, binding, snap, before_version + 5, 'reconcile-hash');
+    RAISE EXCEPTION 'reconcile against a stale detection version was accepted';
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM pg_temp.assert_true(SQLERRM = 'Review is stale',
+      'reconcile refuses a stale review with the same guard as accept_remote');
+  END;
+
+  RAISE NOTICE 'reconcile-baseline assertions passed';
+END $$;
+
 -- The catalog is owner scoped. Another authenticated user sees nothing.
 SET LOCAL ROLE authenticated;
 SET LOCAL request.jwt.claim.sub = '03000000-0000-0000-0000-000000000002';

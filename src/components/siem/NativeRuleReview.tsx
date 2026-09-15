@@ -9,6 +9,7 @@ export const NATIVE_DRIFT_LABELS: Record<NativeDrift, string> = {
   remote_changed: 'Changed in CrowdStrike',
   conflict: 'Changed in both places',
   missing: 'No longer in CrowdStrike',
+  no_baseline: 'Linked, not yet reconciled',
   unknown: 'Comparison unavailable',
 };
 
@@ -16,7 +17,7 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
   const [preview, setPreview] = useState<NativePreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [confirm, setConfirm] = useState<'update' | 'enable' | 'disable' | 'delete' | 'accept' | 'restore' | null>(
+  const [confirm, setConfirm] = useState<'update' | 'enable' | 'disable' | 'delete' | 'accept' | 'reconcile' | 'restore' | null>(
     null,
   );
   const [editing, setEditing] = useState(false);
@@ -42,6 +43,7 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
     setError(null);
     try {
       if (confirm === 'accept') await nativeSiemService.accept(preview);
+      else if (confirm === 'reconcile') await nativeSiemService.reconcile(preview);
       else if (confirm === 'restore') await nativeSiemService.restore(preview, revisionId);
       else await nativeSiemService.apply(preview, confirm);
       setConfirm(null);
@@ -53,6 +55,11 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
       setBusy(false);
     }
   };
+  // The baseline pane is only rendered when a baseline exists; this keeps that guarantee local
+  // rather than asserting it with a non-null assertion at five call sites.
+  const withBaseline = preview?.baseline != null;
+  const pane = (key: 'baseline' | 'local' | 'remote') =>
+    key === 'baseline' ? (preview!.baseline ?? preview!.remote) : preview![key];
   return (
     <div className="space-y-4 py-4">
       {error && (
@@ -75,11 +82,27 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
               Refresh saved comparison
             </Button>
           </div>
-          <Button size="sm" variant="text" onClick={() => setShowBaseline(!showBaseline)}>
-            {showBaseline ? 'Hide previous matching version' : 'Show previous matching version'}
-          </Button>
-          <div className={`grid grid-cols-1 ${showBaseline ? 'lg:grid-cols-3' : 'lg:grid-cols-2'} gap-3`}>
-            {(showBaseline ? (['baseline', 'local', 'remote'] as const) : (['local', 'remote'] as const)).map((key) => (
+          {preview.drift === 'no_baseline' && (
+            <div className="p-3 rounded-xl bg-surface-container-high border border-outline-variant">
+              <p className="text-sm font-semibold">These two versions have never been reconciled</p>
+              <p className="text-sm text-on-surface-variant mt-1">
+                This library rule was linked to a CrowdStrike rule whose query already differed, so there is no
+                agreed version to compare against. Until you decide, Optimus cannot tell which side changed.
+              </p>
+            </div>
+          )}
+          {/* Nothing to reveal when the two sides were never reconciled: there is no previous
+              matching version, and offering the toggle would imply one exists. */}
+          {withBaseline && (
+            <Button size="sm" variant="text" onClick={() => setShowBaseline(!showBaseline)}>
+              {showBaseline ? 'Hide previous matching version' : 'Show previous matching version'}
+            </Button>
+          )}
+          <div className={`grid grid-cols-1 ${showBaseline && withBaseline ? 'lg:grid-cols-3' : 'lg:grid-cols-2'} gap-3`}>
+            {(showBaseline && withBaseline
+              ? (['baseline', 'local', 'remote'] as const)
+              : (['local', 'remote'] as const)
+            ).map((key) => (
               <section key={key} className="min-w-0 p-3 rounded-xl bg-surface-container-high">
                 <h4 className="text-sm font-semibold mb-2">
                   {
@@ -91,17 +114,17 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
                   }
                 </h4>
                 <p className="text-sm mb-2">
-                  {preview[key].name} · {preview[key].severity} ·{' '}
-                  {preview[key].enabled === null ? 'Unknown state' : preview[key].enabled ? 'Enabled' : 'Disabled'}
+                  {pane(key).name} · {pane(key).severity} ·{' '}
+                  {pane(key).enabled === null ? 'Unknown state' : pane(key).enabled ? 'Enabled' : 'Disabled'}
                 </p>
                 <pre className="text-xs whitespace-pre-wrap break-words max-h-72 overflow-auto font-mono">
-                  {preview[key].query}
+                  {pane(key).query}
                 </pre>
                 <details className="mt-3 text-xs">
                   <summary>Configuration and description</summary>
-                  <p className="mt-2 whitespace-pre-wrap">{preview[key].description}</p>
+                  <p className="mt-2 whitespace-pre-wrap">{pane(key).description}</p>
                   <pre className="whitespace-pre-wrap break-words mt-2">
-                    {JSON.stringify(preview[key].config, null, 2)}
+                    {JSON.stringify(pane(key).config, null, 2)}
                   </pre>
                 </details>
               </section>
@@ -129,6 +152,16 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
             >
               Replace library copy with CrowdStrike version
             </Button>
+            {preview.drift === 'no_baseline' && (
+              <Button
+                size="sm"
+                variant="tonal"
+                disabled={busy || preview.binding.availability !== 'present'}
+                onClick={() => setConfirm('reconcile')}
+              >
+                Keep library version and mark reconciled
+              </Button>
+            )}
             {preview.writesEnabled && (
               <>
                 <Button
@@ -206,10 +239,14 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
                   ? 'Restore this historical query and configuration into a new local revision? Production will not change.'
                   : confirm === 'accept'
                     ? 'Replace the saved library query and supported configuration with the observed production version?'
+                    : confirm === 'reconcile'
+                    ? 'Keep the library version as it is and record the current CrowdStrike version as the one it diverged from? Neither the library rule nor production changes.'
                     : `${confirm === 'delete' ? 'Delete' : confirm === 'update' ? 'Update' : confirm === 'enable' ? 'Enable' : 'Disable'} production rule “${preview.remote.name}” (${preview.binding.vendor_rule_id})?`}
               </p>
               <p className="text-xs text-on-surface-variant">
-                {confirm === 'accept' || confirm === 'restore'
+                {confirm === 'reconcile'
+                  ? 'Future comparisons will show your library edits as unsent changes rather than an unresolved link.'
+                  : confirm === 'accept' || confirm === 'restore'
                   ? 'The previous local revision is retained in history.'
                   : 'The server will recheck production for changes before applying this action.'}
               </p>

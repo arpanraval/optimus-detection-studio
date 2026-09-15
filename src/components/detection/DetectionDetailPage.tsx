@@ -106,6 +106,13 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
 
   // Determine library type and permissions
   const isDevelopmentRule = detection.library_type === LIBRARY_DEVELOPMENT;
+  // Offering Deploy for a rule that is already tracked would create a SECOND CrowdStrike rule
+  // beside the one it is bound to. What settles that is an active binding, not how the rule
+  // entered the library: a linked GitHub rule is tracked and has no native_provenance.
+  // Provenance still counts: a rule imported from CrowdStrike whose binding rows RLS hides must
+  // not fall back to offering Deploy, which would create a duplicate beside the rule it came from.
+  const isNativelyTracked = !!detection.native_provenance
+    || (detection.siem_observations || []).some((observation) => observation.binding_status === 'active');
   const isProductionRule = detection.library_type === LIBRARY_PRODUCTION || !detection.library_type;
   const isForkedFromDevelopment = detection.source_rule_id !== null;
   const isAdmin = userRole === 'admin';
@@ -500,12 +507,12 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
                  isProductionRule ? (
                    /* Production Library (library_type='production') → full Deploy */
                    <button
-                     onClick={() => detection.native_provenance ? setActiveTab('deployments') : setIsDeployModalOpen(true)}
+                     onClick={() => isNativelyTracked ? setActiveTab('deployments') : setIsDeployModalOpen(true)}
                      className="h-9 px-3 flex items-center gap-2 rounded-full text-sm font-medium bg-surface-container-highest text-on-surface border border-outline-variant/30 hover:bg-surface-container-high transition-all"
-                     title={detection.native_provenance ? 'Review the existing CrowdStrike rule' : 'Deploy to SIEM'}
+                     title={isNativelyTracked ? 'Review the existing CrowdStrike rule' : 'Deploy to SIEM'}
                    >
                      <Icon name="upload" className="w-4 h-4" />
-                     <span className="hidden sm:inline">{detection.native_provenance ? 'Review SIEM changes' : 'Deploy'}</span>
+                     <span className="hidden sm:inline">{isNativelyTracked ? 'Review SIEM changes' : 'Deploy'}</span>
                    </button>
                  ) : (
                    /* Development Library (library_type='development') → Preview only */

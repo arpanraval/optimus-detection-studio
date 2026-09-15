@@ -323,6 +323,38 @@ describe('SiemLibraryBadge', () => {
     expect(screen.getByText('CrowdStrike · Unknown')).toBeTruthy();
   });
 
+  // siem_link_existing deliberately preserves a GitHub or legacy rule's own provenance when it is
+  // linked to a CrowdStrike rule, so gating the badge on native_provenance hid the SIEM identity
+  // of exactly the rules match resolution exists to connect.
+  it('shows the SIEM identity of a linked rule that kept its original provenance', () => {
+    render(
+      <SiemLibraryBadge
+        detection={
+          {
+            status: 'Production',
+            source: 'github',
+            siem_observations: [
+              {
+                binding_status: 'active',
+                availability: 'present',
+                observed_enabled: true,
+                last_seen_at: '2026-09-15T00:00:00Z',
+              },
+            ],
+          } as unknown as Detection
+        }
+      />,
+    );
+    expect(screen.getByText('CrowdStrike · Enabled')).toBeTruthy();
+  });
+
+  it('shows nothing for a rule with neither provenance nor a binding', () => {
+    const { container } = render(
+      <SiemLibraryBadge detection={{ status: 'Production', source: 'github' } as unknown as Detection} />,
+    );
+    expect(container.firstChild).toBeNull();
+  });
+
   it('shows a Draft library rule as enabled when the SIEM observation says so', () => {
     render(
       <SiemLibraryBadge

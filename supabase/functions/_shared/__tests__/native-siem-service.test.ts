@@ -7,7 +7,8 @@ const config = { baseUrl: 'https://api.crowdstrike.com', customerId: 'a'.repeat(
 const raw = { id: 'remote-1', name: 'Rule', description: '', status: 'active', severity: 50,
   search: { filter: 'query', outcome: 'detection', lookback: '1h' }, operation: { schedule: { definition: '@every 1h' } } };
 
-async function fixture(options: { phase?: string; enabled?: boolean; resource?: unknown; stale?: boolean } = {}) {
+async function fixture(options: { phase?: string; enabled?: boolean; resource?: unknown; stale?: boolean;
+  noBaseline?: boolean; localQuery?: string } = {}) {
   const content = normalizeCrowdStrike(raw), hash = await contentHash(content);
   // This fixture exercises the legacy siem_commit_chunk path: kind 'refresh_tracked' is a real
   // kind (re-observing rules already tracked in the library) that Task 8 does not touch, so it
@@ -16,9 +17,11 @@ async function fixture(options: { phase?: string; enabled?: boolean; resource?: 
   const run = { id: 'run', kind: 'refresh_tracked', actor_id: 'owner', integration_id: 'connection', provider_scope: crowdStrikeScope(config),
     phase: options.phase || 'discovery', cursor_offset: 0, lease_token: 'lease', attempts: 0 };
   const binding = { id: 'binding', detection_id: 'detection', integration_id: 'connection', provider_scope: crowdStrikeScope(config),
-    selected_query_id: 'query-id', desired_content: content, baseline_snapshot_id: 'snap', latest_remote_snapshot_id: 'snap',
+    selected_query_id: 'query-id', desired_content: content,
+    baseline_snapshot_id: options.noBaseline ? null : 'snap', latest_remote_snapshot_id: 'snap',
     binding_status: 'active', availability: 'present', vendor_rule_id: raw.id };
-  const detection = { ...content, id: 'detection', version: 1, queries: [{ id: 'query-id', language: 'CQL', query: content.query }] };
+  const detection = { ...content, id: 'detection', version: 1,
+    queries: [{ id: 'query-id', language: 'CQL', query: options.localQuery ?? content.query }] };
   const updates: unknown[] = [];
   const from = vi.fn((table: string) => {
     const data = table === 'integrations' ? { id: 'connection', config, provider: 'crowdstrike' } :
@@ -64,6 +67,53 @@ describe('durable native sync worker', () => {
     await processNativeSync(deps);
     expect(rpc.mock.calls.some(([name]) => name === 'siem_commit_chunk')).toBe(false);
     expect(updates).toContainEqual(expect.objectContaining({ status: 'queued', attempts: 1, lease_token: null }));
+  });
+});
+
+describe('comparison without an agreed baseline', () => {
+  // The match dialog offers "review changes" for a link whose query already differs from
+  // production, but boundRule refused to open one without a baseline ("Sync this rule before
+  // reviewing changes") -- a promise the product could not keep, and refreshing was not an escape
+  // because the observational commit path would have manufactured the baseline instead.
+  it('opens the comparison and names the state instead of refusing', async () => {
+    const { deps, hash } = await fixture({ noBaseline: true, localQuery: 'a different query' });
+    const preview = await handleNativeRequest(deps,
+      { action: 'native_preview', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner') as
+      { baseline: unknown; drift: string };
+    expect(preview.baseline).toBeNull();
+    expect(preview.drift).toBe('no_baseline');
+  });
+
+  it('routes the explicit decision to siem_reconcile_baseline without touching content', async () => {
+    const { deps, rpc, hash } = await fixture({ noBaseline: true, localQuery: 'a different query' });
+    await handleNativeRequest(deps,
+      { action: 'native_reconcile', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner');
+    expect(rpc).toHaveBeenCalledWith('siem_reconcile_baseline', expect.objectContaining({
+      p_actor: 'owner', p_binding: 'binding', p_snapshot: 'snap' }));
+    // Keeping the library version is the whole point: no content write, no vendor call.
+    expect(rpc).not.toHaveBeenCalledWith('siem_accept_remote', expect.anything());
+    expect(deps.fetch).not.toHaveBeenCalled();
+  });
+
+  it('still refuses when production has never been observed at all', async () => {
+    const { deps, hash } = await fixture();
+    const from = deps.db.from as ReturnType<typeof vi.fn>;
+    from.mockImplementation((table: string) => {
+      const query: Record<string, unknown> = {};
+      for (const method of ['select', 'eq', 'in', 'order', 'limit', 'single']) query[method] = vi.fn(() => query);
+      const data = table === 'integrations' ? { id: 'connection', config, provider: 'crowdstrike' } :
+        table === 'siem_rule_bindings' ? { id: 'binding', detection_id: 'detection', integration_id: 'connection',
+          provider_scope: crowdStrikeScope(config), selected_query_id: 'query-id', desired_content: {},
+          baseline_snapshot_id: null, latest_remote_snapshot_id: null, binding_status: 'active',
+          availability: 'present', vendor_rule_id: raw.id } :
+        table === 'detections' ? { id: 'detection', version: 1, queries: [] } :
+        table === 'siem_rule_snapshots' ? [] : null;
+      query.then = (resolve: (result: unknown) => void) => resolve({ data, error: null });
+      return query;
+    });
+    await expect(handleNativeRequest(deps,
+      { action: 'native_preview', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner'))
+      .rejects.toThrow('Sync this rule before reviewing changes');
   });
 });
 
