@@ -1233,7 +1233,9 @@ async function devListChronicleRules(
       id: r.name?.split('/').pop() || r.ruleId,
       name: r.ruleName || r.metadata?.description || 'Unnamed Rule',
       query: r.ruleText,
-      enabled: r.liveRuleEnabled ?? false,
+      // Preserve absence: execution state lives on a separate RuleDeployment
+      // resource, so a missing liveRuleEnabled means "unknown", not "disabled".
+      enabled: r.liveRuleEnabled,
       severity: r.metadata?.severity,
       description: r.metadata?.description,
       lastModified: r.revisionCreateTime,
@@ -2016,7 +2018,10 @@ async function devListSplunkRules(
     search: e.content?.search,
     isScheduled: e.content?.is_scheduled === '1',
     cronSchedule: e.content?.cron_schedule,
-    disabled: e.content?.disabled === '1',
+    // Same contract as the production edge function's `splunkListRules` projection
+    // (supabase/functions/integration-ops/index.ts): emit `enabled`, never `disabled`,
+    // so normalizeVendorRule's Splunk branch reads one consistent shape in dev and prod.
+    enabled: e.content?.disabled === '1' ? false : true,
     updatedAt: e.updated,
   }));
 }
@@ -2206,6 +2211,34 @@ async function devDeleteElasticRule(
 // Vendor Rule Normalization
 // =============================================================================
 
+/**
+ * Derives the observed enable/disable state reported by a vendor's list API.
+ *
+ * Contract: every provider's list projection (dev proxy AND production edge
+ * function alike) must report observed state through one boolean field named
+ * `enabled` on the raw rule object — never a `disabled` field, and never a
+ * provider-specific name like Chronicle's underlying `liveRuleEnabled` (that
+ * gets renamed to `enabled` at projection time, in both
+ * `devListChronicleRules` and `chronicleListRules`). When that field is absent
+ * — whether because the projection never set it, or because the vendor
+ * genuinely didn't return it (Chronicle's execution state lives on a separate
+ * RuleDeployment resource and may simply not be present) — the state is
+ * "unknown", NOT "disabled". Callers must never default a missing value to
+ * `false`.
+ *
+ * `provider` is accepted (rather than reading `raw.enabled` inline at each
+ * call site) so this stays the single place that contract is enforced if a
+ * future provider needs a different raw field name.
+ */
+export function observedState(
+  _provider: IntegrationProvider,
+  raw: Record<string, any>
+): 'enabled' | 'disabled' | 'unknown' {
+  if (raw.enabled === true) return 'enabled';
+  if (raw.enabled === false) return 'disabled';
+  return 'unknown';
+}
+
 function normalizeVendorRule(
   raw: Record<string, any>,
   provider: IntegrationProvider,
@@ -2213,11 +2246,13 @@ function normalizeVendorRule(
   integrationName: string
 ): VendorRule {
   switch (provider) {
-    case 'splunk':
+    case 'splunk': {
+      const state = observedState(provider, raw);
       return {
         vendorRuleId: raw.name,
         name: raw.name,
-        enabled: !raw.disabled,
+        enabled: state === 'enabled',
+        observedState: state,
         provider,
         integrationId,
         integrationName,
@@ -2228,11 +2263,14 @@ function normalizeVendorRule(
         isFromOptimus: false,
         rawMetadata: raw,
       };
-    case 'sentinel':
+    }
+    case 'sentinel': {
+      const state = observedState(provider, raw);
       return {
         vendorRuleId: raw.id,
         name: raw.name,
-        enabled: raw.enabled ?? false,
+        enabled: state === 'enabled',
+        observedState: state,
         provider,
         integrationId,
         integrationName,
@@ -2243,6 +2281,7 @@ function normalizeVendorRule(
         isFromOptimus: false,
         rawMetadata: raw,
       };
+    }
     case 'defender_xdr':
       return {
         vendorRuleId: raw.id,
@@ -2289,11 +2328,13 @@ function normalizeVendorRule(
         isFromOptimus: false,
         rawMetadata: raw,
       };
-    case 'chronicle':
+    case 'chronicle': {
+      const state = observedState(provider, raw);
       return {
         vendorRuleId: raw.id,
         name: raw.name,
-        enabled: raw.enabled ?? false,
+        enabled: state === 'enabled',
+        observedState: state,
         provider,
         integrationId,
         integrationName,
@@ -2305,6 +2346,7 @@ function normalizeVendorRule(
         isFromOptimus: false,
         rawMetadata: raw,
       };
+    }
     default:
       return {
         vendorRuleId: raw.id || raw.name || '',

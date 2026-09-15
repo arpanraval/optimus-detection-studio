@@ -1585,7 +1585,9 @@ async function chronicleListRules(
       id: r.name?.split('/').pop() || r.ruleId,
       name: r.ruleName || r.metadata?.description || 'Unnamed Rule',
       query: r.ruleText,
-      enabled: r.liveRuleEnabled ?? false,
+      // Preserve absence: execution state lives on a separate RuleDeployment
+      // resource, so a missing liveRuleEnabled means "unknown", not "disabled".
+      enabled: r.liveRuleEnabled,
       severity: r.metadata?.severity,
       description: r.metadata?.description,
       lastModified: r.revisionCreateTime,

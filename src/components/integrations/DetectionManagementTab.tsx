@@ -143,11 +143,17 @@ const RuleCard: React.FC<{
   const isImporting = importingId === rule.vendorRuleId;
   const isConfirmingDelete = confirmDeleteId === rule.vendorRuleId;
 
+  // `observedState` is the tri-state source of truth (enabled/disabled/unknown);
+  // fall back to the boolean for any VendorRule constructed without it.
+  const state = rule.observedState ?? (rule.enabled ? 'enabled' : 'disabled');
+
   const borderColor = rule.needsUpdate
     ? 'border-l-amber-500'
-    : rule.enabled
+    : state === 'enabled'
       ? 'border-l-[#4D7C6F]'
-      : 'border-l-outline-variant/40';
+      : state === 'unknown'
+        ? 'border-l-amber-500/60'
+        : 'border-l-outline-variant/40';
 
   return (
     <div className={`rounded-xl border border-outline-variant/20 bg-surface-container-low overflow-hidden border-l-[3px] ${borderColor} transition-all hover:shadow-sm`}>
@@ -157,7 +163,15 @@ const RuleCard: React.FC<{
         className="w-full flex items-center gap-4 px-5 py-4 text-left group"
       >
         {/* Status indicator */}
-        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${rule.enabled ? 'bg-[#4D7C6F]' : 'bg-on-surface-variant/25'}`} />
+        <div
+          className={`w-2 h-2 rounded-full flex-shrink-0 ${
+            state === 'enabled'
+              ? 'bg-[#4D7C6F]'
+              : state === 'unknown'
+                ? 'bg-amber-500'
+                : 'bg-on-surface-variant/25'
+          }`}
+        />
 
         {/* Rule name */}
         <div className="flex-1 min-w-0">
@@ -181,8 +195,16 @@ const RuleCard: React.FC<{
             </span>
           )}
 
-          <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-md ${rule.enabled ? 'bg-[#4D7C6F]/10 text-[#4D7C6F]' : 'bg-surface-container-highest text-on-surface-variant/60'}`}>
-            {rule.enabled ? 'Enabled' : 'Disabled'}
+          <span
+            className={`px-2 py-0.5 text-[10px] font-semibold rounded-md ${
+              state === 'enabled'
+                ? 'bg-[#4D7C6F]/10 text-[#4D7C6F]'
+                : state === 'unknown'
+                  ? 'bg-amber-500/10 text-amber-600'
+                  : 'bg-surface-container-highest text-on-surface-variant/60'
+            }`}
+          >
+            {state === 'enabled' ? 'Enabled' : state === 'unknown' ? 'Unknown' : 'Disabled'}
           </span>
 
           <span className="px-2 py-0.5 text-[10px] font-semibold bg-surface-container-highest text-on-surface-variant rounded-md">
