@@ -992,6 +992,75 @@ BEGIN
   RAISE NOTICE 'retry-resumes-pending assertions passed';
 END $$;
 
+-- Task 4: adoption reads provider and query language from the connection, not a CrowdStrike
+-- literal. A Splunk connection's inventory chunk commits a siem_remote_rules row tagged 'splunk',
+-- and an import chunk adopts a detection tagged ARRAY['native-siem','splunk'] with an SPL query.
+INSERT INTO auth.users(id,email) VALUES
+  ('22000000-0000-0000-0000-000000000001','import-splunk-owner@example.test');
+INSERT INTO public.profiles(id,role,status) VALUES
+  ('22000000-0000-0000-0000-000000000001','admin','active')
+  ON CONFLICT(id) DO UPDATE SET role='admin',status='active';
+INSERT INTO public.integrations(id,user_id,name,provider,category,status,config,auth_type) VALUES
+  ('23000000-0000-0000-0000-000000000001','22000000-0000-0000-0000-000000000001',
+   'Splunk adopt fixture','splunk','siem','connected','{}','oauth2_client_credentials');
+
+DO $$
+DECLARE integration uuid := '23000000-0000-0000-0000-000000000001';
+  actor uuid := '22000000-0000-0000-0000-000000000001';
+  scope text := 'scope-splunk-import-1';
+  inventory_run public.siem_sync_runs; import_run public.siem_sync_runs; r public.siem_sync_runs;
+  results jsonb; requested text[]; content jsonb;
+BEGIN
+  inventory_run := public.siem_start_inventory(actor, integration, scope);
+  UPDATE public.siem_sync_runs SET status='running', lease_token=gen_random_uuid(),
+    lease_expires_at=now()+interval '45 seconds' WHERE id=inventory_run.id RETURNING * INTO r;
+  content := jsonb_build_object('id','splunk-rule-1','content',
+    jsonb_build_object('name','Splunk fixture rule','description','d','severity','High',
+      'query','search index=main sourcetype=auth','enabled',true),
+    'raw','{}'::jsonb,'adapter','test-splunk-v1','hash','splunk-h1','raw_hash','splunk-r1');
+  PERFORM public.siem_commit_inventory_chunk(r.id, r.lease_token, ARRAY['splunk-rule-1'], 1, true, '[]');
+  UPDATE public.siem_sync_runs SET status='running', lease_token=gen_random_uuid(),
+    lease_expires_at=now()+interval '45 seconds' WHERE id=inventory_run.id RETURNING * INTO r;
+  PERFORM public.siem_commit_inventory_chunk(r.id, r.lease_token, '{}', 1, true, jsonb_build_array(content));
+
+  PERFORM pg_temp.assert_true(
+    (SELECT provider='splunk' FROM public.siem_remote_rules WHERE integration_id=integration AND vendor_rule_id='splunk-rule-1'),
+    'a Splunk inventory chunk commits a siem_remote_rules row tagged splunk');
+
+  UPDATE public.siem_sync_runs SET status='complete', discovery_complete=true, completed_at=now(),
+    lease_token=NULL, lease_expires_at=NULL WHERE id=inventory_run.id RETURNING * INTO inventory_run;
+  PERFORM pg_temp.observe_run(inventory_run.id);
+
+  requested := ARRAY['splunk-rule-1'];
+  import_run := public.siem_start_import(actor, integration, inventory_run.id, requested, '{}', false, 'idem-splunk-1');
+
+  SELECT jsonb_agg(jsonb_build_object('id',i.vendor_rule_id,'content',s.content,'raw',s.raw_payload,
+      'adapter','test-splunk-v1','hash',i.frozen_content_hash,'raw_hash',s.raw_hash))
+    INTO results
+    FROM public.siem_sync_items i
+    JOIN public.siem_remote_rules rr ON rr.integration_id=integration AND rr.provider_scope=scope AND rr.vendor_rule_id=i.vendor_rule_id
+    JOIN public.siem_remote_rule_snapshots s ON s.id=rr.latest_snapshot_id
+   WHERE i.run_id=import_run.id AND i.status='pending';
+
+  UPDATE public.siem_sync_runs SET status='running', lease_token=gen_random_uuid(),
+    lease_expires_at=now()+interval '45 seconds' WHERE id=import_run.id RETURNING * INTO r;
+  PERFORM public.siem_commit_import_chunk(r.id, r.lease_token, results);
+
+  PERFORM pg_temp.assert_true(
+    (SELECT d.tags @> ARRAY['native-siem','splunk'] AND NOT (d.tags @> ARRAY['crowdstrike'])
+       AND d."queryLanguage"='SPL' AND d.source='splunk'
+       FROM public.detections d JOIN public.siem_sync_items i ON i.detection_id=d.id
+      WHERE i.run_id=import_run.id AND i.vendor_rule_id='splunk-rule-1'),
+    'a Splunk import chunk adopts a detection tagged native-siem/splunk with an SPL query, never crowdstrike');
+
+  PERFORM pg_temp.assert_true(
+    (SELECT b.provider='splunk' AND b.query_language='SPL'
+       FROM public.siem_rule_bindings b JOIN public.siem_sync_items i ON i.binding_id=b.id
+      WHERE i.run_id=import_run.id AND i.vendor_rule_id='splunk-rule-1'),
+    'the Splunk binding itself carries provider splunk and language SPL');
+
+  RAISE NOTICE 'provider-neutral commit assertions passed';
+END $$;
 
 -- Milestone 4: the retention policy is scheduled work with a recorded outcome, and an operator can
 -- see a stalled job. siem_prune_remote_snapshots existed for a day with nothing calling it, which

@@ -10068,17 +10068,35 @@ END;
 $$;
 
 -- One transaction checks the lease, imports all results and advances the durable checkpoint.
+-- The one query language each provider's adapter emits, for commit paths that adopt content into
+-- the library without being told a language by the caller. Provider identity always comes from
+-- the connection (integrations.provider), never from a vendor payload.
+CREATE OR REPLACE FUNCTION public.siem_provider_query_language(p_provider text)
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+  SELECT CASE p_provider
+    WHEN 'crowdstrike' THEN 'CQL'
+    WHEN 'splunk' THEN 'SPL'
+    WHEN 'sentinel' THEN 'KQL'
+    WHEN 'elastic' THEN 'EQL'
+    WHEN 'defender_xdr' THEN 'KQL'
+    WHEN 'chronicle' THEN 'YARA-L'
+    ELSE NULL
+  END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.siem_commit_chunk(p_run uuid, p_lease uuid, p_ids text[], p_next integer,
   p_discovery_complete boolean, p_results jsonb)
 RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
 DECLARE r siem_sync_runs; item jsonb; b siem_rule_bindings; snap uuid; d detections;
-  qid text; did text; candidates text[]; c jsonb; outcome text; old_hash text;
+  qid text; did text; candidates text[]; c jsonb; outcome text; old_hash text; prov text; qlang text;
 BEGIN
   SELECT * INTO r FROM siem_sync_runs WHERE id=p_run FOR UPDATE;
   IF NOT FOUND OR r.status <> 'running' OR r.lease_token IS DISTINCT FROM p_lease OR r.lease_expires_at <= now() THEN
     RAISE EXCEPTION 'Sync lease expired';
   END IF;
   IF NOT siem_can_import(r.actor_id,r.integration_id) THEN RAISE EXCEPTION 'Native import permission revoked'; END IF;
+  SELECT provider INTO prov FROM integrations WHERE id=r.integration_id;
+  qlang := siem_provider_query_language(prov);
   IF r.phase='discovery' THEN
     INSERT INTO siem_sync_items(run_id,vendor_rule_id) SELECT r.id, unnest(p_ids) ON CONFLICT DO NOTHING;
     UPDATE siem_sync_runs SET cursor_offset=p_next, discovery_complete=p_discovery_complete,
@@ -10123,7 +10141,7 @@ BEGIN
         did := candidates[1]; qid := NULL;
         IF did IS NOT NULL THEN
           SELECT * INTO d FROM detections WHERE id=did FOR UPDATE;
-          SELECT q->>'id' INTO qid FROM jsonb_array_elements(d.queries) q WHERE q->>'language'='CQL'
+          SELECT q->>'id' INTO qid FROM jsonb_array_elements(d.queries) q WHERE q->>'language'=qlang
             AND q->>'query'=c->>'query' LIMIT 1;
           IF qid IS NULL THEN
             UPDATE siem_sync_items SET status='ambiguous',error_message='Existing deployment query differs; review linkage before importing'
@@ -10135,16 +10153,16 @@ BEGIN
           INSERT INTO detections(id,user_id,version,name,description,status,"detectionType",severity,"logSource",technology,
             "testedAndValidated","queryLanguage","detectionQuery","updatedDate",queries,library_type,promotion_status,review_status,
             source,external_id,tags,native_provenance)
-          VALUES(did,r.actor_id,1,c->>'name',c->>'description','Draft','Detection',c->>'severity','','',false,'CQL',c->>'query',now(),
-            jsonb_build_array(jsonb_build_object('id',qid,'language','CQL','query',c->>'query','isPrimary',true,'createdDate',now(),'updatedDate',now())),
-            'production','none','none','crowdstrike',item->>'id',ARRAY['native-siem','crowdstrike'],
-            jsonb_build_object('kind','native_siem','provider','crowdstrike','connection_name',
+          VALUES(did,r.actor_id,1,c->>'name',c->>'description','Draft','Detection',c->>'severity','','',false,qlang,c->>'query',now(),
+            jsonb_build_array(jsonb_build_object('id',qid,'language',qlang,'query',c->>'query','isPrimary',true,'createdDate',now(),'updatedDate',now())),
+            'production','none','none',prov,item->>'id',ARRAY['native-siem',prov],
+            jsonb_build_object('kind','native_siem','provider',prov,'connection_name',
               (SELECT name FROM integrations WHERE id=r.integration_id),'imported_at',now()));
           SELECT * INTO d FROM detections WHERE id=did;
           outcome := 'imported';
         END IF;
         INSERT INTO siem_rule_bindings(detection_id,integration_id,provider,provider_scope,vendor_rule_id,selected_query_id,query_language,desired_content)
-          VALUES(did,r.integration_id,'crowdstrike',r.provider_scope,item->>'id',qid,'CQL',c) RETURNING * INTO b;
+          VALUES(did,r.integration_id,prov,r.provider_scope,item->>'id',qid,qlang,c) RETURNING * INTO b;
         INSERT INTO siem_local_revisions(detection_id,content,binding_contents,actor_id) VALUES(did,to_jsonb(d),jsonb_build_object(b.id::text,c),r.actor_id);
         INSERT INTO siem_rule_events(binding_id,actor_id,action) VALUES(b.id,r.actor_id,outcome);
       END IF;
@@ -10875,7 +10893,7 @@ END $$;
 CREATE OR REPLACE FUNCTION public.siem_commit_inventory_chunk(p_run uuid, p_lease uuid, p_ids text[],
   p_next integer, p_discovery_complete boolean, p_results jsonb)
 RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
-DECLARE r siem_sync_runs; item jsonb; rr siem_remote_rules; snap uuid; cand integer;
+DECLARE r siem_sync_runs; item jsonb; rr siem_remote_rules; snap uuid; cand integer; prov text;
 BEGIN
   SELECT * INTO r FROM siem_sync_runs WHERE id = p_run FOR UPDATE;
   IF NOT FOUND OR r.status <> 'running' OR r.kind <> 'inventory'
@@ -10883,6 +10901,7 @@ BEGIN
     RAISE EXCEPTION 'Sync lease expired';
   END IF;
   IF NOT siem_can_import(r.actor_id, r.integration_id) THEN RAISE EXCEPTION 'Native import permission revoked'; END IF;
+  SELECT provider INTO prov FROM integrations WHERE id = r.integration_id;
 
   IF r.phase = 'discovery' THEN
     INSERT INTO siem_sync_items(run_id, vendor_rule_id) SELECT r.id, unnest(p_ids) ON CONFLICT DO NOTHING;
@@ -10917,7 +10936,7 @@ BEGIN
 
       INSERT INTO siem_remote_rules(integration_id, provider, provider_scope, vendor_rule_id, rule_family,
         display_name, observed_enabled, availability, normalization_error, match_candidate_count, last_seen_at)
-      VALUES(r.integration_id, 'crowdstrike', r.provider_scope, item->>'id',
+      VALUES(r.integration_id, prov, r.provider_scope, item->>'id',
         coalesce(item->>'family','correlation'), coalesce(item->>'name', item->>'id'),
         CASE WHEN item ? 'enabled' THEN (item->>'enabled')::boolean ELSE NULL END,
         'present', CASE WHEN item->>'status' = 'failed' THEN NULL ELSE item->>'error' END, cand, now())
@@ -11140,7 +11159,7 @@ GRANT EXECUTE ON FUNCTION public.siem_start_import(uuid,uuid,uuid,text[],text[],
 CREATE OR REPLACE FUNCTION public.siem_commit_import_chunk(p_run uuid, p_lease uuid, p_results jsonb)
 RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
 DECLARE r siem_sync_runs; item jsonb; b siem_rule_bindings; d detections; snap uuid;
-  did text; qid text; c jsonb; frozen_hash text;
+  did text; qid text; c jsonb; frozen_hash text; prov text; qlang text;
 BEGIN
   SELECT * INTO r FROM siem_sync_runs WHERE id = p_run FOR UPDATE;
   IF NOT FOUND OR r.status <> 'running' OR r.kind <> 'import_selection'
@@ -11148,6 +11167,8 @@ BEGIN
     RAISE EXCEPTION 'Sync lease expired';
   END IF;
   IF NOT siem_can_import(r.actor_id, r.integration_id) THEN RAISE EXCEPTION 'Native import permission revoked'; END IF;
+  SELECT provider INTO prov FROM integrations WHERE id = r.integration_id;
+  qlang := siem_provider_query_language(prov);
 
   FOR item IN SELECT value FROM jsonb_array_elements(p_results) LOOP
     IF NOT EXISTS (SELECT 1 FROM siem_sync_items
@@ -11190,14 +11211,14 @@ BEGIN
     INSERT INTO detections(id,user_id,version,name,description,status,"detectionType",severity,"logSource",technology,
       "testedAndValidated","queryLanguage","detectionQuery","updatedDate",queries,library_type,promotion_status,review_status,
       source,external_id,tags,native_provenance)
-    VALUES(did,r.actor_id,1,c->>'name',c->>'description','Draft','Detection',c->>'severity','','',false,'CQL',c->>'query',now(),
-      jsonb_build_array(jsonb_build_object('id',qid,'language','CQL','query',c->>'query','isPrimary',true,'createdDate',now(),'updatedDate',now())),
-      'production','none','none','crowdstrike',item->>'id',ARRAY['native-siem','crowdstrike'],
-      jsonb_build_object('kind','native_siem','provider','crowdstrike','connection_name',
+    VALUES(did,r.actor_id,1,c->>'name',c->>'description','Draft','Detection',c->>'severity','','',false,qlang,c->>'query',now(),
+      jsonb_build_array(jsonb_build_object('id',qid,'language',qlang,'query',c->>'query','isPrimary',true,'createdDate',now(),'updatedDate',now())),
+      'production','none','none',prov,item->>'id',ARRAY['native-siem',prov],
+      jsonb_build_object('kind','native_siem','provider',prov,'connection_name',
         (SELECT name FROM integrations WHERE id=r.integration_id),'imported_at',now()));
     SELECT * INTO d FROM detections WHERE id=did;
     INSERT INTO siem_rule_bindings(detection_id,integration_id,provider,provider_scope,vendor_rule_id,selected_query_id,query_language,desired_content)
-      VALUES(did,r.integration_id,'crowdstrike',r.provider_scope,item->>'id',qid,'CQL',c) RETURNING * INTO b;
+      VALUES(did,r.integration_id,prov,r.provider_scope,item->>'id',qid,qlang,c) RETURNING * INTO b;
     INSERT INTO siem_local_revisions(detection_id,content,binding_contents,actor_id) VALUES(did,to_jsonb(d),jsonb_build_object(b.id::text,c),r.actor_id);
     -- Unlike siem_commit_chunk (which derives outcome from prior state), a chunk that reaches
     -- this point has already established there is no existing binding, so the action is always
