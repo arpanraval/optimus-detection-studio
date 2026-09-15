@@ -24,8 +24,15 @@ export async function bulkDeploy(
   const result: BulkDeployResult = { succeeded: [], failed: [] };
 
   // Pre-filter: only Production Library detections can be deployed
-  const productionDetections = detections.filter(d => d.library_type === LIBRARY_PRODUCTION);
+  const eligible = detections.filter(d => d.library_type === LIBRARY_PRODUCTION);
   const labDetections = detections.filter(d => d.library_type !== LIBRARY_PRODUCTION);
+
+  // A rule already tracked in a SIEM (on this connection) is an UPDATE of a live rule. The server
+  // requires the revision the user reviewed before it will write one, and a batch cannot show a
+  // diff — so these are reported here rather than failing opaquely per rule.
+  const tracked = eligible.filter(d => (d.siem_observations || []).some(
+    observation => observation.binding_status === 'active' && observation.integration_id === integrationId));
+  const productionDetections = eligible.filter(d => !tracked.includes(d));
 
   for (const d of labDetections) {
     result.failed.push({
@@ -36,9 +43,20 @@ export async function bulkDeploy(
     });
   }
 
+  for (const d of tracked) {
+    result.failed.push({
+      id: d.id,
+      name: d.name || d.id,
+      error: 'Already tracked in a SIEM — open its production comparison and deploy it individually',
+      retryable: false,
+    });
+  }
+
+  const skipped = labDetections.length + tracked.length;
+
   for (let i = 0; i < productionDetections.length; i++) {
     const detection = productionDetections[i];
-    onProgress(i + labDetections.length, detections.length, detection.name || detection.id);
+    onProgress(i + skipped, detections.length, detection.name || detection.id);
 
     try {
       // Prefer multi-query array; fall back to legacy single-query fields
