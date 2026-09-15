@@ -476,6 +476,19 @@ describe('applyNativeMutation as a shared entry point', () => {
     expect(deps.fetch).not.toHaveBeenCalled();
   });
 
+  // "Production readback differs from the reviewed change" named no field, and the readback is
+  // exactly where the field matters: it is the one CrowdStrike would not accept.
+  it('names the field production did not accept when the readback differs', async () => {
+    const { deps, hash } = await fixture({
+      enabled: true, localQuery: EDITED_QUERY,
+      // CrowdStrike kept the rule as it was rather than taking the new filter.
+      afterResource: [{ ...raw }],
+    });
+    await expect(applyNativeMutation(deps,
+      { bindingId: 'binding', operation: 'update', expectedVersion: 1, expectedHash: hash }, 'owner'))
+      .rejects.toThrow(/readback differs from the reviewed change: query/);
+  });
+
   // A detection maps to "Privilege Escalation" and "Account Manipulation"; the API takes TA0004
   // and T1098 and nothing else, which is why an imported rule's tactic and technique stayed empty
   // however well the detection was mapped.

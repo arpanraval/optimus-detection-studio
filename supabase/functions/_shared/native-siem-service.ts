@@ -298,6 +298,40 @@ async function attackIds(
   return technique ? { tactic, technique } : { tactic };
 }
 
+/**
+ * Which fields of a rule differ, for an error that can be acted on.
+ *
+ * "Production readback differs from the reviewed change" told the user that something was wrong
+ * and nothing about what -- and the readback is exactly the moment where the specific field
+ * matters, because it is the field CrowdStrike would not accept or stores differently.
+ */
+export function contentDifferences(expected: RuleContent, actual: RuleContent): string[] {
+  const flatten = (content: RuleContent) => {
+    const out: Record<string, string> = {};
+    const walk = (value: unknown, prefix: string) => {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+          walk(child, prefix ? `${prefix}.${key}` : key);
+        }
+        return;
+      }
+      out[prefix] = typeof value === 'string' ? value : JSON.stringify(value) ?? String(value);
+    };
+    walk({ name: content.name, description: content.description, severity: content.severity,
+      enabled: content.enabled, query: content.query, ...content.config }, '');
+    return out;
+  };
+  const sent = flatten(expected);
+  const found = flatten(actual);
+  // The query and the description run to hundreds of characters; naming them is the useful part.
+  const long = (field: string) => field === 'query' || field === 'description';
+  const show = (value: string | undefined) =>
+    value === undefined ? 'nothing' : `"${value.length > 60 ? `${value.slice(0, 60)}…` : value}"`;
+  return [...new Set([...Object.keys(sent), ...Object.keys(found)])]
+    .filter(field => sent[field] !== found[field])
+    .map(field => long(field) ? field : `${field} (sent ${show(sent[field])}, production has ${show(found[field])})`);
+}
+
 async function boundRule(deps: Dependencies, bindingId: string, actor: string) {
   const binding = checked(await deps.db.from('siem_rule_bindings').select('*').eq('id', bindingId).single());
   const integration = await connection(deps, binding.integration_id, actor);
@@ -576,7 +610,12 @@ export async function applyNativeMutation(
         await wait(SETTLE_BACKOFF_MS[attempt]);
         after = await read();
       }
-      if (await contentHash(after.content) !== desiredHash) throw new Error('Production readback differs from the reviewed change');
+      if (await contentHash(after.content) !== desiredHash) {
+        const differences = contentDifferences(desired, after.content);
+        throw new Error('Production readback differs from the reviewed change: ' +
+          (differences.slice(0, 4).join('; ') || 'no field-level difference found, so the two hash differently') +
+          (differences.length > 4 ? ` (and ${differences.length - 4} more)` : ''));
+      }
     }
     const raw = after ? sanitizeSnapshot(after.raw) : null;
     checked(await deps.db.rpc('siem_finish_deployment', { p_operation: operationId, p_actor: actor,
