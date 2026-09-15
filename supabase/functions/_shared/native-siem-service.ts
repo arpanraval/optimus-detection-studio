@@ -305,7 +305,8 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
   const { binding, detection, baseline, remote, local, integration, ruleFamily } = state;
   const drift = classifyDrift(baseline?.content ?? null, local, remote.content, binding.availability);
   const mutationContext = {
-    writesEnabled: deps.writesEnabled, ruleFamily, bindingStatus: binding.binding_status,
+    writesEnabled: deps.writesEnabled, provider: binding.provider as string, ruleFamily,
+    bindingStatus: binding.binding_status,
     availability: binding.availability, drift, pendingOperation: binding.pending_operation_id != null,
   };
   if (body.action === 'native_preview') return {

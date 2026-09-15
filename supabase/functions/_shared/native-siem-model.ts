@@ -94,14 +94,46 @@ export function classifyDrift(baseline: RuleContent | null, local: RuleContent, 
 export type NativeOperation = 'update' | 'enable' | 'disable' | 'delete';
 export const NATIVE_OPERATIONS: NativeOperation[] = ['update', 'enable', 'disable', 'delete'];
 
-/** The only rule family the CrowdStrike adapter knows how to serialize back. A rule of any other
- *  family can be read, compared and imported, but never written: crowdStrikeUpdate would have to
- *  invent fields it has no mapping for. */
-export const SUPPORTED_MUTATION_FAMILIES = ['correlation'];
+/** What each provider's adapter has actually been built and qualified for.
+ *
+ *  Declared as data rather than scattered `provider === 'crowdstrike'` conditionals so that adding
+ *  a provider is an explicit statement about what it supports, not an emergent property of which
+ *  branches happened to be written. A provider absent from this table supports nothing: it cannot
+ *  be imported from and cannot be written to, which is the safe default for one whose payload
+ *  contract has not been verified.
+ *
+ *  Query-language compatibility is deliberately NOT a capability. Two providers accepting the same
+ *  query text says nothing about whether their deployment payloads round-trip losslessly, and
+ *  treating it as proof is the specific mistake this table exists to prevent. */
+export interface ProviderCapabilities {
+  /** Rule families the adapter can read and import. */
+  readFamilies: string[];
+  /** Families it can also serialize back for a production write. A subset of readFamilies:
+   *  reading a rule is a much weaker claim than being able to write it without inventing fields. */
+  writeFamilies: string[];
+  operations: NativeOperation[];
+}
+
+export const PROVIDER_CAPABILITIES: Record<string, ProviderCapabilities> = {
+  crowdstrike: {
+    readFamilies: ['correlation'],
+    writeFamilies: ['correlation'],
+    operations: ['update', 'enable', 'disable', 'delete'],
+  },
+};
+
+export function providerCapabilities(provider: string | null | undefined): ProviderCapabilities {
+  return PROVIDER_CAPABILITIES[provider ?? ''] ?? { readFamilies: [], writeFamilies: [], operations: [] };
+}
+
+/** Kept as the CrowdStrike-specific name the rest of the adapter already used. */
+export const SUPPORTED_MUTATION_FAMILIES = PROVIDER_CAPABILITIES.crowdstrike.writeFamilies;
 
 export interface MutationContext {
   /** Installation-wide write gate (NATIVE_SIEM_MUTATIONS). */
   writesEnabled: boolean;
+  /** Defaults to crowdstrike for callers predating multi-provider support. */
+  provider?: string | null;
   ruleFamily: string | null;
   bindingStatus: string;
   availability: string;
@@ -117,10 +149,15 @@ export interface MutationContext {
  *  work and explained why only on failure. Stating the reason in one place lets the server keep
  *  refusing and the UI explain up front, without the two drifting apart. */
 export function mutationBlockedReason(operation: NativeOperation, context: MutationContext): string | null {
+  const provider = context.provider ?? 'crowdstrike';
+  const capabilities = providerCapabilities(provider);
   if (!context.writesEnabled) {
     return 'Sending changes to CrowdStrike is not enabled for this installation.';
   }
-  if (context.ruleFamily && !SUPPORTED_MUTATION_FAMILIES.includes(context.ruleFamily)) {
+  if (!capabilities.operations.includes(operation)) {
+    return `Optimus cannot ${operation} rules in ${provider}.`;
+  }
+  if (context.ruleFamily && !capabilities.writeFamilies.includes(context.ruleFamily)) {
     return `Optimus can read ${context.ruleFamily} rules but cannot change them in CrowdStrike.`;
   }
   if (context.bindingStatus !== 'active') {

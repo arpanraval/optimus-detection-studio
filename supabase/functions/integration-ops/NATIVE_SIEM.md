@@ -47,8 +47,25 @@ CrowdStrike does not provide an atomic conditional-write guarantee in this adapt
 | Compare library vs production, edit the library copy | Supported | read-only; no vendor write |
 | Accept the production version into the library | Supported | local write only |
 | Update / enable / disable / delete **in CrowdStrike** | **Gated off** | `NATIVE_SIEM_MUTATIONS`, then the per-rule gate below, pending sandbox qualification |
-| Providers other than CrowdStrike | Not implemented | — |
+| Providers other than CrowdStrike | Not implemented | absent from `PROVIDER_CAPABILITIES`, which is default-deny |
 | Rule families other than correlation rules | Not implemented | — |
+
+## Adding a provider
+
+`PROVIDER_CAPABILITIES` in `native-siem-model.ts` declares, per provider, which rule families the
+adapter can read, which it can also serialize back for a write, and which operations exist. It is
+default-deny: a provider absent from the table supports nothing, so an adapter cannot expose
+import or mutation controls by accident before its payload contract has been verified.
+
+Query-language compatibility is deliberately **not** a capability. Two providers accepting the same
+query text says nothing about whether their deployment payloads round-trip losslessly, and treating
+it as proof is the specific mistake the table exists to prevent.
+
+Adding a provider means: its own normalizer and serializer, its own fixtures, an entry in this
+table naming only what has actually been exercised, and the same immutable-inventory, frozen-
+selection, reconciliation, permission and audit contracts CrowdStrike uses. Do it one provider at a
+time, and not before CrowdStrike write qualification passes — the contracts are still being proven
+against the first adapter.
 
 ## Why a production write is unavailable
 

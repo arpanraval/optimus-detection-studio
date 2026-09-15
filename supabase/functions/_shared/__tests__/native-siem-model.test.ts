@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { canonicalJson, classifyDrift, contentHash, crowdStrikeScope, crowdStrikeUpdate,
-  importBlockedReason, mutationBlockedReason,
+  importBlockedReason, mutationBlockedReason, providerCapabilities,
   localContent, normalizeCrowdStrike, sanitizeSnapshot } from '../native-siem-model';
 
 const raw = {
@@ -104,6 +104,16 @@ describe('native SIEM content contracts', () => {
       writesEnabled: true, ruleFamily: 'correlation', bindingStatus: 'active',
       availability: 'present', drift: 'local_changed' as const, pendingOperation: false,
     };
+
+    // A provider absent from the table supports nothing. Query-language compatibility is
+    // deliberately not a capability: two providers accepting the same query text says nothing
+    // about whether their deployment payloads round-trip losslessly.
+    it('grants no capability to a provider that has not been qualified', () => {
+      expect(providerCapabilities('splunk')).toEqual({ readFamilies: [], writeFamilies: [], operations: [] });
+      expect(providerCapabilities(null)).toEqual({ readFamilies: [], writeFamilies: [], operations: [] });
+      expect(mutationBlockedReason('update', { ...open, provider: 'splunk' }))
+        .toMatch(/cannot update rules in splunk/);
+    });
 
     it('allows an update that has something to send', () => {
       expect(mutationBlockedReason('update', open)).toBeNull();
