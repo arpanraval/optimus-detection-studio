@@ -12,6 +12,7 @@ export interface InventoryTableProps {
   rows: InventoryRow[];
   loading: boolean;
   selectedIds?: ReadonlySet<string>; // Task 6 supplies these; optional here
+  pageAllSelected?: boolean;
   onToggle?: (vendorRuleId: string) => void;
   onTogglePage?: () => void;
   onResolveMatch?: (row: InventoryRow) => void;
@@ -50,14 +51,14 @@ export function InventoryTable({
   rows,
   loading,
   selectedIds,
+  pageAllSelected,
   onToggle,
   onTogglePage,
   onResolveMatch,
   onReview,
 }: InventoryTableProps): React.JSX.Element {
   const showSelection = !!onTogglePage;
-  const allEligibleSelected =
-    showSelection && rows.length > 0 && rows.every((row) => !isImportEligible(row.relationship) || selectedIds?.has(row.vendor_rule_id));
+  const allEligibleSelected = showSelection && !!pageAllSelected;
 
   if (loading) {
     return (

@@ -787,4 +787,5 @@ BEGIN
       'dismissing one scope''s row leaves the OTHER scope''s row -- same integration, same vendor_rule_id -- untouched');
   END;
 END $$;
+SET CONSTRAINTS ALL IMMEDIATE;
 ROLLBACK;

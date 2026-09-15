@@ -44,6 +44,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
     setPageIndex,
     reload,
     startInventory,
+    refreshTracked,
   } = useRemoteInventory(integration.id);
   const navigate = useNavigate();
   const [selected, setSelected] = React.useState<InventoryRow | null>(null);
@@ -289,9 +290,20 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
             Source connection: {integration.name || 'CrowdStrike'}
           </p>
         </div>
-        <Button leadingIcon="download" disabled={running} onClick={() => void startInventory()}>
-          {running ? 'Checking CrowdStrike…' : 'Fetch rules from CrowdStrike'}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="text"
+            leadingIcon="refresh-cw"
+            disabled={running}
+            title="Re-observes rules already in the library. Imports nothing new."
+            onClick={() => void refreshTracked()}
+          >
+            Check for SIEM changes
+          </Button>
+          <Button leadingIcon="download" disabled={running} onClick={() => void startInventory()}>
+            {running ? 'Checking CrowdStrike…' : 'Fetch rules from CrowdStrike'}
+          </Button>
+        </div>
       </div>
       {error && (
         <div
@@ -402,6 +414,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
             onReview={(row) => handleReview(row)}
             onResolveMatch={(row) => setResolvingRow(row)}
             selectedIds={pageSelectedIds}
+            pageAllSelected={selection.pageAllSelected}
             onToggle={selection.toggle}
             onTogglePage={selection.togglePage}
           />
@@ -424,7 +437,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
         <InventorySelectionBar
           selectedCount={selection.selectedCount}
           eligibleTotal={counts.not_in_library}
-          canSelectAllMatching={selection.canSelectAllMatching}
+          canSelectAllMatching={selection.canSelectAllMatching && relationship === 'all' && !search.trim()}
           discoveryComplete={run?.discovery_complete === true}
           clearedByFilterChange={selection.clearedByFilterChange}
           onSelectAllMatching={selection.selectAllMatching}

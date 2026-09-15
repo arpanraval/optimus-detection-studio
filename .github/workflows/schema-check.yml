@@ -16,12 +16,14 @@ on:
       # apply schema.sql, so an unmirrored migration silently diverges prod from
       # a new clone.
       - 'supabase/migrations/**'
+      - 'supabase/tests/**'
       - 'scripts/setup.ts'
       - '.github/workflows/schema-check.yml'
   pull_request:
     paths:
       - 'supabase/schema.sql'
       - 'supabase/migrations/**'
+      - 'supabase/tests/**'
       - 'scripts/setup.ts'
       - '.github/workflows/schema-check.yml'
   workflow_dispatch:

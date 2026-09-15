@@ -350,3 +350,89 @@ describe('SiemLibraryBadge', () => {
     expect(screen.getByText('CrowdStrike · Enabled')).toBeTruthy();
   });
 });
+
+describe('NativeRulesPanel — span-pages selection under a narrowing filter (C1)', () => {
+  const completeRun = {
+    id: 'run-1',
+    status: 'complete' as const,
+    phase: 'complete' as const,
+    kind: 'inventory' as const,
+    discovery_complete: true,
+    created_at: '2026-09-15T00:00:00Z',
+    completed_at: '2026-09-15T00:05:00Z',
+    heartbeat_at: null,
+    error_message: null,
+  };
+
+  beforeEach(() => {
+    vi.spyOn(nativeSiemService, 'latestRun').mockResolvedValue(completeRun);
+    vi.spyOn(nativeSiemService, 'inventoryCounts').mockResolvedValue({
+      ...ZERO_COUNTS,
+      not_in_library: 800,
+    });
+    vi.spyOn(nativeSiemService, 'inventoryPage').mockResolvedValue({ rows: rowsFixture(3), hasMore: true });
+  });
+
+  it('offers "select all matching" with no search and no relationship filter active', async () => {
+    render(
+      <MemoryRouter>
+        <NativeRulesPanel integration={integrationFixture} />
+      </MemoryRouter>,
+    );
+    // The span-pages link only renders once something on the page is selected.
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Suspicious process 0' }));
+    expect(await screen.findByRole('button', { name: /Select all 800 matching rules/ })).toBeTruthy();
+  });
+
+  it('never offers "select all matching" while a search is active', async () => {
+    render(
+      <MemoryRouter>
+        <NativeRulesPanel integration={integrationFixture} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Suspicious process 0' }));
+    // Establish the affordance exists before narrowing, so this is a real transition.
+    await screen.findByRole('button', { name: /Select all 800 matching rules/ });
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search production rules' }), {
+      target: { value: 'proc' },
+    });
+    expect(screen.queryByRole('button', { name: /Select all .* matching rules/ })).toBeNull();
+  });
+
+  it('never offers "select all matching" while a relationship chip other than "all" is active', async () => {
+    render(
+      <MemoryRouter>
+        <NativeRulesPanel integration={integrationFixture} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Suspicious process 0' }));
+    await screen.findByRole('button', { name: /Select all 800 matching rules/ });
+    fireEvent.click(screen.getByRole('button', { name: /Not in library/ }));
+    expect(screen.queryByRole('button', { name: /Select all .* matching rules/ })).toBeNull();
+  });
+});
+
+describe('NativeRulesPanel — "Check for SIEM changes" (I2)', () => {
+  it('calls refreshTracked, not startInventory, when clicked', async () => {
+    const refreshTracked = vi.spyOn(nativeSiemService, 'refreshTracked').mockResolvedValue({
+      id: 'run-2',
+      status: 'queued',
+      phase: 'queued',
+      kind: 'refresh_tracked',
+      discovery_complete: false,
+      created_at: '2026-09-15T00:00:00Z',
+      completed_at: null,
+      heartbeat_at: null,
+      error_message: null,
+    });
+    const startInventory = vi.spyOn(nativeSiemService, 'startInventory');
+    render(
+      <MemoryRouter>
+        <NativeRulesPanel integration={integrationFixture} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Check for SIEM changes' }));
+    expect(refreshTracked).toHaveBeenCalledWith('connection');
+    expect(startInventory).not.toHaveBeenCalled();
+  });
+});

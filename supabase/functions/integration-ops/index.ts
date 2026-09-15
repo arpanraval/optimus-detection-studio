@@ -87,6 +87,11 @@ interface IntegrationRequest {
   detectionVersion?: number
   snapshotId?: string
   remoteRuleId?: string
+  ids?: string[]
+  excludeIds?: string[]
+  allMatching?: boolean
+  sourceRunId?: string
+  idempotencyKey?: string
 }
 
 interface ConnectionTestResult {

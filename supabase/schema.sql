@@ -10747,11 +10747,13 @@ BEGIN
       VALUES(r.integration_id, 'crowdstrike', r.provider_scope, item->>'id',
         coalesce(item->>'family','correlation'), coalesce(item->>'name', item->>'id'),
         CASE WHEN item ? 'enabled' THEN (item->>'enabled')::boolean ELSE NULL END,
-        'present', item->>'error', cand, now())
+        'present', CASE WHEN item->>'status' = 'failed' THEN NULL ELSE item->>'error' END, cand, now())
       ON CONFLICT (integration_id, provider_scope, vendor_rule_id) DO UPDATE SET
-        rule_family = excluded.rule_family, display_name = excluded.display_name,
-        observed_enabled = excluded.observed_enabled, availability = 'present',
-        normalization_error = excluded.normalization_error,
+        rule_family = excluded.rule_family,
+        display_name = CASE WHEN item ? 'name' THEN excluded.display_name ELSE siem_remote_rules.display_name END,
+        observed_enabled = excluded.observed_enabled,
+        availability = CASE WHEN item->>'status' = 'failed' THEN siem_remote_rules.availability ELSE 'present' END,
+        normalization_error = CASE WHEN item->>'status' = 'failed' THEN siem_remote_rules.normalization_error ELSE excluded.normalization_error END,
         match_candidate_count = excluded.match_candidate_count, last_seen_at = now()
       RETURNING * INTO rr;
 

@@ -240,6 +240,13 @@ BEGIN
     observed_enabled,availability)
     VALUES(integration,'crowdstrike','scope-d','remote-inv-stale-2','Stale rule two',true,'present');
 
+  -- A prior good read of the rule this run will fail to hydrate. The catalog upsert must
+  -- preserve this display name and NULL normalization_error rather than overwrite them with
+  -- the transient failure's bare vendor id / lack of an error.
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability,normalization_error)
+    VALUES(integration,'crowdstrike','scope-d','remote-inv-4','Known-good rule four',true,'present',NULL);
+
   r := public.siem_start_inventory(actor, integration, 'scope-d');
   SELECT * INTO r FROM public.siem_claim_sync();
   PERFORM public.siem_commit_inventory_chunk(r.id, r.lease_token, ARRAY['remote-inv-4'], 1, true, '[]');
@@ -262,6 +269,21 @@ BEGIN
     (SELECT count(*) FILTER (WHERE availability='missing') = 0 FROM public.siem_remote_rules
        WHERE integration_id=integration AND provider_scope='scope-d'),
     'a run with a failed item marks nothing missing, including rules it never even discovered');
+
+  -- I1: the catalog upsert must not collapse a transient 'failed' read into the permanent
+  -- 'unsupported' classification the display layer keys off normalization_error IS NOT NULL.
+  PERFORM pg_temp.assert_true(
+    (SELECT normalization_error IS NULL FROM public.siem_remote_rules
+       WHERE integration_id=integration AND provider_scope='scope-d' AND vendor_rule_id='remote-inv-4'),
+    'a failed read leaves normalization_error unchanged (NULL), not set from the transient error');
+  PERFORM pg_temp.assert_true(
+    (SELECT relationship <> 'unsupported' FROM public.siem_inventory_rows
+       WHERE integration_id=integration AND provider_scope='scope-d' AND vendor_rule_id='remote-inv-4'),
+    'a failed read does not classify the rule as unsupported');
+  PERFORM pg_temp.assert_true(
+    (SELECT display_name = 'Known-good rule four' FROM public.siem_remote_rules
+       WHERE integration_id=integration AND provider_scope='scope-d' AND vendor_rule_id='remote-inv-4'),
+    'a failed read preserves the prior display name instead of falling back to the bare vendor id');
 END $$;
 
 -- A worker-supplied status hint is only ever trusted from an allowlist. This RPC runs as
@@ -309,4 +331,5 @@ BEGIN
   END IF;
 END $$;
 RESET ROLE;
+SET CONSTRAINTS ALL IMMEDIATE;
 ROLLBACK;

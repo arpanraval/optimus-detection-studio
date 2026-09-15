@@ -125,4 +125,5 @@ SELECT pg_temp.assert_true((SELECT count(*)=0 FROM public.siem_rule_bindings),'o
 SELECT set_config('request.jwt.claim.sub','01000000-0000-0000-0000-000000000001',true);
 SELECT pg_temp.assert_true((SELECT count(*)=1 FROM public.siem_rule_bindings),'owner can read persisted binding');
 RESET ROLE;
+SET CONSTRAINTS ALL IMMEDIATE;
 ROLLBACK;

@@ -78,4 +78,22 @@ describe('inventory table', () => {
     expect(checkbox).toHaveProperty('disabled', true);
     expect(checkbox.getAttribute('title')).toBe('Archived in library. Restore it from the library to track it again.');
   });
+
+  it('never checks the header box when the page has no eligible row and pageAllSelected is absent', () => {
+    // Regression: rows.every(...) over an empty/all-ineligible page is vacuously true.
+    // pageAllSelected must come from the selection hook, not be re-derived here.
+    render(
+      <MemoryRouter>
+        <InventoryTable
+          rows={[{ ...base, relationship: 'already_in_library', binding_status: 'active', detection_id: 'd1' }]}
+          loading={false}
+          selectedIds={new Set()}
+          onTogglePage={() => {}}
+          onToggle={() => {}}
+        />
+      </MemoryRouter>
+    );
+    const header = screen.getByRole('checkbox', { name: 'Select all eligible rules on this page' });
+    expect(header).toHaveProperty('checked', false);
+  });
 });
