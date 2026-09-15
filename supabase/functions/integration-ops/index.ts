@@ -32,6 +32,8 @@ type Action =
   | 'native_inventory_start'
   | 'native_refresh_tracked'
   | 'native_import_start'
+  | 'native_import_cancel'
+  | 'native_import_retry'
   | 'native_disconnect'
   | 'native_preview'
   | 'native_accept'
@@ -77,6 +79,7 @@ interface IntegrationRequest {
   operation?: 'update' | 'enable' | 'disable' | 'delete'
   localChanges?: { name: string; description: string; query: string; severity: string; schedule: string; lookback: string }
   revisionId?: string
+  runId?: string
 }
 
 interface ConnectionTestResult {
@@ -135,6 +138,8 @@ const ACTION_PERMISSIONS: Record<Action, GranularPermission> = {
   native_inventory_start: 'integrations:import',
   native_refresh_tracked: 'integrations:import',
   native_import_start: 'integrations:import',
+  native_import_cancel: 'integrations:import',
+  native_import_retry: 'integrations:import',
   native_disconnect: 'integrations:configure',
   native_preview: 'integrations:view',
   native_accept: 'integrations:import',
@@ -3391,7 +3396,7 @@ serve(async (req: Request) => {
     if (body.action.startsWith('native_')) {
       try {
         const result = await handleNativeRequest(nativeDependencies, body, user.id)
-        if (['native_sync_start', 'native_inventory_start', 'native_refresh_tracked', 'native_import_start'].includes(body.action)) kickNativeWorker()
+        if (['native_sync_start', 'native_inventory_start', 'native_refresh_tracked', 'native_import_start', 'native_import_retry'].includes(body.action)) kickNativeWorker()
         return new Response(JSON.stringify(result), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
       } catch (error) {
         return corsErrorResponse(error instanceof Error ? error.message : 'Native SIEM operation failed', req, 400)

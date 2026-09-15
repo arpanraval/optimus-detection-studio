@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
-import { handleNativeRequest } from '../native-siem-service';
+import { handleNativeRequest, processNativeSync } from '../native-siem-service';
+import { contentHash, crowdStrikeScope, normalizeCrowdStrike } from '../native-siem-model';
 
 function fixture() {
   const integrationRow = { id: 'connection', user_id: 'owner', provider: 'crowdstrike', archived_at: null, config: {} };
@@ -51,5 +52,78 @@ describe('native_import_start', () => {
       sourceRunId: 'source-run', ids: ['a'] }, 'owner'))
       .rejects.toThrow('An import request key is required');
     expect(rpc).not.toHaveBeenCalledWith('siem_start_import', expect.anything());
+  });
+});
+
+describe('native_import_cancel / native_import_retry routing', () => {
+  it('routes native_import_cancel to siem_cancel_import with the actor and run', async () => {
+    const rpc = vi.fn(async () => ({ data: null, error: null }));
+    const deps = { db: { rpc } as never, credentials: vi.fn(), token: vi.fn(), fetch: vi.fn(), writesEnabled: false };
+    const result = await handleNativeRequest(deps, { action: 'native_import_cancel', runId: 'run-1' }, 'owner');
+    expect(rpc).toHaveBeenCalledWith('siem_cancel_import', { p_actor: 'owner', p_run: 'run-1' });
+    expect(result).toEqual({ success: true });
+  });
+
+  it('routes native_import_retry to siem_retry_import and returns the requeued run', async () => {
+    const requeued = { id: 'run-1', kind: 'import_selection', status: 'queued' };
+    const rpc = vi.fn(async () => ({ data: requeued, error: null }));
+    const deps = { db: { rpc } as never, credentials: vi.fn(), token: vi.fn(), fetch: vi.fn(), writesEnabled: false };
+    const result = await handleNativeRequest(deps, { action: 'native_import_retry', runId: 'run-1' }, 'owner');
+    expect(rpc).toHaveBeenCalledWith('siem_retry_import', { p_actor: 'owner', p_run: 'run-1' });
+    expect(result).toEqual(requeued);
+  });
+});
+
+describe('the import_selection worker branch', () => {
+  const raw = { id: 'rule-1', name: 'Rule', description: '', status: 'active', severity: 50,
+    search: { filter: 'query', outcome: 'detection', lookback: '1h' }, operation: { schedule: { definition: '@every 1h' } } };
+
+  const workerConfig = { baseUrl: 'https://api.crowdstrike.com', customerId: 'a'.repeat(32) };
+
+  function workerFixture(options: { resource?: unknown } = {}) {
+    const run = { id: 'run', kind: 'import_selection', actor_id: 'owner', integration_id: 'connection',
+      provider_scope: crowdStrikeScope(workerConfig), phase: 'hydration', cursor_offset: 0, lease_token: 'lease', attempts: 0 };
+    const from = vi.fn((table: string) => {
+      const data = table === 'integrations' ? { id: 'connection', config: workerConfig, provider: 'crowdstrike' } :
+        table === 'siem_sync_items' ? [{ vendor_rule_id: raw.id }] : null;
+      const query: Record<string, unknown> = {};
+      for (const method of ['select', 'eq', 'in', 'order', 'limit', 'single', 'update']) query[method] = vi.fn(() => query);
+      query.then = (resolve: (result: unknown) => void) => resolve({ data, error: null });
+      return query;
+    });
+    const rpc = vi.fn(async (name: string) => ({ data: name === 'siem_claim_sync' ? [run] : name === 'siem_can_import' ? true : null, error: null }));
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ resources: options.resource ?? [raw] })));
+    const deps = { db: { from, rpc } as never, credentials: vi.fn(async () => ({ clientId: 'client', clientSecret: 'secret' })),
+      token: vi.fn(async () => 'token'), fetch, writesEnabled: false };
+    return { deps, rpc };
+  }
+
+  it('reads details for pending ids and commits via siem_commit_import_chunk, never the legacy or inventory RPCs', async () => {
+    const { deps, rpc } = workerFixture();
+    await processNativeSync(deps);
+    expect(rpc).toHaveBeenCalledWith('siem_commit_import_chunk', expect.objectContaining({
+      p_run: 'run', p_lease: 'lease',
+      p_results: [expect.objectContaining({ id: raw.id, content: normalizeCrowdStrike(raw) })],
+    }));
+    expect(rpc.mock.calls.some(([name]) => name === 'siem_commit_chunk')).toBe(false);
+    expect(rpc.mock.calls.some(([name]) => name === 'siem_commit_inventory_chunk')).toBe(false);
+  });
+
+  it('passes through the freshly observed hash so the RPC can detect drift since submission', async () => {
+    const changed = { ...raw, name: 'Changed since preview' };
+    const { deps, rpc } = workerFixture({ resource: [changed] });
+    await processNativeSync(deps);
+    const expectedHash = await contentHash(normalizeCrowdStrike(changed));
+    expect(rpc).toHaveBeenCalledWith('siem_commit_import_chunk', expect.objectContaining({
+      p_results: [expect.objectContaining({ id: raw.id, hash: expectedHash })],
+    }));
+  });
+
+  it('reports a detail read that omits an id as an error, never a deletion', async () => {
+    const { deps, rpc } = workerFixture({ resource: [] });
+    await processNativeSync(deps);
+    expect(rpc).toHaveBeenCalledWith('siem_commit_import_chunk', expect.objectContaining({
+      p_results: [expect.objectContaining({ id: raw.id, error: 'Rule detail was omitted; no deletion inferred' })],
+    }));
   });
 });

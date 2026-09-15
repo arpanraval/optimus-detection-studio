@@ -19,6 +19,7 @@ export type NativeRequest = {
   allMatching?: boolean;
   sourceRunId?: string;
   idempotencyKey?: string;
+  runId?: string;
 };
 
 function checked<T>(result: { data: T; error: { message: string } | null }): T {
@@ -124,6 +125,9 @@ export async function processNativeSync(deps: Dependencies): Promise<{ processed
     if (kind === 'inventory') {
       checked(await deps.db.rpc('siem_commit_inventory_chunk', { p_run: run.id, p_lease: run.lease_token,
         p_ids: ids, p_next: next, p_discovery_complete: done, p_results: results }));
+    } else if (kind === 'import_selection') {
+      checked(await deps.db.rpc('siem_commit_import_chunk', { p_run: run.id, p_lease: run.lease_token,
+        p_results: results }));
     } else {
       checked(await deps.db.rpc('siem_commit_chunk', { p_run: run.id, p_lease: run.lease_token,
         p_ids: ids, p_next: next, p_discovery_complete: done, p_results: results }));
@@ -164,6 +168,13 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
     const integration = await connection(deps, body.integrationId || '', actor);
     return checked(await deps.db.rpc('siem_start_inventory', { p_actor: actor, p_integration: integration.id,
       p_scope: crowdStrikeScope(integration.config) }));
+  }
+  if (body.action === 'native_import_cancel') {
+    checked(await deps.db.rpc('siem_cancel_import', { p_actor: actor, p_run: body.runId }));
+    return { success: true };
+  }
+  if (body.action === 'native_import_retry') {
+    return checked(await deps.db.rpc('siem_retry_import', { p_actor: actor, p_run: body.runId }));
   }
   if (body.action === 'native_refresh_tracked') {
     const integration = await connection(deps, body.integrationId || '', actor);

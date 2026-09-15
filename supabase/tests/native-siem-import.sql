@@ -159,4 +159,185 @@ BEGIN
   SELECT count(*) INTO item_count FROM public.siem_sync_items WHERE run_id=import_run.id AND status='pending';
   PERFORM pg_temp.assert_true(item_count = 7, 'all_matching with 3 exclusions freezes catalog_eligible (10) minus 3 = 7');
 END $$;
+
+-- Adoption: siem_commit_import_chunk creates exactly one detection/binding/revision/'imported'
+-- event per adopted item and zero deployment_history rows (an import is not a deployment);
+-- an item whose observed hash drifted from the frozen hash adopts nothing; replaying an
+-- already-adopted item links to the existing binding instead of duplicating; cancellation
+-- stops only unclaimed work; and retry resets only 'failed' items, never 'changed_since_preview'.
+INSERT INTO auth.users(id,email) VALUES
+  ('15000000-0000-0000-0000-000000000001','import-adopt-owner@example.test');
+INSERT INTO public.profiles(id,role,status) VALUES
+  ('15000000-0000-0000-0000-000000000001','admin','active')
+  ON CONFLICT(id) DO UPDATE SET role='admin',status='active';
+INSERT INTO public.integrations(id,user_id,name,provider,category,status,config,auth_type) VALUES
+  ('16000000-0000-0000-0000-000000000001','15000000-0000-0000-0000-000000000001',
+   'Falcon adopt fixture','crowdstrike','siem','connected','{}','oauth2_client_credentials');
+
+DO $$
+DECLARE integration uuid := '16000000-0000-0000-0000-000000000001';
+  actor uuid := '15000000-0000-0000-0000-000000000001';
+  scope text := 'scope-import-3';
+  inventory_run public.siem_sync_runs; import_run public.siem_sync_runs;
+  cancel_run public.siem_sync_runs; retry_run public.siem_sync_runs; r public.siem_sync_runs;
+  rule_id uuid; snap_id uuid; item_count integer; results jsonb; requested text[];
+BEGIN
+  -- 17-row catalog: 1..11 cleanly adopted, 12 drifts since submission, 13..15 exercise
+  -- cancellation, 16..17 exercise retry.
+  FOR i IN 1..17 LOOP
+    INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+      observed_enabled,availability)
+      VALUES(integration,'crowdstrike',scope,'adopt-rule-'||i,'Adopt rule '||i,true,'present')
+      RETURNING id INTO rule_id;
+    INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+      VALUES(rule_id,'test-v1','adopt-hash-'||i,'adopt-raw-'||i,
+        jsonb_build_object('name','Adopt rule '||i,'description','d','severity','High',
+          'query','#event_simpleName=X'||i,'enabled',true),
+        '{}'::jsonb) RETURNING id INTO snap_id;
+    UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_id WHERE id=rule_id;
+  END LOOP;
+
+  inventory_run := public.siem_start_inventory(actor, integration, scope);
+  UPDATE public.siem_sync_runs SET status='complete', discovery_complete=true, completed_at=now(),
+    lease_token=NULL, lease_expires_at=NULL WHERE id=inventory_run.id RETURNING * INTO inventory_run;
+
+  -- === Adoption of rules 1..12 (11 clean, 1 drifted) ===
+  requested := ARRAY['adopt-rule-1','adopt-rule-2','adopt-rule-3','adopt-rule-4','adopt-rule-5',
+    'adopt-rule-6','adopt-rule-7','adopt-rule-8','adopt-rule-9','adopt-rule-10','adopt-rule-11','adopt-rule-12'];
+  import_run := public.siem_start_import(actor, integration, inventory_run.id, requested, '{}', false, 'idem-adopt-1');
+  SELECT count(*) INTO item_count FROM public.siem_sync_items WHERE run_id=import_run.id AND status='pending';
+  PERFORM pg_temp.assert_true(item_count = 12, 'sanity: all 12 requested rules froze as pending');
+
+  SELECT jsonb_agg(jsonb_build_object('id',i.vendor_rule_id,'content',s.content,'raw',s.raw_payload,
+      'adapter','test-v1', 'hash', CASE WHEN i.vendor_rule_id='adopt-rule-12' THEN 'drifted-hash' ELSE i.frozen_content_hash END,
+      'raw_hash', s.raw_hash))
+    INTO results
+    FROM public.siem_sync_items i
+    JOIN public.siem_remote_rules rr ON rr.integration_id=integration AND rr.provider_scope=scope AND rr.vendor_rule_id=i.vendor_rule_id
+    JOIN public.siem_remote_rule_snapshots s ON s.id=rr.latest_snapshot_id
+   WHERE i.run_id=import_run.id AND i.status='pending';
+
+  SELECT * INTO r FROM public.siem_claim_sync();
+  PERFORM public.siem_commit_import_chunk(r.id, r.lease_token, results);
+
+  SELECT count(*) INTO item_count FROM public.siem_sync_items WHERE run_id=import_run.id AND status='imported';
+  PERFORM pg_temp.assert_true(item_count = 11, 'adopting 11 frozen items (1 drifted) marks exactly 11 items imported');
+
+  SELECT count(DISTINCT detection_id) INTO item_count FROM public.siem_sync_items
+    WHERE run_id=import_run.id AND status='imported';
+  PERFORM pg_temp.assert_true(item_count = 11, 'adopting 11 frozen items creates exactly 11 detections');
+
+  SELECT count(DISTINCT binding_id) INTO item_count FROM public.siem_sync_items
+    WHERE run_id=import_run.id AND status='imported';
+  PERFORM pg_temp.assert_true(item_count = 11, 'adopting 11 frozen items creates exactly 11 bindings');
+
+  SELECT count(*) INTO item_count FROM public.siem_local_revisions
+    WHERE detection_id IN (SELECT detection_id FROM public.siem_sync_items WHERE run_id=import_run.id AND status='imported');
+  PERFORM pg_temp.assert_true(item_count = 11, 'adopting 11 frozen items creates exactly 11 local revisions');
+
+  SELECT count(*) INTO item_count FROM public.siem_rule_events
+    WHERE action='imported' AND binding_id IN
+      (SELECT binding_id FROM public.siem_sync_items WHERE run_id=import_run.id AND status='imported');
+  PERFORM pg_temp.assert_true(item_count = 11, 'adopting 11 frozen items creates exactly 11 imported events');
+
+  SELECT count(*) INTO item_count FROM public.deployment_history
+    WHERE detection_id IN (SELECT detection_id FROM public.siem_sync_items WHERE run_id=import_run.id AND status='imported');
+  PERFORM pg_temp.assert_true(item_count = 0, 'an import is an observation, not a deployment: zero deployment_history rows');
+
+  PERFORM pg_temp.assert_true((SELECT d.status='Draft' AND d.review_status='none' AND d."testedAndValidated"=false
+      AND d.library_type='production' AND d."queryLanguage"='CQL'
+      FROM public.detections d JOIN public.siem_sync_items i ON i.detection_id=d.id
+      WHERE i.run_id=import_run.id AND i.vendor_rule_id='adopt-rule-1'),
+    'adopted detections carry the lifecycle defaults');
+
+  PERFORM pg_temp.assert_true(
+    (SELECT status='changed_since_preview' AND detection_id IS NULL AND binding_id IS NULL
+       FROM public.siem_sync_items WHERE run_id=import_run.id AND vendor_rule_id='adopt-rule-12'),
+    'a hash that drifted since submission adopts nothing and is marked changed_since_preview');
+  PERFORM pg_temp.assert_true(NOT EXISTS (SELECT 1 FROM public.siem_rule_bindings
+      WHERE integration_id=integration AND provider_scope=scope AND vendor_rule_id='adopt-rule-12'),
+    'a drifted item creates no binding');
+
+  -- === Committing the same chunk twice creates no duplicate detection ===
+  UPDATE public.siem_sync_items SET status='pending' WHERE run_id=import_run.id AND vendor_rule_id='adopt-rule-1';
+  UPDATE public.siem_sync_runs SET status='running', lease_token=gen_random_uuid(),
+    lease_expires_at=now()+interval '45 seconds' WHERE id=import_run.id RETURNING * INTO r;
+
+  SELECT jsonb_build_array(jsonb_build_object('id','adopt-rule-1','content',s.content,'raw',s.raw_payload,
+      'adapter','test-v1','hash',i.frozen_content_hash,'raw_hash',s.raw_hash))
+    INTO results
+    FROM public.siem_sync_items i
+    JOIN public.siem_remote_rules rr ON rr.integration_id=integration AND rr.provider_scope=scope AND rr.vendor_rule_id=i.vendor_rule_id
+    JOIN public.siem_remote_rule_snapshots s ON s.id=rr.latest_snapshot_id
+   WHERE i.run_id=import_run.id AND i.vendor_rule_id='adopt-rule-1';
+  PERFORM public.siem_commit_import_chunk(r.id, r.lease_token, results);
+
+  PERFORM pg_temp.assert_true(
+    (SELECT status='linked' FROM public.siem_sync_items WHERE run_id=import_run.id AND vendor_rule_id='adopt-rule-1'),
+    're-committing an already-adopted rule links to the existing binding rather than duplicating');
+  SELECT count(DISTINCT detection_id) INTO item_count FROM public.siem_sync_items
+    WHERE run_id=import_run.id AND status IN ('imported','linked');
+  PERFORM pg_temp.assert_true(item_count = 11, 'replaying a committed chunk creates no additional detection');
+
+  -- === Cancellation stops unclaimed work only ===
+  cancel_run := public.siem_start_import(actor, integration, inventory_run.id,
+    ARRAY['adopt-rule-13','adopt-rule-14','adopt-rule-15'], '{}', false, 'idem-adopt-cancel');
+  SELECT jsonb_build_array(jsonb_build_object('id','adopt-rule-13','content',s.content,'raw',s.raw_payload,
+      'adapter','test-v1','hash',i.frozen_content_hash,'raw_hash',s.raw_hash))
+    INTO results
+    FROM public.siem_sync_items i
+    JOIN public.siem_remote_rules rr ON rr.integration_id=integration AND rr.provider_scope=scope AND rr.vendor_rule_id=i.vendor_rule_id
+    JOIN public.siem_remote_rule_snapshots s ON s.id=rr.latest_snapshot_id
+   WHERE i.run_id=cancel_run.id AND i.vendor_rule_id='adopt-rule-13';
+  SELECT * INTO r FROM public.siem_claim_sync();
+  PERFORM public.siem_commit_import_chunk(r.id, r.lease_token, results);
+
+  PERFORM public.siem_cancel_import(actor, cancel_run.id);
+  PERFORM pg_temp.assert_true(
+    (SELECT status='imported' FROM public.siem_sync_items WHERE run_id=cancel_run.id AND vendor_rule_id='adopt-rule-13'),
+    'cancellation leaves an already-adopted item untouched');
+  PERFORM pg_temp.assert_true(
+    (SELECT bool_and(status='cancelled') FROM public.siem_sync_items
+       WHERE run_id=cancel_run.id AND vendor_rule_id IN ('adopt-rule-14','adopt-rule-15')),
+    'cancellation marks unclaimed pending items cancelled');
+  PERFORM pg_temp.assert_true(
+    (SELECT status='cancelled' AND lease_token IS NULL FROM public.siem_sync_runs WHERE id=cancel_run.id),
+    'cancellation marks the run cancelled and clears the lease');
+
+  -- === Retry resets only 'failed' items, never 'changed_since_preview' ===
+  BEGIN
+    PERFORM public.siem_retry_import(actor, import_run.id);
+    RAISE EXCEPTION 'retry against a run with only changed_since_preview items was accepted';
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM pg_temp.assert_true(SQLERRM = 'No failed rules to retry',
+      'retry leaves changed_since_preview alone: nothing failed, so retry refuses with product copy');
+  END;
+
+  retry_run := public.siem_start_import(actor, integration, inventory_run.id,
+    ARRAY['adopt-rule-16','adopt-rule-17'], '{}', false, 'idem-adopt-retry');
+  SELECT * INTO r FROM public.siem_claim_sync();
+  PERFORM public.siem_commit_import_chunk(r.id, r.lease_token,
+    '[{"id":"adopt-rule-16","error":"CrowdStrike request failed (500); retry the sync after checking access"}]'::jsonb);
+  PERFORM pg_temp.assert_true(
+    (SELECT status='failed' FROM public.siem_sync_items WHERE run_id=retry_run.id AND vendor_rule_id='adopt-rule-16'),
+    'sanity: rule-16 recorded as failed');
+  PERFORM pg_temp.assert_true(
+    (SELECT status='pending' FROM public.siem_sync_items WHERE run_id=retry_run.id AND vendor_rule_id='adopt-rule-17'),
+    'sanity: rule-17 still pending (chunk only covered rule-16)');
+
+  r := public.siem_retry_import(actor, retry_run.id);
+  PERFORM pg_temp.assert_true(r.status = 'queued', 'retry requeues the run');
+  PERFORM pg_temp.assert_true(
+    (SELECT status='pending' AND error_message IS NULL FROM public.siem_sync_items
+       WHERE run_id=retry_run.id AND vendor_rule_id='adopt-rule-16'),
+    'retry resets the failed item to pending and clears its error');
+
+  BEGIN
+    PERFORM public.siem_retry_import(actor, retry_run.id);
+    RAISE EXCEPTION 'retry with nothing failed was accepted';
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM pg_temp.assert_true(SQLERRM = 'No failed rules to retry',
+      'retry with no failed items refuses with product copy');
+  END;
+END $$;
 ROLLBACK;
