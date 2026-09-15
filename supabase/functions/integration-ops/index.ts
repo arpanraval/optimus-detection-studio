@@ -3443,7 +3443,13 @@ serve(async (req: Request) => {
       if (decision.route === 'native') {
         try {
           const result = await applyNativeMutation(nativeDependencies, decision.params, user.id)
-          return new Response(JSON.stringify(result), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+          // Match the client contract handleDeployRule returns: `data.deployment` must be a
+          // defined object after a successful deploy, not the raw { success: true } this route
+          // used to send back -- DeployDetectionModal reads fields off it and throws otherwise.
+          const { data: deployment, error: deploymentError } = await getServiceClient()
+            .from('deployment_history').select('*').eq('id', result.deploymentId).single()
+          if (deploymentError || !deployment) return corsErrorResponse('Deployment record not found', req, 500)
+          return new Response(JSON.stringify({ deployment }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
         } catch (error) {
           return corsErrorResponse(error instanceof Error ? error.message : 'Production change failed', req, 400)
         }

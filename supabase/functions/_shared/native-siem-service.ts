@@ -374,7 +374,7 @@ export async function applyNativeMutation(
   deps: Dependencies,
   params: NativeMutationParams,
   actor: string,
-): Promise<{ success: true }> {
+): Promise<{ success: true; deploymentId: string }> {
   const { binding, detection, baseline, remote, local, integration, ruleFamily } =
     await boundRule(deps, params.bindingId, actor);
   if (!checked(await deps.db.rpc('siem_can_import', { p_actor: actor, p_integration: integration.id }))) {
@@ -438,7 +438,7 @@ export async function applyNativeMutation(
     checked(await deps.db.rpc('siem_finish_deployment', { p_operation: operationId, p_actor: actor,
       p_content: after?.content || null, p_raw: raw, p_hash: after ? await contentHash(after.content) : null,
       p_raw_hash: raw ? await contentHash(raw) : null, p_adapter: ADAPTER_VERSION }));
-    return { success: true };
+    return { success: true, deploymentId: operationId as string };
   } catch (error) {
     checked(await deps.db.rpc('siem_fail_deployment', { p_operation: operationId, p_actor: actor,
       p_uncertain: attempted, p_error: attempted ? 'Vendor write attempted; sync and verify production before retrying' :

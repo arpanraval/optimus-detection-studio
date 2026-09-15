@@ -431,6 +431,19 @@ describe('applyNativeMutation as a shared entry point', () => {
     expect(rpc).toHaveBeenCalledWith('siem_finish_deployment', expect.anything());
   });
 
+  // The route builds its response's `deployment` object from this id -- the client contract
+  // (`data.deployment` a defined object) breaks silently if this ever comes back empty.
+  it('returns the deployment_history row id it wrote, on success', async () => {
+    const { deps, hash } = await fixture({
+      enabled: true, localQuery: EDITED_QUERY,
+      afterResource: [{ ...raw, search: { ...raw.search, filter: EDITED_QUERY } }],
+    });
+    const result = await applyNativeMutation(deps,
+      { bindingId: 'binding', operation: 'update', expectedVersion: 1, expectedHash: hash }, 'owner');
+    expect(result.success).toBe(true);
+    expect(result.deploymentId).toBe('operation-id');
+  });
+
   it('refuses through the same capability gate', async () => {
     const { deps, hash } = await fixture({ enabled: false });
     await expect(applyNativeMutation(deps,
