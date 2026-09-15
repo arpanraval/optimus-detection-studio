@@ -1,10 +1,28 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { DeployDetectionModal } from '../DeployDetectionModal';
 import { integrationService } from '@/lib/integrationService';
 import { nativeSiemService } from '@/services/nativeSiemService';
 import { Status } from '@/types';
+
+function renderModal(props: ReturnType<typeof boundProps>) {
+  render(
+    <MemoryRouter>
+      <DeployDetectionModal {...props} />
+    </MemoryRouter>,
+  );
+}
+
+// A tracked rule still routes through pre-flight like any other deploy — it's a LIVE
+// production detection, so validating the query before overwriting it matters more here,
+// not less. Navigate the same way a user would: wait for the pre-flight step to render, then
+// click through to configure, exactly as the "Continue to Configure" soft gate always allows.
+async function proceedThroughPreflight() {
+  const button = await screen.findByRole('button', { name: /^Continue to Configure$/ });
+  fireEvent.click(button);
+}
 
 // Fixtures: a detection already bound to a CrowdStrike rule, with a library edit to send.
 const preview = {
@@ -72,14 +90,16 @@ describe('DeployDetectionModal for a rule already tracked in a SIEM', () => {
   });
 
   it('shows the production comparison instead of a create-or-update choice', async () => {
-    render(<DeployDetectionModal {...boundProps()} />);
+    renderModal(boundProps());
+    await proceedThroughPreflight();
     expect(await screen.findByText(/already exists in CrowdStrike/i)).toBeTruthy();
     expect(screen.queryByRole('radio', { name: /create a new rule/i })).toBeNull();
   });
 
   it('submits the hash it showed the user', async () => {
     const deploy = vi.spyOn(integrationService, 'deployDetection').mockResolvedValue({} as never);
-    render(<DeployDetectionModal {...boundProps()} />);
+    renderModal(boundProps());
+    await proceedThroughPreflight();
     fireEvent.click(await screen.findByRole('button', { name: /^Update in CrowdStrike/ }));
     await waitFor(() => expect(deploy).toHaveBeenCalled());
     expect(deploy.mock.calls[0][0]).toMatchObject({ expectedHash: 'hash-1', expectedVersion: 3 });
@@ -92,7 +112,8 @@ describe('DeployDetectionModal for a rule already tracked in a SIEM', () => {
       capabilities: { update: 'Sending changes to CrowdStrike is not enabled for this installation.',
                       enable: null, disable: null, delete: null },
     } as never);
-    render(<DeployDetectionModal {...boundProps()} />);
+    renderModal(boundProps());
+    await proceedThroughPreflight();
     const button = await screen.findByRole('button', { name: /^Update in CrowdStrike/ });
     expect((button as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(/not enabled for this installation/)).toBeTruthy();

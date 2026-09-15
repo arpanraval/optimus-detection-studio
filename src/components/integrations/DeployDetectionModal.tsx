@@ -334,15 +334,17 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
     );
 
     if (binding?.id) {
-      // A tracked rule has nothing left to choose: its identity and settings come from the
-      // binding, and the production comparison IS the review. Skip straight past the
-      // create/update choice, pre-flight and provider config form to that comparison.
+      // A tracked rule has nothing left to CHOOSE: its identity and settings come from the
+      // binding, and the production comparison IS the review that replaces the create/update
+      // radio and the provider config form. But it is a LIVE production detection, so
+      // pre-flight validation of the query matters more here than for a brand-new rule, not
+      // less — route through it exactly like any other deploy when the provider supports it.
       try {
         const nativePreview = await nativeSiemService.preview(binding.id);
         setBoundPreview(nativePreview);
         setDeployAction('update');
         setRuleConfig(getDefaultRuleConfig(integration.provider));
-        setStep('configure');
+        setStep(supportsPreflight(integration.provider) ? 'preflight' : 'configure');
       } catch (err) {
         setBoundError(err instanceof Error ? err.message : 'Could not load the production comparison');
         setStep('validate');
@@ -884,9 +886,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                     </div>
                   )}
                   <button
-                    onClick={() => setStep(boundPreview
-                      ? 'select'
-                      : supportsPreflight(selectedIntegration.provider) ? 'preflight' : 'validate')}
+                    onClick={() => setStep(supportsPreflight(selectedIntegration.provider) ? 'preflight' : 'validate')}
                     className="flex items-center gap-1.5 text-xs font-medium text-on-surface-variant transition-colors hover:text-on-surface"
                   >
                     <Icon name="arrow-left" className="h-3.5 w-3.5" />
