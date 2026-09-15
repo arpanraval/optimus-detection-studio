@@ -20,7 +20,9 @@ Fetching a connection builds a read-only **inventory**: the worker discovers and
 
 ## Partial detail responses
 
-`entities/rules/v1` can legitimately return fewer resources than requested. A short batch response is not evidence of deletion: the worker retries one individual read per omitted id (capped at the chunk size, so a degraded vendor cannot turn one chunk into a request storm — any ids left over from the cap simply stay pending for the next chunk). A rule that still comes back empty on its own read is reported to the user as unreadable, with an actionable message naming both possibilities (deleted, or a rule type this connection cannot read); it is never treated as deleted. Only a completed scan — one that reads every tracked rule without a partial or failed batch — marks a rule `Not found`.
+`entities/rules/v1` can legitimately return fewer resources than requested. A short batch response is not evidence of deletion: the worker retries one individual read per omitted id (capped at the chunk size, so a degraded vendor cannot turn one chunk into a request storm — any ids left over from the cap simply stay pending for the next chunk). A rule that still comes back empty (HTTP 200, empty `resources`) on its own read is reported to the user as unreadable, with an actionable message naming both possibilities (deleted, or a rule type this connection cannot read); it is never treated as deleted. Only a completed scan — one that reads every tracked rule without a partial or failed batch — marks a rule `Not found`.
+
+A thrown error on the individual retry (auth failure, rate limit, 5xx, or a non-empty `errors` array) is a different signal entirely and is never reinterpreted as a missing rule: it propagates out of the chunk, the run's existing fenced-failure handling requeues it with backoff, and the run only gives up after repeated attempts. Reporting a systemic outage as "this rule may have been deleted" across every id in the chunk would be actively misleading.
 
 ## Production write gate
 

@@ -76,11 +76,13 @@ export async function readRuleDetails(
     if (found.has(id)) continue;
     if (retries >= MAX_DETAIL_RETRIES_PER_CHUNK) continue; // beyond the cap: leave pending for the next chunk
     retries++;
-    try {
-      collect(await request(`entities/rules/v1?ids=${encodeURIComponent(id)}`));
-    } catch {
-      /* fall through to the unreadable message rather than failing the whole chunk */
-    }
+    // A throw here is not a missing rule: CrowdStrike answers 200 with empty resources for an
+    // unknown id, so request() only throws on a non-OK status or a non-empty errors array --
+    // auth failure, rate limit, outage. Reporting that as "this rule may have been deleted"
+    // across the chunk would be actively misleading, so let it propagate: the chunk fails,
+    // processNativeSync's fenced catch requeues with backoff, and the run gives up after 5
+    // attempts rather than limping on with wrong labels.
+    collect(await request(`entities/rules/v1?ids=${encodeURIComponent(id)}`));
     if (!found.has(id)) missing.set(id, DETAIL_UNREADABLE);
   }
   return { found, missing };

@@ -171,4 +171,28 @@ describe('rule detail reads', () => {
     const accountedFor = new Set([...found.keys(), ...missing.keys()]);
     expect(ids.filter(id => !accountedFor.has(id))).toHaveLength(5);
   });
+
+  it('propagates a thrown error from an individual retry instead of reporting the rule unreadable', async () => {
+    const request = vi.fn(async (path: string) => {
+      if (path.includes('ids=a&ids=b')) return { resources: [{ id: 'a' }] };
+      throw new Error('CrowdStrike request failed (429); retry the sync after checking access');
+    });
+    await expect(readRuleDetails(request as never, ['a', 'b']))
+      .rejects.toThrow('CrowdStrike request failed (429); retry the sync after checking access');
+  });
+
+  it('distinguishes a legitimate empty result from a thrown outage', async () => {
+    // Empty resources on the individual retry is CrowdStrike's real "not found" signal -> missing.
+    const emptyResult = vi.fn(async (path: string) =>
+      path.includes('ids=a&ids=b') ? { resources: [{ id: 'a' }] } : { resources: [] });
+    const { missing } = await readRuleDetails(emptyResult as never, ['a', 'b']);
+    expect(missing.get('b')).toBe('CrowdStrike did not return this rule. It may have been deleted or it may be a rule type this connection cannot read.');
+
+    // A thrown error on the individual retry is not evidence of anything about the rule -> propagate.
+    const thrown = vi.fn(async (path: string) => {
+      if (path.includes('ids=a&ids=b')) return { resources: [{ id: 'a' }] };
+      throw new Error('CrowdStrike request failed (401); retry the sync after checking access');
+    });
+    await expect(readRuleDetails(thrown as never, ['a', 'b'])).rejects.toThrow(/401/);
+  });
 });
