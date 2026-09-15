@@ -11,7 +11,6 @@ type Dependencies = {
 };
 export type NativeRequest = {
   action: string; integrationId?: string; bindingId?: string; expectedHash?: string; expectedVersion?: number;
-  operation?: 'update' | 'enable' | 'disable' | 'delete';
   localChanges?: { name: string; description: string; query: string; severity: string; schedule: string; lookback: string };
   revisionId?: string;
   ids?: string[];
@@ -355,13 +354,7 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
       p_version: body.expectedVersion, p_content: desired }));
     return { success: true };
   }
-  if (body.action !== 'native_apply') throw new Error('Unknown native SIEM action');
-  return await applyNativeMutation(deps, {
-    bindingId: binding.id,
-    operation: (body.operation || 'update') as NativeOperation,
-    expectedVersion: body.expectedVersion as number,
-    expectedHash: body.expectedHash as string,
-  }, actor);
+  throw new Error('Unknown native SIEM action');
 }
 
 export interface NativeMutationParams {
@@ -372,10 +365,10 @@ export interface NativeMutationParams {
 }
 
 /**
- * The one production write path. Called by the unified deploy route and, until it is removed, by
- * the `native_apply` action. Both must go through here: the pre-write read, the readback, the
- * uncertain-outcome handling and the capability gate are the reason this path exists, and a second
- * caller that skipped any of them would be the duplicate path this merge exists to delete.
+ * The one production write path, called only by the unified deploy route. The pre-write read, the
+ * readback, the uncertain-outcome handling and the capability gate are the reason this path
+ * exists; a second caller that skipped any of them would be the duplicate path this merge deleted
+ * (the `native_apply` action, which used to delegate here).
  */
 export async function applyNativeMutation(
   deps: Dependencies,

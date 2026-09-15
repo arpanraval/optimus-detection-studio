@@ -136,19 +136,19 @@ describe('comparison without an agreed baseline', () => {
 describe('native production mutation boundary', () => {
   it('blocks writes before vendor access when the installation gate is off', async () => {
     const { deps, hash } = await fixture();
-    await expect(handleNativeRequest(deps, { action: 'native_apply', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner')).rejects.toThrow('not enabled');
+    await expect(applyNativeMutation(deps, { bindingId: 'binding', operation: 'update', expectedHash: hash, expectedVersion: 1 }, 'owner')).rejects.toThrow('not enabled');
     expect(deps.fetch).not.toHaveBeenCalled();
   });
   it('does not PATCH after a production change since review', async () => {
     const { deps, hash, rpc } = await fixture({ enabled: true, stale: true, localQuery: EDITED_QUERY });
-    await expect(handleNativeRequest(deps, { action: 'native_apply', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner')).rejects.toThrow('Production changed');
+    await expect(applyNativeMutation(deps, { bindingId: 'binding', operation: 'update', expectedHash: hash, expectedVersion: 1 }, 'owner')).rejects.toThrow('Production changed');
     expect(deps.fetch.mock.calls.every(([, request]) => request.method !== 'PATCH')).toBe(true);
     expect(rpc).toHaveBeenCalledWith('siem_fail_deployment', expect.objectContaining({ p_uncertain: false }));
   });
   it('updates the original ID and verifies readback without creating a rule', async () => {
     const { deps, hash, rpc } = await fixture({
       enabled: true, localQuery: EDITED_QUERY, afterResource: [{ ...raw, search: { ...raw.search, filter: '#event_simpleName=ProcessRollup2 | ParentBaseFileName=explorer.exe' } }] });
-    await handleNativeRequest(deps, { action: 'native_apply', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner');
+    await applyNativeMutation(deps, { bindingId: 'binding', operation: 'update', expectedHash: hash, expectedVersion: 1 }, 'owner');
     const writes = deps.fetch.mock.calls.filter(([, request]) => request.method === 'PATCH');
     expect(writes).toHaveLength(1);
     expect(JSON.parse(String(writes[0][1].body))[0].id).toBe(raw.id);
@@ -166,7 +166,7 @@ describe('native production mutation boundary', () => {
       resource: [{ ...raw, id: versionId, rule_id: raw.id }],
       afterResource: [{ ...raw, id: versionId, rule_id: raw.id, search: { ...raw.search, filter: EDITED_QUERY } }],
     });
-    await handleNativeRequest(deps, { action: 'native_apply', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner');
+    await applyNativeMutation(deps, { bindingId: 'binding', operation: 'update', expectedHash: hash, expectedVersion: 1 }, 'owner');
     const writes = deps.fetch.mock.calls.filter(([, request]) => request.method === 'PATCH');
     expect(writes).toHaveLength(1);
     // The write still addresses the stable identity we track, never the version id.
@@ -175,7 +175,7 @@ describe('native production mutation boundary', () => {
   it('refuses to confirm a deletion when the rule is still returned under its version id', async () => {
     const { deps, hash, rpc } = await fixture({
       enabled: true, resource: [{ ...raw, id: 'version-of-remote-1', rule_id: raw.id }] });
-    await expect(handleNativeRequest(deps, { action: 'native_apply', operation: 'delete', bindingId: 'binding',
+    await expect(applyNativeMutation(deps, { bindingId: 'binding', operation: 'delete',
       expectedHash: hash, expectedVersion: 1 }, 'owner')).rejects.toThrow('Deletion could not be verified');
     expect(rpc).toHaveBeenCalledWith('siem_fail_deployment', expect.objectContaining({ p_uncertain: true }));
   });
@@ -197,8 +197,8 @@ describe('native production mutation boundary', () => {
       { capabilities: Record<string, string | null> };
     // Library and production agree in this fixture, so there is nothing to send.
     expect(preview.capabilities.update).toBe('The library copy already matches CrowdStrike.');
-    await expect(handleNativeRequest(deps,
-      { action: 'native_apply', operation: 'update', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner'))
+    await expect(applyNativeMutation(deps,
+      { bindingId: 'binding', operation: 'update', expectedHash: hash, expectedVersion: 1 }, 'owner'))
       .rejects.toThrow('The library copy already matches CrowdStrike.');
     expect(deps.fetch).not.toHaveBeenCalled();
   });
@@ -231,7 +231,7 @@ describe('native production mutation boundary', () => {
       if (request.method === 'PATCH') throw new Error('timeout');
       return new Response(JSON.stringify({ resources: [raw] }));
     });
-    await expect(handleNativeRequest(deps, { action: 'native_apply', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner')).rejects.toThrow('timeout');
+    await expect(applyNativeMutation(deps, { bindingId: 'binding', operation: 'update', expectedHash: hash, expectedVersion: 1 }, 'owner')).rejects.toThrow('timeout');
     expect(deps.fetch.mock.calls.filter(([, request]) => request.method === 'PATCH')).toHaveLength(1);
     expect(rpc).toHaveBeenCalledWith('siem_fail_deployment', expect.objectContaining({ p_uncertain: true }));
   });
@@ -272,8 +272,8 @@ describe('uncertain outcomes and unsupported families', () => {
     for (const op of ['update', 'enable', 'disable', 'delete']) {
       expect(preview.capabilities[op]).toMatch(/has not finished/);
     }
-    await expect(handleNativeRequest(deps,
-      { action: 'native_apply', operation: 'update', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner'))
+    await expect(applyNativeMutation(deps,
+      { bindingId: 'binding', operation: 'update', expectedHash: hash, expectedVersion: 1 }, 'owner'))
       .rejects.toThrow(/has not finished/);
     expect(deps.fetch).not.toHaveBeenCalled();
   });
@@ -286,8 +286,8 @@ describe('uncertain outcomes and unsupported families', () => {
       { action: 'native_preview', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner') as
       { capabilities: Record<string, string | null> };
     expect(preview.capabilities.update).toMatch(/cannot change them in CrowdStrike/);
-    await expect(handleNativeRequest(deps,
-      { action: 'native_apply', operation: 'delete', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner'))
+    await expect(applyNativeMutation(deps,
+      { bindingId: 'binding', operation: 'delete', expectedHash: hash, expectedVersion: 1 }, 'owner'))
       .rejects.toThrow(/cannot change them in CrowdStrike/);
     expect(deps.fetch).not.toHaveBeenCalled();
   });
@@ -408,9 +408,18 @@ describe('rule detail reads', () => {
 });
 
 describe('applyNativeMutation as a shared entry point', () => {
-  // The unified deploy route and the native_apply action must reach the same code, or the two
-  // will drift and only one of them will carry the safety checks.
-  it('performs the same write the native_apply action performs', async () => {
+  // There is one production write path, reached through deploy_rule. A second HTTP action that
+  // also writes is the duplication this merge removed; leaving it callable would let it return.
+  it('no longer accepts native_apply as an action', async () => {
+    const { deps, hash } = await fixture({ enabled: true, localQuery: EDITED_QUERY });
+    await expect(handleNativeRequest(deps,
+      { action: 'native_apply', operation: 'update', bindingId: 'binding',
+        expectedHash: hash, expectedVersion: 1 }, 'owner'))
+      .rejects.toThrow('Unknown native SIEM action');
+    expect(deps.fetch).not.toHaveBeenCalled();
+  });
+
+  it('performs the write that applyNativeMutation is the single path for', async () => {
     const { deps, hash, rpc } = await fixture({
       enabled: true, localQuery: EDITED_QUERY,
       afterResource: [{ ...raw, search: { ...raw.search, filter: EDITED_QUERY } }],

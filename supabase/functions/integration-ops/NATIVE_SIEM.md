@@ -6,7 +6,7 @@ The first adapter supports CrowdStrike Falcon **correlation rules**. Other provi
 
 1. Apply every `supabase/migrations/*native_siem*.sql` in filename order. Fresh installations use the mirrored `supabase/schema.sql` instead — the two must agree, and `schema-check` CI now proves it by upgrading a pre-SIEM database with the migrations and diffing the resulting SIEM surface against a fresh install (`supabase/tests/siem-surface-fingerprint.sql`). A migration that forgets to mirror into `schema.sql` fails that job.
 2. Deploy the updated `integration-ops` Edge Function and its shared modules.
-3. Deploy the frontend. Both CrowdStrike integration views now read the same persisted inventory.
+3. Deploy the frontend. Both CrowdStrike integration views now read the same persisted inventory. Legacy deploy, toggle and delete now **route** a tracked rule through the same reviewed `applyNativeMutation` path instead of being refused outright, so the client-side `requireUnboundTarget` guard that used to block them ahead of the request has been removed.
 
 Two scheduled jobs are registered when `pg_cron` is available: `native-siem-sync` (every minute, dispatches queued work) and `native-siem-retention` (03:17 daily, prunes superseded catalog observations). Both are guarded so a database without `pg_cron` still applies the files cleanly.
 
@@ -28,7 +28,7 @@ A thrown error on the individual retry (auth failure, rate limit, 5xx, or a non-
 
 ## Production write gate
 
-Keep `NATIVE_SIEM_MUTATIONS` unset or `false` until sandbox verification succeeds. This permits persistence, local query/configuration editing, comparisons, accepting production changes, and local revision restore. It blocks native production mutations on the server. Existing legacy deploy/toggle/delete paths also reject linked rules, including bulk callers and the development proxy entry points.
+Keep `NATIVE_SIEM_MUTATIONS` unset or `false` until sandbox verification succeeds. This permits persistence, local query/configuration editing, comparisons, accepting production changes, and local revision restore. It blocks native production mutations on the server. Deploy is the only write path: the unified Deploy button routes a tracked rule through `applyNativeMutation`, the same gated function that legacy deploy, toggle and delete now reach for a linked rule (including bulk callers and the development proxy entry points), so `NATIVE_SIEM_MUTATIONS` off still blocks the vendor write regardless of which entry point is used.
 
 After validating the supported rule family in a sandbox, `NATIVE_SIEM_MUTATIONS=true` enables reviewed updates and enable/disable/delete operations against the original remote identity. Imported detections start as unreviewed Drafts in Production Library and must pass the existing lifecycle eligibility gate before mutation. A fresh remote read rejects a stale review; a second read verifies the write. Ambiguous outcomes block retries until sync observes production again. There is no automatic missing-rule recreation.
 
@@ -46,7 +46,7 @@ CrowdStrike does not provide an atomic conditional-write guarantee in this adapt
 | Reconcile a link with no agreed baseline | Supported | as above |
 | Compare library vs production, edit the library copy | Supported | read-only; no vendor write |
 | Accept the production version into the library | Supported | local write only |
-| Update / enable / disable / delete **in CrowdStrike** | **Gated off** | `NATIVE_SIEM_MUTATIONS`, then the per-rule gate below, pending sandbox qualification |
+| Update / enable / disable / delete **in CrowdStrike** | **Gated off** | Deploy button → `NATIVE_SIEM_MUTATIONS` → the per-rule gate below, pending sandbox qualification |
 | Providers other than CrowdStrike | Not implemented | absent from `PROVIDER_CAPABILITIES`, which is default-deny |
 | Rule families other than correlation rules | Not implemented | — |
 
@@ -71,8 +71,10 @@ against the first adapter.
 
 `NATIVE_SIEM_MUTATIONS` is the installation switch, not the whole gate. Each operation is also
 gated per rule by `mutationBlockedReason()`, which the server refuses with and the comparison view
-publishes as `capabilities` so a disabled button carries its own explanation. The reasons, in the
-order they are reported:
+publishes as `capabilities` so a disabled button carries its own explanation. These reasons are now
+surfaced on the Deploy action itself — Deploy is the only write path, and the comparison view
+reviews and edits the library copy but no longer offers a vendor write of its own. The reasons, in
+the order they are reported:
 
 | Condition | Effect |
 | --- | --- |
