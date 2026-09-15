@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/Button';
 import { nativeSiemService, type NativePreview, type NativeDrift }
   from '@/services/nativeSiemService';
 import { NativeLocalEditor } from './NativeLocalEditor';
+import { integrationService } from '@/lib/integrationService';
 
 export const NATIVE_DRIFT_LABELS: Record<NativeDrift, string> = {
   in_sync: 'Matches CrowdStrike',
@@ -18,9 +19,12 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
   const [preview, setPreview] = useState<NativePreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [confirm, setConfirm] = useState<'accept' | 'reconcile' | 'restore' | null>(
-    null,
-  );
+  // 'accept' / 'reconcile' / 'restore' change the LIBRARY copy only. 'enable', 'disable' and
+  // 'delete' change the rule in CrowdStrike, so each gets its own named confirmation rather than
+  // sharing one vague "Confirm".
+  const [confirm, setConfirm] = useState<
+    'accept' | 'reconcile' | 'restore' | 'enable' | 'disable' | 'delete' | null
+  >(null);
   const [editing, setEditing] = useState(false);
   const [showBaseline, setShowBaseline] = useState(false);
   const [revisions, setRevisions] = useState<Awaited<ReturnType<typeof nativeSiemService.revisions>>>([]);
@@ -45,7 +49,16 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
     try {
       if (confirm === 'accept') await nativeSiemService.accept(preview);
       else if (confirm === 'reconcile') await nativeSiemService.reconcile(preview);
-      else await nativeSiemService.restore(preview, revisionId);
+      else if (confirm === 'restore') await nativeSiemService.restore(preview, revisionId);
+      // These reach CrowdStrike, through the same server route and the same safeguards a deploy
+      // uses -- one backend write implementation, several ways in.
+      else if (confirm === 'enable' || confirm === 'disable') {
+        await integrationService.toggleVendorRule(
+          preview.binding.integration_id, preview.binding.vendor_rule_id, confirm === 'enable');
+      } else {
+        await integrationService.deleteVendorRule(
+          preview.binding.integration_id, preview.binding.vendor_rule_id);
+      }
       setConfirm(null);
       await load();
       onChanged?.();
@@ -160,6 +173,41 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
           <p className="text-sm text-on-surface-variant">
             To send these changes to CrowdStrike, use Deploy on the rule.
           </p>
+
+          {/* What can be done to the rule IN CROWDSTRIKE. An imported rule has no deployment
+              history to act on, so without these there was no route to any of them. The reasons
+              come from the server's own predicate, so nothing is offered that it would refuse. */}
+          <section className="space-y-2">
+            <h4 className="text-sm font-semibold">In CrowdStrike</h4>
+            <div className="flex flex-wrap gap-2">
+              {(preview.remote.enabled ? ['disable'] : ['enable']).map((operation) => (
+                <Button
+                  key={operation}
+                  size="sm"
+                  variant="tonal"
+                  disabled={busy || !!preview.capabilities[operation as 'enable' | 'disable']}
+                  onClick={() => setConfirm(operation as 'enable' | 'disable')}
+                >
+                  {operation === 'enable' ? 'Enable rule in CrowdStrike' : 'Disable rule in CrowdStrike'}
+                </Button>
+              ))}
+              <Button
+                size="sm"
+                variant="tonal"
+                disabled={busy || !!preview.capabilities.delete}
+                onClick={() => setConfirm('delete')}
+              >
+                Delete rule from CrowdStrike
+              </Button>
+            </div>
+            {[
+              preview.capabilities[preview.remote.enabled ? 'disable' : 'enable'],
+              preview.capabilities.delete,
+            ].filter((reason, index, all) => reason && all.indexOf(reason) === index)
+              .map((reason) => (
+                <p key={reason} className="text-xs text-on-surface-variant">{reason}</p>
+              ))}
+          </section>
           {editing && (
             <NativeLocalEditor
               key={preview.localVersion}
@@ -204,14 +252,20 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
               className="rounded-xl border border-outline-variant p-4 space-y-3"
             >
               <p className="text-sm">
-                {confirm === 'restore'
+                {confirm === 'enable' || confirm === 'disable'
+                  ? `${confirm === 'enable' ? 'Enable' : 'Disable'} rule ${preview.binding.vendor_rule_id} in CrowdStrike? The library copy is not changed.`
+                  : confirm === 'delete'
+                  ? `Delete rule ${preview.binding.vendor_rule_id} from CrowdStrike? The rule stops running in production. The library copy stays in Optimus — this is not Delete from library.`
+                  : confirm === 'restore'
                   ? 'Restore this historical query and configuration into a new local revision? Production will not change.'
                   : confirm === 'accept'
                     ? 'Replace the saved library query and supported configuration with the observed production version?'
                     : 'Keep the library version as it is and record the current CrowdStrike version as the one it diverged from? Neither the library rule nor production changes.'}
               </p>
               <p className="text-xs text-on-surface-variant">
-                {confirm === 'reconcile'
+                {confirm === 'enable' || confirm === 'disable' || confirm === 'delete'
+                  ? 'Optimus reads the rule in CrowdStrike first and refuses if it changed since this comparison.'
+                  : confirm === 'reconcile'
                   ? 'Future comparisons will show your library edits as unsent changes rather than an unresolved link.'
                   : 'The previous local revision is retained in history.'}
               </p>

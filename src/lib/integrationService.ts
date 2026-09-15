@@ -57,14 +57,19 @@ async function requireUnboundTarget(detectionId?: string, integrationId?: string
  * live, which only the server route can do safely, so it goes there in development as well as in a
  * production build. Refusing instead left the Deploy button telling the user to press Deploy.
  */
-async function hasActiveBinding(detectionId: string, integrationId: string): Promise<boolean> {
-  const { data, error } = await supabase
+async function hasActiveBinding(
+  integrationId: string,
+  target: { detectionId?: string; vendorRuleId?: string },
+): Promise<boolean> {
+  let query = supabase
     .from('siem_rule_bindings')
     .select('id')
     .eq('binding_status', 'active')
-    .eq('detection_id', detectionId)
     .eq('integration_id', integrationId)
     .limit(1);
+  if (target.detectionId) query = query.eq('detection_id', target.detectionId);
+  if (target.vendorRuleId) query = query.eq('vendor_rule_id', target.vendorRuleId);
+  const { data, error } = await query;
   if (error) throw new Error('Unable to verify production rule bindings');
   return Boolean(data?.length);
 }
@@ -2633,7 +2638,7 @@ export const integrationService = {
     // readback. A rule this connection already tracks is therefore the server route's to write, in
     // development too -- otherwise the only UI route to update it dead-ends. Untracked targets keep
     // the proxy, and requireUnboundTarget still refuses one bound anywhere else.
-    if (IS_DEV && !(await hasActiveBinding(params.detectionId, params.integrationId))) {
+    if (IS_DEV && !(await hasActiveBinding(params.integrationId, { detectionId: params.detectionId }))) {
       await requireUnboundTarget(params.detectionId, params.integrationId, params.vendorRuleId);
 
       const { data: { user } } = await supabase.auth.getUser();
@@ -2915,7 +2920,9 @@ export const integrationService = {
   },
 
   async toggleVendorRule(integrationId: string, vendorRuleId: string, enabled: boolean): Promise<void> {
-    if (IS_DEV) {
+    // A tracked rule's enable/disable goes through the server route in development too: the proxy
+    // cannot read production first, refuse under drift, or read the result back.
+    if (IS_DEV && !(await hasActiveBinding(integrationId, { vendorRuleId }))) {
       await requireUnboundTarget(undefined, integrationId, vendorRuleId);
 
       const { data: integration, error } = await supabase
@@ -2968,7 +2975,7 @@ export const integrationService = {
   },
 
   async deleteVendorRule(integrationId: string, vendorRuleId: string): Promise<void> {
-    if (IS_DEV) {
+    if (IS_DEV && !(await hasActiveBinding(integrationId, { vendorRuleId }))) {
       await requireUnboundTarget(undefined, integrationId, vendorRuleId);
 
       const { data: integration, error } = await supabase
@@ -3138,7 +3145,9 @@ export const integrationService = {
     const { data: target, error: targetError } = await supabase.from('deployment_history')
       .select('detection_id,integration_id,vendor_rule_id').eq('id', deploymentId).single();
     if (targetError) throw new Error('Deployment not found');
-    if (IS_DEV) {
+    if (IS_DEV && !(await hasActiveBinding(target.integration_id, {
+      detectionId: target.detection_id, vendorRuleId: target.vendor_rule_id,
+    }))) {
       await requireUnboundTarget(target.detection_id, target.integration_id, target.vendor_rule_id);
 
       const { data: deployment, error: depErr } = await supabase
