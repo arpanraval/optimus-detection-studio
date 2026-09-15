@@ -10084,6 +10084,26 @@ RETURNS text LANGUAGE sql IMMUTABLE AS $$
   END;
 $$;
 
+-- The per-rule language, when the vendor payload carries a valid one (e.g. an Elastic rule's own
+-- 'kuery'/'lucene'/'eql'/'esql'), falling back to siem_provider_query_language() only when the
+-- payload has no language or one outside QUERY_LANGUAGES (src/constants.ts:5-20). Validating here
+-- keeps a single malformed rule from writing a value the CHECK constraint would reject mid-import.
+-- Matched case-INSENSITIVELY, returning the canonical spelling. Vendors name their languages in
+-- their own casing -- Elastic's rules carry 'kuery'/'lucene'/'eql'/'esql' lowercase -- while the
+-- column is CHECK-constrained to the app's canonical set. An exact-match-only test silently failed
+-- every lowercase vendor value through to the provider default, which is the very bug this fix
+-- exists to remove. A value that matches nothing still falls back to the provider default.
+CREATE OR REPLACE FUNCTION public.siem_rule_query_language(p_provider text, p_content jsonb)
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+  SELECT coalesce(
+    (SELECT canonical
+       FROM unnest(ARRAY['SPL','KQL','Kuery','Sigma','EQL','ESQL','CQL','SQL',
+         'YARA','YARA-L','Lucene','Carbon Black','Datadog','Elasticsearch DSL']) AS canonical
+      WHERE lower(canonical) = lower(p_content ->> 'language')
+      LIMIT 1),
+    siem_provider_query_language(p_provider));
+$$;
+
 CREATE OR REPLACE FUNCTION public.siem_commit_chunk(p_run uuid, p_lease uuid, p_ids text[], p_next integer,
   p_discovery_complete boolean, p_results jsonb)
 RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
@@ -10096,7 +10116,6 @@ BEGIN
   END IF;
   IF NOT siem_can_import(r.actor_id,r.integration_id) THEN RAISE EXCEPTION 'Native import permission revoked'; END IF;
   SELECT provider INTO prov FROM integrations WHERE id=r.integration_id;
-  qlang := siem_provider_query_language(prov);
   IF r.phase='discovery' THEN
     INSERT INTO siem_sync_items(run_id,vendor_rule_id) SELECT r.id, unnest(p_ids) ON CONFLICT DO NOTHING;
     UPDATE siem_sync_runs SET cursor_offset=p_next, discovery_complete=p_discovery_complete,
@@ -10119,6 +10138,9 @@ BEGIN
         CONTINUE;
       END IF;
       c := item->'content';
+      -- Per-rule language first (e.g. an Elastic rule's own 'kuery'/'lucene'/'eql'/'esql'),
+      -- falling back to the provider default only when the payload has none or an invalid one.
+      qlang := siem_rule_query_language(prov, c);
       SELECT * INTO b FROM siem_rule_bindings WHERE integration_id=r.integration_id AND provider_scope=r.provider_scope AND vendor_rule_id=item->>'id' FOR UPDATE;
       outcome := 'unchanged';
       IF FOUND AND b.binding_status <> 'active' THEN
@@ -10624,13 +10646,18 @@ CREATE OR REPLACE FUNCTION public.siem_match_candidates(p_actor uuid, p_integrat
 RETURNS TABLE(detection_id text, detection_name text, evidence text, query_id text, query_language text,
   query_text text, detection_version integer)
 LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = public AS $$
-DECLARE prov text; qlang text;
+DECLARE prov text; qlang text; rule_content jsonb;
 BEGIN
   IF NOT (siem_can_import(p_actor, p_integration) AND siem_can_edit(p_actor)) THEN
     RETURN;
   END IF;
   SELECT provider INTO prov FROM integrations WHERE id = p_integration;
-  qlang := siem_provider_query_language(prov);
+  SELECT s.content INTO rule_content
+    FROM siem_remote_rules rr
+    JOIN siem_remote_rule_snapshots s ON s.id = rr.latest_snapshot_id
+   WHERE rr.integration_id = p_integration AND rr.vendor_rule_id = p_vendor_rule_id
+   ORDER BY rr.last_seen_at DESC LIMIT 1;
+  qlang := siem_rule_query_language(prov, coalesce(rule_content, '{}'::jsonb));
   RETURN QUERY
   WITH deployed AS (
     SELECT DISTINCT h.detection_id
@@ -10689,7 +10716,23 @@ BEGIN
   END IF;
 
   SELECT provider INTO prov FROM integrations WHERE id = p_integration FOR UPDATE;
-  qlang := siem_provider_query_language(prov);
+
+  -- Pinned to the exact catalog row the snapshot belongs to, not just (integration, vendor_rule_id):
+  -- the table's real uniqueness is (integration_id, provider_scope, vendor_rule_id), and this
+  -- avoids needing provider_scope as a separate input. Fetched up front (not just before the
+  -- insert) because the rule's own snapshot content is now also what determines qlang.
+  SELECT * INTO rr FROM siem_remote_rules
+   WHERE integration_id = p_integration AND vendor_rule_id = p_vendor_rule_id
+     AND id = (SELECT remote_rule_id FROM siem_remote_rule_snapshots WHERE id = p_snapshot)
+   FOR UPDATE;
+  IF NOT FOUND OR rr.latest_snapshot_id IS DISTINCT FROM p_snapshot THEN
+    RAISE EXCEPTION 'The rule changed in the SIEM. Fetch rules again.';
+  END IF;
+  SELECT * INTO rrs FROM siem_remote_rule_snapshots WHERE id = p_snapshot AND remote_rule_id = rr.id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'The rule changed in the SIEM. Fetch rules again.';
+  END IF;
+  qlang := siem_rule_query_language(prov, rrs.content);
 
   SELECT * INTO d FROM detections WHERE id = p_detection FOR UPDATE;
   IF NOT FOUND OR d.user_id <> p_actor OR d.version <> p_detection_version THEN
@@ -10720,21 +10763,6 @@ BEGIN
   END IF;
   IF evidence IS NULL THEN
     RAISE EXCEPTION 'This rule is not an eligible match for the selected library rule';
-  END IF;
-
-  -- Pinned to the exact catalog row the snapshot belongs to, not just (integration, vendor_rule_id):
-  -- the table's real uniqueness is (integration_id, provider_scope, vendor_rule_id), and this
-  -- avoids needing provider_scope as a separate input.
-  SELECT * INTO rr FROM siem_remote_rules
-   WHERE integration_id = p_integration AND vendor_rule_id = p_vendor_rule_id
-     AND id = (SELECT remote_rule_id FROM siem_remote_rule_snapshots WHERE id = p_snapshot)
-   FOR UPDATE;
-  IF NOT FOUND OR rr.latest_snapshot_id IS DISTINCT FROM p_snapshot THEN
-    RAISE EXCEPTION 'The rule changed in the SIEM. Fetch rules again.';
-  END IF;
-  SELECT * INTO rrs FROM siem_remote_rule_snapshots WHERE id = p_snapshot AND remote_rule_id = rr.id;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'The rule changed in the SIEM. Fetch rules again.';
   END IF;
 
   BEGIN
@@ -11174,7 +11202,6 @@ BEGIN
   END IF;
   IF NOT siem_can_import(r.actor_id, r.integration_id) THEN RAISE EXCEPTION 'Native import permission revoked'; END IF;
   SELECT provider INTO prov FROM integrations WHERE id = r.integration_id;
-  qlang := siem_provider_query_language(prov);
 
   FOR item IN SELECT value FROM jsonb_array_elements(p_results) LOOP
     IF NOT EXISTS (SELECT 1 FROM siem_sync_items
@@ -11198,6 +11225,9 @@ BEGIN
     END IF;
 
     c := item->'content';
+    -- Per-rule language first, falling back to the provider default only when the payload has
+    -- none or an invalid one -- see siem_rule_query_language.
+    qlang := siem_rule_query_language(prov, c);
 
     -- A binding for this identity may have appeared since submission (another run, another
     -- actor). Adopting again would duplicate the detection.
@@ -11211,7 +11241,7 @@ BEGIN
     END IF;
 
     -- Adoption block copied verbatim from siem_commit_chunk (20260914153559, lines 233-247).
-    -- Every literal here -- lifecycle defaults, 'CQL', the tags, the provenance shape -- is
+    -- Every literal here -- lifecycle defaults, the tags, the provenance shape -- is
     -- asserted by supabase/tests/native-siem.sql and read by SiemLibraryBadge / DetectionDetailPage.
     did := gen_random_uuid()::text; qid := gen_random_uuid()::text;
     INSERT INTO detections(id,user_id,version,name,description,status,"detectionType",severity,"logSource",technology,

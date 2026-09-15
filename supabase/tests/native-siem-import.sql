@@ -1190,5 +1190,185 @@ BEGIN
     'operators read the maintenance log as service_role');
 END $$;
 
+-- Fix 1 regression: an Elastic rule's query language comes from the RULE (kuery/lucene/eql/esql),
+-- never from a single provider-wide default. siem_commit_import_chunk must stamp each adopted
+-- detection with its own rule's language; an unrecognised/missing language must fall back to the
+-- provider default rather than writing an invalid value that the CHECK constraint would reject.
+INSERT INTO auth.users(id,email) VALUES
+  ('26000000-0000-0000-0000-000000000001','elastic-language-owner@example.test');
+INSERT INTO public.profiles(id,role,status) VALUES
+  ('26000000-0000-0000-0000-000000000001','admin','active')
+  ON CONFLICT(id) DO UPDATE SET role='admin',status='active';
+INSERT INTO public.integrations(id,user_id,name,provider,category,status,config,auth_type) VALUES
+  ('27000000-0000-0000-0000-000000000001','26000000-0000-0000-0000-000000000001',
+   'Elastic language fixture','elastic','siem','connected','{}','oauth2_client_credentials');
+
+DO $$
+DECLARE integration uuid := '27000000-0000-0000-0000-000000000001';
+  actor uuid := '26000000-0000-0000-0000-000000000001';
+  scope text := 'scope-elastic-lang';
+  inventory_run public.siem_sync_runs; import_run public.siem_sync_runs; r public.siem_sync_runs;
+  rule_id uuid; snap_id uuid; results jsonb;
+BEGIN
+  -- elastic-kuery: payload declares 'kuery' -> must commit 'Kuery', NOT the provider default 'EQL'.
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'elastic',scope,'elastic-kuery','Kuery rule',true,'present') RETURNING id INTO rule_id;
+  INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+    VALUES(rule_id,'test-elastic-v1','hash-kuery','raw-kuery',
+      jsonb_build_object('name','Kuery rule','description','d','severity','High',
+        'query','process.name: "cmd.exe"','language','kuery','enabled',true),
+      '{}'::jsonb) RETURNING id INTO snap_id;
+  UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_id WHERE id=rule_id;
+
+  -- elastic-esql: payload declares 'esql' -> must commit 'ESQL'.
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'elastic',scope,'elastic-esql','ESQL rule',true,'present') RETURNING id INTO rule_id;
+  INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+    VALUES(rule_id,'test-elastic-v1','hash-esql','raw-esql',
+      jsonb_build_object('name','ESQL rule','description','d','severity','High',
+        'query','FROM logs-* | WHERE event.action == "process_start"','language','esql','enabled',true),
+      '{}'::jsonb) RETURNING id INTO snap_id;
+  UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_id WHERE id=rule_id;
+
+  -- elastic-no-language: payload has NO language field -> must fall back to the provider default
+  -- ('EQL') and must NOT fail the batch.
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'elastic',scope,'elastic-no-language','No-language rule',true,'present') RETURNING id INTO rule_id;
+  INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+    VALUES(rule_id,'test-elastic-v1','hash-no-lang','raw-no-lang',
+      jsonb_build_object('name','No-language rule','description','d','severity','High',
+        'query','sequence by host.id [process where true]','enabled',true),
+      '{}'::jsonb) RETURNING id INTO snap_id;
+  UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_id WHERE id=rule_id;
+
+  -- elastic-invalid-language: payload declares a language outside QUERY_LANGUAGES -> must fall
+  -- back to the provider default rather than attempting (and failing) to write the invalid value.
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'elastic',scope,'elastic-bad-language','Bad-language rule',true,'present') RETURNING id INTO rule_id;
+  INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+    VALUES(rule_id,'test-elastic-v1','hash-bad-lang','raw-bad-lang',
+      jsonb_build_object('name','Bad-language rule','description','d','severity','High',
+        'query','not-a-real-query','language','not-a-real-language','enabled',true),
+      '{}'::jsonb) RETURNING id INTO snap_id;
+  UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_id WHERE id=rule_id;
+
+  inventory_run := public.siem_start_inventory(actor, integration, scope);
+  PERFORM pg_temp.observe_run(inventory_run.id);
+  UPDATE public.siem_sync_runs SET status='complete', discovery_complete=true, completed_at=now(),
+    lease_token=NULL, lease_expires_at=NULL WHERE id=inventory_run.id RETURNING * INTO inventory_run;
+
+  import_run := public.siem_start_import(actor, integration, inventory_run.id,
+    ARRAY['elastic-kuery','elastic-esql','elastic-no-language','elastic-bad-language'], '{}', false, 'idem-elastic-lang-1');
+
+  SELECT jsonb_agg(jsonb_build_object('id',i.vendor_rule_id,'content',s.content,'raw',s.raw_payload,
+      'adapter','test-elastic-v1','hash',i.frozen_content_hash,'raw_hash',s.raw_hash))
+    INTO results
+    FROM public.siem_sync_items i
+    JOIN public.siem_remote_rules rr ON rr.integration_id=integration AND rr.provider_scope=scope AND rr.vendor_rule_id=i.vendor_rule_id
+    JOIN public.siem_remote_rule_snapshots s ON s.id=rr.latest_snapshot_id
+   WHERE i.run_id=import_run.id AND i.status='pending';
+
+  UPDATE public.siem_sync_runs SET status='running', lease_token=gen_random_uuid(),
+    lease_expires_at=now()+interval '45 seconds' WHERE id=import_run.id RETURNING * INTO r;
+  PERFORM public.siem_commit_import_chunk(r.id, r.lease_token, results);
+
+  PERFORM pg_temp.assert_true(
+    (SELECT status='imported' FROM public.siem_sync_items WHERE run_id=import_run.id AND vendor_rule_id='elastic-kuery'),
+    'sanity: the kuery rule adopted cleanly');
+  PERFORM pg_temp.assert_true(
+    (SELECT d."queryLanguage"='Kuery' AND d.queries->0->>'language'='Kuery'
+       FROM public.detections d JOIN public.siem_sync_items i ON i.detection_id=d.id
+      WHERE i.run_id=import_run.id AND i.vendor_rule_id='elastic-kuery'),
+    'an Elastic rule whose payload says kuery commits Kuery, not the provider default EQL');
+
+  PERFORM pg_temp.assert_true(
+    (SELECT d."queryLanguage"='ESQL' AND d.queries->0->>'language'='ESQL'
+       FROM public.detections d JOIN public.siem_sync_items i ON i.detection_id=d.id
+      WHERE i.run_id=import_run.id AND i.vendor_rule_id='elastic-esql'),
+    'an Elastic rule whose payload says esql commits ESQL');
+
+  PERFORM pg_temp.assert_true(
+    (SELECT status='imported' FROM public.siem_sync_items WHERE run_id=import_run.id AND vendor_rule_id='elastic-no-language'),
+    'a rule with no language in its payload still imports (falls back rather than failing the batch)');
+  PERFORM pg_temp.assert_true(
+    (SELECT d."queryLanguage"='EQL' FROM public.detections d JOIN public.siem_sync_items i ON i.detection_id=d.id
+      WHERE i.run_id=import_run.id AND i.vendor_rule_id='elastic-no-language'),
+    'a rule with no language in its payload falls back to the provider default (EQL for elastic)');
+
+  PERFORM pg_temp.assert_true(
+    (SELECT status='imported' FROM public.siem_sync_items WHERE run_id=import_run.id AND vendor_rule_id='elastic-bad-language'),
+    'a rule with an invalid language still imports (falls back rather than failing the batch)');
+  PERFORM pg_temp.assert_true(
+    (SELECT d."queryLanguage"='EQL' FROM public.detections d JOIN public.siem_sync_items i ON i.detection_id=d.id
+      WHERE i.run_id=import_run.id AND i.vendor_rule_id='elastic-bad-language'),
+    'a rule with a language outside QUERY_LANGUAGES falls back to the provider default rather than writing the invalid value');
+END $$;
+
+-- Fix 1 regression: siem_match_candidates offers a Kuery detection as a candidate for a kuery
+-- Elastic rule and does NOT offer an EQL-only one, even though EQL was the (wrong) blanket default
+-- before this fix. siem_link_existing must record the per-rule language too.
+INSERT INTO auth.users(id,email) VALUES
+  ('28000000-0000-0000-0000-000000000001','elastic-match-owner@example.test');
+INSERT INTO public.profiles(id,role,status) VALUES
+  ('28000000-0000-0000-0000-000000000001','admin','active')
+  ON CONFLICT(id) DO UPDATE SET role='admin',status='active';
+INSERT INTO public.integrations(id,user_id,name,provider,category,status,config,auth_type) VALUES
+  ('29000000-0000-0000-0000-000000000001','28000000-0000-0000-0000-000000000001',
+   'Elastic match fixture','elastic','siem','connected','{}','oauth2_client_credentials');
+
+DO $$
+DECLARE actor uuid := '28000000-0000-0000-0000-000000000001';
+  integration uuid := '29000000-0000-0000-0000-000000000001';
+  rule_id uuid; snap_id uuid; candidate_ids text[]; binding_k public.siem_rule_bindings;
+BEGIN
+  -- An EQL-only detection sharing the same legacy external_id: must never be offered against a
+  -- kuery rule, because EQL is not the language this specific rule carries.
+  INSERT INTO public.detections(id,user_id,version,name,description,status,"detectionType",severity,
+    "logSource",technology,"testedAndValidated","queryLanguage","detectionQuery","updatedDate",queries,
+    library_type,promotion_status,review_status,source,external_id)
+  VALUES('link-elastic-eql-only',actor,1,'EQL-only rule','Wrong language for this specific rule','Draft','Detection','High',
+    '','',false,'EQL','sequence by host.id [process where true]',now(),
+    jsonb_build_array(jsonb_build_object('id','qeql1','language','EQL','query','sequence by host.id [process where true]',
+      'isPrimary',true,'createdDate',now(),'updatedDate',now())),
+    'production','none','none','github','link-elastic-rule-1');
+
+  -- A production rule with a matching Kuery query and the same legacy external_id: the only
+  -- eligible candidate for this specific kuery-language Elastic rule.
+  INSERT INTO public.detections(id,user_id,version,name,description,status,"detectionType",severity,
+    "logSource",technology,"testedAndValidated","queryLanguage","detectionQuery","updatedDate",queries,
+    library_type,promotion_status,review_status,source,external_id)
+  VALUES('link-elastic-kuery',actor,1,'Kuery match rule','Correct language for this specific rule','Draft','Detection','High',
+    '','',false,'Kuery','process.name: "cmd.exe"',now(),
+    jsonb_build_array(jsonb_build_object('id','qkuery1','language','Kuery','query','process.name: "cmd.exe"',
+      'isPrimary',true,'createdDate',now(),'updatedDate',now())),
+    'production','none','none','github','link-elastic-rule-1');
+
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'elastic','scope-elastic-link-1','link-elastic-rule-1','Kuery match rule',true,'present')
+    RETURNING id INTO rule_id;
+  INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+    VALUES(rule_id,'test-elastic-v1','hash-elastic-link','raw-elastic-link',
+      jsonb_build_object('name','Kuery match rule','description','','query','process.name: "cmd.exe"',
+        'language','kuery','severity','High','enabled',true,'config','{}'::jsonb),
+      '{}'::jsonb)
+    RETURNING id INTO snap_id;
+  UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_id WHERE id=rule_id;
+
+  SELECT array_agg(detection_id) INTO candidate_ids FROM public.siem_match_candidates(actor,integration,'link-elastic-rule-1');
+  PERFORM pg_temp.assert_true('link-elastic-kuery' = ANY(candidate_ids),
+    'the Kuery-query detection is offered as a candidate for a kuery-language Elastic rule');
+  PERFORM pg_temp.assert_true(NOT ('link-elastic-eql-only' = ANY(coalesce(candidate_ids,'{}'::text[]))),
+    'an EQL-only detection is never offered for a kuery-language Elastic rule, despite matching evidence');
+
+  SELECT * INTO binding_k FROM public.siem_link_existing(actor,integration,'link-elastic-rule-1','link-elastic-kuery','qkuery1',1,snap_id);
+  PERFORM pg_temp.assert_true(binding_k.provider = 'elastic' AND binding_k.query_language = 'Kuery',
+    'linking a kuery-language Elastic rule writes an elastic/Kuery binding, not elastic/EQL');
+END $$;
+
 SET CONSTRAINTS ALL IMMEDIATE;
 ROLLBACK;
