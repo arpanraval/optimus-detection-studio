@@ -150,6 +150,9 @@ export const PROVIDER_CAPABILITIES: Record<string, ProviderCapabilities> = {
     operations: [],
   },
   defender_xdr: {
+    // Real family qualified by the Defender XDR reader (siem-readers/defender-xdr.ts): custom
+    // detection rules read via the beta-only Graph API, shipped behind an explicit Preview
+    // capability (DEFENDER_XDR_PREVIEW).
     readFamilies: ['detection'],
     writeFamilies: [],
     operations: [],

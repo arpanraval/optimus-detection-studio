@@ -8,6 +8,7 @@ import { resolveDeployTarget, deployRouteDecision, nativeOperationFor } from '..
 import { readSplunkCorrelationSearches, type SplunkEntry } from '../_shared/siem-readers/splunk.ts'
 import { readSentinelAlertRules, type SentinelRuleEntry } from '../_shared/siem-readers/sentinel.ts'
 import { readElasticRules, type ElasticRuleEntry } from '../_shared/siem-readers/elastic.ts'
+import { readDefenderXdrRules, DEFENDER_XDR_PREVIEW, type DefenderRuleEntry } from '../_shared/siem-readers/defender-xdr.ts'
 import {
   buildCrowdStrikeQueries,
   isCrowdStrikeQueryRepository,
@@ -1029,37 +1030,55 @@ async function defenderXdrListRules(
   config: Record<string, unknown>,
   credentials: Record<string, string>
 ): Promise<unknown[]> {
+  if (!DEFENDER_XDR_PREVIEW) {
+    throw new Error('Defender XDR import is a Preview capability: the Graph API it reads is beta-only with no v1.0 equivalent')
+  }
   const tenantId = config.tenantId as string
   const token = await microsoftGetToken(tenantId, credentials.clientId, credentials.clientSecret, GRAPH_DEFENDER_SCOPE)
+  const authorizedOrigin = new URL(GRAPH_DEFENDER_BASE).origin
+  const headers = { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
 
-  const response = await withRetry(() =>
-    vendorFetch(GRAPH_DEFENDER_BASE, {
-      method: 'GET',
-      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
-    })
-  )
+  // `isEnabled` and `schedule.period` are deprecated by Microsoft, removed 2026-10-01 (Graph beta
+  // security-detectionrule / security-ruleschedule docs, dated 2026-05-25), replaced by `status`
+  // and `schedule.frequency`. The reader (siem-readers/defender-xdr.ts) does the dual read/fallback
+  // itself for the durable importer's own normalized shape; this is a read path only -- nothing
+  // here executes a response/automated action.
+  const outcome = await readDefenderXdrRules(async (url) => {
+    // G38: nextLink is only ever followed against the authorized Graph origin -- never trusted to
+    // redirect the bearer token to an attacker-controlled host.
+    if (new URL(url).origin !== authorizedOrigin) {
+      throw new Error('Defender XDR returned a continuation URL outside the authorized Graph endpoint')
+    }
+    const response = await withRetry(() => vendorFetch(url, { method: 'GET', headers }))
+    if (!response.ok) throw new Error(`Defender XDR list rules failed: ${response.status}`)
+    const data = await response.json()
+    return { value: (data.value ?? []) as DefenderRuleEntry[], '@odata.nextLink': data['@odata.nextLink'] ?? null }
+  }, `${GRAPH_DEFENDER_BASE}?$top=50`)
 
-  if (!response.ok) throw new Error(`Defender XDR list rules failed: ${response.status}`)
-  const data = await response.json()
-  // `isEnabled` and `schedule.period` are deprecated by Microsoft, removed
-  // 2026-10-01 (Graph beta security-detectionrule / security-ruleschedule
-  // docs, dated 2026-05-25), replaced by `status` and `schedule.frequency`.
-  // Both shapes are passed through unchanged here -- the dual read/fallback
-  // logic lives in normalizeVendorRule (src/lib/integrationService.ts),
-  // which is the tested, single place that contract is enforced. This is a
-  // read path only: nothing here executes a response/automated action.
-  return (data.value || []).map((r: any) => ({
-    id: r.id,
-    name: r.displayName,
-    query: r.queryCondition?.queryText,
-    status: r.status,
-    isEnabled: r.isEnabled,
-    schedule: r.schedule,
-    detectorId: r.detectorId,
-    lastRunDetails: r.lastRunDetails,
-    description: r.description,
-    detectionAction: r.detectionAction,
+  const supported = outcome.rules.map(rule => ({
+    id: rule.vendorRuleId,
+    name: rule.displayName,
+    query: rule.query,
+    status: rule.status,
+    observedState: rule.observedState,
+    statusSource: rule.statusSource,
+    autoDisabled: rule.autoDisabled,
+    frequency: rule.frequency,
+    continuous: rule.continuous,
+    scheduleSource: rule.scheduleSource,
+    description: rule.description,
+    alertTemplate: rule.alertTemplate,
+    mitreTechniques: rule.mitreTechniques,
+    automatedActions: rule.automatedActions,
+    responseActions: rule.responseActions,
+    detectorId: rule.detectorId,
+    lastRunDetails: rule.lastRunDetails,
+    unmappedFields: rule.unmappedFields,
   }))
+  const unsupported = outcome.unsupported.map(entry => ({
+    id: entry.raw.id, name: entry.raw.displayName, unsupported: true, unsupportedReason: entry.error,
+  }))
+  return [...supported, ...unsupported]
 }
 
 async function defenderXdrDeployRule(

@@ -166,7 +166,14 @@ export function providerEndpoint(provider: ImportProvider, config: Record<string
     case 'defender_xdr':
       // Confirmed by resolveProvider/providerScope: only tenantId lives on this config. Graph
       // itself carries the tenant via the token, not the URL.
-      return { baseUrl: 'https://graph.microsoft.com/v1.0', pathPrefix: 'security/' };
+      //
+      // MUST be `beta`, never `v1.0`: recon-provider-apis.md section 4 confirms Graph's
+      // `security/rules/detectionRules` is confirmed beta-only with no v1.0 equivalent documented
+      // anywhere (doc last updated 2026-07-01). This branch previously pointed at `v1.0`, which
+      // fails SILENTLY at runtime on the first real reader call -- no build error, no type error,
+      // no failing test -- because this function only concatenates strings; nothing here verifies
+      // the resulting URL resolves to a real Graph route.
+      return { baseUrl: 'https://graph.microsoft.com/beta', pathPrefix: 'security/' };
 
     case 'elastic': {
       const base = endpointScope(config, 'Elastic');
