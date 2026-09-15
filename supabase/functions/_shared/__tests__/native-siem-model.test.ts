@@ -158,14 +158,18 @@ describe('native SIEM content contracts', () => {
     // deliberately not a capability: two providers accepting the same query text says nothing
     // about whether their deployment payloads round-trip losslessly.
     it('grants no capability to a provider that has not been qualified', () => {
-      // 'splunk' used to stand for this case, but it is now a registered import provider. The
-      // stand-in has to be another SIEM we have not qualified -- not a non-SIEM integration like
-      // Jira, which could never own a rule binding in the first place, so refusing to update a
-      // rule "in Jira" would assert a situation that cannot arise.
-      expect(providerCapabilities('qradar')).toEqual({ readFamilies: [], writeFamilies: [], operations: [] });
+      // 'splunk' used to stand for this case and no longer can: all six SIEMs this tool
+      // integrates with are registered now, so no real provider is left that means "a SIEM we
+      // have not qualified". The guard still matters for the next one added -- a provider can
+      // exist in `integrations` before its adapter is written -- so the stand-in is deliberately
+      // a name no product uses, rather than a real one dressed up as unqualified. It must not be
+      // a non-SIEM integration either (Jira, Slack): those can never own a rule binding, so
+      // refusing to update a rule "in Jira" would assert a situation that cannot arise.
+      const unqualified = 'siem_awaiting_adapter';
+      expect(providerCapabilities(unqualified)).toEqual({ readFamilies: [], writeFamilies: [], operations: [] });
       expect(providerCapabilities(null)).toEqual({ readFamilies: [], writeFamilies: [], operations: [] });
-      expect(mutationBlockedReason('update', { ...open, provider: 'qradar' }))
-        .toMatch(/cannot update rules in qradar/);
+      expect(mutationBlockedReason('update', { ...open, provider: unqualified }))
+        .toMatch(/cannot update rules in siem_awaiting_adapter/);
     });
 
     it('allows an update that has something to send', () => {
