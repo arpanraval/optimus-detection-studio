@@ -348,4 +348,106 @@ BEGIN
       'retry with no failed items refuses with product copy');
   END;
 END $$;
+
+-- Deleting a library copy frees the remote identity for re-import; archiving one suppresses
+-- it from adoption instead, and a subsequent import attempt records why.
+INSERT INTO auth.users(id,email) VALUES
+  ('17000000-0000-0000-0000-000000000001','import-retention-owner@example.test');
+INSERT INTO public.profiles(id,role,status) VALUES
+  ('17000000-0000-0000-0000-000000000001','admin','active')
+  ON CONFLICT(id) DO UPDATE SET role='admin',status='active';
+INSERT INTO public.integrations(id,user_id,name,provider,category,status,config,auth_type) VALUES
+  ('18000000-0000-0000-0000-000000000001','17000000-0000-0000-0000-000000000001',
+   'Falcon retention fixture','crowdstrike','siem','connected','{}','oauth2_client_credentials');
+
+DO $$
+DECLARE integration uuid := '18000000-0000-0000-0000-000000000001';
+  actor uuid := '17000000-0000-0000-0000-000000000001';
+  scope text := 'scope-retention-1';
+  inventory_run public.siem_sync_runs; import_run public.siem_sync_runs; r public.siem_sync_runs;
+  did text := 'import-retention-detection-1'; qid text := 'import-retention-query-1'; b uuid;
+  did2 text := 'import-retention-detection-2'; qid2 text := 'import-retention-query-2'; b2 uuid;
+  rule_id uuid; snap_id uuid;
+BEGIN
+  -- Two catalog rows, each with a hydrated snapshot, each bound to its own library copy.
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'crowdstrike',scope,'rule-1','Retention rule 1',true,'present') RETURNING id INTO rule_id;
+  INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+    VALUES(rule_id,'test-v1','hash-r1','raw-r1','{}'::jsonb,'{}'::jsonb) RETURNING id INTO snap_id;
+  UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_id WHERE id=rule_id;
+
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'crowdstrike',scope,'rule-2','Retention rule 2',true,'present') RETURNING id INTO rule_id;
+  INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+    VALUES(rule_id,'test-v1','hash-r2','raw-r2','{}'::jsonb,'{}'::jsonb) RETURNING id INTO snap_id;
+  UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_id WHERE id=rule_id;
+
+  INSERT INTO public.detections(id,user_id,version,name,description,status,"detectionType",severity,
+    "logSource",technology,"testedAndValidated","queryLanguage","detectionQuery","updatedDate",queries,
+    library_type,promotion_status,review_status,source)
+  VALUES(did,actor,1,'Retention fixture rule 1','Imported','Draft','Detection','High','','',false,'CQL',
+    '#event_simpleName=ProcessRollup2',now(),
+    jsonb_build_array(jsonb_build_object('id',qid,'language','CQL','query','#event_simpleName=ProcessRollup2',
+      'isPrimary',true,'createdDate',now(),'updatedDate',now())),
+    'production','none','none','crowdstrike');
+  INSERT INTO public.siem_rule_bindings(detection_id,integration_id,provider,provider_scope,vendor_rule_id,
+    selected_query_id,query_language,desired_content)
+    VALUES(did,integration,'crowdstrike',scope,'rule-1',qid,'CQL','{}'::jsonb) RETURNING id INTO b;
+
+  INSERT INTO public.detections(id,user_id,version,name,description,status,"detectionType",severity,
+    "logSource",technology,"testedAndValidated","queryLanguage","detectionQuery","updatedDate",queries,
+    library_type,promotion_status,review_status,source)
+  VALUES(did2,actor,1,'Retention fixture rule 2','Imported','Draft','Detection','High','','',false,'CQL',
+    '#event_simpleName=ProcessRollup2',now(),
+    jsonb_build_array(jsonb_build_object('id',qid2,'language','CQL','query','#event_simpleName=ProcessRollup2',
+      'isPrimary',true,'createdDate',now(),'updatedDate',now())),
+    'production','none','none','crowdstrike');
+  INSERT INTO public.siem_rule_bindings(detection_id,integration_id,provider,provider_scope,vendor_rule_id,
+    selected_query_id,query_language,desired_content)
+    VALUES(did2,integration,'crowdstrike',scope,'rule-2',qid2,'CQL','{}'::jsonb) RETURNING id INTO b2;
+
+  inventory_run := public.siem_start_inventory(actor, integration, scope);
+  UPDATE public.siem_sync_runs SET status='complete', discovery_complete=true, completed_at=now(),
+    lease_token=NULL, lease_expires_at=NULL WHERE id=inventory_run.id RETURNING * INTO inventory_run;
+
+  PERFORM pg_temp.assert_true(
+    (SELECT relationship FROM public.siem_inventory_rows
+      WHERE integration_id=integration AND vendor_rule_id='rule-1') = 'already_in_library',
+    'sanity: rule-1 starts already in library');
+
+  -- Deleting the library copy frees the remote identity for a fresh import.
+  DELETE FROM public.siem_rule_bindings WHERE id = b;
+  DELETE FROM public.detections WHERE id = did;
+  PERFORM pg_temp.assert_true(
+    (SELECT relationship FROM public.siem_inventory_rows
+      WHERE integration_id=integration AND vendor_rule_id='rule-1') = 'not_in_library',
+    'a deleted library copy makes the remote rule importable again');
+  PERFORM pg_temp.assert_true(
+    (SELECT count(*) FROM public.siem_remote_rules
+      WHERE integration_id=integration AND vendor_rule_id='rule-1') = 1,
+    'deleting the library copy does not delete the observation');
+
+  -- Archiving the library copy tombstones the binding instead of deleting it.
+  UPDATE public.detections SET status='Archived' WHERE id = did2;
+  PERFORM pg_temp.assert_true(
+    (SELECT binding_status FROM public.siem_rule_bindings WHERE id = b2) = 'tombstone',
+    'sanity: archiving the detection tombstones its active binding');
+  PERFORM pg_temp.assert_true(
+    (SELECT relationship FROM public.siem_inventory_rows
+      WHERE integration_id=integration AND vendor_rule_id='rule-2') = 'archived_in_library',
+    'an archived library copy reports as archived, not importable');
+
+  import_run := public.siem_start_import(actor, integration, inventory_run.id,
+    ARRAY['rule-2'], '{}', false, 'idem-retention-archive-1');
+  PERFORM pg_temp.assert_true(
+    (SELECT status='skipped' AND error_message='Archived in library' FROM public.siem_sync_items
+       WHERE run_id=import_run.id AND vendor_rule_id='rule-2'),
+    'importing an archived rule freezes it as skipped with the archived-in-library reason');
+
+  -- Retire the run so no later block in this file trips over it.
+  UPDATE public.siem_sync_runs SET status='cancelled', completed_at=now(), lease_token=NULL, lease_expires_at=NULL
+    WHERE id=import_run.id;
+END $$;
 ROLLBACK;

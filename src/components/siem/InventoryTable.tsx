@@ -40,6 +40,9 @@ function eligibilityText(row: InventoryRow): string {
 function disabledReason(row: InventoryRow): string | undefined {
   if (isImportEligible(row.relationship)) return undefined;
   if (row.relationship === 'unsupported') return row.normalization_error || 'Unsupported';
+  if (row.relationship === 'archived_in_library') {
+    return 'Archived in library. Restore it from the library to track it again.';
+  }
   return RELATIONSHIP_LABELS[row.relationship];
 }
 

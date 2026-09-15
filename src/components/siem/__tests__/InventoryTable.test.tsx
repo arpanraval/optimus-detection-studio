@@ -48,4 +48,33 @@ describe('inventory table', () => {
     draw([base]);
     expect(screen.queryByRole('button', { name: /import/i })).toBeNull();
   });
+
+  it('shows an archived library copy as archived, not as not in library', () => {
+    draw([{ ...base, relationship: 'archived_in_library', binding_status: 'tombstone', detection_id: 'd1' }]);
+    expect(screen.getAllByText('Archived in library').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Not in library')).toBeNull();
+  });
+
+  it('still links and offers to open the library rule for an archived copy', () => {
+    draw([{ ...base, relationship: 'archived_in_library', binding_status: 'tombstone', detection_id: 'd1' }]);
+    expect(screen.getByRole('link', { name: /Suspicious process/ }).getAttribute('href')).toContain('d1');
+    expect(screen.getByRole('button', { name: 'Open library rule' })).toBeTruthy();
+  });
+
+  it('disables selection of an archived row and explains how to restore it', () => {
+    render(
+      <MemoryRouter>
+        <InventoryTable
+          rows={[{ ...base, relationship: 'archived_in_library', binding_status: 'tombstone', detection_id: 'd1' }]}
+          loading={false}
+          selectedIds={new Set()}
+          onTogglePage={() => {}}
+          onToggle={() => {}}
+        />
+      </MemoryRouter>
+    );
+    const checkbox = screen.getByRole('checkbox', { name: /Select Suspicious process/ });
+    expect(checkbox).toHaveProperty('disabled', true);
+    expect(checkbox.getAttribute('title')).toBe('Archived in library. Restore it from the library to track it again.');
+  });
 });
