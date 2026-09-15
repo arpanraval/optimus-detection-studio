@@ -35,6 +35,21 @@ import {
 
 const IS_DEV = import.meta.env.DEV;
 
+// The dev proxy calls the vendor directly from the browser -- no server route, no
+// NATIVE_SIEM_MUTATIONS gate, no drift check, no readback. It cannot perform the safety checks
+// the native write path uses for a rule Optimus already tracks in a SIEM, so it must refuse one
+// rather than silently duplicating or clobbering it. Production builds route tracked rules
+// through the server instead, where this guard would break the feature -- so it is dev-proxy only.
+async function requireUnboundTarget(detectionId?: string, integrationId?: string, vendorRuleId?: string) {
+  let query = supabase.from('siem_rule_bindings').select('id').eq('binding_status', 'active').limit(1);
+  if (detectionId) query = query.eq('detection_id', detectionId);
+  else if (integrationId && vendorRuleId) query = query.eq('integration_id', integrationId).eq('vendor_rule_id', vendorRuleId);
+  else throw new Error('A detection or target rule is required');
+  const { data, error } = await query;
+  if (error) throw new Error('Unable to verify production rule bindings');
+  if (data?.length) throw new Error('This rule is tracked in a SIEM — use Deploy to update it safely instead of the local dev proxy.');
+}
+
 const PREFLIGHT_POLL_INTERVAL_MS = 10_000;
 
 interface RunPreflightOptions {
@@ -2575,6 +2590,8 @@ export const integrationService = {
     }
 
     if (IS_DEV) {
+      await requireUnboundTarget(params.detectionId, params.integrationId, params.vendorRuleId);
+
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
@@ -2855,6 +2872,8 @@ export const integrationService = {
 
   async toggleVendorRule(integrationId: string, vendorRuleId: string, enabled: boolean): Promise<void> {
     if (IS_DEV) {
+      await requireUnboundTarget(undefined, integrationId, vendorRuleId);
+
       const { data: integration, error } = await supabase
         .from('integrations')
         .select('*')
@@ -2906,6 +2925,8 @@ export const integrationService = {
 
   async deleteVendorRule(integrationId: string, vendorRuleId: string): Promise<void> {
     if (IS_DEV) {
+      await requireUnboundTarget(undefined, integrationId, vendorRuleId);
+
       const { data: integration, error } = await supabase
         .from('integrations')
         .select('*')
@@ -3074,6 +3095,8 @@ export const integrationService = {
       .select('detection_id,integration_id,vendor_rule_id').eq('id', deploymentId).single();
     if (targetError) throw new Error('Deployment not found');
     if (IS_DEV) {
+      await requireUnboundTarget(target.detection_id, target.integration_id, target.vendor_rule_id);
+
       const { data: deployment, error: depErr } = await supabase
         .from('deployment_history')
         .select('*, integration:integrations(*)')
