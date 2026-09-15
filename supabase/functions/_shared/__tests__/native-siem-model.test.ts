@@ -158,12 +158,14 @@ describe('native SIEM content contracts', () => {
     // deliberately not a capability: two providers accepting the same query text says nothing
     // about whether their deployment payloads round-trip losslessly.
     it('grants no capability to a provider that has not been qualified', () => {
-      // 'splunk' is now a registered import provider (read-only), so this uses a provider name
-      // that has never appeared in PROVIDER_CAPABILITIES to exercise the true absent-provider path.
-      expect(providerCapabilities('jira')).toEqual({ readFamilies: [], writeFamilies: [], operations: [] });
+      // 'splunk' used to stand for this case, but it is now a registered import provider. The
+      // stand-in has to be another SIEM we have not qualified -- not a non-SIEM integration like
+      // Jira, which could never own a rule binding in the first place, so refusing to update a
+      // rule "in Jira" would assert a situation that cannot arise.
+      expect(providerCapabilities('qradar')).toEqual({ readFamilies: [], writeFamilies: [], operations: [] });
       expect(providerCapabilities(null)).toEqual({ readFamilies: [], writeFamilies: [], operations: [] });
-      expect(mutationBlockedReason('update', { ...open, provider: 'jira' }))
-        .toMatch(/cannot update rules in jira/);
+      expect(mutationBlockedReason('update', { ...open, provider: 'qradar' }))
+        .toMatch(/cannot update rules in qradar/);
     });
 
     it('allows an update that has something to send', () => {
