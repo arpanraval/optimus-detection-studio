@@ -45,7 +45,7 @@ export function adapterVersion(provider: ImportProvider): string {
   return ADAPTER_VERSIONS[provider];
 }
 
-function requireString(value: unknown, message: string): string {
+export function requireString(value: unknown, message: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(message);
   return value;
 }
@@ -56,7 +56,7 @@ function requirePort(value: unknown, message: string): number {
   return port;
 }
 
-function endpointScope(config: Record<string, unknown>, providerLabel: string): string {
+export function endpointScope(config: Record<string, unknown>, providerLabel: string): string {
   const host = requireString(config.host, `${providerLabel} requires a host to derive a scope`);
   const port = requirePort(config.port, `${providerLabel} requires a port to derive a scope`);
   const scheme = config.ssl === false ? 'http' : 'https';
@@ -106,6 +106,69 @@ export function providerScope(provider: ImportProvider, config: Record<string, u
       // Defender XDR's connection carries only tenantId -- no workspace/space/app field exists.
       const tenantId = requireString(config.tenantId, 'Defender XDR requires a tenant ID to derive a scope');
       return `defender_xdr:${tenantId}`;
+    }
+
+    default: {
+      const exhaustive: never = provider;
+      throw new Error(`Unsupported provider: ${exhaustive as string}`);
+    }
+  }
+}
+
+/** Where the durable import engine's generic HTTP client should reach a provider, and what to
+ *  insert between its base URL and a caller-supplied relative path. This is deliberately about
+ *  *connectivity* only -- provider_scope (above) is the stored identity string and must not be
+ *  derived from this or vice versa.
+ *
+ *  Only CrowdStrike is exercised by a real reader today; the other five entries exist so the
+ *  engine's client() seam can reach any registered provider, ahead of the per-provider readers
+ *  (Tasks 7-12) that will actually page through their responses. */
+export interface ProviderEndpoint {
+  /** No trailing slash. */
+  baseUrl: string;
+  /** Inserted between baseUrl and the path a reader asks for, e.g. `correlation-rules/`. May be empty. */
+  pathPrefix: string;
+}
+
+export function providerEndpoint(provider: ImportProvider, config: Record<string, unknown>): ProviderEndpoint {
+  switch (provider) {
+    case 'crowdstrike':
+      // Reused verbatim: crowdStrikeScope() below is what actually validates this config; this
+      // branch only has to agree with it on where requests go.
+      return { baseUrl: requireString(config.baseUrl, 'CrowdStrike requires a base URL').replace(/\/$/, ''),
+        pathPrefix: 'correlation-rules/' };
+
+    case 'splunk': {
+      const base = endpointScope(config, 'Splunk');
+      const app = requireString(config.app, 'Splunk requires an app to connect');
+      const owner = typeof config.owner === 'string' && config.owner.trim() ? config.owner : '-';
+      return { baseUrl: base, pathPrefix: `servicesNS/${encodeURIComponent(owner)}/${encodeURIComponent(app)}/` };
+    }
+
+    case 'sentinel': {
+      const subscriptionId = requireString(config.subscriptionId, 'Sentinel requires a subscription ID to connect');
+      const resourceGroup = requireString(config.resourceGroup, 'Sentinel requires a resource group to connect');
+      const workspaceName = requireString(config.workspaceName, 'Sentinel requires a workspace name to connect');
+      return { baseUrl: 'https://management.azure.com',
+        pathPrefix: `subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/` +
+          `Microsoft.OperationalInsights/workspaces/${workspaceName}/providers/Microsoft.SecurityInsights/` };
+    }
+
+    case 'defender_xdr':
+      // Confirmed by resolveProvider/providerScope: only tenantId lives on this config. Graph
+      // itself carries the tenant via the token, not the URL.
+      return { baseUrl: 'https://graph.microsoft.com/v1.0', pathPrefix: 'security/' };
+
+    case 'elastic': {
+      const base = endpointScope(config, 'Elastic');
+      const spaceId = requireString(config.spaceId, 'Elastic requires a space ID to connect');
+      return { baseUrl: `${base}/s/${spaceId}`, pathPrefix: 'api/' };
+    }
+
+    case 'chronicle': {
+      const region = requireString(config.region, 'Chronicle requires a region to derive a scope');
+      const customerId = requireString(config.customerId, 'Chronicle requires a customer ID to derive a scope');
+      return { baseUrl: `https://${region}-chronicle.googleapis.com/v2/${customerId}`, pathPrefix: '' };
     }
 
     default: {

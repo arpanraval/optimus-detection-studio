@@ -59,7 +59,7 @@ function inventoryFixture(options: { phase?: string; resource?: unknown } = {}) 
     resources: options.resource ?? ['remote-1'] })));
   return { deps: { db: { from, rpc } as never,
     credentials: vi.fn(async () => ({ clientId: 'c', clientSecret: 's' })),
-    token: vi.fn(async () => 't'), fetch, writesEnabled: false }, rpc };
+    token: { crowdstrike: vi.fn(async () => ({ Authorization: 'Bearer t' })) } as never, fetch, writesEnabled: false }, rpc };
 }
 
 describe('inventory worker', () => {

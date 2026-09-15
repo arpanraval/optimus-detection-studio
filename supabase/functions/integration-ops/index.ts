@@ -3365,7 +3365,36 @@ serve(async (req: Request) => {
     const token = authHeader.replace('Bearer ', '')
     const body: IntegrationRequest = await req.json()
     const nativeDependencies = {
-      db: getServiceClient(), credentials: getDecryptedCredentials, token: crowdStrikeGetToken,
+      db: getServiceClient(), credentials: getDecryptedCredentials,
+      // One entry per ImportProvider (native-siem-service.ts's Dependencies.token). CrowdStrike,
+      // Sentinel and Defender XDR exchange credentials for a bearer token; Chronicle exchanges a
+      // signed JWT for one. Splunk and Elastic have no token-issuing endpoint at all -- a static
+      // token or HTTP Basic credential IS the auth, so those build the header directly instead of
+      // pretending a token step exists.
+      token: {
+        crowdstrike: async (config: Record<string, unknown>, credentials: Record<string, string>) => ({
+          Authorization: `Bearer ${await crowdStrikeGetToken(
+            String(config.baseUrl).replace(/\/$/, ''), credentials.clientId, credentials.clientSecret)}`,
+        }),
+        sentinel: async (config: Record<string, unknown>, credentials: Record<string, string>) => ({
+          Authorization: `Bearer ${await microsoftGetToken(
+            String(config.tenantId), credentials.clientId, credentials.clientSecret,
+            'https://management.azure.com/.default')}`,
+        }),
+        defender_xdr: async (config: Record<string, unknown>, credentials: Record<string, string>) => ({
+          Authorization: `Bearer ${await microsoftGetToken(
+            String(config.tenantId), credentials.clientId, credentials.clientSecret, GRAPH_DEFENDER_SCOPE)}`,
+        }),
+        chronicle: async (_config: Record<string, unknown>, credentials: Record<string, string>) => ({
+          Authorization: `Bearer ${await chronicleGetToken(credentials.clientEmail, credentials.privateKey)}`,
+        }),
+        elastic: async (config: Record<string, unknown>, credentials: Record<string, string>) =>
+          (await elasticGetAuth(config, credentials)).headers,
+        splunk: async (_config: Record<string, unknown>, credentials: Record<string, string>): Promise<Record<string, string>> =>
+          credentials.token ? { Authorization: `Bearer ${credentials.token}` } :
+            credentials.username && credentials.password ?
+              { Authorization: `Basic ${btoa(`${credentials.username}:${credentials.password}`)}` } : {},
+      },
       fetch: vendorFetch, writesEnabled: Deno.env.get('NATIVE_SIEM_MUTATIONS') === 'true',
     }
     if (body.action === 'native_sync_tick') {

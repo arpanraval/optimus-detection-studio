@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
-import { applyNativeMutation, handleNativeRequest, processNativeSync, readRuleDetails } from '../native-siem-service';
+import { applyNativeMutation, client, handleNativeRequest, processNativeSync, readRuleDetails,
+  validateContinuationUrl } from '../native-siem-service';
 import { contentHash, crowdStrikeScope, normalizeCrowdStrike } from '../native-siem-model';
 
 const config = { baseUrl: 'https://api.crowdstrike.com', customerId: 'a'.repeat(32) };
@@ -78,7 +79,10 @@ async function fixture(options: { phase?: string; enabled?: boolean; resource?: 
     return new Response(JSON.stringify({ resources: options.resource ?? [options.stale ? { ...raw, name: 'Changed remotely' } : raw] }));
   });
   const deps = { db: { from, rpc } as never, credentials: vi.fn(async () => ({ clientId: 'client', clientSecret: 'secret' })),
-    token: vi.fn(async () => 'token'), fetch, writesEnabled: options.enabled ?? false,
+    // Only CrowdStrike is exercised by this fixture; the other five providers' lookups are added
+    // by the provider-registry-seam tests below.
+    token: { crowdstrike: vi.fn(async () => ({ Authorization: 'Bearer token' })) } as never,
+    fetch, writesEnabled: options.enabled ?? false,
     // No test spends real seconds waiting for a settle that the stub controls.
     wait: vi.fn(async () => {}) };
   return { deps, rpc, from, updates, hash, binding, detection };
@@ -154,6 +158,62 @@ describe('comparison without an agreed baseline', () => {
     await expect(handleNativeRequest(deps,
       { action: 'native_preview', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner'))
       .rejects.toThrow('Sync this rule before reviewing changes');
+  });
+});
+
+describe('provider registry seam (Task 6)', () => {
+  // The engine's whole reason for existing here is that reading a rule no longer has to mean
+  // reading a CrowdStrike rule. This exercises client() end to end for a non-CrowdStrike provider
+  // through the same seam CrowdStrike uses, and proves the CrowdStrike token function is never
+  // touched for it.
+  it('reaches a Splunk connection through its own auth, never calling the CrowdStrike token function', async () => {
+    const crowdstrikeToken = vi.fn();
+    const splunkToken = vi.fn(async (_config: Record<string, unknown>, credentials: Record<string, string>) =>
+      ({ Authorization: `Bearer ${credentials.token}` }));
+    const deps = {
+      db: {} as never,
+      credentials: vi.fn(async () => ({ token: 'splunk-static-token' })),
+      token: { crowdstrike: crowdstrikeToken, splunk: splunkToken } as never,
+      fetch: vi.fn(async () => new Response(JSON.stringify({ entry: [] }))),
+      writesEnabled: false,
+    };
+    const integration = { id: 'conn', provider: 'splunk',
+      config: { host: 'splunk.example.com', port: 8089, ssl: true, app: 'search', owner: 'admin' } };
+    const request = await client(deps, integration);
+    await request('saved/searches?output_mode=json');
+
+    expect(splunkToken).toHaveBeenCalledTimes(1);
+    expect(crowdstrikeToken).not.toHaveBeenCalled();
+    const [url, options] = (deps.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toBe('https://splunk.example.com:8089/servicesNS/admin/search/saved/searches?output_mode=json');
+    expect(options.headers).toMatchObject({ Authorization: 'Bearer splunk-static-token' });
+  });
+
+  it('refuses an integration whose provider is not one the engine can serve', async () => {
+    const deps = {
+      db: {} as never, credentials: vi.fn(), token: {} as never, fetch: vi.fn(), writesEnabled: false,
+    };
+    // A ticketing/non-SIEM provider is the wrong kind of stand-in here -- this has to be a
+    // SIEM-shaped name outside the six registered providers, not an unrelated tool.
+    await expect(client(deps, { id: 'conn', provider: 'logrhythm', config: {} }))
+      .rejects.toThrow('Unsupported provider: logrhythm');
+  });
+});
+
+describe('continuation URL validation (G38)', () => {
+  it('accepts a continuation URL on the authorized provider host', () => {
+    expect(validateContinuationUrl('https://api.crowdstrike.com/correlation-rules/queries/rules/v1?offset=50',
+      'https://api.crowdstrike.com')).toContain('offset=50');
+  });
+
+  it('refuses a continuation URL redirected to a different host before any credential is attached', () => {
+    expect(() => validateContinuationUrl('https://attacker.example.com/steal', 'https://api.crowdstrike.com'))
+      .toThrow(/does not match the authorized provider endpoint/);
+  });
+
+  it('refuses a malformed continuation URL rather than passing it through', () => {
+    expect(() => validateContinuationUrl('not a url', 'https://api.crowdstrike.com'))
+      .toThrow('Invalid continuation URL');
   });
 });
 

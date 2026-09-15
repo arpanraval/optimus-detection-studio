@@ -1,11 +1,18 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { ADAPTER_VERSION, canonicalJson, contentHash, crowdStrikeScope, normalizeCrowdStrike, sanitizeSnapshot,
   classifyDrift, localContent, crowdStrikeUpdate, mutationBlockedReason,  NATIVE_OPERATIONS, type Json, type NativeOperation, type RuleContent } from './native-siem-model.ts';
+import { resolveProvider, providerEndpoint, type ImportProvider } from './siem-providers.ts';
 
 type Dependencies = {
   db: SupabaseClient;
   credentials: (id: string) => Promise<Record<string, string>>;
-  token: (base: string, client: string, secret: string) => Promise<string>;
+  /** Per-provider auth lookup, keyed by ImportProvider. CrowdStrike, Sentinel, Defender XDR and
+   *  Chronicle exchange credentials for a bearer token over the network; Splunk and Elastic have
+   *  no token-issuing endpoint at all -- a static token or HTTP Basic credential IS the auth, so
+   *  those entries build the header directly rather than pretending a token step exists. Every
+   *  entry returns the headers to send, never a bare token string, so the shape is uniform however
+   *  differently each provider actually authenticates. */
+  token: Record<ImportProvider, (config: Record<string, unknown>, credentials: Record<string, string>) => Promise<Record<string, string>>>;
   fetch: (url: string, options: RequestInit, timeout?: number) => Promise<Response>;
   writesEnabled: boolean;
   /** Injected so tests do not spend real seconds waiting for CrowdStrike to settle. */
@@ -43,8 +50,34 @@ function checked<T>(result: { data: T; error: { message: string } | null }): T {
 
 async function connection(deps: Dependencies, id: string, actor: string) {
   const row = checked(await deps.db.from('integrations').select('*').eq('id', id).eq('user_id', actor).single());
-  if (!row || row.archived_at || row.provider !== 'crowdstrike') throw new Error('Connection unavailable');
+  if (!row || row.archived_at) throw new Error('Connection unavailable');
+  try {
+    resolveProvider(row);
+  } catch {
+    throw new Error('Connection unavailable');
+  }
   return row;
+}
+
+/** G38: an absolute continuation URL (`nextLink`, `@odata.nextLink`, a cursor URL a provider hands
+ *  back mid-scan) must be validated against the authorized provider endpoint BEFORE it is used to
+ *  carry our bearer token or headers. A tenant response -- or a compromised one -- must never be
+ *  able to redirect our credentials to an attacker-controlled host. Enforced once here, for every
+ *  provider, rather than trusted per-reader. */
+export function validateContinuationUrl(url: string, authorizedBase: string): string {
+  let candidate: URL;
+  let authorized: URL;
+  try {
+    candidate = new URL(url);
+    authorized = new URL(authorizedBase);
+  } catch {
+    throw new Error('Invalid continuation URL');
+  }
+  if (candidate.origin !== authorized.origin) {
+    throw new Error(`Continuation URL host "${candidate.host}" does not match the authorized provider ` +
+      `endpoint "${authorized.host}"; refusing to forward credentials`);
+  }
+  return url;
 }
 
 /**
@@ -83,14 +116,21 @@ async function vendorDetail(response: Response): Promise<string> {
   return '';
 }
 
-async function client(deps: Dependencies, integration: { id: string; config: Record<string, unknown> }) {
-  crowdStrikeScope(integration.config);
+export async function client(deps: Dependencies, integration: { id: string; provider: string; config: Record<string, unknown> }) {
+  const provider = resolveProvider(integration);
+  // CrowdStrike's own strict validation (HTTPS origin, well-formed customer id) is preserved
+  // byte-for-byte -- providerEndpoint() only has to agree with it on where requests go.
+  if (provider === 'crowdstrike') crowdStrikeScope(integration.config);
+  const { baseUrl, pathPrefix } = providerEndpoint(provider, integration.config);
   const credentials = await deps.credentials(integration.id);
-  const base = String(integration.config.baseUrl).replace(/\/$/, '');
-  const token = await deps.token(base, credentials.clientId, credentials.clientSecret);
+  const headers = await deps.token[provider](integration.config, credentials);
   return async (path: string, options: RequestInit = {}): Promise<Record<string, Json>> => {
-    const response = await deps.fetch(`${base}/correlation-rules/${path}`, {
-      ...options, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    // A caller may pass either a path relative to this connection, or an absolute continuation
+    // URL the provider handed back (e.g. Sentinel's nextLink) -- the latter is validated before
+    // any credential is attached to it.
+    const url = /^https?:\/\//i.test(path) ? validateContinuationUrl(path, baseUrl) : `${baseUrl}/${pathPrefix}${path}`;
+    const response = await deps.fetch(url, {
+      ...options, headers: { ...headers, 'Content-Type': 'application/json' },
     }, 10000);
     if (!response.ok) throw new VendorRequestError(response.status, await vendorDetail(response));
     const result = await response.json();

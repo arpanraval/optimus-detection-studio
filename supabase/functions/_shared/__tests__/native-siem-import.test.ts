@@ -15,7 +15,7 @@ function fixture() {
   });
   const rpc = vi.fn(async (name: string) => ({
     data: name === 'siem_start_import' ? { id: 'run', kind: 'import_selection' } : null, error: null }));
-  const deps = { db: { from, rpc } as never, credentials: vi.fn(), token: vi.fn(), fetch: vi.fn(), writesEnabled: false };
+  const deps = { db: { from, rpc } as never, credentials: vi.fn(), token: { crowdstrike: vi.fn() } as never, fetch: vi.fn(), writesEnabled: false };
   return { deps, rpc };
 }
 
@@ -71,7 +71,7 @@ describe('native_import_start', () => {
 describe('native_import_cancel / native_import_retry routing', () => {
   it('routes native_import_cancel to siem_cancel_import with the actor and run', async () => {
     const rpc = vi.fn(async () => ({ data: null, error: null }));
-    const deps = { db: { rpc } as never, credentials: vi.fn(), token: vi.fn(), fetch: vi.fn(), writesEnabled: false };
+    const deps = { db: { rpc } as never, credentials: vi.fn(), token: { crowdstrike: vi.fn() } as never, fetch: vi.fn(), writesEnabled: false };
     const result = await handleNativeRequest(deps, { action: 'native_import_cancel', runId: 'run-1' }, 'owner');
     expect(rpc).toHaveBeenCalledWith('siem_cancel_import', { p_actor: 'owner', p_run: 'run-1' });
     expect(result).toEqual({ success: true });
@@ -80,7 +80,7 @@ describe('native_import_cancel / native_import_retry routing', () => {
   it('routes native_import_retry to siem_retry_import and returns the requeued run', async () => {
     const requeued = { id: 'run-1', kind: 'import_selection', status: 'queued' };
     const rpc = vi.fn(async () => ({ data: requeued, error: null }));
-    const deps = { db: { rpc } as never, credentials: vi.fn(), token: vi.fn(), fetch: vi.fn(), writesEnabled: false };
+    const deps = { db: { rpc } as never, credentials: vi.fn(), token: { crowdstrike: vi.fn() } as never, fetch: vi.fn(), writesEnabled: false };
     const result = await handleNativeRequest(deps, { action: 'native_import_retry', runId: 'run-1' }, 'owner');
     expect(rpc).toHaveBeenCalledWith('siem_retry_import', { p_actor: 'owner', p_run: 'run-1' });
     expect(result).toEqual(requeued);
@@ -107,7 +107,7 @@ describe('the import_selection worker branch', () => {
     const rpc = vi.fn(async (name: string) => ({ data: name === 'siem_claim_sync' ? [run] : name === 'siem_can_import' ? true : null, error: null }));
     const fetch = vi.fn(async () => new Response(JSON.stringify({ resources: options.resource ?? [raw] })));
     const deps = { db: { from, rpc } as never, credentials: vi.fn(async () => ({ clientId: 'client', clientSecret: 'secret' })),
-      token: vi.fn(async () => 'token'), fetch, writesEnabled: false };
+      token: { crowdstrike: vi.fn(async () => ({ Authorization: 'Bearer token' })) } as never, fetch, writesEnabled: false };
     return { deps, rpc };
   }
 
