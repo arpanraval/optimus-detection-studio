@@ -90,6 +90,69 @@ export function classifyDrift(baseline: RuleContent | null, local: RuleContent, 
   return 'conflict';
 }
 
+/** The production mutations this adapter can perform. */
+export type NativeOperation = 'update' | 'enable' | 'disable' | 'delete';
+export const NATIVE_OPERATIONS: NativeOperation[] = ['update', 'enable', 'disable', 'delete'];
+
+/** The only rule family the CrowdStrike adapter knows how to serialize back. A rule of any other
+ *  family can be read, compared and imported, but never written: crowdStrikeUpdate would have to
+ *  invent fields it has no mapping for. */
+export const SUPPORTED_MUTATION_FAMILIES = ['correlation'];
+
+export interface MutationContext {
+  /** Installation-wide write gate (NATIVE_SIEM_MUTATIONS). */
+  writesEnabled: boolean;
+  ruleFamily: string | null;
+  bindingStatus: string;
+  availability: string;
+  drift: NativeDrift;
+  /** A vendor write for this rule is already in flight or ended uncertain. */
+  pendingOperation: boolean;
+}
+
+/** Why this operation cannot be performed right now, or null if it can.
+ *
+ *  Every one of these conditions was already enforced somewhere on the server, but only as a
+ *  thrown error AFTER the user committed to the action — so the UI offered buttons that could not
+ *  work and explained why only on failure. Stating the reason in one place lets the server keep
+ *  refusing and the UI explain up front, without the two drifting apart. */
+export function mutationBlockedReason(operation: NativeOperation, context: MutationContext): string | null {
+  if (!context.writesEnabled) {
+    return 'Sending changes to CrowdStrike is not enabled for this installation.';
+  }
+  if (context.ruleFamily && !SUPPORTED_MUTATION_FAMILIES.includes(context.ruleFamily)) {
+    return `Optimus can read ${context.ruleFamily} rules but cannot change them in CrowdStrike.`;
+  }
+  if (context.bindingStatus !== 'active') {
+    return 'This rule is no longer tracked in CrowdStrike. Restore tracking before changing it.';
+  }
+  if (context.pendingOperation) {
+    return 'An earlier change to this rule has not finished. Fetch rules again to see where it got to.';
+  }
+  if (context.availability === 'missing') {
+    return 'This rule is no longer in CrowdStrike.';
+  }
+  if (context.availability !== 'present') {
+    return 'The last check could not read this rule. Fetch rules again before changing it.';
+  }
+  // Without an agreed baseline there is no way to tell which side changed, so no mutation can be
+  // described honestly to the user -- including a toggle, which would silently carry the
+  // unreconciled query along with it.
+  if (context.drift === 'no_baseline') {
+    return 'This rule has never been reconciled. Choose which version is correct first.';
+  }
+  if (operation === 'update') {
+    if (context.drift === 'in_sync') return 'The library copy already matches CrowdStrike.';
+    return null;
+  }
+  // Enable/disable sends the CURRENT remote content with one field flipped. Doing that while
+  // production has moved on would quietly revert whatever changed there.
+  if (context.drift === 'remote_changed' || context.drift === 'conflict') {
+    return 'CrowdStrike changed since you last checked. Review the difference before enabling or disabling.';
+  }
+  return null;
+}
+
 export function localContent(detection: {
   name: string; description: string; severity: string;
   queries?: Array<{ id?: string; language?: string; query?: string }>;

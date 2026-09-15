@@ -4,10 +4,11 @@ import {
   localContent,
   type RuleContent,
   type NativeDrift,
+  type NativeOperation,
   type InventoryRow,
   type InventoryRelationship,
 } from '../../supabase/functions/_shared/native-siem-model';
-export type { RuleContent, NativeDrift };
+export type { RuleContent, NativeDrift, NativeOperation };
 
 export interface NativeBinding {
   id: string;
@@ -87,6 +88,10 @@ export interface NativePreview {
   remoteHash: string;
   localVersion: number;
   writesEnabled: boolean;
+  /** Per-operation reason the action cannot run, or null if it can. Computed server-side by the
+   *  same predicate that refuses the mutation, so a button is never offered for something the
+   *  server would reject. */
+  capabilities: Record<NativeOperation, string | null>;
 }
 
 async function invoke<T>(body: Record<string, unknown>): Promise<T> {

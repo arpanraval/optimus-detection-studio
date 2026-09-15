@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { canonicalJson, classifyDrift, contentHash, crowdStrikeScope, crowdStrikeUpdate,
-  importBlockedReason,
+  importBlockedReason, mutationBlockedReason,
   localContent, normalizeCrowdStrike, sanitizeSnapshot } from '../native-siem-model';
 
 const raw = {
@@ -95,6 +95,70 @@ describe('native SIEM content contracts', () => {
       .toBe('Already in library');
     expect(importBlockedReason({ ...readable, relationship: 'unsupported', normalization_error: 'No CQL query' }))
       .toBe('No CQL query');
+  });
+
+  // Each of these was already enforced on the server, but only as a thrown error AFTER the user
+  // committed to the action -- so the UI offered buttons that could not work.
+  describe('production mutation capability', () => {
+    const open = {
+      writesEnabled: true, ruleFamily: 'correlation', bindingStatus: 'active',
+      availability: 'present', drift: 'local_changed' as const, pendingOperation: false,
+    };
+
+    it('allows an update that has something to send', () => {
+      expect(mutationBlockedReason('update', open)).toBeNull();
+    });
+
+    it('names the installation gate first, before anything about the rule', () => {
+      expect(mutationBlockedReason('update', { ...open, writesEnabled: false }))
+        .toMatch(/not enabled for this installation/);
+      // Even a rule that is otherwise perfectly writable.
+      expect(mutationBlockedReason('enable', { ...open, writesEnabled: false, drift: 'in_sync' }))
+        .toMatch(/not enabled for this installation/);
+    });
+
+    it('refuses a rule family this adapter cannot serialize back', () => {
+      // Readable and importable, but crowdStrikeUpdate has no mapping to write it.
+      expect(mutationBlockedReason('update', { ...open, ruleFamily: 'ioa' }))
+        .toMatch(/cannot change them in CrowdStrike/);
+    });
+
+    it('refuses while an earlier write is unresolved', () => {
+      expect(mutationBlockedReason('update', { ...open, pendingOperation: true }))
+        .toMatch(/has not finished/);
+    });
+
+    it('distinguishes a rule that is gone from one it could not read', () => {
+      expect(mutationBlockedReason('delete', { ...open, availability: 'missing' }))
+        .toBe('This rule is no longer in CrowdStrike.');
+      expect(mutationBlockedReason('delete', { ...open, availability: 'unknown' }))
+        .toMatch(/could not read this rule/);
+    });
+
+    it('refuses every operation on a link that was never reconciled', () => {
+      // No common ancestor means no honest description of what a write would do -- including a
+      // toggle, which would carry the unreconciled query along with it.
+      for (const op of ['update', 'enable', 'disable', 'delete'] as const) {
+        expect(mutationBlockedReason(op, { ...open, drift: 'no_baseline' }))
+          .toMatch(/never been reconciled/);
+      }
+    });
+
+    it('does not offer an update when there is nothing to send', () => {
+      expect(mutationBlockedReason('update', { ...open, drift: 'in_sync' }))
+        .toBe('The library copy already matches CrowdStrike.');
+    });
+
+    it('blocks a toggle under remote drift but allows it when only the library moved', () => {
+      // Enable/disable resends the current remote content with one field flipped; doing that
+      // after production moved on would quietly revert whatever changed there.
+      expect(mutationBlockedReason('enable', { ...open, drift: 'remote_changed' }))
+        .toMatch(/CrowdStrike changed since you last checked/);
+      expect(mutationBlockedReason('disable', { ...open, drift: 'conflict' }))
+        .toMatch(/CrowdStrike changed since you last checked/);
+      expect(mutationBlockedReason('enable', { ...open, drift: 'local_changed' })).toBeNull();
+      expect(mutationBlockedReason('disable', { ...open, drift: 'in_sync' })).toBeNull();
+    });
   });
 
   it('detects schedule-only changes but ignores vendor timestamps', () => {

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { ADAPTER_VERSION, contentHash, crowdStrikeScope, normalizeCrowdStrike, sanitizeSnapshot,
-  classifyDrift, localContent, crowdStrikeUpdate, type Json, type RuleContent } from './native-siem-model.ts';
+  classifyDrift, localContent, crowdStrikeUpdate, mutationBlockedReason,  NATIVE_OPERATIONS, type Json, type NativeOperation, type RuleContent } from './native-siem-model.ts';
 
 type Dependencies = {
   db: SupabaseClient;
@@ -220,6 +220,13 @@ async function boundRule(deps: Dependencies, bindingId: string, actor: string) {
   const integration = await connection(deps, binding.integration_id, actor);
   if (crowdStrikeScope(integration.config) !== binding.provider_scope) throw new Error('Connection scope changed');
   const detection = checked(await deps.db.from('detections').select('*').eq('id', binding.detection_id).single());
+  // Rule family lives on the catalog row, not the binding: it is a property of the rule in
+  // CrowdStrike, and it decides whether this adapter can serialize a write for it at all.
+  const catalog = (checked(await deps.db.from('siem_remote_rules')
+    .select('rule_family')
+    .eq('integration_id', binding.integration_id)
+    .eq('provider_scope', binding.provider_scope)
+    .eq('vendor_rule_id', binding.vendor_rule_id)) ?? [])[0] ?? null;
   const snapshots = checked(await deps.db.from('siem_rule_snapshots').select('*')
     .in('id', [binding.baseline_snapshot_id, binding.latest_remote_snapshot_id])) ?? [];
   // A missing baseline is a real, reviewable state -- a link whose query differs from production
@@ -229,7 +236,8 @@ async function boundRule(deps: Dependencies, bindingId: string, actor: string) {
   const remote = snapshots.find(s => s.id === binding.latest_remote_snapshot_id);
   if (!remote) throw new Error('Sync this rule before reviewing changes');
   const local = localContent(detection, binding.selected_query_id, binding.desired_content);
-  return { binding, integration, detection, baseline, remote, local };
+  return { binding, integration, detection, baseline, remote, local,
+           ruleFamily: (catalog?.rule_family as string | undefined) ?? null };
 }
 
 export async function handleNativeRequest(deps: Dependencies, body: NativeRequest, actor: string): Promise<unknown> {
@@ -294,11 +302,20 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
     }));
   }
   const state = await boundRule(deps, body.bindingId || '', actor);
-  const { binding, detection, baseline, remote, local, integration } = state;
+  const { binding, detection, baseline, remote, local, integration, ruleFamily } = state;
+  const drift = classifyDrift(baseline?.content ?? null, local, remote.content, binding.availability);
+  const mutationContext = {
+    writesEnabled: deps.writesEnabled, ruleFamily, bindingStatus: binding.binding_status,
+    availability: binding.availability, drift, pendingOperation: binding.pending_operation_id != null,
+  };
   if (body.action === 'native_preview') return {
-    binding, baseline: baseline?.content ?? null, remote: remote.content, local,
-    drift: classifyDrift(baseline?.content ?? null, local, remote.content, binding.availability),
+    binding, baseline: baseline?.content ?? null, remote: remote.content, local, drift,
     remoteHash: remote.content_hash, localVersion: detection.version, writesEnabled: deps.writesEnabled,
+    // Every reason the UI needs to explain a disabled action, computed by the same predicate the
+    // server refuses with — so a button is never offered for an operation that cannot run.
+    capabilities: Object.fromEntries(
+      NATIVE_OPERATIONS.map(op => [op, mutationBlockedReason(op, mutationContext)]),
+    ) as Record<NativeOperation, string | null>,
   };
   if (!checked(await deps.db.rpc('siem_can_import', { p_actor: actor, p_integration: integration.id }))) {
     throw new Error('Native import permission denied');
@@ -338,18 +355,17 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
     return { success: true };
   }
   if (body.action !== 'native_apply') throw new Error('Unknown native SIEM action');
-  if (!deps.writesEnabled) throw new Error('Native production writes are not enabled for this installation');
-  if (binding.binding_status !== 'active' || binding.availability !== 'present') throw new Error('Binding is not active in production');
+  const operation = (body.operation || 'update') as NativeOperation;
+  // One predicate, used by the preview to explain and here to refuse. Previously these checks
+  // lived only here, so the UI learned an action was impossible only after the user chose it.
+  const blocked = mutationBlockedReason(operation, mutationContext);
+  if (blocked) throw new Error(blocked);
   if (body.expectedVersion !== detection.version || body.expectedHash !== remote.content_hash) throw new Error('Review is stale; refresh the diff');
-  const isToggle = body.operation === 'enable' || body.operation === 'disable';
-  if (isToggle && ['remote_changed', 'conflict', 'no_baseline']
-      .includes(classifyDrift(baseline?.content ?? null, local, remote.content))) {
-    throw new Error('Resolve production drift before changing enabled state');
-  }
-  const desired = isToggle ? { ...remote.content, enabled: body.operation === 'enable' } : local;
+  const isToggle = operation === 'enable' || operation === 'disable';
+  const desired = isToggle ? { ...remote.content, enabled: operation === 'enable' } : local;
   // Permission, eligibility and operation lease are checked atomically before any vendor mutation.
-  const operation = checked(await deps.db.rpc('siem_begin_deployment', { p_actor: actor, p_binding: binding.id,
-    p_version: detection.version, p_hash: remote.content_hash, p_content: desired, p_action: body.operation || 'update' }));
+  const operationId = checked(await deps.db.rpc('siem_begin_deployment', { p_actor: actor, p_binding: binding.id,
+    p_version: detection.version, p_hash: remote.content_hash, p_content: desired, p_action: operation }));
   let attempted = false;
   try {
     const request = await client(deps, integration);
@@ -365,10 +381,10 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
     const payload = body.operation === 'delete' ? undefined : isToggle ?
       { id: binding.vendor_rule_id, status: desired.enabled ? 'active' : 'inactive' } : crowdStrikeUpdate(binding.vendor_rule_id, desired);
     attempted = true;
-    await request(body.operation === 'delete' ? `entities/rules/v1?ids=${encodeURIComponent(binding.vendor_rule_id)}` : 'entities/rules/v1',
-      { method: body.operation === 'delete' ? 'DELETE' : 'PATCH', ...(payload ? { body: JSON.stringify([payload]) } : {}) });
+    await request(operation === 'delete' ? `entities/rules/v1?ids=${encodeURIComponent(binding.vendor_rule_id)}` : 'entities/rules/v1',
+      { method: operation === 'delete' ? 'DELETE' : 'PATCH', ...(payload ? { body: JSON.stringify([payload]) } : {}) });
     let after: { raw: Record<string, Json>; content: RuleContent } | null = null;
-    if (body.operation === 'delete') {
+    if (operation === 'delete') {
       const response = await request(`entities/rules/v1?ids=${encodeURIComponent(binding.vendor_rule_id)}`);
       if (!Array.isArray(response.resources) || response.resources.some(row => matchesVendorRule(row as Record<string, Json>, binding.vendor_rule_id))) {
         throw new Error('Deletion could not be verified');
@@ -378,12 +394,12 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
       if (await contentHash(after.content) !== await contentHash(desired)) throw new Error('Production readback differs from the reviewed change');
     }
     const raw = after ? sanitizeSnapshot(after.raw) : null;
-    checked(await deps.db.rpc('siem_finish_deployment', { p_operation: operation, p_actor: actor,
+    checked(await deps.db.rpc('siem_finish_deployment', { p_operation: operationId, p_actor: actor,
       p_content: after?.content || null, p_raw: raw, p_hash: after ? await contentHash(after.content) : null,
       p_raw_hash: raw ? await contentHash(raw) : null, p_adapter: ADAPTER_VERSION }));
     return { success: true };
   } catch (error) {
-    checked(await deps.db.rpc('siem_fail_deployment', { p_operation: operation, p_actor: actor,
+    checked(await deps.db.rpc('siem_fail_deployment', { p_operation: operationId, p_actor: actor,
       p_uncertain: attempted, p_error: attempted ? 'Vendor write attempted; sync and verify production before retrying' :
         error instanceof Error ? error.message : 'Deployment failed' }));
     throw error;

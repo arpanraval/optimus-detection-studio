@@ -46,9 +46,59 @@ CrowdStrike does not provide an atomic conditional-write guarantee in this adapt
 | Reconcile a link with no agreed baseline | Supported | as above |
 | Compare library vs production, edit the library copy | Supported | read-only; no vendor write |
 | Accept the production version into the library | Supported | local write only |
-| Update / enable / disable / delete **in CrowdStrike** | **Gated off** | `NATIVE_SIEM_MUTATIONS`, pending sandbox qualification |
+| Update / enable / disable / delete **in CrowdStrike** | **Gated off** | `NATIVE_SIEM_MUTATIONS`, then the per-rule gate below, pending sandbox qualification |
 | Providers other than CrowdStrike | Not implemented | — |
 | Rule families other than correlation rules | Not implemented | — |
+
+## Why a production write is unavailable
+
+`NATIVE_SIEM_MUTATIONS` is the installation switch, not the whole gate. Each operation is also
+gated per rule by `mutationBlockedReason()`, which the server refuses with and the comparison view
+publishes as `capabilities` so a disabled button carries its own explanation. The reasons, in the
+order they are reported:
+
+| Condition | Effect |
+| --- | --- |
+| installation gate off | every operation unavailable |
+| rule family outside `SUPPORTED_MUTATION_FAMILIES` (only `correlation`) | every operation unavailable — `crowdStrikeUpdate` has no mapping to serialize it back |
+| binding no longer active | every operation unavailable |
+| an earlier write ended **uncertain** (`pending_operation_id` set) | every operation unavailable until production is observed again |
+| rule missing in CrowdStrike | every operation unavailable |
+| rule could not be read on the last check | every operation unavailable — `unknown` is not the same claim as `missing` |
+| link never reconciled (`no_baseline`) | every operation unavailable, including toggles, which would otherwise carry the unreconciled query along |
+| library already matches production | update unavailable (nothing to send) |
+| production changed since the last check | enable/disable unavailable — a toggle resends the current remote content with one field flipped, and would revert whatever changed there |
+
+An uncertain outcome is the important one: the request reached CrowdStrike and the response was
+lost, so the change may or may not have landed. Retrying blind could apply it twice. The binding
+stays pinned until a fetch observes production and the user reconciles.
+
+## Sandbox qualification checklist (required before `NATIVE_SIEM_MUTATIONS=true`)
+
+Everything above is enforced and tested against mocked vendor responses. What mocks cannot
+establish is how Falcon itself behaves, so this must be run against **disposable rules in a
+sandbox tenant**, never production:
+
+1. **Identity.** Create a rule, edit it twice so it is past version 1, then confirm which id each
+   endpoint expects: `entities/rules/v1` PATCH, DELETE, and the readback GET. The reader already
+   accepts either `id` or `rule_id` (`matchesVendorRule`), but which one a *write* must address is
+   a vendor behaviour, not something the code can assert.
+2. **Round trips.** Query, schedule, severity, enable, disable, delete — one at a time, verifying
+   in the Falcon console after each that only the intended field changed and notification,
+   suppression and case-template settings are untouched.
+3. **Concurrency.** Edit the rule in the Falcon console between the preflight read and the PATCH;
+   confirm the readback reports divergence rather than silently overwriting.
+4. **Authorization loss.** Revoke the API client's write scope mid-session; confirm the failure is
+   reported as not-applied rather than uncertain.
+5. **Lost response.** Kill the connection after the PATCH is sent; confirm the operation is
+   recorded uncertain, the binding is pinned, and no retry is offered until a fetch observes
+   production.
+6. **Unsupported payload.** Point the adapter at a rule whose configuration `crowdStrikeUpdate`
+   refuses; confirm it fails before `attempted` is set, so nothing is recorded as uncertain.
+
+Record the evidence per operation. Until every row passes, the gate stays off — and leaving it off
+costs nothing except production writes: import, comparison, local editing and reconciliation all
+work with it closed.
 
 ## Retry, cancellation and recovery
 

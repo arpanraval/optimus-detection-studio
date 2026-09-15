@@ -4,11 +4,14 @@ import { handleNativeRequest, processNativeSync, readRuleDetails } from '../nati
 import { contentHash, crowdStrikeScope, normalizeCrowdStrike } from '../native-siem-model';
 
 const config = { baseUrl: 'https://api.crowdstrike.com', customerId: 'a'.repeat(32) };
+/** A library edit, so an update has something to send. */
+const EDITED_QUERY = '#event_simpleName=ProcessRollup2 | ParentBaseFileName=explorer.exe';
 const raw = { id: 'remote-1', name: 'Rule', description: '', status: 'active', severity: 50,
   search: { filter: 'query', outcome: 'detection', lookback: '1h' }, operation: { schedule: { definition: '@every 1h' } } };
 
 async function fixture(options: { phase?: string; enabled?: boolean; resource?: unknown; stale?: boolean;
-  noBaseline?: boolean; localQuery?: string } = {}) {
+  noBaseline?: boolean; localQuery?: string; afterResource?: unknown;
+  pendingOperation?: boolean; ruleFamily?: string } = {}) {
   const content = normalizeCrowdStrike(raw), hash = await contentHash(content);
   // This fixture exercises the legacy siem_commit_chunk path: kind 'refresh_tracked' is a real
   // kind (re-observing rules already tracked in the library) that Task 8 does not touch, so it
@@ -19,13 +22,17 @@ async function fixture(options: { phase?: string; enabled?: boolean; resource?: 
   const binding = { id: 'binding', detection_id: 'detection', integration_id: 'connection', provider_scope: crowdStrikeScope(config),
     selected_query_id: 'query-id', desired_content: content,
     baseline_snapshot_id: options.noBaseline ? null : 'snap', latest_remote_snapshot_id: 'snap',
-    binding_status: 'active', availability: 'present', vendor_rule_id: raw.id };
+    binding_status: 'active', availability: 'present', vendor_rule_id: raw.id,
+    // Set by siem_fail_deployment when a vendor write ended UNCERTAIN: the request was sent and
+    // the outcome was never confirmed.
+    pending_operation_id: options.pendingOperation ? 'operation-id' : null };
   const detection = { ...content, id: 'detection', version: 1,
     queries: [{ id: 'query-id', language: 'CQL', query: options.localQuery ?? content.query }] };
   const updates: unknown[] = [];
   const from = vi.fn((table: string) => {
     const data = table === 'integrations' ? { id: 'connection', config, provider: 'crowdstrike' } :
       table === 'siem_sync_items' ? [{ vendor_rule_id: raw.id }] : table === 'siem_rule_bindings' ? binding :
+      table === 'siem_remote_rules' ? [{ rule_family: options.ruleFamily ?? 'correlation' }] :
       table === 'detections' ? detection : table === 'siem_rule_snapshots' ? [{ id: 'snap', content, content_hash: hash }] : null;
     const query: Record<string, unknown> = {};
     for (const method of ['select', 'eq', 'in', 'order', 'limit', 'single']) query[method] = vi.fn(() => query);
@@ -35,8 +42,17 @@ async function fixture(options: { phase?: string; enabled?: boolean; resource?: 
   });
   const rpc = vi.fn(async (name: string) => ({ data: name === 'siem_claim_sync' ? [run] : name === 'siem_can_import' ? true :
     name === 'siem_begin_deployment' ? 'operation-id' : null, error: null }));
+  // A GET after the write must be able to differ from the GET before it -- that is the whole
+  // shape of an update: read the current rule, PATCH, read back the changed one.
+  let written = false;
   const fetch = vi.fn(async (_url: string, request: RequestInit) => {
-    if (request.method === 'PATCH' || request.method === 'DELETE') return new Response(JSON.stringify({ resources: [raw] }));
+    if (request.method === 'PATCH' || request.method === 'DELETE') {
+      written = true;
+      return new Response(JSON.stringify({ resources: [raw] }));
+    }
+    if (written && options.afterResource) {
+      return new Response(JSON.stringify({ resources: options.afterResource }));
+    }
     return new Response(JSON.stringify({ resources: options.resource ?? [options.stale ? { ...raw, name: 'Changed remotely' } : raw] }));
   });
   const deps = { db: { from, rpc } as never, credentials: vi.fn(async () => ({ clientId: 'client', clientSecret: 'secret' })),
@@ -124,13 +140,14 @@ describe('native production mutation boundary', () => {
     expect(deps.fetch).not.toHaveBeenCalled();
   });
   it('does not PATCH after a production change since review', async () => {
-    const { deps, hash, rpc } = await fixture({ enabled: true, stale: true });
+    const { deps, hash, rpc } = await fixture({ enabled: true, stale: true, localQuery: EDITED_QUERY });
     await expect(handleNativeRequest(deps, { action: 'native_apply', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner')).rejects.toThrow('Production changed');
     expect(deps.fetch.mock.calls.every(([, request]) => request.method !== 'PATCH')).toBe(true);
     expect(rpc).toHaveBeenCalledWith('siem_fail_deployment', expect.objectContaining({ p_uncertain: false }));
   });
   it('updates the original ID and verifies readback without creating a rule', async () => {
-    const { deps, hash, rpc } = await fixture({ enabled: true });
+    const { deps, hash, rpc } = await fixture({
+      enabled: true, localQuery: EDITED_QUERY, afterResource: [{ ...raw, search: { ...raw.search, filter: '#event_simpleName=ProcessRollup2 | ParentBaseFileName=explorer.exe' } }] });
     await handleNativeRequest(deps, { action: 'native_apply', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner');
     const writes = deps.fetch.mock.calls.filter(([, request]) => request.method === 'PATCH');
     expect(writes).toHaveLength(1);
@@ -144,7 +161,11 @@ describe('native production mutation boundary', () => {
   // updated -- and made delete verification accept a rule that is still there.
   it('finds an edited rule returned under its version id during preflight', async () => {
     const versionId = 'version-of-remote-1';
-    const { deps, hash } = await fixture({ enabled: true, resource: [{ ...raw, id: versionId, rule_id: raw.id }] });
+    const { deps, hash } = await fixture({
+      enabled: true, localQuery: EDITED_QUERY,
+      resource: [{ ...raw, id: versionId, rule_id: raw.id }],
+      afterResource: [{ ...raw, id: versionId, rule_id: raw.id, search: { ...raw.search, filter: EDITED_QUERY } }],
+    });
     await handleNativeRequest(deps, { action: 'native_apply', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner');
     const writes = deps.fetch.mock.calls.filter(([, request]) => request.method === 'PATCH');
     expect(writes).toHaveLength(1);
@@ -152,13 +173,38 @@ describe('native production mutation boundary', () => {
     expect(JSON.parse(String(writes[0][1].body))[0].id).toBe(raw.id);
   });
   it('refuses to confirm a deletion when the rule is still returned under its version id', async () => {
-    const { deps, hash, rpc } = await fixture({ enabled: true, resource: [{ ...raw, id: 'version-of-remote-1', rule_id: raw.id }] });
+    const { deps, hash, rpc } = await fixture({
+      enabled: true, resource: [{ ...raw, id: 'version-of-remote-1', rule_id: raw.id }] });
     await expect(handleNativeRequest(deps, { action: 'native_apply', operation: 'delete', bindingId: 'binding',
       expectedHash: hash, expectedVersion: 1 }, 'owner')).rejects.toThrow('Deletion could not be verified');
     expect(rpc).toHaveBeenCalledWith('siem_fail_deployment', expect.objectContaining({ p_uncertain: true }));
   });
+  it('publishes the reason each operation is unavailable, not just a boolean gate', async () => {
+    const { deps, hash } = await fixture();
+    const preview = await handleNativeRequest(deps,
+      { action: 'native_preview', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner') as
+      { capabilities: Record<string, string | null> };
+    // Gate is off in this fixture, so every operation carries the installation reason.
+    for (const op of ['update', 'enable', 'disable', 'delete']) {
+      expect(preview.capabilities[op]).toMatch(/not enabled for this installation/);
+    }
+  });
+
+  it('refuses an apply with the same sentence the preview showed', async () => {
+    const { deps, hash } = await fixture({ enabled: true });
+    const preview = await handleNativeRequest(deps,
+      { action: 'native_preview', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner') as
+      { capabilities: Record<string, string | null> };
+    // Library and production agree in this fixture, so there is nothing to send.
+    expect(preview.capabilities.update).toBe('The library copy already matches CrowdStrike.');
+    await expect(handleNativeRequest(deps,
+      { action: 'native_apply', operation: 'update', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner'))
+      .rejects.toThrow('The library copy already matches CrowdStrike.');
+    expect(deps.fetch).not.toHaveBeenCalled();
+  });
+
   it('records uncertainty when a write fails instead of blindly retrying', async () => {
-    const { deps, hash, rpc } = await fixture({ enabled: true });
+    const { deps, hash, rpc } = await fixture({ enabled: true, localQuery: EDITED_QUERY });
     deps.fetch.mockImplementation(async (_url, request) => {
       if (request.method === 'PATCH') throw new Error('timeout');
       return new Response(JSON.stringify({ resources: [raw] }));
@@ -189,6 +235,39 @@ describe('import entry point', () => {
     const { deps, rpc } = await fixture();
     await handleNativeRequest(deps, { action: 'native_refresh_tracked', integrationId: 'connection' }, 'owner');
     expect(rpc).toHaveBeenCalledWith('siem_start_refresh', expect.anything());
+  });
+});
+
+describe('uncertain outcomes and unsupported families', () => {
+  // A write whose outcome was never confirmed leaves pending_operation_id set. Retrying blind
+  // could duplicate a change that actually landed, so production has to be observed first --
+  // and the user has to be told that, not just refused.
+  it('blocks every further write while an earlier one is unresolved, and says why', async () => {
+    const { deps, hash } = await fixture({ enabled: true, pendingOperation: true, localQuery: EDITED_QUERY });
+    const preview = await handleNativeRequest(deps,
+      { action: 'native_preview', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner') as
+      { capabilities: Record<string, string | null> };
+    for (const op of ['update', 'enable', 'disable', 'delete']) {
+      expect(preview.capabilities[op]).toMatch(/has not finished/);
+    }
+    await expect(handleNativeRequest(deps,
+      { action: 'native_apply', operation: 'update', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner'))
+      .rejects.toThrow(/has not finished/);
+    expect(deps.fetch).not.toHaveBeenCalled();
+  });
+
+  // A rule family the adapter can read but has no serializer for must not offer writes at all:
+  // crowdStrikeUpdate would have to invent fields it has no mapping for.
+  it('offers no production write for a rule family it cannot serialize back', async () => {
+    const { deps, hash } = await fixture({ enabled: true, ruleFamily: 'ioa', localQuery: EDITED_QUERY });
+    const preview = await handleNativeRequest(deps,
+      { action: 'native_preview', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner') as
+      { capabilities: Record<string, string | null> };
+    expect(preview.capabilities.update).toMatch(/cannot change them in CrowdStrike/);
+    await expect(handleNativeRequest(deps,
+      { action: 'native_apply', operation: 'delete', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner'))
+      .rejects.toThrow(/cannot change them in CrowdStrike/);
+    expect(deps.fetch).not.toHaveBeenCalled();
   });
 });
 

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/Button';
-import { nativeSiemService, type NativePreview, type NativeDrift } from '@/services/nativeSiemService';
+import { nativeSiemService, type NativePreview, type NativeDrift, type NativeOperation }
+  from '@/services/nativeSiemService';
 import { NativeLocalEditor } from './NativeLocalEditor';
 
 export const NATIVE_DRIFT_LABELS: Record<NativeDrift, string> = {
@@ -58,6 +59,11 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
   // The baseline pane is only rendered when a baseline exists; this keeps that guarantee local
   // rather than asserting it with a non-null assertion at five call sites.
   const withBaseline = preview?.baseline != null;
+  // capabilities is computed server-side; an older cached preview simply reports "no reason",
+  // and the server still refuses, so this degrades to the previous behaviour rather than
+  // enabling something it should not.
+  const blocked = (operation: NativeOperation): string | null => preview?.capabilities?.[operation] ?? null;
+  const toggleOperation: NativeOperation = preview?.remote.enabled ? 'disable' : 'enable';
   const pane = (key: 'baseline' | 'local' | 'remote') =>
     key === 'baseline' ? (preview!.baseline ?? preview!.remote) : preview![key];
   return (
@@ -164,9 +170,12 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
             )}
             {preview.writesEnabled && (
               <>
+                {/* title carries the server's own reason, so a disabled control explains itself
+                    instead of the user discovering the refusal by clicking. */}
                 <Button
                   size="sm"
-                  disabled={busy || preview.drift === 'missing' || preview.drift === 'in_sync'}
+                  disabled={busy || blocked('update') !== null}
+                  title={blocked('update') ?? undefined}
                   onClick={() => setConfirm('update')}
                 >
                   Send changes to CrowdStrike
@@ -174,8 +183,9 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
                 <Button
                   size="sm"
                   variant="text"
-                  disabled={busy || !preview.writesEnabled}
-                  onClick={() => setConfirm(preview.remote.enabled ? 'disable' : 'enable')}
+                  disabled={busy || blocked(toggleOperation) !== null}
+                  title={blocked(toggleOperation) ?? undefined}
+                  onClick={() => setConfirm(toggleOperation)}
                 >
                   {preview.remote.enabled ? 'Disable' : 'Enable'} in SIEM
                 </Button>
