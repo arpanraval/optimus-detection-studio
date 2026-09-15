@@ -209,7 +209,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
     setResolvingRow(null);
     setImportError(null);
     try {
-      await nativeSiemService.dismissMatch(integration.id, row.vendor_rule_id);
+      await nativeSiemService.dismissMatch(integration.id, row.id);
       const source = await nativeSiemService.latestRun(integration.id, ['inventory']);
       if (!source) throw new Error('Fetch rules from CrowdStrike before importing');
       const started = await nativeSiemService.startImport({

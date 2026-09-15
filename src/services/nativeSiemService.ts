@@ -369,8 +369,11 @@ export const nativeSiemService = {
     if (error) throw new Error(error.message);
     return data.content as RuleContent;
   },
-  dismissMatch: (integrationId: string, vendorRuleId: string) =>
-    invoke<{ success: true }>({ action: 'native_dismiss_match', integrationId, vendorRuleId }),
+  /** remoteRuleId is the catalog row's own primary key (InventoryRow.id), not its
+   *  vendor_rule_id — the catalog's real uniqueness is (integration_id, provider_scope,
+   *  vendor_rule_id), so the row must be addressed by its own id, not by vendor_rule_id alone. */
+  dismissMatch: (integrationId: string, remoteRuleId: string) =>
+    invoke<{ success: true }>({ action: 'native_dismiss_match', integrationId, remoteRuleId }),
   matchCandidates: (integrationId: string, vendorRuleId: string) =>
     invoke<MatchCandidate[]>({ action: 'native_match_candidates', integrationId, vendorRuleId }),
   linkExisting: (args: {

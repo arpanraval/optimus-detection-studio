@@ -716,7 +716,7 @@ BEGIN
   PERFORM pg_temp.assert_true(item_status = 'skipped',
     'before dismissal, the item itself freezes skipped with the Match needed reason');
 
-  PERFORM public.siem_dismiss_match_candidates(actor, integration, 'link-rule-3');
+  PERFORM public.siem_dismiss_match_candidates(actor, integration, rule_c);
 
   SELECT relationship INTO relationship_after FROM public.siem_inventory_rows
     WHERE integration_id=integration AND vendor_rule_id='link-rule-3';
@@ -734,7 +734,7 @@ BEGIN
 
   -- Dismissing a rule that is already bound is refused, not silently accepted.
   BEGIN
-    PERFORM public.siem_dismiss_match_candidates(actor, integration, 'link-rule-1');
+    PERFORM public.siem_dismiss_match_candidates(actor, integration, rule_a);
     failed := false;
   EXCEPTION WHEN OTHERS THEN
     failed := true;
@@ -745,5 +745,46 @@ BEGIN
 
   UPDATE public.siem_sync_runs SET status='cancelled', completed_at=now(), lease_token=NULL, lease_expires_at=NULL
     WHERE id=inventory_run.id;
+
+  -- Regression guard for the exact defect the second review round caught: (integration_id,
+  -- vendor_rule_id) is NOT unique on its own -- the real constraint adds provider_scope. Two
+  -- catalog rows in the SAME integration sharing a vendor_rule_id under different scopes must
+  -- be addressed independently by siem_dismiss_match_candidates's p_remote_rule_id (the row's
+  -- own primary key), never conflated via vendor_rule_id.
+  DECLARE
+    rule_scope1 uuid; rule_scope2 uuid; snap_scope1 uuid; snap_scope2 uuid;
+    count_scope1_before integer; count_scope2_before integer;
+    count_scope1_after integer; count_scope2_after integer;
+  BEGIN
+    INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+      observed_enabled,availability,match_candidate_count)
+      VALUES(integration,'crowdstrike','scope-link-1','shared-vendor-id','Shared id, scope 1',true,'present',1)
+      RETURNING id INTO rule_scope1;
+    INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+      VALUES(rule_scope1,'test-v1','hash-shared-1','raw-shared-1','{}'::jsonb,'{}'::jsonb) RETURNING id INTO snap_scope1;
+    UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_scope1 WHERE id=rule_scope1;
+
+    INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+      observed_enabled,availability,match_candidate_count)
+      VALUES(integration,'crowdstrike','scope-link-2','shared-vendor-id','Shared id, scope 2',true,'present',1)
+      RETURNING id INTO rule_scope2;
+    INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+      VALUES(rule_scope2,'test-v1','hash-shared-2','raw-shared-2','{}'::jsonb,'{}'::jsonb) RETURNING id INTO snap_scope2;
+    UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_scope2 WHERE id=rule_scope2;
+
+    SELECT match_candidate_count INTO count_scope1_before FROM public.siem_remote_rules WHERE id=rule_scope1;
+    SELECT match_candidate_count INTO count_scope2_before FROM public.siem_remote_rules WHERE id=rule_scope2;
+    PERFORM pg_temp.assert_true(count_scope1_before = 1 AND count_scope2_before = 1,
+      'sanity: both same-vendor-id, different-scope rows start with a candidate count');
+
+    PERFORM public.siem_dismiss_match_candidates(actor, integration, rule_scope1);
+
+    SELECT match_candidate_count INTO count_scope1_after FROM public.siem_remote_rules WHERE id=rule_scope1;
+    SELECT match_candidate_count INTO count_scope2_after FROM public.siem_remote_rules WHERE id=rule_scope2;
+    PERFORM pg_temp.assert_true(count_scope1_after = 0,
+      'dismissing by remote_rule_id clears the targeted row');
+    PERFORM pg_temp.assert_true(count_scope2_after = 1,
+      'dismissing one scope''s row leaves the OTHER scope''s row -- same integration, same vendor_rule_id -- untouched');
+  END;
 END $$;
 ROLLBACK;

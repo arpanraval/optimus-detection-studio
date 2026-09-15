@@ -21,6 +21,7 @@ export type NativeRequest = {
   idempotencyKey?: string;
   runId?: string;
   vendorRuleId?: string;
+  remoteRuleId?: string;
   detectionId?: string;
   queryId?: string;
   detectionVersion?: number;
@@ -242,9 +243,9 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
   }
   if (body.action === 'native_dismiss_match') {
     const integration = await connection(deps, body.integrationId || '', actor);
-    if (!body.vendorRuleId) throw new Error('A CrowdStrike rule id is required');
+    if (!body.remoteRuleId) throw new Error('A catalog rule is required');
     checked(await deps.db.rpc('siem_dismiss_match_candidates', {
-      p_actor: actor, p_integration: integration.id, p_vendor_rule_id: body.vendorRuleId,
+      p_actor: actor, p_integration: integration.id, p_remote_rule_id: body.remoteRuleId,
     }));
     return { success: true };
   }

@@ -86,6 +86,7 @@ interface IntegrationRequest {
   queryId?: string
   detectionVersion?: number
   snapshotId?: string
+  remoteRuleId?: string
 }
 
 interface ConnectionTestResult {
