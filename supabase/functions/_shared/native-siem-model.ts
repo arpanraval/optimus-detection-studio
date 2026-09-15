@@ -131,7 +131,12 @@ export const PROVIDER_CAPABILITIES: Record<string, ProviderCapabilities> = {
     operations: [],
   },
   sentinel: {
-    readFamilies: ['analytics'],
+    // Real families qualified by the Sentinel reader (siem-readers/sentinel.ts): Scheduled is
+    // fully mapped and importable; NRT is read defensively and mapped best-effort (no
+    // queryFrequency/queryPeriod exists for it). Every other `kind` (Fusion,
+    // MicrosoftSecurityIncidentCreation, ThreatIntelligence, ...) stays outside readFamilies and
+    // is surfaced with an unsupported-family reason instead.
+    readFamilies: ['scheduled', 'nrt'],
     writeFamilies: [],
     operations: [],
   },

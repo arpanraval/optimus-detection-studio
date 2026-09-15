@@ -6,6 +6,7 @@ import { checkRateLimit } from '../_shared/rate-limiter.ts'
 import { handleNativeRequest, processNativeSync, applyNativeMutation } from '../_shared/native-siem-service.ts'
 import { resolveDeployTarget, deployRouteDecision, nativeOperationFor } from '../_shared/siem-deploy-target.ts'
 import { readSplunkCorrelationSearches, type SplunkEntry } from '../_shared/siem-readers/splunk.ts'
+import { readSentinelAlertRules, type SentinelRuleEntry } from '../_shared/siem-readers/sentinel.ts'
 import {
   buildCrowdStrikeQueries,
   isCrowdStrikeQueryRepository,
@@ -776,24 +777,57 @@ async function sentinelListRules(
   const token = await microsoftGetToken(tenantId, credentials.clientId, credentials.clientSecret, 'https://management.azure.com/.default')
 
   const baseUrl = `https://management.azure.com/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.OperationalInsights/workspaces/${workspaceName}/providers/Microsoft.SecurityInsights/alertRules`
+  const authorizedOrigin = new URL(baseUrl).origin
+  const headers = { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
 
-  const response = await withRetry(() =>
-    vendorFetch(`${baseUrl}?api-version=2025-06-01`, {
-      method: 'GET',
-      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
-    })
-  )
+  const outcome = await readSentinelAlertRules(async (url) => {
+    // G38: nextLink is only ever followed against the authorized ARM origin -- never trusted to
+    // redirect the bearer token to an attacker-controlled host.
+    if (new URL(url).origin !== authorizedOrigin) {
+      throw new Error('Sentinel returned a continuation URL outside the authorized workspace endpoint')
+    }
+    const response = await withRetry(() => vendorFetch(url, { method: 'GET', headers }))
+    if (!response.ok) throw new Error(`Sentinel list rules failed: ${response.status}`)
+    const data = await response.json()
+    return { value: (data.value ?? []) as SentinelRuleEntry[], nextLink: data.nextLink ?? null }
+  }, `${baseUrl}?api-version=2025-06-01`)
 
-  if (!response.ok) throw new Error(`Sentinel list rules failed: ${response.status}`)
-  const data = await response.json()
-  return (data.value || []).map((r: any) => ({
-    id: r.name,
-    name: r.properties?.displayName,
-    kind: r.kind,
-    severity: r.properties?.severity,
-    enabled: r.properties?.enabled,
-    query: r.properties?.query,
+  const supported = outcome.rules.map(rule => ({
+    id: rule.vendorRuleId,
+    armId: rule.armId,
+    name: rule.displayName,
+    kind: rule.kind,
+    severity: rule.severity,
+    enabled: rule.enabled,
+    query: rule.query,
+    language: rule.language,
+    queryFrequency: rule.queryFrequency,
+    queryPeriod: rule.queryPeriod,
+    triggerOperator: rule.triggerOperator,
+    triggerThreshold: rule.triggerThreshold,
+    tactics: rule.tactics,
+    techniques: rule.techniques,
+    entityMappings: rule.entityMappings,
+    eventGroupingSettings: rule.eventGroupingSettings,
+    incidentConfiguration: rule.incidentConfiguration,
+    alertDetailsOverride: rule.alertDetailsOverride,
+    customDetails: rule.customDetails,
+    suppressionEnabled: rule.suppressionEnabled,
+    suppressionDuration: rule.suppressionDuration,
+    alertRuleTemplateName: rule.alertRuleTemplateName,
+    templateVersion: rule.templateVersion,
+    unmappedFields: rule.unmappedFields,
+    // The preview always names the workspace, per the brief -- kept out of provider_scope but
+    // carried on every row so the UI never has to re-derive it.
+    workspace: workspaceName,
+    properties: rule.properties,
   }))
+  const unsupported = outcome.unsupported
+    .map(rule => ({
+      id: rule.vendorRuleId, armId: rule.armId, name: rule.displayName, kind: rule.kind,
+      unsupported: true, unsupportedReason: rule.reason, workspace: workspaceName,
+    }))
+  return [...supported, ...unsupported]
 }
 
 async function sentinelDeployRule(

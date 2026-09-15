@@ -150,6 +150,11 @@ export function providerEndpoint(provider: ImportProvider, config: Record<string
     }
 
     case 'sentinel': {
+      // CF1 verified against docs (recon-provider-apis.md section 2): matches
+      // `GET https://management.azure.com/subscriptions/{subscriptionId}/resourceGroups/
+      // {resourceGroupName}/providers/Microsoft.OperationalInsights/workspaces/{workspaceName}/
+      // providers/Microsoft.SecurityInsights/alertRules?api-version=2025-06-01` verbatim (the
+      // `alertRules?api-version=...` suffix is supplied by the reader, not baked into pathPrefix).
       const subscriptionId = requireString(config.subscriptionId, 'Sentinel requires a subscription ID to connect');
       const resourceGroup = requireString(config.resourceGroup, 'Sentinel requires a resource group to connect');
       const workspaceName = requireString(config.workspaceName, 'Sentinel requires a workspace name to connect');
