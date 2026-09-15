@@ -50,6 +50,25 @@ async function requireUnboundTarget(detectionId?: string, integrationId?: string
   if (data?.length) throw new Error('This rule is tracked in a SIEM — use Deploy to update it safely instead of the local dev proxy.');
 }
 
+/**
+ * Whether this exact connection already tracks a rule for this detection.
+ *
+ * The deploy path uses it to ROUTE rather than to refuse: a tracked rule is an update of something
+ * live, which only the server route can do safely, so it goes there in development as well as in a
+ * production build. Refusing instead left the Deploy button telling the user to press Deploy.
+ */
+async function hasActiveBinding(detectionId: string, integrationId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('siem_rule_bindings')
+    .select('id')
+    .eq('binding_status', 'active')
+    .eq('detection_id', detectionId)
+    .eq('integration_id', integrationId)
+    .limit(1);
+  if (error) throw new Error('Unable to verify production rule bindings');
+  return Boolean(data?.length);
+}
+
 const PREFLIGHT_POLL_INTERVAL_MS = 10_000;
 
 interface RunPreflightOptions {
@@ -2589,7 +2608,11 @@ export const integrationService = {
       );
     }
 
-    if (IS_DEV) {
+    // The dev proxy calls the vendor straight from the browser: no write gate, no drift check, no
+    // readback. A rule this connection already tracks is therefore the server route's to write, in
+    // development too -- otherwise the only UI route to update it dead-ends. Untracked targets keep
+    // the proxy, and requireUnboundTarget still refuses one bound anywhere else.
+    if (IS_DEV && !(await hasActiveBinding(params.detectionId, params.integrationId))) {
       await requireUnboundTarget(params.detectionId, params.integrationId, params.vendorRuleId);
 
       const { data: { user } } = await supabase.auth.getUser();
