@@ -1,7 +1,9 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { ADAPTER_VERSION, canonicalJson, contentHash, crowdStrikeScope, normalizeCrowdStrike, sanitizeSnapshot,
   classifyDrift, localContent, crowdStrikeUpdate, mutationBlockedReason,  NATIVE_OPERATIONS, type Json, type NativeOperation, type RuleContent } from './native-siem-model.ts';
-import { resolveProvider, providerEndpoint, providerScope, type ImportProvider } from './siem-providers.ts';
+import { resolveProvider, providerEndpoint, providerScope, adapterVersion, type ImportProvider } from './siem-providers.ts';
+import { fetchCrowdStrikeDiscoveryPage, crowdStrikeDetailPath } from './siem-readers/crowdstrike.ts';
+import { IMPORT_READERS, type ReaderCursor } from './siem-readers/import-readers.ts';
 
 type Dependencies = {
   db: SupabaseClient;
@@ -182,7 +184,7 @@ export async function readRuleDetails(
       if (requested) found.set(requested, raw);
     }
   };
-  collect(await request(`entities/rules/v1?${ids.map(id => `ids=${encodeURIComponent(id)}`).join('&')}`));
+  collect(await request(crowdStrikeDetailPath(ids)));
   let retries = 0;
   for (const id of ids) {
     if (found.has(id)) continue;
@@ -197,7 +199,7 @@ export async function readRuleDetails(
     // across the chunk would be actively misleading, so let it propagate: the chunk fails,
     // processNativeSync's fenced catch requeues with backoff, and the run gives up after 5
     // attempts rather than limping on with wrong labels.
-    collect(await request(`entities/rules/v1?ids=${encodeURIComponent(id)}`));
+    collect(await request(crowdStrikeDetailPath([id])));
     if (!found.has(id)) missing.set(id, DETAIL_UNREADABLE);
   }
   return { found, missing };
@@ -231,18 +233,27 @@ export async function processNativeSync(deps: Dependencies): Promise<{ processed
       throw new Error('Connection scope changed');
     }
     const request = await client(deps, integration);
-    let ids: string[] = [], next = run.cursor_offset, done = false;
+    const provider = resolveProvider(integration);
+    let ids: string[] = [], next = run.cursor_offset, nextToken: string | null = run.cursor_token ?? null, done = false;
     const results: Array<Record<string, Json>> = [];
     if (run.phase === 'discovery') {
-      const page = await request(`queries/rules/v1?limit=50&offset=${run.cursor_offset}`);
-      if (!Array.isArray(page.resources) || page.resources.some(id => typeof id !== 'string' || !id)) {
-        throw new Error('Invalid rule discovery response');
+      if (provider === 'crowdstrike') {
+        // Byte-for-byte the request this worker always issued: queries/rules/v1?limit=50&offset=.
+        const page = await fetchCrowdStrikeDiscoveryPage(request, run.cursor_offset);
+        ids = page.ids;
+        next = page.nextOffset;
+        done = page.done;
+      } else {
+        const reader = IMPORT_READERS[provider];
+        if (!reader) throw new Error(`Optimus does not yet support importing rules from ${provider}`);
+        const cursor: ReaderCursor = { offset: run.cursor_offset, token: run.cursor_token ?? null };
+        const page = await reader.discover(request, cursor);
+        ids = page.ids;
+        next = page.cursor.offset;
+        nextToken = page.cursor.token;
+        done = page.done;
       }
-      ids = page.resources as string[];
-      next += ids.length;
-      // An empty page establishes completion; do not trust a missing/unstable total as zero.
-      done = ids.length === 0;
-    } else {
+    } else if (provider === 'crowdstrike') {
       const items = checked(await deps.db.from('siem_sync_items').select('vendor_rule_id')
         .eq('run_id', run.id).eq('status', 'pending').order('vendor_rule_id').limit(10)) ?? [];
       const requested = items.map(item => item.vendor_rule_id as string);
@@ -279,16 +290,49 @@ export async function processNativeSync(deps: Dependencies): Promise<{ processed
           }
         }
       }
+    } else {
+      // The five non-CrowdStrike providers share one hydration path: each is read and normalized
+      // by its own registered reader, but the commit-shaped result item (id/content/raw/adapter/
+      // hash, or a distinguishable failure) is built the same way for all of them.
+      const reader = IMPORT_READERS[provider];
+      if (!reader) throw new Error(`Optimus does not yet support importing rules from ${provider}`);
+      const items = checked(await deps.db.from('siem_sync_items').select('vendor_rule_id')
+        .eq('run_id', run.id).eq('status', 'pending').order('vendor_rule_id').limit(10)) ?? [];
+      const requested = items.map(item => item.vendor_rule_id as string);
+      for (const id of requested) {
+        const outcome = await reader.readRule(request, integration.config, id);
+        if (outcome.status === 'ok') {
+          const sanitized = sanitizeSnapshot(outcome.raw) as Record<string, Json>;
+          if (kind === 'inventory') {
+            results.push({ id, name: outcome.name, content: outcome.content as unknown as Json, raw: sanitized,
+              adapter: adapterVersion(provider), hash: await contentHash(outcome.content as unknown as Json),
+              raw_hash: await contentHash(sanitized), enabled: outcome.content.enabled, family: outcome.family });
+          } else {
+            results.push({ id, content: outcome.content as unknown as Json, raw: sanitized,
+              adapter: adapterVersion(provider), hash: await contentHash(outcome.content as unknown as Json),
+              raw_hash: await contentHash(sanitized) });
+          }
+        } else if (outcome.status === 'unsupported') {
+          results.push({ id, status: 'unsupported', error: outcome.error,
+            ...(kind === 'inventory' ? { name: id, family: 'unknown' } : {}) });
+        } else {
+          // not_found / access_denied / temporary_failure all say something different happened,
+          // but none of them are evidence the rule is gone -- 'failed' is the same non-committal
+          // outcome CrowdStrike's own unreadable-detail path already reports, never an empty
+          // successful page.
+          results.push({ id, status: 'failed', error: outcome.error });
+        }
+      }
     }
     if (kind === 'inventory') {
       checked(await deps.db.rpc('siem_commit_inventory_chunk', { p_run: run.id, p_lease: run.lease_token,
-        p_ids: ids, p_next: next, p_discovery_complete: done, p_results: results }));
+        p_ids: ids, p_next: next, p_discovery_complete: done, p_results: results, p_next_token: nextToken }));
     } else if (kind === 'import_selection') {
       checked(await deps.db.rpc('siem_commit_import_chunk', { p_run: run.id, p_lease: run.lease_token,
         p_results: results }));
     } else {
       checked(await deps.db.rpc('siem_commit_chunk', { p_run: run.id, p_lease: run.lease_token,
-        p_ids: ids, p_next: next, p_discovery_complete: done, p_results: results }));
+        p_ids: ids, p_next: next, p_discovery_complete: done, p_results: results, p_next_token: nextToken }));
     }
   } catch (error) {
     // Fenced failure: an expired worker cannot change a replacement worker's state.

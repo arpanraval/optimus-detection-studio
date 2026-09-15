@@ -141,7 +141,7 @@ BEGIN
   PERFORM pg_temp.assert_true(public.siem_can_import(actor,splunk_integration),'authorized owner can import from a Splunk connection');
 END $$;
 
-SELECT pg_temp.assert_true(NOT has_function_privilege('authenticated','public.siem_commit_chunk(uuid,uuid,text[],integer,boolean,jsonb)','execute'),'client cannot forge import');
+SELECT pg_temp.assert_true(NOT has_function_privilege('authenticated','public.siem_commit_chunk(uuid,uuid,text[],integer,boolean,jsonb,text)','execute'),'client cannot forge import');
 SELECT pg_temp.assert_true(NOT has_table_privilege('authenticated','public.siem_rule_snapshots','truncate'),'client cannot truncate snapshots');
 SELECT pg_temp.assert_true(NOT has_table_privilege('anon','public.siem_rule_snapshots','select'),'anon cannot read snapshots');
 SET LOCAL ROLE authenticated;

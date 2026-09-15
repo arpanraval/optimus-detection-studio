@@ -9893,6 +9893,11 @@ CREATE TABLE public.siem_sync_runs (
   status text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','complete','partial','failed','cancelled')),
   phase text NOT NULL DEFAULT 'discovery' CHECK (phase IN ('discovery','hydration')),
   cursor_offset integer NOT NULL DEFAULT 0,
+  -- Opaque continuation cursor for providers that page by URL/token rather than by integer
+  -- offset (Sentinel/Defender's nextLink, Chronicle's pageToken). cursor_offset stays the home
+  -- for offset/page-number providers (CrowdStrike, Splunk, Elastic); this column is simply
+  -- never written for them, so their behaviour is unchanged.
+  cursor_token text,
   discovery_complete boolean NOT NULL DEFAULT false,
   lease_token uuid,
   lease_expires_at timestamptz,
@@ -10105,7 +10110,7 @@ RETURNS text LANGUAGE sql IMMUTABLE AS $$
 $$;
 
 CREATE OR REPLACE FUNCTION public.siem_commit_chunk(p_run uuid, p_lease uuid, p_ids text[], p_next integer,
-  p_discovery_complete boolean, p_results jsonb)
+  p_discovery_complete boolean, p_results jsonb, p_next_token text DEFAULT NULL)
 RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
 DECLARE r siem_sync_runs; item jsonb; b siem_rule_bindings; snap uuid; d detections;
   qid text; did text; candidates text[]; c jsonb; outcome text; old_hash text; prov text; qlang text;
@@ -10118,7 +10123,7 @@ BEGIN
   SELECT provider INTO prov FROM integrations WHERE id=r.integration_id;
   IF r.phase='discovery' THEN
     INSERT INTO siem_sync_items(run_id,vendor_rule_id) SELECT r.id, unnest(p_ids) ON CONFLICT DO NOTHING;
-    UPDATE siem_sync_runs SET cursor_offset=p_next, discovery_complete=p_discovery_complete,
+    UPDATE siem_sync_runs SET cursor_offset=p_next, cursor_token=p_next_token, discovery_complete=p_discovery_complete,
       phase=CASE WHEN p_discovery_complete THEN 'hydration' ELSE 'discovery' END WHERE id=r.id;
   ELSE
     FOR item IN SELECT value FROM jsonb_array_elements(p_results) LOOP
@@ -10262,9 +10267,9 @@ REVOKE ALL ON FUNCTION siem_private.guard_detection() FROM PUBLIC, anon, authent
 CREATE TRIGGER siem_detection_revision BEFORE UPDATE ON public.detections FOR EACH ROW EXECUTE FUNCTION siem_private.guard_detection();
 
 REVOKE ALL ON FUNCTION public.siem_can_import(uuid,uuid), public.siem_start_sync(uuid,uuid,text), public.siem_claim_sync(),
-  public.siem_commit_chunk(uuid,uuid,text[],integer,boolean,jsonb) FROM PUBLIC, anon, authenticated;
+  public.siem_commit_chunk(uuid,uuid,text[],integer,boolean,jsonb,text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.siem_can_import(uuid,uuid), public.siem_start_sync(uuid,uuid,text), public.siem_claim_sync(),
-  public.siem_commit_chunk(uuid,uuid,text[],integer,boolean,jsonb) TO service_role;
+  public.siem_commit_chunk(uuid,uuid,text[],integer,boolean,jsonb,text) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.siem_accept_remote(p_actor uuid,p_binding uuid,p_snapshot uuid,p_version integer,p_hash text)
 RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path=public AS $$
@@ -10925,7 +10930,7 @@ BEGIN
 END $$;
 
 CREATE OR REPLACE FUNCTION public.siem_commit_inventory_chunk(p_run uuid, p_lease uuid, p_ids text[],
-  p_next integer, p_discovery_complete boolean, p_results jsonb)
+  p_next integer, p_discovery_complete boolean, p_results jsonb, p_next_token text DEFAULT NULL)
 RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
 DECLARE r siem_sync_runs; item jsonb; rr siem_remote_rules; snap uuid; cand integer; prov text;
 BEGIN
@@ -10939,7 +10944,7 @@ BEGIN
 
   IF r.phase = 'discovery' THEN
     INSERT INTO siem_sync_items(run_id, vendor_rule_id) SELECT r.id, unnest(p_ids) ON CONFLICT DO NOTHING;
-    UPDATE siem_sync_runs SET cursor_offset = p_next, discovery_complete = p_discovery_complete,
+    UPDATE siem_sync_runs SET cursor_offset = p_next, cursor_token = p_next_token, discovery_complete = p_discovery_complete,
       phase = CASE WHEN p_discovery_complete THEN 'hydration' ELSE 'discovery' END WHERE id = r.id;
   ELSE
     FOR item IN SELECT value FROM jsonb_array_elements(p_results) LOOP
@@ -11069,9 +11074,9 @@ BEGIN
 END $$;
 
 REVOKE ALL ON FUNCTION public.siem_start_inventory(uuid,uuid,text),
-  public.siem_commit_inventory_chunk(uuid,uuid,text[],integer,boolean,jsonb) FROM PUBLIC, anon, authenticated;
+  public.siem_commit_inventory_chunk(uuid,uuid,text[],integer,boolean,jsonb,text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.siem_start_inventory(uuid,uuid,text),
-  public.siem_commit_inventory_chunk(uuid,uuid,text[],integer,boolean,jsonb) TO service_role;
+  public.siem_commit_inventory_chunk(uuid,uuid,text[],integer,boolean,jsonb,text) TO service_role;
 
 -- Re-observe rules already tracked in the library. Creates no detections: every queued id
 -- already has an active binding.
