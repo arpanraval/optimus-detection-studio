@@ -59,6 +59,16 @@ const DETAIL_UNREADABLE = 'CrowdStrike did not return this rule. It may have bee
   'may be a rule type this connection cannot read.';
 const MAX_DETAIL_RETRIES_PER_CHUNK = 10;
 
+/** CrowdStrike's list endpoint (`queries/rules/v1`) returns a rule's STABLE identity, but the
+ *  entity endpoint returns a rule that has been edited past version 1 with `id` set to the
+ *  CURRENT VERSION's id and `rule_id` holding that stable identity. A version-1 rule has the two
+ *  equal, which is why this only ever bites edited rules. EVERY read of an entity response has to
+ *  accept either field -- hydration, mutation preflight, readback and delete verification alike --
+ *  or an edited rule looks absent to whichever site still compares `id` alone. */
+export function matchesVendorRule(raw: Record<string, Json> | undefined, vendorRuleId: string): boolean {
+  return raw?.id === vendorRuleId || raw?.rule_id === vendorRuleId;
+}
+
 /** A batch detail read that returns fewer resources than requested is not evidence of deletion.
  *  Retry each omitted id once on its own before recording it as unreadable. Retries are capped at
  *  MAX_DETAIL_RETRIES_PER_CHUNK per call; ids beyond the cap are left out of both maps entirely so
@@ -70,17 +80,13 @@ export async function readRuleDetails(
   const found = new Map<string, Record<string, Json>>();
   const missing = new Map<string, string>();
   if (!ids.length) return { found, missing };
-  /** CrowdStrike's list endpoint (`queries/rules/v1`) returns a rule's STABLE identity, but the
-   *  entity endpoint returns a rule that has been edited past version 1 with `id` set to the
-   *  CURRENT VERSION's id and `rule_id` holding that stable identity. A version-1 rule has the two
-   *  equal, which is why this only ever bit edited rules. Match on either and key the result under
-   *  the id we asked for, so the caller's identity stays the stable one. */
+  /** Keyed under the id we asked for, so the caller's identity stays the stable one even when
+   *  CrowdStrike answers with a version id (see matchesVendorRule). */
   const collect = (response: Record<string, Json>) => {
     if (!Array.isArray(response.resources)) throw new Error('Invalid rule detail response');
     for (const raw of response.resources as Record<string, Json>[]) {
-      const requested = [raw?.id, raw?.rule_id]
-        .find(value => typeof value === 'string' && ids.includes(value));
-      if (typeof requested === 'string') found.set(requested, raw);
+      const requested = ids.find(id => matchesVendorRule(raw, id));
+      if (requested) found.set(requested, raw);
     }
   };
   collect(await request(`entities/rules/v1?${ids.map(id => `ids=${encodeURIComponent(id)}`).join('&')}`));
@@ -321,7 +327,7 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
     const request = await client(deps, integration);
     const read = async () => {
       const response = await request(`entities/rules/v1?ids=${encodeURIComponent(binding.vendor_rule_id)}`);
-      const raw = (response.resources as Record<string, Json>[])?.find(row => row.id === binding.vendor_rule_id);
+      const raw = (response.resources as Record<string, Json>[])?.find(row => matchesVendorRule(row, binding.vendor_rule_id));
       if (!raw) throw new Error('Rule is missing in production; automatic recreation is disabled');
       return { raw, content: normalizeCrowdStrike(raw) };
     };
@@ -336,7 +342,7 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
     let after: { raw: Record<string, Json>; content: RuleContent } | null = null;
     if (body.operation === 'delete') {
       const response = await request(`entities/rules/v1?ids=${encodeURIComponent(binding.vendor_rule_id)}`);
-      if (!Array.isArray(response.resources) || response.resources.some(row => (row as Record<string, Json>).id === binding.vendor_rule_id)) {
+      if (!Array.isArray(response.resources) || response.resources.some(row => matchesVendorRule(row as Record<string, Json>, binding.vendor_rule_id))) {
         throw new Error('Deletion could not be verified');
       }
     } else {

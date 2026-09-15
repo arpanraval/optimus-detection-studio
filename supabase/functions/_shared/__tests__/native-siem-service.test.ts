@@ -88,6 +88,25 @@ describe('native production mutation boundary', () => {
     expect(deps.fetch.mock.calls.some(([, request]) => request.method === 'POST')).toBe(false);
     expect(rpc).toHaveBeenCalledWith('siem_finish_deployment', expect.objectContaining({ p_operation: 'operation-id' }));
   });
+  // Same stable-identity trap the hydration reader hit: an edited rule comes back from the
+  // entity endpoint under its CURRENT VERSION's `id`, with the stable id in `rule_id`. Matching
+  // `id` alone made preflight declare a present rule missing, so no edited rule could ever be
+  // updated -- and made delete verification accept a rule that is still there.
+  it('finds an edited rule returned under its version id during preflight', async () => {
+    const versionId = 'version-of-remote-1';
+    const { deps, hash } = await fixture({ enabled: true, resource: [{ ...raw, id: versionId, rule_id: raw.id }] });
+    await handleNativeRequest(deps, { action: 'native_apply', bindingId: 'binding', expectedHash: hash, expectedVersion: 1 }, 'owner');
+    const writes = deps.fetch.mock.calls.filter(([, request]) => request.method === 'PATCH');
+    expect(writes).toHaveLength(1);
+    // The write still addresses the stable identity we track, never the version id.
+    expect(JSON.parse(String(writes[0][1].body))[0].id).toBe(raw.id);
+  });
+  it('refuses to confirm a deletion when the rule is still returned under its version id', async () => {
+    const { deps, hash, rpc } = await fixture({ enabled: true, resource: [{ ...raw, id: 'version-of-remote-1', rule_id: raw.id }] });
+    await expect(handleNativeRequest(deps, { action: 'native_apply', operation: 'delete', bindingId: 'binding',
+      expectedHash: hash, expectedVersion: 1 }, 'owner')).rejects.toThrow('Deletion could not be verified');
+    expect(rpc).toHaveBeenCalledWith('siem_fail_deployment', expect.objectContaining({ p_uncertain: true }));
+  });
   it('records uncertainty when a write fails instead of blindly retrying', async () => {
     const { deps, hash, rpc } = await fixture({ enabled: true });
     deps.fetch.mockImplementation(async (_url, request) => {
