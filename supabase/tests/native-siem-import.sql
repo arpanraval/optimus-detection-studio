@@ -823,6 +823,74 @@ BEGIN
   END;
 END $$;
 
+-- Task 5: matching and linking are provider-neutral. A Splunk remote rule offers only a
+-- library rule with a compatible (SPL) query as a candidate -- never a CQL-only one, even with
+-- matching evidence -- and linking it writes a splunk/SPL binding without touching the linked
+-- detection's own source or id.
+INSERT INTO auth.users(id,email) VALUES
+  ('24000000-0000-0000-0000-000000000001','match-splunk-owner@example.test');
+INSERT INTO public.profiles(id,role,status) VALUES
+  ('24000000-0000-0000-0000-000000000001','admin','active')
+  ON CONFLICT(id) DO UPDATE SET role='admin',status='active';
+INSERT INTO public.integrations(id,user_id,name,provider,category,status,config,auth_type) VALUES
+  ('25000000-0000-0000-0000-000000000001','24000000-0000-0000-0000-000000000001',
+   'Splunk match-resolution fixture','splunk','siem','connected','{}','oauth2_client_credentials');
+
+DO $$
+DECLARE actor uuid := '24000000-0000-0000-0000-000000000001';
+  integration uuid := '25000000-0000-0000-0000-000000000001';
+  rule_s uuid; snap_s uuid; candidate_ids text[]; binding_s public.siem_rule_bindings;
+  src_after text; id_after text;
+BEGIN
+  -- A CQL-only detection sharing the same legacy external_id: must never be offered, because
+  -- CQL is not a compatible query language for a Splunk connection.
+  INSERT INTO public.detections(id,user_id,version,name,description,status,"detectionType",severity,
+    "logSource",technology,"testedAndValidated","queryLanguage","detectionQuery","updatedDate",queries,
+    library_type,promotion_status,review_status,source,external_id)
+  VALUES('link-splunk-cql-only',actor,1,'CQL-only rule','Wrong language for this connection','Draft','Detection','High',
+    '','',false,'CQL','#event_simpleName=ProcessRollup2',now(),
+    jsonb_build_array(jsonb_build_object('id','qcql1','language','CQL','query','#event_simpleName=ProcessRollup2',
+      'isPrimary',true,'createdDate',now(),'updatedDate',now())),
+    'production','none','none','github','link-splunk-rule-1');
+
+  -- A production rule with a matching SPL query and the same legacy external_id: the only
+  -- eligible candidate for this Splunk connection.
+  INSERT INTO public.detections(id,user_id,version,name,description,status,"detectionType",severity,
+    "logSource",technology,"testedAndValidated","queryLanguage","detectionQuery","updatedDate",queries,
+    library_type,promotion_status,review_status,source,external_id)
+  VALUES('link-splunk-spl',actor,1,'Splunk match rule','Correct language for this connection','Draft','Detection','High',
+    '','',false,'SPL','search index=main sourcetype=auth',now(),
+    jsonb_build_array(jsonb_build_object('id','qspl1','language','SPL','query','search index=main sourcetype=auth',
+      'isPrimary',true,'createdDate',now(),'updatedDate',now())),
+    'production','none','none','github','link-splunk-rule-1');
+
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'splunk','scope-splunk-link-1','link-splunk-rule-1','Splunk match rule',true,'present')
+    RETURNING id INTO rule_s;
+  INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+    VALUES(rule_s,'test-splunk-v1','hash-splunk-link','raw-splunk-link',
+      jsonb_build_object('name','Splunk match rule','description','','query','search index=main sourcetype=auth',
+        'language','SPL','severity','High','enabled',true,'config','{}'::jsonb),
+      '{}'::jsonb)
+    RETURNING id INTO snap_s;
+  UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_s WHERE id=rule_s;
+
+  SELECT array_agg(detection_id) INTO candidate_ids FROM public.siem_match_candidates(actor,integration,'link-splunk-rule-1');
+  PERFORM pg_temp.assert_true('link-splunk-spl' = ANY(candidate_ids),
+    'the SPL-query detection is offered as a candidate for a Splunk connection');
+  PERFORM pg_temp.assert_true(NOT ('link-splunk-cql-only' = ANY(coalesce(candidate_ids,'{}'::text[]))),
+    'a CQL-only detection is never offered for a Splunk connection, despite matching evidence');
+
+  SELECT * INTO binding_s FROM public.siem_link_existing(actor,integration,'link-splunk-rule-1','link-splunk-spl','qspl1',1,snap_s);
+  PERFORM pg_temp.assert_true(binding_s.provider = 'splunk' AND binding_s.query_language = 'SPL',
+    'linking a Splunk rule writes a splunk/SPL binding');
+
+  SELECT source, id INTO src_after, id_after FROM public.detections WHERE id='link-splunk-spl';
+  PERFORM pg_temp.assert_true(src_after = 'github' AND id_after = 'link-splunk-spl',
+    'linking never rewrites the linked detection''s own source or id');
+END $$;
+
 -- Hardening milestone 1: a selection is bound to the scan it was reviewed in. An identity the
 -- source run never observed cannot be imported at all; the frozen content is the revision that
 -- run saw, not whatever the catalog holds at submit time; a rule that has since gone missing is

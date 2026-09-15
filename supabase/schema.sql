@@ -10624,10 +10624,13 @@ CREATE OR REPLACE FUNCTION public.siem_match_candidates(p_actor uuid, p_integrat
 RETURNS TABLE(detection_id text, detection_name text, evidence text, query_id text, query_language text,
   query_text text, detection_version integer)
 LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = public AS $$
+DECLARE prov text; qlang text;
 BEGIN
   IF NOT (siem_can_import(p_actor, p_integration) AND siem_can_edit(p_actor)) THEN
     RETURN;
   END IF;
+  SELECT provider INTO prov FROM integrations WHERE id = p_integration;
+  qlang := siem_provider_query_language(prov);
   RETURN QUERY
   WITH deployed AS (
     SELECT DISTINCT h.detection_id
@@ -10655,7 +10658,7 @@ BEGIN
     FROM evidenced e
     JOIN detections d ON d.id = e.detection_id AND d.user_id = p_actor AND d.library_type = 'production'
     CROSS JOIN LATERAL jsonb_array_elements(d.queries) q
-   WHERE q ->> 'language' = 'CQL' AND length(trim(q ->> 'query')) > 0;
+   WHERE q ->> 'language' = qlang AND length(trim(q ->> 'query')) > 0;
 END;
 $$;
 REVOKE ALL ON FUNCTION public.siem_match_candidates(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
@@ -10678,12 +10681,15 @@ DECLARE
   b siem_rule_bindings;
   new_snap uuid;
   evidence text;
+  prov text;
+  qlang text;
 BEGIN
   IF NOT (siem_can_import(p_actor, p_integration) AND siem_can_edit(p_actor)) THEN
     RAISE EXCEPTION 'Linking this rule needs permission to import from this connection and edit the target rule';
   END IF;
 
-  PERFORM 1 FROM integrations WHERE id = p_integration FOR UPDATE;
+  SELECT provider INTO prov FROM integrations WHERE id = p_integration FOR UPDATE;
+  qlang := siem_provider_query_language(prov);
 
   SELECT * INTO d FROM detections WHERE id = p_detection FOR UPDATE;
   IF NOT FOUND OR d.user_id <> p_actor OR d.version <> p_detection_version THEN
@@ -10692,9 +10698,9 @@ BEGIN
 
   SELECT count(*), max(q ->> 'query') INTO qcount, qtext
     FROM jsonb_array_elements(d.queries) q
-   WHERE q ->> 'id' = p_query_id AND q ->> 'language' = 'CQL' AND length(trim(q ->> 'query')) > 0;
+   WHERE q ->> 'id' = p_query_id AND q ->> 'language' = qlang AND length(trim(q ->> 'query')) > 0;
   IF qcount <> 1 THEN
-    RAISE EXCEPTION 'Choose the query this CrowdStrike rule corresponds to';
+    RAISE EXCEPTION 'Choose the query this rule corresponds to';
   END IF;
 
   -- A matching name alone never authorises a link: re-derive evidence server-side rather than
@@ -10724,19 +10730,19 @@ BEGIN
      AND id = (SELECT remote_rule_id FROM siem_remote_rule_snapshots WHERE id = p_snapshot)
    FOR UPDATE;
   IF NOT FOUND OR rr.latest_snapshot_id IS DISTINCT FROM p_snapshot THEN
-    RAISE EXCEPTION 'The rule changed in CrowdStrike. Fetch rules again.';
+    RAISE EXCEPTION 'The rule changed in the SIEM. Fetch rules again.';
   END IF;
   SELECT * INTO rrs FROM siem_remote_rule_snapshots WHERE id = p_snapshot AND remote_rule_id = rr.id;
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'The rule changed in CrowdStrike. Fetch rules again.';
+    RAISE EXCEPTION 'The rule changed in the SIEM. Fetch rules again.';
   END IF;
 
   BEGIN
     INSERT INTO siem_rule_bindings(
       detection_id, integration_id, provider, provider_scope, vendor_rule_id,
       selected_query_id, query_language, desired_content)
-    VALUES(p_detection, p_integration, 'crowdstrike', rr.provider_scope, p_vendor_rule_id,
-      p_query_id, 'CQL', rrs.content)
+    VALUES(p_detection, p_integration, prov, rr.provider_scope, p_vendor_rule_id,
+      p_query_id, qlang, rrs.content)
     RETURNING * INTO b;
   EXCEPTION WHEN unique_violation THEN
     RAISE EXCEPTION 'This rule is already linked to a library rule.';
