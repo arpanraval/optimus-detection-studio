@@ -120,6 +120,33 @@ export const PROVIDER_CAPABILITIES: Record<string, ProviderCapabilities> = {
     writeFamilies: ['correlation'],
     operations: ['update', 'enable', 'disable', 'delete'],
   },
+  // The five providers below are read/import-only: P5 (production writes) is out of scope for
+  // this entire project, so every one of them declares no writeFamilies and no operations.
+  splunk: {
+    readFamilies: ['savedsearch'],
+    writeFamilies: [],
+    operations: [],
+  },
+  sentinel: {
+    readFamilies: ['analytics'],
+    writeFamilies: [],
+    operations: [],
+  },
+  elastic: {
+    readFamilies: ['query'],
+    writeFamilies: [],
+    operations: [],
+  },
+  defender_xdr: {
+    readFamilies: ['detection'],
+    writeFamilies: [],
+    operations: [],
+  },
+  chronicle: {
+    readFamilies: ['rule'],
+    writeFamilies: [],
+    operations: [],
+  },
 };
 
 export function providerCapabilities(provider: string | null | undefined): ProviderCapabilities {

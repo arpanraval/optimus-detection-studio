@@ -158,10 +158,12 @@ describe('native SIEM content contracts', () => {
     // deliberately not a capability: two providers accepting the same query text says nothing
     // about whether their deployment payloads round-trip losslessly.
     it('grants no capability to a provider that has not been qualified', () => {
-      expect(providerCapabilities('splunk')).toEqual({ readFamilies: [], writeFamilies: [], operations: [] });
+      // 'splunk' is now a registered import provider (read-only), so this uses a provider name
+      // that has never appeared in PROVIDER_CAPABILITIES to exercise the true absent-provider path.
+      expect(providerCapabilities('jira')).toEqual({ readFamilies: [], writeFamilies: [], operations: [] });
       expect(providerCapabilities(null)).toEqual({ readFamilies: [], writeFamilies: [], operations: [] });
-      expect(mutationBlockedReason('update', { ...open, provider: 'splunk' }))
-        .toMatch(/cannot update rules in splunk/);
+      expect(mutationBlockedReason('update', { ...open, provider: 'jira' }))
+        .toMatch(/cannot update rules in jira/);
     });
 
     it('allows an update that has something to send', () => {
