@@ -3,7 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import { getCorsHeaders, handleCorsPreflight, corsErrorResponse } from '../_shared/cors.ts'
 import { validateUrl } from '../_shared/url-validator.ts'
 import { checkRateLimit } from '../_shared/rate-limiter.ts'
-import { handleNativeRequest, processNativeSync, applyNativeMutation } from '../_shared/native-siem-service.ts'
+import { handleNativeRequest, processNativeSync, applyNativeMutation, validateContinuationUrl } from '../_shared/native-siem-service.ts'
 import { resolveDeployTarget, deployRouteDecision, nativeOperationFor } from '../_shared/siem-deploy-target.ts'
 import { readSplunkCorrelationSearches, type SplunkEntry } from '../_shared/siem-readers/splunk.ts'
 import { readSentinelAlertRules, type SentinelRuleEntry } from '../_shared/siem-readers/sentinel.ts'
@@ -780,15 +780,14 @@ async function sentinelListRules(
   const token = await microsoftGetToken(tenantId, credentials.clientId, credentials.clientSecret, 'https://management.azure.com/.default')
 
   const baseUrl = `https://management.azure.com/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.OperationalInsights/workspaces/${workspaceName}/providers/Microsoft.SecurityInsights/alertRules`
-  const authorizedOrigin = new URL(baseUrl).origin
   const headers = { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
 
   const outcome = await readSentinelAlertRules(async (url) => {
     // G38: nextLink is only ever followed against the authorized ARM origin -- never trusted to
-    // redirect the bearer token to an attacker-controlled host.
-    if (new URL(url).origin !== authorizedOrigin) {
-      throw new Error('Sentinel returned a continuation URL outside the authorized workspace endpoint')
-    }
+    // redirect the bearer token to an attacker-controlled host. Shared with the durable importer
+    // (native-siem-service.ts) rather than reimplemented here, so a future hardening fix to the
+    // check lands in one place instead of two that can drift apart.
+    validateContinuationUrl(url, baseUrl)
     const response = await withRetry(() => vendorFetch(url, { method: 'GET', headers }))
     if (!response.ok) throw new Error(`Sentinel list rules failed: ${response.status}`)
     const data = await response.json()
@@ -1036,7 +1035,6 @@ async function defenderXdrListRules(
   }
   const tenantId = config.tenantId as string
   const token = await microsoftGetToken(tenantId, credentials.clientId, credentials.clientSecret, GRAPH_DEFENDER_SCOPE)
-  const authorizedOrigin = new URL(GRAPH_DEFENDER_BASE).origin
   const headers = { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
 
   // `isEnabled` and `schedule.period` are deprecated by Microsoft, removed 2026-10-01 (Graph beta
@@ -1046,10 +1044,10 @@ async function defenderXdrListRules(
   // here executes a response/automated action.
   const outcome = await readDefenderXdrRules(async (url) => {
     // G38: nextLink is only ever followed against the authorized Graph origin -- never trusted to
-    // redirect the bearer token to an attacker-controlled host.
-    if (new URL(url).origin !== authorizedOrigin) {
-      throw new Error('Defender XDR returned a continuation URL outside the authorized Graph endpoint')
-    }
+    // redirect the bearer token to an attacker-controlled host. Shared with the durable importer
+    // (native-siem-service.ts) rather than reimplemented here, so a future hardening fix to the
+    // check lands in one place instead of two that can drift apart.
+    validateContinuationUrl(url, GRAPH_DEFENDER_BASE)
     const response = await withRetry(() => vendorFetch(url, { method: 'GET', headers }))
     if (!response.ok) throw new Error(`Defender XDR list rules failed: ${response.status}`)
     const data = await response.json()
