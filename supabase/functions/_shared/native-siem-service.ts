@@ -129,14 +129,14 @@ export async function processNativeSync(deps: Dependencies): Promise<{ processed
       done = ids.length === 0;
     } else {
       const items = checked(await deps.db.from('siem_sync_items').select('vendor_rule_id')
-        .eq('run_id', run.id).eq('status', 'pending').order('vendor_rule_id').limit(10));
+        .eq('run_id', run.id).eq('status', 'pending').order('vendor_rule_id').limit(10)) ?? [];
       const requested = items.map(item => item.vendor_rule_id as string);
       if (requested.length) {
         const { found: byId, missing } = await readRuleDetails(request, requested);
         if (kind === 'inventory') {
           for (const id of requested) {
             const raw = byId.get(id);
-            if (!raw) { if (missing.has(id)) results.push({ id, status: 'failed', error: missing.get(id) }); continue; }
+            if (!raw) { const reason = missing.get(id); if (reason) results.push({ id, status: 'failed', error: reason }); continue; }
             const sanitized = sanitizeSnapshot(raw) as Record<string, Json>;
             const name = typeof sanitized.name === 'string' ? sanitized.name : id;
             try {
@@ -152,7 +152,7 @@ export async function processNativeSync(deps: Dependencies): Promise<{ processed
         } else {
           for (const id of requested) {
             const raw = byId.get(id);
-            if (!raw) { if (missing.has(id)) results.push({ id, status: 'failed', error: missing.get(id) }); continue; }
+            if (!raw) { const reason = missing.get(id); if (reason) results.push({ id, status: 'failed', error: reason }); continue; }
             try {
               const sanitized = sanitizeSnapshot(raw) as Record<string, Json>;
               const content = normalizeCrowdStrike(sanitized);
@@ -194,7 +194,7 @@ async function boundRule(deps: Dependencies, bindingId: string, actor: string) {
   if (crowdStrikeScope(integration.config) !== binding.provider_scope) throw new Error('Connection scope changed');
   const detection = checked(await deps.db.from('detections').select('*').eq('id', binding.detection_id).single());
   const snapshots = checked(await deps.db.from('siem_rule_snapshots').select('*')
-    .in('id', [binding.baseline_snapshot_id, binding.latest_remote_snapshot_id]));
+    .in('id', [binding.baseline_snapshot_id, binding.latest_remote_snapshot_id])) ?? [];
   const baseline = snapshots.find(s => s.id === binding.baseline_snapshot_id);
   const remote = snapshots.find(s => s.id === binding.latest_remote_snapshot_id);
   if (!baseline || !remote) throw new Error('Sync this rule before reviewing changes');
