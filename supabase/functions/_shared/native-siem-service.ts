@@ -20,6 +20,11 @@ export type NativeRequest = {
   sourceRunId?: string;
   idempotencyKey?: string;
   runId?: string;
+  vendorRuleId?: string;
+  detectionId?: string;
+  queryId?: string;
+  detectionVersion?: number;
+  snapshotId?: string;
 };
 
 function checked<T>(result: { data: T; error: { message: string } | null }): T {
@@ -227,6 +232,24 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
       p_actor: actor, p_integration: integration.id, p_source_run: body.sourceRunId,
       p_ids: body.allMatching ? [] : ids, p_exclude: body.excludeIds || [],
       p_all_matching: Boolean(body.allMatching), p_idempotency: body.idempotencyKey }));
+  }
+  if (body.action === 'native_match_candidates') {
+    const integration = await connection(deps, body.integrationId || '', actor);
+    if (!body.vendorRuleId) throw new Error('A CrowdStrike rule id is required');
+    return checked(await deps.db.rpc('siem_match_candidates', {
+      p_actor: actor, p_integration: integration.id, p_vendor_rule_id: body.vendorRuleId,
+    }));
+  }
+  if (body.action === 'native_link_existing') {
+    const integration = await connection(deps, body.integrationId || '', actor);
+    if (!body.vendorRuleId || !body.detectionId || !body.queryId || body.detectionVersion == null || !body.snapshotId) {
+      throw new Error('Choose a library rule and query to link');
+    }
+    return checked(await deps.db.rpc('siem_link_existing', {
+      p_actor: actor, p_integration: integration.id, p_vendor_rule_id: body.vendorRuleId,
+      p_detection: body.detectionId, p_query_id: body.queryId, p_detection_version: body.detectionVersion,
+      p_snapshot: body.snapshotId,
+    }));
   }
   const state = await boundRule(deps, body.bindingId || '', actor);
   const { binding, detection, baseline, remote, local, integration } = state;

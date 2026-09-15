@@ -530,4 +530,143 @@ BEGIN
   UPDATE public.siem_sync_runs SET status='cancelled', completed_at=now(), lease_token=NULL, lease_expires_at=NULL
     WHERE id=run.id;
 END $$;
+
+-- Task 12: siem_match_candidates / siem_link_existing resolve a match_needed catalog row
+-- without rewriting the target detection's own identity.
+INSERT INTO auth.users(id,email) VALUES
+  ('20000000-0000-0000-0000-000000000001','match-resolution-owner@example.test');
+INSERT INTO public.profiles(id,role,status) VALUES
+  ('20000000-0000-0000-0000-000000000001','admin','active')
+  ON CONFLICT(id) DO UPDATE SET role='admin',status='active';
+INSERT INTO public.integrations(id,user_id,name,provider,category,status,config,auth_type) VALUES
+  ('20100000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+   'Falcon match-resolution fixture','crowdstrike','siem','connected','{}','oauth2_client_credentials'),
+  ('20100000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000001',
+   'Falcon other connection fixture','crowdstrike','siem','connected','{}','oauth2_client_credentials');
+
+DO $$
+DECLARE actor uuid := '20000000-0000-0000-0000-000000000001';
+  integration uuid := '20100000-0000-0000-0000-000000000001';
+  other_integration uuid := '20100000-0000-0000-0000-000000000002';
+  rule_a uuid; rule_b uuid; snap_a uuid; snap_b uuid;
+  candidate_ids text[]; binding_a public.siem_rule_bindings; binding_b public.siem_rule_bindings;
+  events_count integer; queries_after jsonb; src_after text; user_after uuid; failed boolean := false;
+BEGIN
+  -- Detection A: a GitHub-sourced production rule with two CQL queries, adoptable via its
+  -- legacy external_id (no deployment_history row -- exercises the fallback evidence path).
+  INSERT INTO public.detections(id,user_id,version,name,description,status,"detectionType",severity,
+    "logSource",technology,"testedAndValidated","queryLanguage","detectionQuery","updatedDate",queries,
+    library_type,promotion_status,review_status,source,external_id)
+  VALUES('link-detection-a',actor,1,'Match resolution rule A','Existing library rule','Draft','Detection','High',
+    '','',false,'CQL','#event_simpleName=ProcessRollup2',now(),
+    jsonb_build_array(
+      jsonb_build_object('id','qa1','language','CQL','query','#event_simpleName=ProcessRollup2',
+        'isPrimary',true,'createdDate',now(),'updatedDate',now()),
+      jsonb_build_object('id','qa2','language','CQL','query','#event_simpleName=NetworkConnectIP4',
+        'isPrimary',false,'createdDate',now(),'updatedDate',now())),
+    'production','none','none','github','link-rule-1');
+
+  -- Detection B: a second production rule whose only query differs from the observed remote
+  -- query text, to exercise the "baseline not established" path.
+  INSERT INTO public.detections(id,user_id,version,name,description,status,"detectionType",severity,
+    "logSource",technology,"testedAndValidated","queryLanguage","detectionQuery","updatedDate",queries,
+    library_type,promotion_status,review_status,source,external_id)
+  VALUES('link-detection-b',actor,1,'Match resolution rule B','Existing library rule','Draft','Detection','High',
+    '','',false,'CQL','local query text',now(),
+    jsonb_build_array(jsonb_build_object('id','qb1','language','CQL','query','local query text',
+      'isPrimary',true,'createdDate',now(),'updatedDate',now())),
+    'production','none','none','custom','link-rule-2');
+
+  -- Detection C: coincidentally named like a plausible match, but its only evidence is a
+  -- deployment_history row against a DIFFERENT connection -- must never be offered here.
+  INSERT INTO public.detections(id,user_id,version,name,description,status,"detectionType",severity,
+    "logSource",technology,"testedAndValidated","queryLanguage","detectionQuery","updatedDate",queries,
+    library_type,promotion_status,review_status,source)
+  VALUES('link-detection-c',actor,1,'Match resolution rule A','Existing library rule','Draft','Detection','High',
+    '','',false,'CQL','#event_simpleName=ProcessRollup2',now(),
+    jsonb_build_array(jsonb_build_object('id','qc1','language','CQL','query','#event_simpleName=ProcessRollup2',
+      'isPrimary',true,'createdDate',now(),'updatedDate',now())),
+    'production','none','none','custom');
+  INSERT INTO public.deployment_history(user_id,integration_id,detection_id,action,status,vendor_rule_id)
+    VALUES(actor,other_integration,'link-detection-c','create','success','link-rule-1');
+
+  -- Catalog row + snapshot for link-rule-1: the query text matches detection A's qa1 exactly.
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'crowdstrike','scope-link-1','link-rule-1','Match resolution rule A',true,'present')
+    RETURNING id INTO rule_a;
+  INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+    VALUES(rule_a,'test-v1','hash-link-a','raw-link-a',
+      jsonb_build_object('name','Match resolution rule A','description','','query','#event_simpleName=ProcessRollup2',
+        'language','CQL','severity','High','enabled',true,'config','{}'::jsonb),
+      '{}'::jsonb)
+    RETURNING id INTO snap_a;
+  UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_a WHERE id=rule_a;
+
+  -- Catalog row + snapshot for link-rule-2: the query text differs from detection B's qb1.
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'crowdstrike','scope-link-1','link-rule-2','Match resolution rule B',true,'present')
+    RETURNING id INTO rule_b;
+  INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+    VALUES(rule_b,'test-v1','hash-link-b','raw-link-b',
+      jsonb_build_object('name','Match resolution rule B','description','','query','remote query text differs',
+        'language','CQL','severity','High','enabled',true,'config','{}'::jsonb),
+      '{}'::jsonb)
+    RETURNING id INTO snap_b;
+  UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_b WHERE id=rule_b;
+
+  -- siem_match_candidates: detection A is offered on its legacy external_id; detection C,
+  -- whose only evidence belongs to a different connection, is never returned.
+  SELECT array_agg(detection_id) INTO candidate_ids FROM public.siem_match_candidates(actor,integration,'link-rule-1');
+  PERFORM pg_temp.assert_true('link-detection-a' = ANY(candidate_ids),
+    'the legacy external_id match is offered as a candidate');
+  PERFORM pg_temp.assert_true(NOT ('link-detection-c' = ANY(coalesce(candidate_ids,'{}'::text[]))),
+    'a name-alike detection whose only evidence is against another connection is never returned');
+
+  -- siem_link_existing: link detection A's qa1 query to link-rule-1.
+  SELECT * INTO binding_a FROM public.siem_link_existing(actor,integration,'link-rule-1','link-detection-a','qa1',1,snap_a);
+  PERFORM pg_temp.assert_true(
+    (SELECT count(*) FROM public.siem_rule_bindings WHERE integration_id=integration AND vendor_rule_id='link-rule-1') = 1,
+    'linking creates exactly one binding');
+  PERFORM pg_temp.assert_true(binding_a.selected_query_id = 'qa1', 'the binding is pinned to the explicit query id');
+  PERFORM pg_temp.assert_true(binding_a.baseline_snapshot_id IS NOT NULL,
+    'a matching local and remote query establishes a baseline');
+
+  SELECT source, user_id INTO src_after, user_after FROM public.detections WHERE id='link-detection-a';
+  PERFORM pg_temp.assert_true(src_after = 'github', 'linking never rewrites the detection''s source');
+  PERFORM pg_temp.assert_true(user_after = actor, 'linking never rewrites the detection''s user_id');
+  PERFORM pg_temp.assert_true(
+    (SELECT external_id = 'link-rule-1' AND native_provenance IS NULL FROM public.detections WHERE id='link-detection-a'),
+    'linking never rewrites external_id or native_provenance');
+
+  SELECT queries INTO queries_after FROM public.detections WHERE id='link-detection-a';
+  PERFORM pg_temp.assert_true(jsonb_array_length(queries_after) = 2,
+    'linking a detection with two CQL queries leaves both queries in place, unchanged');
+
+  SELECT count(*) INTO events_count FROM public.siem_rule_events
+    WHERE binding_id=binding_a.id AND action='linked_existing';
+  PERFORM pg_temp.assert_true(events_count = 1, 'linking records exactly one linked_existing event');
+
+  -- A second, concurrent link attempt for the same identity is rejected, not silently duplicated.
+  BEGIN
+    PERFORM public.siem_link_existing(actor,integration,'link-rule-1','link-detection-a','qa1',1,snap_a);
+    failed := false;
+  EXCEPTION WHEN OTHERS THEN
+    failed := true;
+    PERFORM pg_temp.assert_true(SQLERRM = 'This rule is already linked to a library rule.',
+      'a concurrent second link names the conflict rather than raising a raw constraint error');
+  END;
+  PERFORM pg_temp.assert_true(failed, 'a second concurrent link for the same identity is rejected');
+  PERFORM pg_temp.assert_true(
+    (SELECT count(*) FROM public.siem_rule_bindings WHERE integration_id=integration AND vendor_rule_id='link-rule-1') = 1,
+    'the rejected concurrent attempt did not create a second binding');
+
+  -- siem_link_existing: link detection B, whose query text differs from the observed remote query.
+  SELECT * INTO binding_b FROM public.siem_link_existing(actor,integration,'link-rule-2','link-detection-b','qb1',1,snap_b);
+  PERFORM pg_temp.assert_true(binding_b.baseline_snapshot_id IS NULL,
+    'a local/remote query mismatch at first link leaves baseline_snapshot_id NULL rather than inventing one');
+  PERFORM pg_temp.assert_true(binding_b.latest_remote_snapshot_id IS NOT NULL,
+    'the observed remote snapshot is still recorded even without a baseline');
+END $$;
 ROLLBACK;

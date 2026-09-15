@@ -26,6 +26,7 @@ function rowsFixture(count: number): InventoryRow[] {
     binding_status: null,
     detection_id: null,
     last_seen_at: '2026-09-15T00:00:00Z',
+    latest_snapshot_id: null,
   }));
 }
 

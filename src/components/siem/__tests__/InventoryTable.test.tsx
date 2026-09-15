@@ -9,6 +9,7 @@ const base: InventoryRow = {
   display_name: 'Suspicious process', observed_enabled: true, availability: 'present',
   normalization_error: null, match_candidate_count: 0, relationship: 'not_in_library',
   binding_id: null, binding_status: null, detection_id: null, last_seen_at: '2026-09-15T00:00:00Z',
+  latest_snapshot_id: null,
 };
 const draw = (rows: InventoryRow[]) =>
   render(<MemoryRouter><InventoryTable rows={rows} loading={false} /></MemoryRouter>);

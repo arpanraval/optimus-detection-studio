@@ -62,6 +62,15 @@ export interface ImportResult {
   detection_id: string | null;
   binding_id: string | null;
 }
+export interface MatchCandidate {
+  detection_id: string;
+  detection_name: string;
+  evidence: string;
+  query_id: string;
+  query_language: string;
+  query_text: string;
+  detection_version: number;
+}
 export interface NativePreview {
   binding: NativeBinding;
   baseline: RuleContent;
@@ -93,7 +102,8 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
 
 const INVENTORY_COLUMNS =
   'id,integration_id,vendor_rule_id,rule_family,display_name,observed_enabled,availability,' +
-  'normalization_error,match_candidate_count,relationship,binding_id,binding_status,detection_id,last_seen_at';
+  'normalization_error,match_candidate_count,relationship,binding_id,binding_status,detection_id,last_seen_at,' +
+  'latest_snapshot_id';
 
 /** PostgREST parses , ( ) inside or() and % inside ilike. Strip them before interpolation. */
 function safeSearch(value: string): string {
@@ -350,6 +360,34 @@ export const nativeSiemService = {
   /** Latest job of the given kinds for a connection, read over RLS-protected PostgREST.
    *  Status polling must never re-invoke a job starter: siem_start_inventory creates a new
    *  run when none is active, so polling it would start a fresh scan on every tick. */
+  async remoteSnapshot(snapshotId: string): Promise<RuleContent> {
+    const { data, error } = await supabase
+      .from('siem_remote_rule_snapshots')
+      .select('content')
+      .eq('id', snapshotId)
+      .single();
+    if (error) throw new Error(error.message);
+    return data.content as RuleContent;
+  },
+  matchCandidates: (integrationId: string, vendorRuleId: string) =>
+    invoke<MatchCandidate[]>({ action: 'native_match_candidates', integrationId, vendorRuleId }),
+  linkExisting: (args: {
+    integrationId: string;
+    vendorRuleId: string;
+    detectionId: string;
+    queryId: string;
+    detectionVersion: number;
+    snapshotId: string;
+  }) =>
+    invoke<void>({
+      action: 'native_link_existing',
+      integrationId: args.integrationId,
+      vendorRuleId: args.vendorRuleId,
+      detectionId: args.detectionId,
+      queryId: args.queryId,
+      detectionVersion: args.detectionVersion,
+      snapshotId: args.snapshotId,
+    }),
   async latestRun(integrationId: string, kinds: string[]): Promise<NativeSyncRun | null> {
     const { data, error } = await supabase
       .from('siem_sync_runs')

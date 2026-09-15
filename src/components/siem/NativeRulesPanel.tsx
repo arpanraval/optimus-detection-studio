@@ -10,6 +10,7 @@ import { routeHelpers } from '@/router/routes';
 import type { Integration } from '@/types';
 import { NativeRuleReview } from './NativeRuleReview';
 import { InventoryTable } from './InventoryTable';
+import { MatchResolutionDialog } from './MatchResolutionDialog';
 import { InventorySelectionBar } from './InventorySelectionBar';
 import { ImportResultsPanel } from './ImportResultsPanel';
 import { nativeSiemService, type ImportResult, type NativeSyncRun } from '@/services/nativeSiemService';
@@ -46,6 +47,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
   } = useRemoteInventory(integration.id);
   const navigate = useNavigate();
   const [selected, setSelected] = React.useState<InventoryRow | null>(null);
+  const [resolvingRow, setResolvingRow] = React.useState<InventoryRow | null>(null);
   const openerRef = React.useRef<HTMLElement | null>(null);
 
   const rows = page?.rows ?? [];
@@ -191,6 +193,28 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
       setImportError(err instanceof Error ? err.message : 'Could not start import');
     } finally {
       setImportSubmitting(false);
+    }
+  };
+
+  // "Import as a separate rule" reuses the normal single-selection import path: the server's
+  // import worker never re-checks match candidates for an explicit selection, so this behaves
+  // exactly like importing any not_in_library rule.
+  const handleImportSeparate = async (row: InventoryRow) => {
+    setResolvingRow(null);
+    setImportError(null);
+    try {
+      const source = await nativeSiemService.latestRun(integration.id, ['inventory']);
+      if (!source) throw new Error('Fetch rules from CrowdStrike before importing');
+      const started = await nativeSiemService.startImport({
+        integrationId: integration.id,
+        sourceRunId: source.id,
+        ids: [row.vendor_rule_id],
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setImportRun(started);
+      await loadImportResults(started.id);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Could not start import');
     }
   };
 
@@ -363,12 +387,11 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
             <p className="mt-2 text-xs text-on-surface-variant">{emptyBody}</p>
           </div>
         ) : (
-          // onResolveMatch is left unwired here: Task 12 gives `match_needed` rows a
-          // resolution dialog. Nothing this task could do with the callback would be real.
           <InventoryTable
             rows={rows}
             loading={false}
             onReview={(row) => handleReview(row)}
+            onResolveMatch={(row) => setResolvingRow(row)}
             selectedIds={pageSelectedIds}
             onToggle={selection.toggle}
             onTogglePage={selection.togglePage}
@@ -436,6 +459,20 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
           <p className="text-xs text-on-surface-variant break-all">CrowdStrike ID: {selected.vendor_rule_id}</p>
           <NativeRuleReview key={selected.binding_id} bindingId={selected.binding_id} onChanged={() => void reload()} />
         </Modal>
+      )}
+      {resolvingRow && (
+        <MatchResolutionDialog
+          key={resolvingRow.vendor_rule_id}
+          integrationId={integration.id}
+          row={resolvingRow}
+          onClose={() => setResolvingRow(null)}
+          onLinked={() => {
+            setResolvingRow(null);
+            void reload();
+            window.dispatchEvent(new Event('native-siem-library-updated'));
+          }}
+          onImportSeparate={() => void handleImportSeparate(resolvingRow)}
+        />
       )}
     </div>
   );

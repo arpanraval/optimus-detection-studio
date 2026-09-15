@@ -40,6 +40,8 @@ type Action =
   | 'native_save'
   | 'native_restore'
   | 'native_apply'
+  | 'native_match_candidates'
+  | 'native_link_existing'
   | 'native_sync_tick'
 
 type Provider =
@@ -80,6 +82,9 @@ interface IntegrationRequest {
   localChanges?: { name: string; description: string; query: string; severity: string; schedule: string; lookback: string }
   revisionId?: string
   runId?: string
+  queryId?: string
+  detectionVersion?: number
+  snapshotId?: string
 }
 
 interface ConnectionTestResult {
@@ -146,6 +151,8 @@ const ACTION_PERMISSIONS: Record<Action, GranularPermission> = {
   native_save: 'integrations:import',
   native_restore: 'integrations:import',
   native_apply: 'integrations:sync',
+  native_match_candidates: 'integrations:view',
+  native_link_existing: 'integrations:import',
   native_sync_tick: 'internal:worker',
   save_credentials: 'integrations:configure',
   test_connection: 'integrations:configure',

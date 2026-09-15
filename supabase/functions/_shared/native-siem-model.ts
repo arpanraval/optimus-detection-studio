@@ -144,6 +144,8 @@ export type InventoryRow = {
   binding_status: string | null;
   detection_id: string | null;
   last_seen_at: string;
+  /** The catalog's current snapshot id — required to revalidate at match-resolution commit time. */
+  latest_snapshot_id: string | null;
 };
 
 export const RELATIONSHIP_LABELS: Record<InventoryRelationship, string> = {
