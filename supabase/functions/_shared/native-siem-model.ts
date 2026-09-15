@@ -158,7 +158,10 @@ export const PROVIDER_CAPABILITIES: Record<string, ProviderCapabilities> = {
     operations: [],
   },
   chronicle: {
-    readFamilies: ['rule'],
+    // Real family qualified by the Chronicle reader (siem-readers/chronicle.ts): readable
+    // user-authored YARA-L only. Curated/managed rules with unavailable source text stay outside
+    // readFamilies and are surfaced as unsupported rather than imported with a fabricated query.
+    readFamilies: ['yara_l'],
     writeFamilies: [],
     operations: [],
   },

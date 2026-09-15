@@ -9,6 +9,7 @@ import { readSplunkCorrelationSearches, type SplunkEntry } from '../_shared/siem
 import { readSentinelAlertRules, type SentinelRuleEntry } from '../_shared/siem-readers/sentinel.ts'
 import { readElasticRules, type ElasticRuleEntry } from '../_shared/siem-readers/elastic.ts'
 import { readDefenderXdrRules, DEFENDER_XDR_PREVIEW, type DefenderRuleEntry } from '../_shared/siem-readers/defender-xdr.ts'
+import { readChronicleRules, type ChronicleRuleEntry } from '../_shared/siem-readers/chronicle.ts'
 import {
   buildCrowdStrikeQueries,
   isCrowdStrikeQueryRepository,
@@ -1672,38 +1673,40 @@ async function chronicleListRules(
   const baseUrl = chronicleBaseUrl(region, customerId)
   const headers = { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
 
-  const allRules: unknown[] = []
-  let pageToken = ''
-
-  while (true) {
+  const outcome = await readChronicleRules(async (pageToken) => {
     const url = pageToken
       ? `${baseUrl}?pageSize=100&pageToken=${encodeURIComponent(pageToken)}`
       : `${baseUrl}?pageSize=100`
-
-    const response = await withRetry(() =>
-      vendorFetch(url, { method: 'GET', headers })
-    )
+    const response = await withRetry(() => vendorFetch(url, { method: 'GET', headers }))
     if (!response.ok) throw new Error(`Chronicle list rules failed: ${response.status}`)
-
     const data = await response.json()
-    const rules = (data.rules || []).map((r: any) => ({
-      id: r.name?.split('/').pop() || r.ruleId,
-      name: r.ruleName || r.metadata?.description || 'Unnamed Rule',
-      query: r.ruleText,
-      // Preserve absence: execution state lives on a separate RuleDeployment
-      // resource, so a missing liveRuleEnabled means "unknown", not "disabled".
-      enabled: r.liveRuleEnabled,
-      severity: r.metadata?.severity,
-      description: r.metadata?.description,
-      lastModified: r.revisionCreateTime,
-    }))
-    allRules.push(...rules)
+    return { rules: (data.rules ?? []) as ChronicleRuleEntry[], nextPageToken: data.nextPageToken ?? null }
+  }, null)
 
-    if (!data.nextPageToken) break
-    pageToken = data.nextPageToken
-  }
-
-  return allRules
+  // Execution/alerting/archived are separate observations -- liveExecution/alerting/archived are
+  // each 'true'/'false'/'unknown', never a single `enabled` boolean defaulted from absence.
+  const supported = outcome.rules.map(rule => ({
+    id: rule.vendorRuleId,
+    resourceName: rule.resourceName,
+    name: rule.name,
+    query: rule.query,
+    language: rule.language,
+    liveExecution: rule.liveExecution,
+    alerting: rule.alerting,
+    archived: rule.archived,
+    severity: rule.severity,
+    description: rule.description,
+    revisionId: rule.revisionId,
+    lastModified: rule.revisionCreateTime,
+    compilationState: rule.compilationState,
+    compilationError: rule.compilationError,
+    unmappedFields: rule.unmappedFields,
+  }))
+  const unsupported = outcome.unsupported.map(entry => ({
+    id: entry.raw.name?.split('/').pop() ?? entry.raw.ruleId,
+    name: entry.raw.ruleName, unsupported: true, unsupportedReason: entry.error,
+  }))
+  return [...supported, ...unsupported]
 }
 
 function chronicleSeverityFromString(severity?: string): string {
