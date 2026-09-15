@@ -4,7 +4,7 @@ import { getCorsHeaders, handleCorsPreflight, corsErrorResponse } from '../_shar
 import { validateUrl } from '../_shared/url-validator.ts'
 import { checkRateLimit } from '../_shared/rate-limiter.ts'
 import { handleNativeRequest, processNativeSync, applyNativeMutation } from '../_shared/native-siem-service.ts'
-import { findDeployBinding, deployRouteDecision, nativeOperationFor } from '../_shared/siem-deploy-target.ts'
+import { resolveDeployTarget, deployRouteDecision, nativeOperationFor } from '../_shared/siem-deploy-target.ts'
 import {
   buildCrowdStrikeQueries,
   isCrowdStrikeQueryRepository,
@@ -3430,11 +3430,13 @@ serve(async (req: Request) => {
         if (error) return corsErrorResponse('Deployment not found', req, 404)
         detectionId = deployment.detection_id; integrationId = deployment.integration_id; vendorRuleId = deployment.vendor_rule_id
       }
-      if (!detectionId && !(integrationId && vendorRuleId)) {
-        return corsErrorResponse('A detection or target rule is required', req, 400)
+      // Without a connection there is nothing to resolve the target against, and a resolver that
+      // answers from the detection id alone can pick a binding on a connection nobody named.
+      if (!integrationId || (!detectionId && !vendorRuleId)) {
+        return corsErrorResponse('A connection and a detection or target rule are required', req, 400)
       }
-      const binding = await findDeployBinding(getServiceClient(), { detectionId, integrationId, vendorRuleId })
-      const decision = deployRouteDecision(binding, {
+      const resolution = await resolveDeployTarget(getServiceClient(), { detectionId, integrationId, vendorRuleId })
+      const decision = deployRouteDecision(resolution, {
         expectedHash: body.expectedHash,
         expectedVersion: body.expectedVersion,
         operation: nativeOperationFor(body.action, body.enabled),

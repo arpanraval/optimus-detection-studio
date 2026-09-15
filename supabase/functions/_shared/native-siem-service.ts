@@ -380,6 +380,12 @@ export async function applyNativeMutation(
   if (!checked(await deps.db.rpc('siem_can_import', { p_actor: actor, p_integration: integration.id }))) {
     throw new Error('Native import permission denied');
   }
+  // The legacy deploy handler refuses any connection that is not `connected`, and the native route
+  // returns before reaching it -- so the same gate has to exist at the operation itself. A
+  // connection disabled or failing between the preview and the confirmation must not still write.
+  if (integration.status !== 'connected') {
+    throw new Error(`This connection is ${integration.status}. Reconnect it before changing rules in production.`);
+  }
   const drift = classifyDrift(baseline?.content ?? null, local, remote.content, binding.availability);
   const operation = params.operation;
   // One predicate, used by the preview to explain and here to refuse. Previously these checks

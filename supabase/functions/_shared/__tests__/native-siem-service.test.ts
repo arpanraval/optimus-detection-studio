@@ -11,7 +11,7 @@ const raw = { id: 'remote-1', name: 'Rule', description: '', status: 'active', s
 
 async function fixture(options: { phase?: string; enabled?: boolean; resource?: unknown; stale?: boolean;
   noBaseline?: boolean; localQuery?: string; afterResource?: unknown;
-  pendingOperation?: boolean; ruleFamily?: string } = {}) {
+  pendingOperation?: boolean; ruleFamily?: string; connectionStatus?: string } = {}) {
   const content = normalizeCrowdStrike(raw), hash = await contentHash(content);
   // This fixture exercises the legacy siem_commit_chunk path: kind 'refresh_tracked' is a real
   // kind (re-observing rules already tracked in the library) that Task 8 does not touch, so it
@@ -30,7 +30,7 @@ async function fixture(options: { phase?: string; enabled?: boolean; resource?: 
     queries: [{ id: 'query-id', language: 'CQL', query: options.localQuery ?? content.query }] };
   const updates: unknown[] = [];
   const from = vi.fn((table: string) => {
-    const data = table === 'integrations' ? { id: 'connection', config, provider: 'crowdstrike' } :
+    const data = table === 'integrations' ? { id: 'connection', config, provider: 'crowdstrike', status: options.connectionStatus ?? 'connected' } :
       table === 'siem_sync_items' ? [{ vendor_rule_id: raw.id }] : table === 'siem_rule_bindings' ? binding :
       table === 'siem_remote_rules' ? [{ rule_family: options.ruleFamily ?? 'correlation' }] :
       table === 'detections' ? detection : table === 'siem_rule_snapshots' ? [{ id: 'snap', content, content_hash: hash }] : null;
@@ -117,7 +117,7 @@ describe('comparison without an agreed baseline', () => {
     from.mockImplementation((table: string) => {
       const query: Record<string, unknown> = {};
       for (const method of ['select', 'eq', 'in', 'order', 'limit', 'single']) query[method] = vi.fn(() => query);
-      const data = table === 'integrations' ? { id: 'connection', config, provider: 'crowdstrike' } :
+      const data = table === 'integrations' ? { id: 'connection', config, provider: 'crowdstrike', status: 'connected' } :
         table === 'siem_rule_bindings' ? { id: 'binding', detection_id: 'detection', integration_id: 'connection',
           provider_scope: crowdStrikeScope(config), selected_query_id: 'query-id', desired_content: {},
           baseline_snapshot_id: null, latest_remote_snapshot_id: null, binding_status: 'active',
@@ -450,5 +450,18 @@ describe('applyNativeMutation as a shared entry point', () => {
       { bindingId: 'binding', operation: 'update', expectedVersion: 1, expectedHash: hash }, 'owner'))
       .rejects.toThrow(/not enabled for this installation/);
     expect(deps.fetch).not.toHaveBeenCalled();
+  });
+
+  // The legacy deploy handler has always refused a connection that is not `connected`. The native
+  // route returns before that handler, so a connection disabled between the preview and the
+  // confirmation would otherwise still reach CrowdStrike.
+  it('refuses a connection that is not connected', async () => {
+    for (const status of ['disabled', 'error']) {
+      const { deps, hash } = await fixture({ connectionStatus: status });
+      await expect(applyNativeMutation(deps,
+        { bindingId: 'binding', operation: 'update', expectedVersion: 1, expectedHash: hash }, 'owner'))
+        .rejects.toThrow(new RegExp(`This connection is ${status}`));
+      expect(deps.fetch).not.toHaveBeenCalled();
+    }
   });
 });
