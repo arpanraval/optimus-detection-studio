@@ -10431,6 +10431,7 @@ CREATE TABLE public.siem_remote_rule_snapshots (
 ALTER TABLE public.siem_remote_rules ADD CONSTRAINT siem_remote_latest_owner
   FOREIGN KEY (id, latest_snapshot_id)
   REFERENCES public.siem_remote_rule_snapshots(remote_rule_id, id) DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE public.siem_sync_items ADD COLUMN observed_snapshot_id uuid REFERENCES public.siem_remote_rule_snapshots(id) ON DELETE SET NULL;
 
 ALTER TABLE public.siem_remote_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.siem_remote_rule_snapshots ENABLE ROW LEVEL SECURITY;
@@ -10726,6 +10727,10 @@ BEGIN
         CONTINUE;
       END IF;
 
+      -- Reset per item: snap is only assigned inside the content branch below, and an item
+      -- without content must not inherit the previous iteration's snapshot.
+      snap := NULL;
+
       -- Candidate evidence is computed once here, not per page render.
       SELECT count(DISTINCT h.detection_id) INTO cand FROM deployment_history h
         JOIN detections x ON x.id = h.detection_id
@@ -10774,12 +10779,17 @@ BEGIN
       -- permanent property of the rule) from "CrowdStrike did not return it" ('failed', a
       -- transient read outcome). Only the latter blocks absence inference, so the hint is
       -- allowlisted rather than trusted verbatim.
+      -- remote_rule_id / observed_snapshot_id are what make a completed run a reviewable
+      -- artifact: siem_start_import freezes content from the snapshot THIS run saw, never from
+      -- whatever the catalog happens to hold at submit time.
       UPDATE siem_sync_items
          SET status = CASE
                WHEN item->>'status' IN ('failed','unsupported') THEN item->>'status'
                WHEN item ? 'error' THEN 'unsupported'
                ELSE 'observed' END,
-             error_message = item->>'error'
+             error_message = item->>'error',
+             remote_rule_id = rr.id,
+             observed_snapshot_id = coalesce(snap, siem_sync_items.observed_snapshot_id)
        WHERE run_id = r.id AND vendor_rule_id = item->>'id';
     END LOOP;
 
@@ -10846,7 +10856,8 @@ GRANT EXECUTE ON FUNCTION public.siem_start_refresh(uuid,uuid,text) TO service_r
 -- Import jobs. Selection is frozen at submission into siem_sync_items; the worker adopts
 -- only what was frozen, and only if production still matches what the user reviewed.
 CREATE OR REPLACE FUNCTION public.siem_start_import(p_actor uuid, p_integration uuid, p_source_run uuid,
-  p_ids text[], p_exclude text[], p_all_matching boolean, p_idempotency text)
+  p_ids text[], p_exclude text[], p_all_matching boolean, p_idempotency text,
+  p_search text DEFAULT NULL, p_relationship text DEFAULT NULL)
 RETURNS public.siem_sync_runs LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
 DECLARE r siem_sync_runs; source siem_sync_runs; frozen integer;
 BEGIN
@@ -10879,21 +10890,40 @@ BEGIN
            source.id, p_idempotency)
     RETURNING * INTO r;
 
-  -- Freeze the identities and the exact content the user reviewed.
-  INSERT INTO siem_sync_items(run_id, vendor_rule_id, remote_rule_id, frozen_content_hash, status, error_message)
-  SELECT r.id, v.vendor_rule_id, v.id, s.content_hash,
+  -- Freeze the identities and the exact content the user reviewed. Driving off the SOURCE RUN's
+  -- items (not the catalog) is what binds the import to that scan: an identity the run never
+  -- observed cannot be selected at all, by explicit id or by "all matching".
+  --
+  -- Relationship is deliberately read live from siem_inventory_rows rather than frozen: whether a
+  -- rule is already in the library is a question about NOW, and re-importing something adopted
+  -- since the scan would duplicate it. Content is the opposite -- it must be the reviewed
+  -- revision -- so the hash comes from src.observed_snapshot_id.
+  INSERT INTO siem_sync_items(run_id, vendor_rule_id, remote_rule_id, observed_snapshot_id,
+    frozen_content_hash, status, error_message)
+  SELECT r.id, v.vendor_rule_id, v.id, src.observed_snapshot_id, s.content_hash,
          CASE WHEN v.relationship = 'not_in_library' AND s.content_hash IS NOT NULL
+                   AND v.availability = 'present' AND src.status = 'observed'
               THEN 'pending' ELSE 'skipped' END,
-         CASE WHEN v.relationship = 'not_in_library' AND s.content_hash IS NOT NULL THEN NULL
+         CASE WHEN v.relationship = 'not_in_library' AND s.content_hash IS NOT NULL
+                   AND v.availability = 'present' AND src.status = 'observed' THEN NULL
               WHEN v.relationship = 'already_in_library' THEN 'Already in library'
               WHEN v.relationship = 'archived_in_library' THEN 'Archived in library'
               WHEN v.relationship = 'match_needed' THEN 'Match needed'
               WHEN v.relationship = 'unsupported' THEN coalesce(v.normalization_error, 'Not supported')
+              WHEN v.availability <> 'present' THEN 'No longer in CrowdStrike'
               ELSE 'This rule has not been read from CrowdStrike yet' END
-    FROM siem_inventory_rows v
-    LEFT JOIN siem_remote_rule_snapshots s ON s.id = v.latest_snapshot_id
-   WHERE v.integration_id = p_integration
+    FROM siem_sync_items src
+    JOIN siem_inventory_rows v ON v.id = src.remote_rule_id
+    LEFT JOIN siem_remote_rule_snapshots s ON s.id = src.observed_snapshot_id
+   WHERE src.run_id = source.id
+     AND v.integration_id = p_integration
      AND v.provider_scope = source.provider_scope
+     -- The same predicate the table and the counts use, so "all N matching" imports exactly the
+     -- N the user was shown.
+     AND (p_relationship IS NULL OR p_relationship = 'all' OR v.relationship = p_relationship)
+     AND (p_search IS NULL OR p_search = ''
+          OR v.display_name ILIKE '%' || p_search || '%'
+          OR v.vendor_rule_id ILIKE '%' || p_search || '%')
      AND (CASE WHEN p_all_matching
                THEN NOT (v.vendor_rule_id = ANY(coalesce(p_exclude, '{}')))
                ELSE v.vendor_rule_id = ANY(coalesce(p_ids, '{}')) END)
@@ -10907,9 +10937,9 @@ BEGIN
   END IF;
   RETURN r;
 END $$;
-REVOKE ALL ON FUNCTION public.siem_start_import(uuid,uuid,uuid,text[],text[],boolean,text)
+REVOKE ALL ON FUNCTION public.siem_start_import(uuid,uuid,uuid,text[],text[],boolean,text,text,text)
   FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.siem_start_import(uuid,uuid,uuid,text[],text[],boolean,text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.siem_start_import(uuid,uuid,uuid,text[],text[],boolean,text,text,text) TO service_role;
 -- Executes a frozen import selection in bounded chunks. Adoption creates the detection,
 -- binding, first local revision, remote snapshot and import event in one transaction -- the
 -- same set siem_commit_chunk creates today -- but content always comes from the frozen catalog
@@ -11025,16 +11055,20 @@ END $$;
 -- new selection; silently re-adopting it would import content the user never reviewed.
 CREATE OR REPLACE FUNCTION public.siem_retry_import(p_actor uuid, p_run uuid)
 RETURNS public.siem_sync_runs LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
-DECLARE r siem_sync_runs; reset_count integer;
+DECLARE r siem_sync_runs; resumable integer;
 BEGIN
   SELECT * INTO r FROM siem_sync_runs WHERE id = p_run FOR UPDATE;
   IF NOT FOUND OR r.kind <> 'import_selection' THEN RAISE EXCEPTION 'Import job not found'; END IF;
   IF NOT siem_can_import(p_actor, r.integration_id) THEN RAISE EXCEPTION 'Native import permission denied'; END IF;
 
+  -- A run that exhausted its transient retries is 'failed' with its unprocessed items still
+  -- 'pending'. Resetting only 'failed' items reported "No failed rules to retry" and stranded the
+  -- whole remaining selection. changed_since_preview stays out: it needs a fresh check and a new
+  -- selection, because silently re-adopting it would import content the user never reviewed.
   UPDATE siem_sync_items SET status = 'pending', error_message = NULL
    WHERE run_id = r.id AND status = 'failed';
-  GET DIAGNOSTICS reset_count = ROW_COUNT;
-  IF reset_count = 0 THEN RAISE EXCEPTION 'No failed rules to retry'; END IF;
+  SELECT count(*) INTO resumable FROM siem_sync_items WHERE run_id = r.id AND status = 'pending';
+  IF resumable = 0 THEN RAISE EXCEPTION 'No rules left to retry'; END IF;
 
   -- A partial run no longer blocks a fresh import_selection start (siem_start_import's
   -- concurrency check only sees 'queued'/'running'), so a second import may already be live

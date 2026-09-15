@@ -307,6 +307,8 @@ export const nativeSiemService = {
     excludeIds?: string[];
     allMatching?: boolean;
     idempotencyKey: string;
+    selectionSearch?: string;
+    selectionRelationship?: string;
   }) =>
     invoke<NativeSyncRun>({
       action: 'native_import_start',
@@ -316,6 +318,8 @@ export const nativeSiemService = {
       excludeIds: args.excludeIds,
       allMatching: args.allMatching,
       idempotencyKey: args.idempotencyKey,
+      selectionSearch: args.selectionSearch,
+      selectionRelationship: args.selectionRelationship,
     }),
   cancelImport: (runId: string) => invoke<{ success: true }>({ action: 'native_import_cancel', runId }),
   retryImport: (runId: string) => invoke<NativeSyncRun>({ action: 'native_import_retry', runId }),

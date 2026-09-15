@@ -18,6 +18,8 @@ export type NativeRequest = {
   excludeIds?: string[];
   allMatching?: boolean;
   sourceRunId?: string;
+  selectionSearch?: string;
+  selectionRelationship?: string;
   idempotencyKey?: string;
   runId?: string;
   vendorRuleId?: string;
@@ -58,6 +60,13 @@ async function client(deps: Dependencies, integration: { id: string; config: Rec
 const DETAIL_UNREADABLE = 'CrowdStrike did not return this rule. It may have been deleted or it ' +
   'may be a rule type this connection cannot read.';
 const MAX_DETAIL_RETRIES_PER_CHUNK = 10;
+/** siem_claim_sync grants a 45-second lease. Each provider request is allowed 10 seconds, so a
+ *  batch read plus ten sequential per-id retries can spend up to 110 seconds -- the commit then
+ *  fails its own lease check, the chunk is requeued, and the same slow chunk is reprocessed until
+ *  the run gives up. Slow-but-SUCCESSFUL responses are the dangerous case here: nothing errors, so
+ *  nothing else stops it. Reserve the tail of the lease for the commit and leave whatever did not
+ *  fit pending for the next chunk, which is already how the retry cap behaves. */
+const DETAIL_BUDGET_MS = 25000;
 
 /** CrowdStrike's list endpoint (`queries/rules/v1`) returns a rule's STABLE identity, but the
  *  entity endpoint returns a rule that has been edited past version 1 with `id` set to the
@@ -76,10 +85,12 @@ export function matchesVendorRule(raw: Record<string, Json> | undefined, vendorR
 export async function readRuleDetails(
   request: (path: string) => Promise<Record<string, Json>>,
   ids: string[],
+  budgetMs = DETAIL_BUDGET_MS,
 ): Promise<{ found: Map<string, Record<string, Json>>; missing: Map<string, string> }> {
   const found = new Map<string, Record<string, Json>>();
   const missing = new Map<string, string>();
   if (!ids.length) return { found, missing };
+  const startedAt = Date.now();
   /** Keyed under the id we asked for, so the caller's identity stays the stable one even when
    *  CrowdStrike answers with a version id (see matchesVendorRule). */
   const collect = (response: Record<string, Json>) => {
@@ -94,6 +105,9 @@ export async function readRuleDetails(
   for (const id of ids) {
     if (found.has(id)) continue;
     if (retries >= MAX_DETAIL_RETRIES_PER_CHUNK) continue; // beyond the cap: leave pending for the next chunk
+    // Out of lease budget: stop reading rather than commit into an expired lease. Everything
+    // still unresolved stays out of both maps, so the commit leaves it pending.
+    if (Date.now() - startedAt >= budgetMs) break;
     retries++;
     // A throw here is not a missing rule: CrowdStrike answers 200 with empty resources for an
     // unknown id, so request() only throws on a non-OK status or a non-empty errors array --
@@ -245,7 +259,10 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
     return checked(await deps.db.rpc('siem_start_import', {
       p_actor: actor, p_integration: integration.id, p_source_run: body.sourceRunId,
       p_ids: body.allMatching ? [] : ids, p_exclude: body.excludeIds || [],
-      p_all_matching: Boolean(body.allMatching), p_idempotency: body.idempotencyKey }));
+      p_all_matching: Boolean(body.allMatching), p_idempotency: body.idempotencyKey,
+      // The filter the count was computed under travels with the selection, so "all N matching"
+      // freezes exactly the N rows the table was showing rather than the whole catalog.
+      p_search: body.selectionSearch || null, p_relationship: body.selectionRelationship || null }));
   }
   if (body.action === 'native_match_candidates') {
     const integration = await connection(deps, body.integrationId || '', actor);

@@ -218,6 +218,19 @@ describe('rule detail reads', () => {
     expect(ids.filter(id => !accountedFor.has(id))).toHaveLength(5);
   });
 
+  // The 45s database lease, not the retry cap, is the real bound: ten sequential 10s retries
+  // outlive it, the commit is then rejected as expired, and the chunk is reprocessed forever.
+  it('stops retrying when the lease budget is spent and leaves the rest pending', async () => {
+    const request = vi.fn(async () => ({ resources: [] as unknown[] }));
+    const { found, missing } = await readRuleDetails(request as never, ['a', 'b', 'c'], 0);
+    // Only the batch read happened: no per-id retry fits in a spent budget.
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(found.size).toBe(0);
+    // Unresolved is not the same as unreadable -- leaving them out of both maps is what keeps
+    // the commit from recording a definite answer we never got.
+    expect(missing.size).toBe(0);
+  });
+
   it('propagates a thrown error from an individual retry instead of reporting the rule unreadable', async () => {
     const request = vi.fn(async (path: string) => {
       if (path.includes('ids=a&ids=b')) return { resources: [{ id: 'a' }] };

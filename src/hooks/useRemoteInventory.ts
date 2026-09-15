@@ -23,7 +23,14 @@ export function useRemoteInventory(integrationId: string) {
   const [search, setSearchState] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [pageIndex, setPageIndexState] = useState(0);
+  const [inventoryRun, setInventoryRun] = useState<NativeSyncRun | null>(null);
   const generation = useRef(0);
+  // A generation only changes when the CONNECTION changes, so it cannot order two reads issued
+  // against the same connection: typing a search fires overlapping requests whose responses can
+  // arrive out of order, and the last one to land wins regardless of which was asked for last.
+  // Each read stream therefore carries its own monotonic sequence, and only the newest applies.
+  const pageSequence = useRef(0);
+  const countsSequence = useRef(0);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 300);
@@ -42,6 +49,9 @@ export function useRemoteInventory(integrationId: string) {
 
   const loadPage = useCallback(async () => {
     const current = generation.current;
+    const sequence = ++pageSequence.current;
+    const isCurrent = () => generation.current === current && sequence === pageSequence.current;
+    setLoading(true);
     try {
       const result = await nativeSiemService.inventoryPage({
         integrationId,
@@ -49,21 +59,23 @@ export function useRemoteInventory(integrationId: string) {
         search: debouncedSearch,
         page: pageIndex,
       });
-      if (generation.current === current) {
+      if (isCurrent()) {
         setPage(result);
         setError(null);
       }
     } catch (err) {
-      if (generation.current === current) setError(err instanceof Error ? err.message : 'Could not load inventory');
+      if (isCurrent()) setError(err instanceof Error ? err.message : 'Could not load inventory');
     } finally {
-      if (generation.current === current) setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }, [integrationId, relationship, debouncedSearch, pageIndex]);
 
   const loadCounts = useCallback(async () => {
+    const current = generation.current;
+    const sequence = ++countsSequence.current;
     try {
       const result = await nativeSiemService.inventoryCounts(integrationId, debouncedSearch);
-      setCounts(result);
+      if (generation.current === current && sequence === countsSequence.current) setCounts(result);
     } catch {
       /* counts are supplementary; a failure here does not block the page from rendering */
     }
@@ -75,8 +87,14 @@ export function useRemoteInventory(integrationId: string) {
   const loadRun = useCallback(async () => {
     const current = generation.current;
     try {
-      const result = await nativeSiemService.latestRun(integrationId, RUN_KINDS);
-      if (generation.current === current) setRun(result);
+      const [latest, inventory] = await Promise.all([
+        nativeSiemService.latestRun(integrationId, RUN_KINDS),
+        nativeSiemService.latestRun(integrationId, ['inventory']),
+      ]);
+      if (generation.current === current) {
+        setRun(latest);
+        setInventoryRun(inventory);
+      }
     } catch {
       /* run status is supplementary; a failure here does not block the page from rendering */
     }
@@ -87,6 +105,9 @@ export function useRemoteInventory(integrationId: string) {
     const activeGeneration = ++generation.current;
     setPage(null);
     setRun(null);
+    setInventoryRun(null);
+    setCounts(ZERO_COUNTS);
+    setPageIndexState(0);
     setLoading(true);
     setError(null);
     return () => {
@@ -117,9 +138,13 @@ export function useRemoteInventory(integrationId: string) {
     let stillRunning = true;
     const poll = async () => {
       try {
-        const result = await nativeSiemService.latestRun(integrationId, RUN_KINDS);
+        const [result, inventory] = await Promise.all([
+          nativeSiemService.latestRun(integrationId, RUN_KINDS),
+          nativeSiemService.latestRun(integrationId, ['inventory']),
+        ]);
         if (!cancelled) {
           setRun(result);
+          setInventoryRun(inventory);
           stillRunning = ['queued', 'running'].includes(result?.status || '');
           await Promise.all([loadPage(), loadCounts()]);
         }
@@ -169,6 +194,7 @@ export function useRemoteInventory(integrationId: string) {
     page,
     counts,
     run,
+    inventoryRun,
     loading,
     error,
     running,
@@ -176,6 +202,10 @@ export function useRemoteInventory(integrationId: string) {
     setRelationship,
     search,
     setSearch,
+    // The search the displayed page was actually fetched with. `search` is the keystroke-latest
+    // value and runs ahead of it by the debounce interval, so a selection predicate built from
+    // `search` can describe a filter the user has not been shown results for yet.
+    appliedSearch: debouncedSearch,
     pageIndex,
     setPageIndex,
     reload,

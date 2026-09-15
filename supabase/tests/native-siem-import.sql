@@ -3,6 +3,21 @@ BEGIN;
 CREATE FUNCTION pg_temp.assert_true(value boolean, message text) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN IF value IS DISTINCT FROM true THEN RAISE EXCEPTION 'Assertion failed: %', message; END IF; END $$;
 
+-- Records what an inventory run observed, the way a real hydration chunk leaves it: one item per
+-- catalog rule of the run's connection and scope, carrying the catalog row and the snapshot that
+-- run saw. siem_start_import selects THROUGH these items, so a fixture without them is a run that
+-- observed nothing -- and freezes nothing.
+CREATE FUNCTION pg_temp.observe_run(p_run uuid) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO public.siem_sync_items(run_id, vendor_rule_id, remote_rule_id, observed_snapshot_id, status)
+  SELECT run.id, rr.vendor_rule_id, rr.id, rr.latest_snapshot_id, 'observed'
+    FROM public.siem_sync_runs run
+    JOIN public.siem_remote_rules rr
+      ON rr.integration_id = run.integration_id AND rr.provider_scope = run.provider_scope
+   WHERE run.id = p_run
+  ON CONFLICT DO NOTHING;
+END $$;
+
 INSERT INTO auth.users(id,email) VALUES
   ('11000000-0000-0000-0000-000000000001','import-owner@example.test');
 INSERT INTO public.profiles(id,role,status) VALUES
@@ -54,6 +69,7 @@ BEGIN
 
   -- A completed, fully-discovered inventory run for this connection and scope.
   inventory_run := public.siem_start_inventory(actor, integration, scope);
+  PERFORM pg_temp.observe_run(inventory_run.id);
   UPDATE public.siem_sync_runs SET status='complete', discovery_complete=true, completed_at=now(),
     lease_token=NULL, lease_expires_at=NULL WHERE id=inventory_run.id
     RETURNING * INTO inventory_run;
@@ -127,6 +143,7 @@ BEGIN
 
   -- A partial (incomplete-discovery) inventory run rejects all_matching.
   partial_run := public.siem_start_inventory(actor, integration, scope);
+  PERFORM pg_temp.observe_run(partial_run.id);
   UPDATE public.siem_sync_runs SET status='partial', discovery_complete=false, completed_at=now(),
     lease_token=NULL, lease_expires_at=NULL WHERE id=partial_run.id RETURNING * INTO partial_run;
 
@@ -151,6 +168,7 @@ BEGIN
   UPDATE public.siem_sync_runs SET status='cancelled', completed_at=now(), lease_token=NULL, lease_expires_at=NULL
     WHERE id=partial_run.id;
   complete_run := public.siem_start_inventory(actor, integration, scope);
+  PERFORM pg_temp.observe_run(complete_run.id);
   UPDATE public.siem_sync_runs SET status='complete', discovery_complete=true, completed_at=now(),
     lease_token=NULL, lease_expires_at=NULL WHERE id=complete_run.id RETURNING * INTO complete_run;
 
@@ -203,6 +221,8 @@ BEGIN
   END LOOP;
 
   inventory_run := public.siem_start_inventory(actor, integration, scope);
+
+  PERFORM pg_temp.observe_run(inventory_run.id);
   UPDATE public.siem_sync_runs SET status='complete', discovery_complete=true, completed_at=now(),
     lease_token=NULL, lease_expires_at=NULL WHERE id=inventory_run.id RETURNING * INTO inventory_run;
 
@@ -316,8 +336,8 @@ BEGIN
     PERFORM public.siem_retry_import(actor, import_run.id);
     RAISE EXCEPTION 'retry against a run with only changed_since_preview items was accepted';
   EXCEPTION WHEN OTHERS THEN
-    PERFORM pg_temp.assert_true(SQLERRM = 'No failed rules to retry',
-      'retry leaves changed_since_preview alone: nothing failed, so retry refuses with product copy');
+    PERFORM pg_temp.assert_true(SQLERRM = 'No rules left to retry',
+      'retry leaves changed_since_preview alone: nothing resumable, so retry refuses with product copy');
   END;
 
   retry_run := public.siem_start_import(actor, integration, inventory_run.id,
@@ -340,12 +360,22 @@ BEGIN
        WHERE run_id=retry_run.id AND vendor_rule_id='adopt-rule-16'),
     'retry resets the failed item to pending and clears its error');
 
+  -- rule-17 was never attempted. Refusing a second retry because nothing is in 'failed' is what
+  -- stranded the untouched remainder of a selection when the RUN, not the item, gave up.
+  r := public.siem_retry_import(actor, retry_run.id);
+  PERFORM pg_temp.assert_true(r.status = 'queued',
+    'a run whose remaining items are merely pending can still be retried');
+  PERFORM pg_temp.assert_true(
+    (SELECT count(*) FROM public.siem_sync_items WHERE run_id=retry_run.id AND status='pending') = 2,
+    'both the reset item and the never-attempted one are resumable');
+
+  UPDATE public.siem_sync_items SET status='imported' WHERE run_id=retry_run.id;
   BEGIN
     PERFORM public.siem_retry_import(actor, retry_run.id);
-    RAISE EXCEPTION 'retry with nothing failed was accepted';
+    RAISE EXCEPTION 'retry with nothing resumable was accepted';
   EXCEPTION WHEN OTHERS THEN
-    PERFORM pg_temp.assert_true(SQLERRM = 'No failed rules to retry',
-      'retry with no failed items refuses with product copy');
+    PERFORM pg_temp.assert_true(SQLERRM = 'No rules left to retry',
+      'retry with nothing resumable refuses with product copy');
   END;
 END $$;
 
@@ -409,6 +439,8 @@ BEGIN
     VALUES(did2,integration,'crowdstrike',scope,'rule-2',qid2,'CQL','{}'::jsonb) RETURNING id INTO b2;
 
   inventory_run := public.siem_start_inventory(actor, integration, scope);
+
+  PERFORM pg_temp.observe_run(inventory_run.id);
   UPDATE public.siem_sync_runs SET status='complete', discovery_complete=true, completed_at=now(),
     lease_token=NULL, lease_expires_at=NULL WHERE id=inventory_run.id RETURNING * INTO inventory_run;
 
@@ -497,6 +529,7 @@ BEGIN
   UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_id WHERE id=rule_b;
 
   run := public.siem_start_inventory(actor, integration, scope);
+
   INSERT INTO public.siem_sync_items(run_id,vendor_rule_id,status,remote_rule_id)
     VALUES(run.id,'prune-rule-b','pending',rule_b);
 
@@ -700,6 +733,8 @@ BEGIN
     'sanity: the fixture starts as match_needed, the state this whole task exists to resolve');
 
   inventory_run := public.siem_start_inventory(actor, integration, 'scope-link-1');
+
+  PERFORM pg_temp.observe_run(inventory_run.id);
   UPDATE public.siem_sync_runs SET status='complete', discovery_complete=true, completed_at=now(),
     lease_token=NULL, lease_expires_at=NULL WHERE id=inventory_run.id RETURNING * INTO inventory_run;
 
@@ -787,5 +822,175 @@ BEGIN
       'dismissing one scope''s row leaves the OTHER scope''s row -- same integration, same vendor_rule_id -- untouched');
   END;
 END $$;
+
+-- Hardening milestone 1: a selection is bound to the scan it was reviewed in. An identity the
+-- source run never observed cannot be imported at all; the frozen content is the revision that
+-- run saw, not whatever the catalog holds at submit time; a rule that has since gone missing is
+-- refused; and the search/relationship predicate the count was computed under narrows
+-- all_matching to exactly the rows the user was shown.
+INSERT INTO auth.users(id,email) VALUES
+  ('21000000-0000-0000-0000-000000000001','reviewed-owner@example.test');
+INSERT INTO public.profiles(id,role,status) VALUES
+  ('21000000-0000-0000-0000-000000000001','admin','active')
+  ON CONFLICT(id) DO UPDATE SET role='admin',status='active';
+INSERT INTO public.integrations(id,user_id,name,provider,category,status,config,auth_type) VALUES
+  ('1a000000-0000-0000-0000-000000000001','21000000-0000-0000-0000-000000000001',
+   'Falcon reviewed-selection fixture','crowdstrike','siem','connected','{}','oauth2_client_credentials');
+
+DO $$
+DECLARE integration uuid := '1a000000-0000-0000-0000-000000000001';
+  actor uuid := '21000000-0000-0000-0000-000000000001';
+  scope text := 'scope-reviewed-1';
+  reviewed_run public.siem_sync_runs; import_run public.siem_sync_runs;
+  rule_id uuid; snap_id uuid; newer_snap uuid; latecomer uuid; gone uuid;
+  item_count integer; frozen text; reason text;
+BEGIN
+  -- Three rules the reviewed scan saw, plus one that appears in the catalog only afterwards.
+  FOR i IN 1..3 LOOP
+    INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+      observed_enabled,availability)
+      VALUES(integration,'crowdstrike',scope,'rev-rule-'||i,'Reviewed rule '||i,true,'present')
+      RETURNING id INTO rule_id;
+    INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+      VALUES(rule_id,'test-v1','rev-hash-'||i,'rev-raw-'||i,'{}'::jsonb,'{}'::jsonb) RETURNING id INTO snap_id;
+    UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_id WHERE id=rule_id;
+  END LOOP;
+
+  -- A rule that goes missing after the scan observed it.
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'crowdstrike',scope,'rev-rule-gone','Reviewed rule gone',true,'present')
+    RETURNING id INTO gone;
+  INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+    VALUES(gone,'test-v1','rev-hash-gone','rev-raw-gone','{}'::jsonb,'{}'::jsonb) RETURNING id INTO snap_id;
+  UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_id WHERE id=gone;
+
+  reviewed_run := public.siem_start_inventory(actor, integration, scope);
+  PERFORM pg_temp.observe_run(reviewed_run.id);
+  UPDATE public.siem_sync_runs SET status='complete', discovery_complete=true, completed_at=now(),
+    lease_token=NULL, lease_expires_at=NULL WHERE id=reviewed_run.id RETURNING * INTO reviewed_run;
+
+  -- Everything below happens AFTER the user reviewed that run.
+  -- (a) rev-rule-1's content changes in production and a newer scan records it.
+  SELECT id INTO rule_id FROM public.siem_remote_rules
+    WHERE integration_id=integration AND provider_scope=scope AND vendor_rule_id='rev-rule-1';
+  INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+    VALUES(rule_id,'test-v1','rev-hash-1-NEWER','rev-raw-1-NEWER','{}'::jsonb,'{}'::jsonb) RETURNING id INTO newer_snap;
+  UPDATE public.siem_remote_rules SET latest_snapshot_id=newer_snap WHERE id=rule_id;
+  -- (b) a rule nobody has reviewed shows up in the catalog.
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'crowdstrike',scope,'rev-rule-latecomer','Latecomer rule',true,'present')
+    RETURNING id INTO latecomer;
+  INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+    VALUES(latecomer,'test-v1','rev-hash-late','rev-raw-late','{}'::jsonb,'{}'::jsonb) RETURNING id INTO snap_id;
+  UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_id WHERE id=latecomer;
+  -- (c) rev-rule-gone is confirmed absent.
+  UPDATE public.siem_remote_rules SET availability='missing' WHERE id=gone;
+
+  import_run := public.siem_start_import(actor, integration, reviewed_run.id,
+    ARRAY['rev-rule-1'], '{}', false, 'rev-idem-1');
+  SELECT frozen_content_hash INTO frozen FROM public.siem_sync_items
+    WHERE run_id=import_run.id AND vendor_rule_id='rev-rule-1';
+  PERFORM pg_temp.assert_true(frozen = 'rev-hash-1',
+    'the frozen hash is the revision the reviewed run observed, not the newer catalog snapshot');
+  UPDATE public.siem_sync_runs SET status='cancelled', completed_at=now(), lease_token=NULL, lease_expires_at=NULL
+    WHERE id=import_run.id;
+
+  -- An identity the reviewed run never saw is not importable, even by explicit id.
+  import_run := public.siem_start_import(actor, integration, reviewed_run.id,
+    ARRAY['rev-rule-latecomer'], '{}', false, 'rev-idem-2');
+  SELECT count(*) INTO item_count FROM public.siem_sync_items WHERE run_id=import_run.id;
+  PERFORM pg_temp.assert_true(item_count = 0,
+    'an identity absent from the reviewed run is not frozen at all, by explicit id');
+  UPDATE public.siem_sync_runs SET status='cancelled', completed_at=now(), lease_token=NULL, lease_expires_at=NULL
+    WHERE id=import_run.id;
+
+  -- all_matching spans only what that run observed, and refuses a rule that has gone missing.
+  import_run := public.siem_start_import(actor, integration, reviewed_run.id,
+    '{}', '{}', true, 'rev-idem-3');
+  SELECT count(*) INTO item_count FROM public.siem_sync_items
+    WHERE run_id=import_run.id AND vendor_rule_id='rev-rule-latecomer';
+  PERFORM pg_temp.assert_true(item_count = 0,
+    'all_matching cannot reach a catalog identity the reviewed run never observed');
+  SELECT status, error_message INTO frozen, reason FROM public.siem_sync_items
+    WHERE run_id=import_run.id AND vendor_rule_id='rev-rule-gone';
+  PERFORM pg_temp.assert_true(frozen = 'skipped' AND reason = 'No longer in CrowdStrike',
+    'a rule confirmed missing since the scan is skipped with a reason, never adopted');
+  SELECT count(*) INTO item_count FROM public.siem_sync_items
+    WHERE run_id=import_run.id AND status='pending';
+  PERFORM pg_temp.assert_true(item_count = 3,
+    'all_matching freezes exactly the observed, still-present, unbound rules');
+  UPDATE public.siem_sync_runs SET status='cancelled', completed_at=now(), lease_token=NULL, lease_expires_at=NULL
+    WHERE id=import_run.id;
+
+  -- The search predicate the count was computed under narrows all_matching the same way the
+  -- table does -- this is what makes "Select all N matching rules" honest.
+  import_run := public.siem_start_import(actor, integration, reviewed_run.id,
+    '{}', '{}', true, 'rev-idem-4', 'Reviewed rule 2', NULL);
+  SELECT count(*) INTO item_count FROM public.siem_sync_items WHERE run_id=import_run.id AND status='pending';
+  PERFORM pg_temp.assert_true(item_count = 1,
+    'a search predicate narrows all_matching to the rows that search matched');
+  UPDATE public.siem_sync_runs SET status='cancelled', completed_at=now(), lease_token=NULL, lease_expires_at=NULL
+    WHERE id=import_run.id;
+
+  -- A relationship predicate that excludes every importable row freezes nothing.
+  import_run := public.siem_start_import(actor, integration, reviewed_run.id,
+    '{}', '{}', true, 'rev-idem-5', NULL, 'already_in_library');
+  SELECT count(*) INTO item_count FROM public.siem_sync_items WHERE run_id=import_run.id AND status='pending';
+  PERFORM pg_temp.assert_true(item_count = 0,
+    'a relationship predicate excluding importable rows freezes nothing');
+  PERFORM pg_temp.assert_true(
+    (SELECT error_message FROM public.siem_sync_runs WHERE id=import_run.id)
+      = 'None of the selected rules can be imported right now',
+    'an empty frozen selection completes with the product-copy explanation');
+
+  RAISE NOTICE 'reviewed-selection assertions passed';
+END $$;
+
+-- A run that exhausted its transient retries is 'failed' with unprocessed items still 'pending'.
+-- Retry must resume that work rather than report there is nothing to retry.
+DO $$
+DECLARE integration uuid := '1a000000-0000-0000-0000-000000000001';
+  actor uuid := '21000000-0000-0000-0000-000000000001';
+  scope text := 'scope-reviewed-1';
+  reviewed_run public.siem_sync_runs; import_run public.siem_sync_runs; retried public.siem_sync_runs;
+  item_count integer;
+BEGIN
+  SELECT * INTO reviewed_run FROM public.siem_sync_runs
+    WHERE integration_id=integration AND kind='inventory' ORDER BY created_at LIMIT 1;
+
+  import_run := public.siem_start_import(actor, integration, reviewed_run.id,
+    ARRAY['rev-rule-1','rev-rule-2','rev-rule-3'], '{}', false, 'rev-retry-1');
+  SELECT count(*) INTO item_count FROM public.siem_sync_items WHERE run_id=import_run.id AND status='pending';
+  PERFORM pg_temp.assert_true(item_count = 3, 'sanity: three pending items frozen for the retry fixture');
+
+  -- One item got a definite failure; the other two never ran because the run itself gave up.
+  UPDATE public.siem_sync_items SET status='failed', error_message='CrowdStrike request failed (503)'
+   WHERE run_id=import_run.id AND vendor_rule_id='rev-rule-1';
+  UPDATE public.siem_sync_runs SET status='failed', attempts=5, completed_at=now(),
+    error_message='Sync failed', lease_token=NULL, lease_expires_at=NULL WHERE id=import_run.id;
+
+  retried := public.siem_retry_import(actor, import_run.id);
+  PERFORM pg_temp.assert_true(retried.status = 'queued',
+    'retrying a failed run with pending work requeues it instead of raising');
+  SELECT count(*) INTO item_count FROM public.siem_sync_items WHERE run_id=import_run.id AND status='pending';
+  PERFORM pg_temp.assert_true(item_count = 3,
+    'the failed item is reset and the never-attempted pending items are preserved, not stranded');
+
+  -- With nothing left to do, retry still refuses.
+  UPDATE public.siem_sync_items SET status='imported' WHERE run_id=import_run.id;
+  UPDATE public.siem_sync_runs SET status='failed', completed_at=now() WHERE id=import_run.id;
+  BEGIN
+    PERFORM public.siem_retry_import(actor, import_run.id);
+    RAISE EXCEPTION 'retry with nothing resumable was accepted';
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM pg_temp.assert_true(SQLERRM = 'No rules left to retry',
+      'retry with nothing resumable is refused with product copy');
+  END;
+
+  RAISE NOTICE 'retry-resumes-pending assertions passed';
+END $$;
+
 SET CONSTRAINTS ALL IMMEDIATE;
 ROLLBACK;

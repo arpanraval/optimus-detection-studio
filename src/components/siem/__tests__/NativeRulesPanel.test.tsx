@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NativeRulesPanel } from '../NativeRulesPanel';
@@ -384,22 +384,59 @@ describe('NativeRulesPanel — span-pages selection under a narrowing filter (C1
     expect(await screen.findByRole('button', { name: /Select all 800 matching rules/ })).toBeTruthy();
   });
 
-  it('never offers "select all matching" while a search is active', async () => {
+  // C1 was originally closed by suppressing the affordance under any filter, because
+  // siem_start_import had no way to express "all rules matching THIS filter" and would have
+  // imported the whole catalog. The server now takes the predicate, so the affordance is back --
+  // and the filter has to travel with the request or the same bug returns.
+  it('sends the active search with an all-matching selection', async () => {
+    const startImport = vi.spyOn(nativeSiemService, 'startImport')
+      .mockResolvedValue({ ...completeRun, id: 'import-1' } as never);
+    vi.spyOn(nativeSiemService, 'importResults').mockResolvedValue([]);
     render(
       <MemoryRouter>
         <NativeRulesPanel integration={integrationFixture} />
       </MemoryRouter>,
     );
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Suspicious process 0' }));
-    // Establish the affordance exists before narrowing, so this is a real transition.
-    await screen.findByRole('button', { name: /Select all 800 matching rules/ });
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search production rules' }), {
       target: { value: 'proc' },
     });
-    expect(screen.queryByRole('button', { name: /Select all .* matching rules/ })).toBeNull();
+    // Wait for the debounce to reach the server: the frozen predicate must match the filter the
+    // displayed page was fetched under, not a value the user has not seen results for yet.
+    await waitFor(() => expect(nativeSiemService.inventoryPage)
+      .toHaveBeenCalledWith(expect.objectContaining({ search: 'proc' })));
+    fireEvent.click(await screen.findByRole('button', { name: /Select all 800 matching rules/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Import/ }));
+
+    await waitFor(() => expect(startImport).toHaveBeenCalled());
+    expect(startImport.mock.calls[0][0]).toMatchObject({
+      allMatching: true, selectionSearch: 'proc', selectionRelationship: 'all',
+    });
   });
 
-  it('never offers "select all matching" while a relationship chip other than "all" is active', async () => {
+  it('sends the active relationship chip with an all-matching selection', async () => {
+    const startImport = vi.spyOn(nativeSiemService, 'startImport')
+      .mockResolvedValue({ ...completeRun, id: 'import-1' } as never);
+    vi.spyOn(nativeSiemService, 'importResults').mockResolvedValue([]);
+    render(
+      <MemoryRouter>
+        <NativeRulesPanel integration={integrationFixture} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Suspicious process 0' }));
+    fireEvent.click(screen.getByRole('button', { name: /Not in library/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Select all 800 matching rules/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Import/ }));
+
+    await waitFor(() => expect(startImport).toHaveBeenCalled());
+    expect(startImport.mock.calls[0][0]).toMatchObject({
+      allMatching: true, selectionRelationship: 'not_in_library',
+    });
+  });
+
+  // A chip that excludes every importable row has nothing to "select all" of, and the old
+  // affordance advertised the unfiltered not_in_library count regardless.
+  it('does not offer all-matching under a relationship chip that excludes importable rules', async () => {
     render(
       <MemoryRouter>
         <NativeRulesPanel integration={integrationFixture} />
@@ -407,7 +444,7 @@ describe('NativeRulesPanel — span-pages selection under a narrowing filter (C1
     );
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Suspicious process 0' }));
     await screen.findByRole('button', { name: /Select all 800 matching rules/ });
-    fireEvent.click(screen.getByRole('button', { name: /Not in library/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Already in library/ }));
     expect(screen.queryByRole('button', { name: /Select all .* matching rules/ })).toBeNull();
   });
 });

@@ -33,6 +33,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
     page,
     counts,
     run,
+    inventoryRun,
     loading,
     error,
     running,
@@ -40,6 +41,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
     setRelationship,
     search,
     setSearch,
+    appliedSearch,
     pageIndex,
     setPageIndex,
     reload,
@@ -56,10 +58,16 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
   const totalCount = Object.values(counts).reduce((sum, value) => sum + value, 0);
   const hasEverFetched = !!run;
 
-  const filterKey = `${relationship}|${search}`;
+  // Connection is part of the selection's identity: without it a panel that switches
+  // connection keeps a selection of ids belonging to the previous one.
+  const filterKey = `${integration.id}|${relationship}|${search}`;
+  // Eligible means importable AND matching the active filter. siem_inventory_counts is already
+  // computed under the search, but only not_in_library rows can be imported, so a relationship
+  // chip that excludes them leaves nothing to select all of.
+  const eligibleTotal = relationship === 'all' || relationship === 'not_in_library' ? counts.not_in_library : 0;
   const selection = useInventorySelection({
     rows,
-    eligibleTotal: counts.not_in_library,
+    eligibleTotal,
     filterKey,
     discoveryComplete: run?.discovery_complete === true,
   });
@@ -92,7 +100,12 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
   // Generated once per submit attempt and held here so a double-click, a retry after a
   // network error, or a re-render all reuse the same key. Cleared once a run exists (the
   // key's job is done) so the *next* selection gets a fresh one.
-  const idempotencyKeyRef = React.useRef<string | null>(null);
+  // The key has to travel with the selection it was minted for. Keeping a bare key meant that a
+  // submit which failed after the server created the run left the key set, so changing the
+  // selection and resubmitting replayed the ORIGINAL run by idempotency and silently discarded
+  // the new selection. Re-minting on a different descriptor keeps retries idempotent without
+  // making a different request look like the same one.
+  const idempotencyKeyRef = React.useRef<{ key: string; descriptor: string } | null>(null);
 
   const loadImportResults = React.useCallback(
     async (runId: string) => {
@@ -167,23 +180,32 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
     if (importSubmitting || selection.selectedCount === 0) return;
     setImportSubmitting(true);
     setImportError(null);
-    const key = idempotencyKeyRef.current ?? crypto.randomUUID();
-    idempotencyKeyRef.current = key;
     try {
-      // Deliberately no status filter: the server accepts explicit ids sourced from a
-      // partial (still-running or incomplete) inventory run and only rejects `allMatching`
-      // against one (siem_start_import requires status = 'complete' AND discovery_complete
-      // for allMatching only). Filtering to completed runs here would silently block the
-      // exact case the selection bar's "You can import the rules found so far" copy promises.
-      const source = await nativeSiemService.latestRun(integration.id, ['inventory']);
+      // The run the user was actually looking at, not whatever is newest at click time: the
+      // server freezes content from the snapshot THIS run observed, so substituting a scan that
+      // completed since the review would import a revision nobody saw.
+      // Deliberately not filtered to completed runs: the server accepts explicit ids from a
+      // partial (still-running) inventory run and only rejects `allMatching` against one, which
+      // is what the selection bar's "You can import the rules found so far" copy promises.
+      const source = inventoryRun;
       if (!source) throw new Error('Fetch rules from CrowdStrike before importing');
+      const selectionArgs = selection.selection.mode === 'all_matching'
+        ? { allMatching: true, excludeIds: Array.from(selection.selection.excluded).sort() }
+        : { ids: Array.from(selection.selection.ids).sort() };
+      // "All matching" means all rules matching the filter the count was computed under, so the
+      // filter is part of the request rather than something the client re-derives.
+      const filterArgs = { selectionSearch: appliedSearch.trim(), selectionRelationship: relationship };
+      const descriptor = JSON.stringify({ sourceRunId: source.id, ...selectionArgs, ...filterArgs });
+      const key = idempotencyKeyRef.current?.descriptor === descriptor
+        ? idempotencyKeyRef.current.key
+        : crypto.randomUUID();
+      idempotencyKeyRef.current = { key, descriptor };
       const started = await nativeSiemService.startImport({
         integrationId: integration.id,
         sourceRunId: source.id,
         idempotencyKey: key,
-        ...(selection.selection.mode === 'all_matching'
-          ? { allMatching: true, excludeIds: Array.from(selection.selection.excluded) }
-          : { ids: Array.from(selection.selection.ids) }),
+        ...selectionArgs,
+        ...filterArgs,
       });
       // The run now exists (or was recovered by idempotency key); a future submit is a
       // different selection and must mint its own key.
@@ -436,8 +458,8 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
         )}
         <InventorySelectionBar
           selectedCount={selection.selectedCount}
-          eligibleTotal={counts.not_in_library}
-          canSelectAllMatching={selection.canSelectAllMatching && relationship === 'all' && !search.trim()}
+          eligibleTotal={eligibleTotal}
+          canSelectAllMatching={selection.canSelectAllMatching}
           discoveryComplete={run?.discovery_complete === true}
           clearedByFilterChange={selection.clearedByFilterChange}
           onSelectAllMatching={selection.selectAllMatching}

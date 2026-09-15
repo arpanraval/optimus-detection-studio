@@ -26,7 +26,8 @@ describe('native_import_start', () => {
       sourceRunId: 'source-run', ids: ['a', 'b'], idempotencyKey: 'key-1' }, 'owner');
     expect(rpc).toHaveBeenCalledWith('siem_start_import', {
       p_actor: 'owner', p_integration: 'connection', p_source_run: 'source-run',
-      p_ids: ['a', 'b'], p_exclude: [], p_all_matching: false, p_idempotency: 'key-1' });
+      p_ids: ['a', 'b'], p_exclude: [], p_all_matching: false, p_idempotency: 'key-1',
+      p_search: null, p_relationship: null });
   });
 
   it('passes p_all_matching true with p_exclude when allMatching is set', async () => {
@@ -35,7 +36,19 @@ describe('native_import_start', () => {
       sourceRunId: 'source-run', allMatching: true, excludeIds: ['c'], idempotencyKey: 'key-2' }, 'owner');
     expect(rpc).toHaveBeenCalledWith('siem_start_import', {
       p_actor: 'owner', p_integration: 'connection', p_source_run: 'source-run',
-      p_ids: [], p_exclude: ['c'], p_all_matching: true, p_idempotency: 'key-2' });
+      p_ids: [], p_exclude: ['c'], p_all_matching: true, p_idempotency: 'key-2',
+      p_search: null, p_relationship: null });
+  });
+
+  // "All N matching" is only honest if the predicate the count was computed under reaches the
+  // server; without it the freeze spans the whole catalog.
+  it('forwards the selection filter so all-matching freezes only the filtered rows', async () => {
+    const { deps, rpc } = fixture();
+    await handleNativeRequest(deps, { action: 'native_import_start', integrationId: 'connection',
+      sourceRunId: 'source-run', allMatching: true, idempotencyKey: 'key-4',
+      selectionSearch: 'okta', selectionRelationship: 'not_in_library' }, 'owner');
+    expect(rpc).toHaveBeenCalledWith('siem_start_import', expect.objectContaining({
+      p_search: 'okta', p_relationship: 'not_in_library' }));
   });
 
   it('rejects a body with neither ids nor allMatching', async () => {

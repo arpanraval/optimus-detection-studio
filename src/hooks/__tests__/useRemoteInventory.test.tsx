@@ -96,6 +96,65 @@ describe('useRemoteInventory', () => {
     );
   });
 
+  // The generation counter only changes when the CONNECTION changes, so it cannot order two
+  // reads issued against the same connection. Typing a search fires overlapping requests and
+  // whichever lands last used to win -- showing results for a query the user has moved past.
+  it('ignores a stale page response that lands after a newer one', async () => {
+    const stale: InventoryPage = { rows: [], hasMore: true };
+    const fresh: InventoryPage = { rows: [], hasMore: false };
+    let releaseStale: (value: InventoryPage) => void = () => {};
+    vi.mocked(nativeSiemService.inventoryPage).mockImplementation((args: { search?: string }) =>
+      args.search === 'a' ? new Promise<InventoryPage>((resolve) => { releaseStale = resolve; })
+        : args.search === 'ab' ? Promise.resolve(fresh)
+        : Promise.resolve(emptyPage));
+
+    const { result } = renderHook(() => useRemoteInventory('connection'));
+    await act(async () => { await vi.runOnlyPendingTimersAsync(); });
+
+    act(() => result.current.setSearch('a'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    act(() => result.current.setSearch('ab'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(result.current.page).toEqual(fresh);
+
+    await act(async () => { releaseStale(stale); await vi.runOnlyPendingTimersAsync(); });
+    expect(result.current.page).toEqual(fresh);
+  });
+
+  it('ignores a stale counts response that lands after a newer one', async () => {
+    const stale = { ...zeroCounts, not_in_library: 99 };
+    const fresh = { ...zeroCounts, not_in_library: 1 };
+    let releaseStale: (value: typeof zeroCounts) => void = () => {};
+    vi.mocked(nativeSiemService.inventoryCounts).mockImplementation((_id: string, search?: string) =>
+      search === 'a' ? new Promise<typeof zeroCounts>((resolve) => { releaseStale = resolve; })
+        : search === 'ab' ? Promise.resolve(fresh)
+        : Promise.resolve(zeroCounts));
+
+    const { result } = renderHook(() => useRemoteInventory('connection'));
+    await act(async () => { await vi.runOnlyPendingTimersAsync(); });
+
+    act(() => result.current.setSearch('a'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    act(() => result.current.setSearch('ab'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(result.current.counts.not_in_library).toBe(1);
+
+    await act(async () => { releaseStale(stale); await vi.runOnlyPendingTimersAsync(); });
+    expect(result.current.counts.not_in_library).toBe(1);
+  });
+
+  it('exposes the latest inventory run separately from refresh_tracked status', async () => {
+    const refresh: NativeSyncRun = { ...completeRun, id: 'refresh-9' };
+    const inventory: NativeSyncRun = { ...completeRun, id: 'inventory-4' };
+    vi.mocked(nativeSiemService.latestRun).mockImplementation(async (_id: string, kinds?: string[]) =>
+      kinds?.length === 1 && kinds[0] === 'inventory' ? inventory : refresh);
+    const { result } = renderHook(() => useRemoteInventory('connection'));
+    await act(async () => { await vi.runOnlyPendingTimersAsync(); });
+    // An import must be sourced from the scan it reviewed, never from a tracked-refresh run.
+    expect(result.current.run?.id).toBe('refresh-9');
+    expect(result.current.inventoryRun?.id).toBe('inventory-4');
+  });
+
   it('picks up a run already in flight on mount, without starting one', async () => {
     vi.mocked(nativeSiemService.latestRun).mockResolvedValue(queuedRun);
     const { result } = renderHook(() => useRemoteInventory('connection'));
