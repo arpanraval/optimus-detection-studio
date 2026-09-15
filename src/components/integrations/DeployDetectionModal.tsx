@@ -21,6 +21,7 @@ import type { AutoRetryKind } from '../../lib/integrationService';
 import { hasPermission } from '../../types';
 import { getDefaultRuleConfig } from '../../lib/providerRuleConfigDefaults';
 import { QueryDiff } from '@/components/siem/QueryDiff';
+import { RuleFieldChanges } from '@/components/siem/RuleFieldChanges';
 import { NATIVE_DRIFT_LABELS } from '@/components/siem/NativeRuleReview';
 import { ProviderRuleConfigForm } from './ProviderRuleConfigForm';
 import { SiemPreflightPanel } from './SiemPreflightPanel';
@@ -949,6 +950,14 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                       <QueryDiff
                         local={boundPreview.local.query}
                         remote={boundPreview.remote.query}
+                        remoteTitle={selectedIntegration.name}
+                      />
+                      {/* The write sends more than the query -- name, description, severity, state
+                          and the stored rule configuration all travel with it. A review that showed
+                          only the query would be a review of part of the change. */}
+                      <RuleFieldChanges
+                        local={boundPreview.local}
+                        remote={boundPreview.remote}
                         remoteTitle={selectedIntegration.name}
                       />
                       {boundPreview.capabilities.update && (
