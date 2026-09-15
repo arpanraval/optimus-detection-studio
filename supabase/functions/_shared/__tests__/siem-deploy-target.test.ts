@@ -31,6 +31,17 @@ describe('findDeployBinding', () => {
     expect(filters.detection_id).toBeUndefined();
   });
 
+  // A detection legacy-deployed as rule A and later relinked to rule B must not resolve to B's
+  // binding when the server also names A's detection id: both identifiers must apply together,
+  // as additional filters, never as alternatives -- otherwise the wrong rule could be written to.
+  it('applies both a detection id and a vendor rule id as filters when both are supplied', async () => {
+    const { db, filters } = dbDouble([
+      { id: 'b1', detection_id: 'd1', integration_id: 'i1', vendor_rule_id: 'v1' },
+    ]);
+    await findDeployBinding(db as never, { detectionId: 'd1', integrationId: 'i1', vendorRuleId: 'v1' });
+    expect(filters).toMatchObject({ detection_id: 'd1', integration_id: 'i1', vendor_rule_id: 'v1' });
+  });
+
   // A tombstoned binding means the library copy was deleted. The remote rule is free to be
   // deployed to again as a new rule, so routing must not capture it.
   it('ignores a binding that is no longer active', async () => {
@@ -70,7 +81,7 @@ describe('deployRouteDecision', () => {
   it('refuses a bound target when the caller did not review it', () => {
     expect(deployRouteDecision(binding, {})).toEqual({
       route: 'refuse',
-      message: 'Open this rule’s production comparison and review the change before deploying it.',
+      message: 'Use Deploy on this rule to review the change before sending it to production.',
     });
     expect(deployRouteDecision(binding, { expectedHash: 'h' })).toMatchObject({ route: 'refuse' });
     expect(deployRouteDecision(binding, { expectedVersion: 1 })).toMatchObject({ route: 'refuse' });

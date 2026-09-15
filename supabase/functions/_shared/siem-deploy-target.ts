@@ -33,7 +33,7 @@ export async function findDeployBinding(
     .eq('binding_status', 'active');
   if (target.integrationId) query = query.eq('integration_id', target.integrationId);
   if (target.detectionId) query = query.eq('detection_id', target.detectionId);
-  else if (target.vendorRuleId) query = query.eq('vendor_rule_id', target.vendorRuleId);
+  if (target.vendorRuleId) query = query.eq('vendor_rule_id', target.vendorRuleId);
 
   const { data, error } = await query.limit(1);
   if (error) throw new Error('Unable to verify native rule bindings');
@@ -68,7 +68,7 @@ export function deployRouteDecision(
   if (operation === 'update' && (!body.expectedHash || typeof body.expectedVersion !== 'number')) {
     return {
       route: 'refuse',
-      message: 'Open this rule’s production comparison and review the change before deploying it.',
+      message: 'Use Deploy on this rule to review the change before sending it to production.',
     };
   }
   return {
