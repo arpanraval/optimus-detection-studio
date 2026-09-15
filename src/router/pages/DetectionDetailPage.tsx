@@ -6,6 +6,7 @@ import { Icon } from '../../components/Icon';
 import { useAppData } from '../AppDataContext';
 import { useToast } from '../../hooks/useToast';
 import { supabase } from '../../lib/supabaseClient';
+import { withSiemLibraryState } from '../../lib/siemLibraryState';
 import { Detection } from '../../types';
 import { ROUTES, routeHelpers } from '../routes';
 
@@ -42,7 +43,8 @@ export const DetectionDetailPage: React.FC = () => {
         }
 
         if (data) {
-          setDetection(sanitizeDetection(data));
+          const [withState] = await withSiemLibraryState([sanitizeDetection(data)]);
+          setDetection(withState);
         }
       } catch (err) {
         showToast('error', 'Error', 'Failed to fetch detection.');
