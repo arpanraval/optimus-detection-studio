@@ -100,6 +100,7 @@ BEGIN
   SELECT * INTO r FROM siem_sync_runs WHERE id = p_run FOR UPDATE;
   IF NOT FOUND OR r.kind <> 'import_selection' THEN RAISE EXCEPTION 'Import job not found'; END IF;
   IF NOT siem_can_import(p_actor, r.integration_id) THEN RAISE EXCEPTION 'Native import permission denied'; END IF;
+  IF r.status NOT IN ('queued','running') THEN RAISE EXCEPTION 'This import has already finished'; END IF;
 
   UPDATE siem_sync_items SET status = 'cancelled', error_message = NULL
    WHERE run_id = r.id AND status = 'pending';
@@ -123,8 +124,18 @@ BEGIN
   GET DIAGNOSTICS reset_count = ROW_COUNT;
   IF reset_count = 0 THEN RAISE EXCEPTION 'No failed rules to retry'; END IF;
 
+  -- A partial run no longer blocks a fresh import_selection start (siem_start_import's
+  -- concurrency check only sees 'queued'/'running'), so a second import may already be live
+  -- for this connection by the time this one is retried. Requeuing into that collision would
+  -- otherwise surface the raw siem_sync_one_active unique-constraint error to the user.
+  IF EXISTS (SELECT 1 FROM siem_sync_runs WHERE integration_id = r.integration_id
+               AND kind = 'import_selection' AND status IN ('queued','running') AND id <> r.id) THEN
+    RAISE EXCEPTION 'An import is already running for this connection';
+  END IF;
+
   UPDATE siem_sync_runs SET status = 'queued', next_attempt_at = now(), attempts = 0,
-    completed_at = NULL, error_message = NULL WHERE id = r.id
+    completed_at = NULL, error_message = NULL, lease_token = NULL, lease_expires_at = NULL
+    WHERE id = r.id
     RETURNING * INTO r;
   RETURN r;
 END $$;

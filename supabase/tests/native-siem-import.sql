@@ -158,6 +158,11 @@ BEGIN
     ARRAY['am-rule-1','am-rule-2','am-rule-3'], true, 'idem-key-5');
   SELECT count(*) INTO item_count FROM public.siem_sync_items WHERE run_id=import_run.id AND status='pending';
   PERFORM pg_temp.assert_true(item_count = 7, 'all_matching with 3 exclusions freezes catalog_eligible (10) minus 3 = 7');
+
+  -- Retire this run so it cannot be mistaken for eligible work by siem_claim_sync's
+  -- whole-table scan in later blocks of this file (every run in this transaction shares the
+  -- same created_at, so a leftover queued run is a live hazard, not just untidy state).
+  UPDATE public.siem_sync_runs SET status='cancelled', completed_at=now() WHERE id=import_run.id;
 END $$;
 
 -- Adoption: siem_commit_import_chunk creates exactly one detection/binding/revision/'imported'
@@ -217,7 +222,8 @@ BEGIN
     JOIN public.siem_remote_rule_snapshots s ON s.id=rr.latest_snapshot_id
    WHERE i.run_id=import_run.id AND i.status='pending';
 
-  SELECT * INTO r FROM public.siem_claim_sync();
+  UPDATE public.siem_sync_runs SET status='running', lease_token=gen_random_uuid(),
+    lease_expires_at=now()+interval '45 seconds' WHERE id=import_run.id RETURNING * INTO r;
   PERFORM public.siem_commit_import_chunk(r.id, r.lease_token, results);
 
   SELECT count(*) INTO item_count FROM public.siem_sync_items WHERE run_id=import_run.id AND status='imported';
@@ -289,7 +295,8 @@ BEGIN
     JOIN public.siem_remote_rules rr ON rr.integration_id=integration AND rr.provider_scope=scope AND rr.vendor_rule_id=i.vendor_rule_id
     JOIN public.siem_remote_rule_snapshots s ON s.id=rr.latest_snapshot_id
    WHERE i.run_id=cancel_run.id AND i.vendor_rule_id='adopt-rule-13';
-  SELECT * INTO r FROM public.siem_claim_sync();
+  UPDATE public.siem_sync_runs SET status='running', lease_token=gen_random_uuid(),
+    lease_expires_at=now()+interval '45 seconds' WHERE id=cancel_run.id RETURNING * INTO r;
   PERFORM public.siem_commit_import_chunk(r.id, r.lease_token, results);
 
   PERFORM public.siem_cancel_import(actor, cancel_run.id);
@@ -315,7 +322,8 @@ BEGIN
 
   retry_run := public.siem_start_import(actor, integration, inventory_run.id,
     ARRAY['adopt-rule-16','adopt-rule-17'], '{}', false, 'idem-adopt-retry');
-  SELECT * INTO r FROM public.siem_claim_sync();
+  UPDATE public.siem_sync_runs SET status='running', lease_token=gen_random_uuid(),
+    lease_expires_at=now()+interval '45 seconds' WHERE id=retry_run.id RETURNING * INTO r;
   PERFORM public.siem_commit_import_chunk(r.id, r.lease_token,
     '[{"id":"adopt-rule-16","error":"CrowdStrike request failed (500); retry the sync after checking access"}]'::jsonb);
   PERFORM pg_temp.assert_true(
