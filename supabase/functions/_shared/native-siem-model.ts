@@ -202,7 +202,19 @@ export function localContent(detection: {
     severity: detection.severity, query: matches[0].query };
 }
 
-/** Reject configuration we cannot faithfully serialize rather than resetting it to provider defaults. */
+/**
+ * The update body CrowdStrike ACCEPTS, which is not the shape it returns.
+ *
+ * `trigger_mode`, `execution_mode`, `use_ingest_time`, `mitre_attack` and `operation.start_on` all
+ * come back on a read and none of them are input parameters -- echoing them back is a 400, and a
+ * `start_on` read from a rule created in February is in the past besides. The legacy deploy path
+ * has always sent this narrower body, which is why deploying a NEW rule worked while updating a
+ * tracked one did not.
+ *
+ * Fields that are not sent keep whatever production has. The readback after the write is what
+ * proves it: if CrowdStrike resets something we did not send, the content hash no longer matches
+ * the reviewed change and the operation fails rather than being recorded as a success.
+ */
 export function crowdStrikeUpdate(id: string, content: RuleContent): Record<string, Json> {
   const search = object(content.config.search), operation = object(content.config.operation);
   const schedule = object(operation.schedule);
@@ -216,13 +228,17 @@ export function crowdStrikeUpdate(id: string, content: RuleContent): Record<stri
   }
   const severity = ({ Informational: 10, Low: 30, Medium: 50, High: 70, Critical: 90 } as Record<string, number>)[content.severity];
   if (!severity) throw new Error('Invalid severity');
+  // The API requires a tactic whenever a technique is given, so a technique without one is
+  // dropped rather than sent to be refused.
+  const tactic = content.config.tactic ? String(content.config.tactic) : '';
+  const technique = tactic && content.config.technique ? String(content.config.technique) : '';
   return {
-    ...object(content.config.fields),
     id, name: content.name, description: content.description, severity,
-    ...(content.config.tactic ? { tactic: content.config.tactic } : {}),
-    ...(content.config.technique ? { technique: content.config.technique } : {}),
-    search: { ...search, filter: content.query },
-    operation, status: content.enabled ? 'active' : 'inactive',
+    ...(tactic ? { tactic } : {}),
+    ...(technique ? { technique } : {}),
+    search: { outcome: search.outcome, filter: content.query, lookback: search.lookback },
+    operation: { schedule: { definition: schedule.definition } },
+    status: content.enabled ? 'active' : 'inactive',
   };
 }
 

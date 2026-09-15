@@ -15,9 +15,50 @@ describe('native SIEM content contracts', () => {
   it('preserves configuration, numeric severity and native query language', () => {
     const rule = normalizeCrowdStrike(raw);
     expect(rule.severity).toBe('High'); expect(rule.language).toBe('CQL');
-    const update = crowdStrikeUpdate(raw.id, { ...rule, query: 'field="new"' });
-    expect(update).toMatchObject({ id: raw.id, severity: 70, status: 'active', operation: raw.operation,
-      notifications: raw.notifications, search: { ...raw.search, filter: 'field="new"' } });
+    expect(rule.config).toMatchObject({ operation: raw.operation, fields: { notifications: raw.notifications } });
+  });
+
+  // The body CrowdStrike accepts is narrower than the object it returns. This test previously
+  // asserted that the read shape was echoed back -- including `notifications` and the whole
+  // `operation` object -- which is exactly what the API answered with 400.
+  it('sends only the parameters the API accepts as input', () => {
+    const rule = normalizeCrowdStrike(raw);
+    expect(crowdStrikeUpdate(raw.id, { ...rule, query: 'field="new"' })).toEqual({
+      id: raw.id,
+      name: 'Existing rule',
+      description: 'A production rule',
+      severity: 70,
+      search: { outcome: 'detection', filter: 'field="new"', lookback: '1h0m' },
+      operation: { schedule: { definition: '@every 5m' } },
+      status: 'active',
+    });
+  });
+
+  // Every one of these comes back on a read and none is an input parameter. `start_on` is worse
+  // than ignored: the API demands a time in the future, and a rule read today carries the one it
+  // was created with.
+  it('omits the fields the API only ever returns', () => {
+    const rule = normalizeCrowdStrike({
+      ...raw,
+      mitre_attack: [],
+      search: { ...raw.search, trigger_mode: '', execution_mode: 'scheduled' },
+      operation: { ...raw.operation, start_on: '2026-02-13T20:17:58.656Z' },
+    });
+    const update = crowdStrikeUpdate(raw.id, rule);
+    for (const field of ['trigger_mode', 'execution_mode', 'use_ingest_time']) {
+      expect(update.search).not.toHaveProperty(field);
+    }
+    expect(update.operation).toEqual({ schedule: { definition: '@every 5m' } });
+    expect(update).not.toHaveProperty('mitre_attack');
+    expect(update).not.toHaveProperty('notifications');
+  });
+
+  // The API refuses a technique with no tactic, so one is never sent alone.
+  it('never sends a technique without the tactic the API requires with it', () => {
+    const rule = normalizeCrowdStrike({ ...raw, technique: 'T1098', tactic: '' });
+    expect(crowdStrikeUpdate(raw.id, rule)).not.toHaveProperty('technique');
+    const mapped = normalizeCrowdStrike({ ...raw, technique: 'T1098', tactic: 'TA0004' });
+    expect(crowdStrikeUpdate(raw.id, mapped)).toMatchObject({ tactic: 'TA0004', technique: 'T1098' });
   });
   it('never assumes an unrecognized status is enabled', () => {
     const rule = normalizeCrowdStrike({ ...raw, status: 'unknown' });
