@@ -123,7 +123,7 @@ describe('the import_selection worker branch', () => {
     const { deps, rpc } = workerFixture({ resource: [] });
     await processNativeSync(deps);
     expect(rpc).toHaveBeenCalledWith('siem_commit_import_chunk', expect.objectContaining({
-      p_results: [expect.objectContaining({ id: raw.id, error: 'Rule detail was omitted; no deletion inferred' })],
+      p_results: [expect.objectContaining({ id: raw.id, error: expect.stringContaining('may have been deleted') })],
     }));
   });
 });

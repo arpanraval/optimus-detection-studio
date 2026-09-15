@@ -49,6 +49,43 @@ async function client(deps: Dependencies, integration: { id: string; config: Rec
   };
 }
 
+const DETAIL_UNREADABLE = 'CrowdStrike did not return this rule. It may have been deleted or it ' +
+  'may be a rule type this connection cannot read.';
+const MAX_DETAIL_RETRIES_PER_CHUNK = 10;
+
+/** A batch detail read that returns fewer resources than requested is not evidence of deletion.
+ *  Retry each omitted id once on its own before recording it as unreadable. Retries are capped at
+ *  MAX_DETAIL_RETRIES_PER_CHUNK per call; ids beyond the cap are left out of both maps entirely so
+ *  the caller leaves them pending for a later chunk instead of stranding them. */
+export async function readRuleDetails(
+  request: (path: string) => Promise<Record<string, Json>>,
+  ids: string[],
+): Promise<{ found: Map<string, Record<string, Json>>; missing: Map<string, string> }> {
+  const found = new Map<string, Record<string, Json>>();
+  const missing = new Map<string, string>();
+  if (!ids.length) return { found, missing };
+  const collect = (response: Record<string, Json>) => {
+    if (!Array.isArray(response.resources)) throw new Error('Invalid rule detail response');
+    for (const raw of response.resources as Record<string, Json>[]) {
+      if (typeof raw?.id === 'string' && ids.includes(raw.id)) found.set(raw.id, raw);
+    }
+  };
+  collect(await request(`entities/rules/v1?${ids.map(id => `ids=${encodeURIComponent(id)}`).join('&')}`));
+  let retries = 0;
+  for (const id of ids) {
+    if (found.has(id)) continue;
+    if (retries >= MAX_DETAIL_RETRIES_PER_CHUNK) continue; // beyond the cap: leave pending for the next chunk
+    retries++;
+    try {
+      collect(await request(`entities/rules/v1?ids=${encodeURIComponent(id)}`));
+    } catch {
+      /* fall through to the unreadable message rather than failing the whole chunk */
+    }
+    if (!found.has(id)) missing.set(id, DETAIL_UNREADABLE);
+  }
+  return { found, missing };
+}
+
 /** One invocation owns one bounded chunk. Cron, not a browser, drives subsequent chunks. */
 export async function processNativeSync(deps: Dependencies): Promise<{ processed: boolean }> {
   const runs = checked(await deps.db.rpc('siem_claim_sync'));
@@ -87,13 +124,11 @@ export async function processNativeSync(deps: Dependencies): Promise<{ processed
         .eq('run_id', run.id).eq('status', 'pending').order('vendor_rule_id').limit(10));
       const requested = items.map(item => item.vendor_rule_id as string);
       if (requested.length) {
-        const page = await request(`entities/rules/v1?${requested.map(id => `ids=${encodeURIComponent(id)}`).join('&')}`);
-        if (!Array.isArray(page.resources)) throw new Error('Invalid rule detail response');
-        const byId = new Map((page.resources as Record<string, Json>[]).map(raw => [raw.id, raw]));
+        const { found: byId, missing } = await readRuleDetails(request, requested);
         if (kind === 'inventory') {
           for (const id of requested) {
             const raw = byId.get(id);
-            if (!raw) { results.push({ id, status: 'failed', error: 'Rule detail was omitted; no deletion inferred' }); continue; }
+            if (!raw) { if (missing.has(id)) results.push({ id, status: 'failed', error: missing.get(id) }); continue; }
             const sanitized = sanitizeSnapshot(raw) as Record<string, Json>;
             const name = typeof sanitized.name === 'string' ? sanitized.name : id;
             try {
@@ -109,7 +144,7 @@ export async function processNativeSync(deps: Dependencies): Promise<{ processed
         } else {
           for (const id of requested) {
             const raw = byId.get(id);
-            if (!raw) { results.push({ id, status: 'failed', error: 'Rule detail was omitted; no deletion inferred' }); continue; }
+            if (!raw) { if (missing.has(id)) results.push({ id, status: 'failed', error: missing.get(id) }); continue; }
             try {
               const sanitized = sanitizeSnapshot(raw) as Record<string, Json>;
               const content = normalizeCrowdStrike(sanitized);

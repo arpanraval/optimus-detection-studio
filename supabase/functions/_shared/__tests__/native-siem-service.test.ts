@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
-import { handleNativeRequest, processNativeSync } from '../native-siem-service';
+import { handleNativeRequest, processNativeSync, readRuleDetails } from '../native-siem-service';
 import { contentHash, crowdStrikeScope, normalizeCrowdStrike } from '../native-siem-model';
 
 const config = { baseUrl: 'https://api.crowdstrike.com', customerId: 'a'.repeat(32) };
@@ -120,5 +120,55 @@ describe('import entry point', () => {
     const { deps, rpc } = await fixture();
     await handleNativeRequest(deps, { action: 'native_refresh_tracked', integrationId: 'connection' }, 'owner');
     expect(rpc).toHaveBeenCalledWith('siem_start_refresh', expect.anything());
+  });
+});
+
+describe('rule detail reads', () => {
+  it('retries an omitted id individually before giving up on it', async () => {
+    const wanted = ['a', 'b', 'c'];
+    const request = vi.fn(async (path: string) => {
+      if (path.includes('ids=a&ids=b&ids=c')) return { resources: [{ id: 'a' }, { id: 'c' }] };
+      if (path.includes('ids=b')) return { resources: [{ id: 'b' }] };
+      return { resources: [] };
+    });
+    const { found, missing } = await readRuleDetails(request as never, wanted);
+    expect([...found.keys()].sort()).toEqual(['a', 'b', 'c']);
+    expect(missing.size).toBe(0);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports a genuinely unreadable rule without inferring deletion', async () => {
+    const request = vi.fn(async (path: string) =>
+      path.includes('ids=a&ids=b') ? { resources: [{ id: 'a' }] } : { resources: [] });
+    const { found, missing } = await readRuleDetails(request as never, ['a', 'b']);
+    expect(found.has('a')).toBe(true);
+    expect(missing.get('b')).toBe('CrowdStrike did not return this rule. It may have been deleted or it may be a rule type this connection cannot read.');
+    expect(missing.get('b')).not.toMatch(/omitted|deletion inferred/);
+  });
+
+  it('does not issue a per-id request when the batch is complete', async () => {
+    const request = vi.fn(async () => ({ resources: [{ id: 'a' }, { id: 'b' }] }));
+    await readRuleDetails(request as never, ['a', 'b']);
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces the omitted rule as an actionable item, not a silent failure', async () => {
+    const { deps, rpc } = await fixture({ phase: 'hydration', resource: [] });
+    await processNativeSync(deps);
+    const call = rpc.mock.calls.find(([name]) => String(name).startsWith('siem_commit'));
+    expect(call?.[1].p_results[0].error).toContain('may have been deleted');
+  });
+
+  it('caps per-id retries at the chunk size and leaves the remainder pending', async () => {
+    const ids = Array.from({ length: 15 }, (_, i) => `id-${i}`);
+    const request = vi.fn(async () => ({ resources: [] }));
+    const { found, missing } = await readRuleDetails(request as never, ids);
+    expect(found.size).toBe(0);
+    expect(missing.size).toBe(10);
+    expect(request).toHaveBeenCalledTimes(11);
+    expect(request.mock.calls.length).toBeLessThanOrEqual(ids.length + 1);
+    // ids beyond the cap are left out of both maps entirely, so they remain pending for the next chunk.
+    const accountedFor = new Set([...found.keys(), ...missing.keys()]);
+    expect(ids.filter(id => !accountedFor.has(id))).toHaveLength(5);
   });
 });

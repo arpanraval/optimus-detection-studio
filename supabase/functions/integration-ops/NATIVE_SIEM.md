@@ -18,6 +18,10 @@ The adapter requires a valid CrowdStrike API origin and customer ID. Configure e
 
 Fetching a connection builds a read-only **inventory**: the worker discovers and normalizes every supported rule but creates no Production Library detection. The user reviews the inventory and imports selectively. Three run kinds exist: `inventory` (browse, nothing imported), `refresh_tracked` (re-observes rules that already have an active binding, updating their latest snapshot without creating anything new), and `import_selection` (creates detections and bindings only for the rules the user chose). `native_sync_start` is kept as an alias for `native_inventory_start` so the current frontend keeps working without importing anything.
 
+## Partial detail responses
+
+`entities/rules/v1` can legitimately return fewer resources than requested. A short batch response is not evidence of deletion: the worker retries one individual read per omitted id (capped at the chunk size, so a degraded vendor cannot turn one chunk into a request storm — any ids left over from the cap simply stay pending for the next chunk). A rule that still comes back empty on its own read is reported to the user as unreadable, with an actionable message naming both possibilities (deleted, or a rule type this connection cannot read); it is never treated as deleted. Only a completed scan — one that reads every tracked rule without a partial or failed batch — marks a rule `Not found`.
+
 ## Production write gate
 
 Keep `NATIVE_SIEM_MUTATIONS` unset or `false` until sandbox verification succeeds. This permits persistence, local query/configuration editing, comparisons, accepting production changes, and local revision restore. It blocks native production mutations on the server. Existing legacy deploy/toggle/delete paths also reject linked rules, including bulk callers and the development proxy entry points.
