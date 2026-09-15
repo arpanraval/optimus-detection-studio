@@ -29,7 +29,9 @@ async function proceedThroughPreflight() {
 
 // Fixtures: a detection already bound to a CrowdStrike rule, with a library edit to send.
 const preview = {
-  binding: { id: 'b1', detection_id: 'd1', vendor_rule_id: 'v1', availability: 'present' },
+  // The binding row is selected with `*`, so it carries its connection: the modal re-checks at
+  // submit that the comparison it reviewed belongs to the connection still selected.
+  binding: { id: 'b1', detection_id: 'd1', integration_id: 'int-1', vendor_rule_id: 'v1', availability: 'present' },
   baseline: { query: 'old' }, local: { query: 'new' }, remote: { query: 'old', enabled: true },
   drift: 'local_changed', remoteHash: 'hash-1', localVersion: 3, writesEnabled: true,
   capabilities: { update: null, enable: null, disable: null, delete: null },
@@ -120,6 +122,66 @@ describe('DeployDetectionModal for a rule already tracked in a SIEM', () => {
     const button = await screen.findByRole('button', { name: /^Update in CrowdStrike/ });
     expect((button as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(/not enabled for this installation/)).toBeTruthy();
+  });
+
+  // SQL refuses a Draft at the moment of writing ("Review this detection before deploying").
+  // Skipping the validation screen for a tracked rule only moved that refusal to after the user
+  // pressed Update, with the reason buried in a non-2xx response.
+  it('keeps a Draft on the validation screen instead of offering it an Update button', async () => {
+    const props = boundProps();
+    props.detection.status = Status.Draft;
+    renderModal(props);
+    expect(await screen.findByText(/must be in Production, Testing, or Review status/i)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Update in CrowdStrike/ })).toBeNull();
+  });
+
+  // Without the comparison there is no reviewed revision to send, so the ordinary form can only
+  // end in a server refusal. The one action that helps is loading the comparison again.
+  it('fails closed and offers a retry when the comparison cannot be loaded', async () => {
+    vi.spyOn(nativeSiemService, 'preview').mockRejectedValue(new Error('Comparison unavailable'));
+    renderModal(boundProps());
+    expect(await screen.findByText('Comparison unavailable')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Retry comparison/ })).toBeTruthy();
+    const advance = screen.getByRole('button', { name: /^Continue$/ }) as HTMLButtonElement;
+    expect(advance.disabled).toBe(true);
+  });
+
+  // The binding names WHICH query is deployed. Re-picking the first compatible query here meant
+  // the preview, the validation and the write could each concern a different one.
+  it('deploys the query the binding selected, not the first compatible one', async () => {
+    const props = boundProps();
+    props.detection.queries = [
+      { id: 'q1', language: 'CQL', query: 'first-query' },
+      { id: 'q2', language: 'CQL', query: 'bound-second-query' },
+    ];
+    vi.spyOn(nativeSiemService, 'preview').mockResolvedValue({
+      ...preview,
+      local: { ...preview.local, query: 'bound-second-query', language: 'CQL', name: 'Saved library name' },
+    } as never);
+    const deploy = vi.spyOn(integrationService, 'deployDetection').mockResolvedValue({} as never);
+    renderModal(props);
+    await proceedThroughPreflight();
+    fireEvent.click(await screen.findByRole('button', { name: /^Update in CrowdStrike/ }));
+    await waitFor(() => expect(deploy).toHaveBeenCalled());
+    expect(deploy.mock.calls[0][0]).toMatchObject({ query: 'bound-second-query', queryLanguage: 'CQL' });
+  });
+
+  // The native writer derives name and description from the saved detection, so an edit typed
+  // into this form would be shown to the user and then dropped.
+  it('shows the saved name read-only and submits it rather than a local edit', async () => {
+    vi.spyOn(nativeSiemService, 'preview').mockResolvedValue({
+      ...preview,
+      local: { ...preview.local, name: 'Saved library name', description: 'Saved description' },
+    } as never);
+    const deploy = vi.spyOn(integrationService, 'deployDetection').mockResolvedValue({} as never);
+    renderModal(boundProps());
+    await proceedThroughPreflight();
+    const name = await screen.findByDisplayValue('Saved library name') as HTMLInputElement;
+    expect(name.readOnly).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /^Update in CrowdStrike/ }));
+    await waitFor(() => expect(deploy).toHaveBeenCalled());
+    expect((deploy.mock.calls[0][0] as { ruleConfig: Record<string, unknown> }).ruleConfig)
+      .toMatchObject({ name: 'Saved library name', description: 'Saved description' });
   });
 });
 

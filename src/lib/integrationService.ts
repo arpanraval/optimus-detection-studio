@@ -69,6 +69,27 @@ async function hasActiveBinding(detectionId: string, integrationId: string): Pro
   return Boolean(data?.length);
 }
 
+/**
+ * The reason the server actually gave.
+ *
+ * supabase-js reports a non-2xx Edge Function response as "Edge Function returned a non-2xx status
+ * code" and puts the server's own message in the response body. Throwing the former turned
+ * "Review this detection before deploying" and "Production changed since review" into a shrug --
+ * the user was told a request failed but never what to do about it.
+ */
+async function edgeFunctionMessage(
+  error: { message: string; context?: { json?: () => Promise<{ error?: string }> } },
+  fallback: string,
+): Promise<string> {
+  try {
+    const body = await error.context?.json?.();
+    if (body?.error) return body.error;
+  } catch {
+    /* the response body may not be JSON */
+  }
+  return error.message || fallback;
+}
+
 const PREFLIGHT_POLL_INTERVAL_MS = 10_000;
 
 interface RunPreflightOptions {
@@ -2767,7 +2788,7 @@ export const integrationService = {
       },
     });
 
-    if (error) throw new Error(`Deployment failed: ${error.message}`);
+    if (error) throw new Error(await edgeFunctionMessage(error, 'Deployment failed'));
     if (data?.error) throw new Error(data.error);
     return data.deployment as DeploymentRecord;
   },
@@ -2942,7 +2963,7 @@ export const integrationService = {
       },
     });
 
-    if (error) throw new Error(`Failed to toggle rule: ${error.message}`);
+    if (error) throw new Error(await edgeFunctionMessage(error, 'Failed to toggle rule'));
     if (data?.error) throw new Error(data.error);
   },
 
@@ -3003,7 +3024,7 @@ export const integrationService = {
       },
     });
 
-    if (error) throw new Error(`Failed to delete rule: ${error.message}`);
+    if (error) throw new Error(await edgeFunctionMessage(error, 'Failed to delete rule'));
     if (data?.error) throw new Error(data.error);
   },
 
@@ -3167,7 +3188,7 @@ export const integrationService = {
       },
     });
 
-    if (error) throw new Error(`Failed to delete rule: ${error.message}`);
+    if (error) throw new Error(await edgeFunctionMessage(error, 'Failed to delete rule'));
     if (data?.error) throw new Error(data.error);
   },
 };

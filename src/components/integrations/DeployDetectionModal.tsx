@@ -258,6 +258,13 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
   // identity and settings come from the binding, and the diff is the review that authorises it.
   const [boundPreview, setBoundPreview] = useState<NativePreview | null>(null);
   const [boundError, setBoundError] = useState<string | null>(null);
+  // The binding we KNOW about, kept separately from the comparison we managed to load. A tracked
+  // rule whose comparison failed must not fall back to the ordinary create/update form: that form
+  // has no reviewed revision, so it can only end in a server refusal.
+  const [boundBinding, setBoundBinding] = useState<{ id: string; integration_id: string } | null>(null);
+  // Selections are async. Without a token, a slow response for connection A can land after the
+  // user has moved to connection B and leave B selected beside A's comparison.
+  const selectionToken = React.useRef(0);
 
   // C2: Permission check
   const canDeploy = hasPermission(userRole, 'integrations:sync', permissionOverrides as any);
@@ -265,6 +272,11 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
   // Find best query for the selected provider
   const getDeployQuery = (): { query: string; language: string } => {
     if (!selectedIntegration) return { query: detection.detectionQuery || '', language: detection.queryLanguage || '' };
+
+    // A tracked rule has exactly one query that counts: the one the binding selected, which is
+    // what the comparison showed and what the server will write. Picking the first compatible
+    // query again here could preview, validate and describe a different one.
+    if (boundPreview) return { query: boundPreview.local.query, language: boundPreview.local.language };
 
     const targetLang = getQueryLanguageForProvider(selectedIntegration.provider);
     const acceptedLangs = PROVIDER_QUERY_LANGUAGES[selectedIntegration.provider] || [];
@@ -320,6 +332,8 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
   };
 
   const handleSelectIntegration = async (integration: Integration) => {
+    const token = ++selectionToken.current;
+    const current = () => selectionToken.current === token;
     setSelectedIntegration(integration);
 
     // B: Client-side pre-deploy validation
@@ -331,10 +345,20 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
 
     // Scoped to the CONNECTION being deployed to: a detection can be bound to more than one, and
     // only the binding for the selected connection describes this deploy.
-    const binding = (detection.siem_observations || []).find(
+    const bindings = (detection.siem_observations || []).filter(
       (observation) => observation.binding_status === 'active'
         && observation.integration_id === integration.id,
     );
+    const binding = bindings[0];
+    setBoundBinding(binding?.id ? { id: binding.id, integration_id: integration.id } : null);
+
+    // Nothing here can choose between two tracked rules on one connection, and guessing would
+    // write to whichever the database happened to return first.
+    if (bindings.length > 1) {
+      setBoundError(`This detection is tracked as more than one rule in ${integration.name}. Open the rule you mean to change from that connection's rule list.`);
+      setStep('validate');
+      return;
+    }
 
     if (binding?.id) {
       // A tracked rule has nothing left to CHOOSE: its identity and settings come from the
@@ -344,11 +368,17 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
       // less — route through it exactly like any other deploy when the provider supports it.
       try {
         const nativePreview = await nativeSiemService.preview(binding.id);
+        if (!current()) return;
         setBoundPreview(nativePreview);
         setDeployAction('update');
         setRuleConfig(getDefaultRuleConfig(integration.provider));
-        setStep(supportsPreflight(integration.provider) ? 'preflight' : 'configure');
+        // The lifecycle gate applies to a tracked rule exactly as it does to a new one -- SQL
+        // refuses a Draft at the moment of writing, so skipping the validation screen only moved
+        // the refusal to after the user pressed Update.
+        setStep(!result.eligible ? 'validate'
+          : supportsPreflight(integration.provider) ? 'preflight' : 'configure');
       } catch (err) {
+        if (!current()) return;
         setBoundError(err instanceof Error ? err.message : 'Could not load the production comparison');
         setStep('validate');
       }
@@ -361,6 +391,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
         detectionId: detection.id,
         integrationId: integration.id,
       });
+      if (!current()) return;
       const existing = history.find(d => d.action === 'create' && d.status === 'success');
       if (existing) {
         setExistingDeployment(existing);
@@ -370,9 +401,11 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
         setDeployAction('create');
       }
     } catch {
+      if (!current()) return;
       setExistingDeployment(null);
     }
 
+    if (!current()) return;
     setStep('validate');
   };
 
@@ -443,6 +476,19 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
 
   const handleDeploy = async () => {
     if (!selectedIntegration || previewOnly) return;
+    // Re-check at submit what was true at review: this connection, this binding, this comparison.
+    // A selection that changed under an in-flight response must never be written with another
+    // connection's reviewed revision.
+    if (boundBinding && (!boundPreview || boundPreview.binding.id !== boundBinding.id
+        || boundPreview.binding.integration_id !== selectedIntegration.id)) {
+      setDeployResult({
+        success: false,
+        error: 'The production comparison does not match the connection selected. Reopen this rule and review the change again.',
+        errorRetryable: true,
+      });
+      setStep('result');
+      return;
+    }
     setDeploying(true);
     setDeployResult(null);
     setStep('deploying');
@@ -457,8 +503,10 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
         queryLanguage: language,
         ruleConfig: {
           ...ruleConfig,
-          name: ruleName,
-          description: ruleDescription,
+          // A tracked rule's name and description come from the saved detection, server-side.
+          // Sending edits here would show the user a change that is silently dropped.
+          name: boundPreview ? boundPreview.local.name : ruleName,
+          description: boundPreview ? boundPreview.local.description : ruleDescription,
           action: deployAction,
         },
         vendorRuleId: boundPreview?.binding.vendor_rule_id ?? existingDeployment?.vendor_rule_id ?? undefined,
@@ -508,6 +556,12 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
 
   const handleRetry = () => {
     setDeployResult(null);
+    // A tracked rule's failure is often "production moved" or "the review is stale". Returning to
+    // the same preview would resubmit the revision that was just refused, so reload it instead.
+    if (selectedIntegration && boundBinding) {
+      void handleSelectIntegration(selectedIntegration);
+      return;
+    }
     setStep('configure');
   };
 
@@ -728,11 +782,25 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                     </div>
                   </div>
 
-                  {/* A tracked rule failed to load its production comparison */}
+                  {/* A tracked rule failed to load its production comparison. There is no safe way
+                      forward from here -- the ordinary form has no reviewed revision to send -- so
+                      the only action offered is to try the comparison again. */}
                   {boundError && (
-                    <div className="flex items-start gap-2 rounded-xl border border-error/30 bg-error-container/40 px-3.5 py-2.5">
-                      <Icon name="x-circle" className="h-4 w-4 text-error mt-0.5 flex-shrink-0" />
-                      <p className="text-xs text-error">{boundError}</p>
+                    <div className="rounded-xl border border-error/30 bg-error-container/40 px-3.5 py-2.5 space-y-2">
+                      <div className="flex items-start gap-2">
+                        <Icon name="x-circle" className="h-4 w-4 text-error mt-0.5 flex-shrink-0" />
+                        <p className="text-xs text-error">{boundError}</p>
+                      </div>
+                      {selectedIntegration && (
+                        <Button
+                          onClick={() => { void handleSelectIntegration(selectedIntegration); }}
+                          variant="outlined"
+                          color="primary"
+                          leadingIcon="refresh-cw"
+                        >
+                          Retry comparison
+                        </Button>
+                      )}
                     </div>
                   )}
 
@@ -826,7 +894,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
 
                   <Button
                     onClick={handleProceedToConfigure}
-                    disabled={!validation.eligible}
+                    disabled={!validation.eligible || (!!boundBinding && !boundPreview)}
                     variant="filled"
                     color="primary"
                     fullWidth
@@ -867,6 +935,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
 
                   <Button
                     onClick={handleProceedToConfigure}
+                    disabled={!!boundBinding && !boundPreview}
                     variant="filled"
                     color="primary"
                     fullWidth
@@ -896,15 +965,16 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                     {selectedIntegration.name}
                   </button>
 
-                  {/* Rule Name */}
+                  {/* Rule Name. For a tracked rule the update sends the SAVED detection's name and
+                      description, so an edit typed here would be shown and then dropped. */}
                   <div>
                     <label className="block text-xs font-medium text-on-surface-variant mb-1">Rule Name</label>
                     <input
                       type="text"
-                      value={ruleName}
+                      value={boundPreview ? boundPreview.local.name : ruleName}
                       onChange={e => setRuleName(e.target.value)}
-                      readOnly={previewOnly}
-                      className={`w-full px-3 py-2 bg-surface-container-high border border-outline-variant rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10${previewOnly ? ' opacity-70 cursor-default' : ''}`}
+                      readOnly={previewOnly || !!boundPreview}
+                      className={`w-full px-3 py-2 bg-surface-container-high border border-outline-variant rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10${previewOnly || boundPreview ? ' opacity-70 cursor-default' : ''}`}
                     />
                   </div>
 
@@ -912,13 +982,18 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                   <div>
                     <label className="block text-xs font-medium text-on-surface-variant mb-1">Description</label>
                     <textarea
-                      value={ruleDescription}
+                      value={boundPreview ? boundPreview.local.description : ruleDescription}
                       onChange={e => setRuleDescription(e.target.value)}
-                      readOnly={previewOnly}
+                      readOnly={previewOnly || !!boundPreview}
                       rows={2}
-                      className={`w-full px-3 py-2 bg-surface-container-high border border-outline-variant rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10 resize-none${previewOnly ? ' opacity-70 cursor-default' : ''}`}
+                      className={`w-full px-3 py-2 bg-surface-container-high border border-outline-variant rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10 resize-none${previewOnly || boundPreview ? ' opacity-70 cursor-default' : ''}`}
                     />
                   </div>
+                  {boundPreview && (
+                    <p className="text-[11px] text-on-surface-variant -mt-2">
+                      The name and description come from the saved detection. Edit them in the library, then deploy.
+                    </p>
+                  )}
 
                   {/* Query Preview */}
                   <div>
@@ -993,7 +1068,10 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                   ) : (
                     <Button
                       onClick={handleDeploy}
-                      disabled={!deployQuery || (boundPreview ? !!boundPreview.capabilities.update : false)}
+                      disabled={!deployQuery
+                        || (validation ? !validation.eligible : false)
+                        || (!!boundBinding && !boundPreview)
+                        || (boundPreview ? !!boundPreview.capabilities.update : false)}
                       variant="filled"
                       color="primary"
                       fullWidth
