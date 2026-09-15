@@ -2239,7 +2239,7 @@ export function observedState(
   return 'unknown';
 }
 
-function normalizeVendorRule(
+export function normalizeVendorRule(
   raw: Record<string, any>,
   provider: IntegrationProvider,
   integrationId: string,
@@ -2282,20 +2282,62 @@ function normalizeVendorRule(
         rawMetadata: raw,
       };
     }
-    case 'defender_xdr':
+    case 'defender_xdr': {
+      // Microsoft removes `isEnabled` and `schedule.period` on 2026-10-01
+      // (Graph beta security-detectionrule / security-ruleschedule docs,
+      // dated 2026-05-25). Replacements are `status` (enum) and
+      // `schedule.frequency` (ISO-8601 Duration). The tenant evidence we have
+      // (deployment_history, 2026-02-12) shows a tenant served ONLY the
+      // deprecated shape, so both must be read: prefer the current field,
+      // fall back to the deprecated one, and treat absence of both as
+      // `unknown` rather than `disabled` (observedState()'s contract).
+      let rawEnabled: boolean | undefined;
+      let stateReason: string | undefined;
+      if (raw.status !== undefined) {
+        if (raw.status === 'enabled') rawEnabled = true;
+        else if (raw.status === 'disabled') rawEnabled = false;
+        else if (raw.status === 'autoDisabled') {
+          // Microsoft turned the rule off (not a human) -- preserve why.
+          rawEnabled = false;
+          stateReason = 'autoDisabled';
+        }
+        // 'unknownFutureValue' (or any other value) leaves rawEnabled undefined -> unknown.
+      } else if (raw.isEnabled !== undefined) {
+        rawEnabled = raw.isEnabled === true;
+      }
+      const state = observedState(provider, { enabled: rawEnabled });
+
+      const frequency = raw.schedule?.frequency;
+      const period = raw.schedule?.period;
+      const schedule =
+        frequency !== undefined
+          ? frequency
+          : period !== undefined
+            ? period === '0'
+              ? 'continuous' // '0' means continuous, not a literal zero-length interval.
+              : period
+            : undefined;
+
       return {
         vendorRuleId: raw.id,
         name: raw.name,
-        enabled: raw.enabled ?? false,
+        enabled: state === 'enabled',
+        observedState: state,
         provider,
         integrationId,
         integrationName,
         query: raw.query || null,
         queryLanguage: 'KQL',
-        schedule: raw.frequency,
+        schedule,
+        description: raw.description || raw.detectionAction?.alertTemplate?.description,
         isFromOptimus: false,
-        rawMetadata: raw,
+        // Full raw response preserved (not just the projected fields) so the
+        // next real fetch reveals which shape the tenant serves today --
+        // including mitreTechniques, organizationalScope, responseActions,
+        // automatedActions, detectorId and lastRunDetails where present.
+        rawMetadata: stateReason ? { ...raw, stateReason } : raw,
       };
+    }
     case 'elastic':
       return {
         vendorRuleId: raw.id,

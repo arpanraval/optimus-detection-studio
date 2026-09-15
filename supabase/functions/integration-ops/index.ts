@@ -987,12 +987,24 @@ async function defenderXdrListRules(
 
   if (!response.ok) throw new Error(`Defender XDR list rules failed: ${response.status}`)
   const data = await response.json()
+  // `isEnabled` and `schedule.period` are deprecated by Microsoft, removed
+  // 2026-10-01 (Graph beta security-detectionrule / security-ruleschedule
+  // docs, dated 2026-05-25), replaced by `status` and `schedule.frequency`.
+  // Both shapes are passed through unchanged here -- the dual read/fallback
+  // logic lives in normalizeVendorRule (src/lib/integrationService.ts),
+  // which is the tested, single place that contract is enforced. This is a
+  // read path only: nothing here executes a response/automated action.
   return (data.value || []).map((r: any) => ({
     id: r.id,
     name: r.displayName,
     query: r.queryCondition?.queryText,
-    frequency: r.schedule?.period,
-    enabled: r.isEnabled,
+    status: r.status,
+    isEnabled: r.isEnabled,
+    schedule: r.schedule,
+    detectorId: r.detectorId,
+    lastRunDetails: r.lastRunDetails,
+    description: r.description,
+    detectionAction: r.detectionAction,
   }))
 }
 
