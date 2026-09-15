@@ -13,7 +13,7 @@ async function fixture(options: { phase?: string; enabled?: boolean; resource?: 
   noBaseline?: boolean; localQuery?: string; afterResource?: unknown;
   pendingOperation?: boolean; ruleFamily?: string; connectionStatus?: string;
   desiredEnabled?: boolean; statusRejection?: { status: number; message: string };
-  busyUntilAttempt?: number;
+  busyUntilAttempt?: number; mitre?: { tactics?: string[]; techniques?: string[] };
   writeRejection?: { status: number; message: string } } = {}) {
   const content = normalizeCrowdStrike(raw), hash = await contentHash(content);
   // This fixture exercises the legacy siem_commit_chunk path: kind 'refresh_tracked' is a real
@@ -31,15 +31,20 @@ async function fixture(options: { phase?: string; enabled?: boolean; resource?: 
     // the outcome was never confirmed.
     pending_operation_id: options.pendingOperation ? 'operation-id' : null };
   const detection = { ...content, id: 'detection', version: 1,
-    queries: [{ id: 'query-id', language: 'CQL', query: options.localQuery ?? content.query }] };
+    queries: [{ id: 'query-id', language: 'CQL', query: options.localQuery ?? content.query }],
+    mitreTactics: options.mitre?.tactics ?? [], mitreTechniques: options.mitre?.techniques ?? [] };
   const updates: unknown[] = [];
   const from = vi.fn((table: string) => {
     const data = table === 'integrations' ? { id: 'connection', config, provider: 'crowdstrike', status: options.connectionStatus ?? 'connected' } :
       table === 'siem_sync_items' ? [{ vendor_rule_id: raw.id }] : table === 'siem_rule_bindings' ? binding :
       table === 'siem_remote_rules' ? [{ rule_family: options.ruleFamily ?? 'correlation' }] :
-      table === 'detections' ? detection : table === 'siem_rule_snapshots' ? [{ id: 'snap', content, content_hash: hash }] : null;
+      table === 'detections' ? detection : table === 'siem_rule_snapshots' ? [{ id: 'snap', content, content_hash: hash }] :
+      // The ATT&CK catalog: Optimus stores names, CrowdStrike takes ids.
+      table === 'mitre_objects' ? [{ mitre_id: 'TA0004', name: 'Privilege Escalation' }] :
+      table === 'mitre_techniques' ? [{ mitre_id: 'T1098', name: 'Account Manipulation' },
+        { mitre_id: 'T1098.003', name: 'Additional Cloud Roles' }] : null;
     const query: Record<string, unknown> = {};
-    for (const method of ['select', 'eq', 'in', 'order', 'limit', 'single']) query[method] = vi.fn(() => query);
+    for (const method of ['select', 'eq', 'in', 'like', 'order', 'limit', 'single']) query[method] = vi.fn(() => query);
     query.update = vi.fn(value => { updates.push(value); return query; });
     query.then = (resolve: (result: unknown) => void) => resolve({ data, error: null });
     return query;
@@ -469,6 +474,39 @@ describe('applyNativeMutation as a shared entry point', () => {
       { bindingId: 'binding', operation: 'update', expectedVersion: 1, expectedHash: hash }, 'owner'))
       .rejects.toThrow(/not enabled for this installation/);
     expect(deps.fetch).not.toHaveBeenCalled();
+  });
+
+  // A detection maps to "Privilege Escalation" and "Account Manipulation"; the API takes TA0004
+  // and T1098 and nothing else, which is why an imported rule's tactic and technique stayed empty
+  // however well the detection was mapped.
+  it('carries the detection ATT&CK mapping as the ids CrowdStrike takes', async () => {
+    const { deps } = await fixture({ enabled: true,
+      mitre: { tactics: ['Privilege Escalation'], techniques: ['Account Manipulation'] } });
+    const preview = await handleNativeRequest(deps,
+      { action: 'native_preview', bindingId: 'binding' }, 'owner') as { local: { config: Record<string, unknown> } };
+    expect(preview.local.config).toMatchObject({ tactic: 'TA0004', technique: 'T1098' });
+  });
+
+  // A sub-technique is stored in the catalog under its own name, so the "Parent: Sub" label a
+  // detection carries is also tried by its trailing segment.
+  it('resolves a sub-technique written as "Parent: Sub"', async () => {
+    const { deps } = await fixture({ enabled: true,
+      mitre: { tactics: ['Privilege Escalation'], techniques: ['Account Manipulation: Additional Cloud Roles'] } });
+    const preview = await handleNativeRequest(deps,
+      { action: 'native_preview', bindingId: 'binding' }, 'owner') as { local: { config: Record<string, unknown> } };
+    expect(preview.local.config).toMatchObject({ technique: 'T1098.003' });
+  });
+
+  // The API refuses a technique with no tactic, so an unresolvable tactic suppresses both rather
+  // than sending half a mapping.
+  it('sends nothing when the tactic cannot be resolved to an id', async () => {
+    const { deps } = await fixture({ enabled: true,
+      mitre: { tactics: ['Not A Real Tactic'], techniques: ['Account Manipulation'] } });
+    const preview = await handleNativeRequest(deps,
+      { action: 'native_preview', bindingId: 'binding' }, 'owner') as { local: { config: Record<string, unknown> } };
+    // Whatever the rule already had is left alone; nothing is invented from a half mapping.
+    expect(preview.local.config.tactic).toBeFalsy();
+    expect(preview.local.config.technique).toBeFalsy();
   });
 
   // "failed to update rule: rule is currently being updated: updating" -- CrowdStrike applies a

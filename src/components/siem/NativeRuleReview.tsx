@@ -4,6 +4,7 @@ import { nativeSiemService, type NativePreview, type NativeDrift }
   from '@/services/nativeSiemService';
 import { NativeLocalEditor } from './NativeLocalEditor';
 import { integrationService } from '@/lib/integrationService';
+import { ruleSettingRows } from './ruleSettings';
 
 export const NATIVE_DRIFT_LABELS: Record<NativeDrift, string> = {
   in_sync: 'Matches CrowdStrike',
@@ -133,8 +134,19 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
                 <pre className="text-xs whitespace-pre-wrap break-words max-h-72 overflow-auto font-mono">
                   {pane(key).query}
                 </pre>
+                {/* The settings as labelled rows, in the same order on every side: whether the rule
+                    runs, and what it runs as, are answered by looking across rather than by
+                    reading JSON. */}
+                <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                  {ruleSettingRows(pane(key)).map((row) => (
+                    <React.Fragment key={row.label}>
+                      <dt className="text-on-surface-variant">{row.label}</dt>
+                      <dd className="text-on-surface break-words">{row.value}</dd>
+                    </React.Fragment>
+                  ))}
+                </dl>
                 <details className="mt-3 text-xs">
-                  <summary>Configuration and description</summary>
+                  <summary>Description and raw configuration</summary>
                   <p className="mt-2 whitespace-pre-wrap">{pane(key).description}</p>
                   <pre className="whitespace-pre-wrap break-words mt-2">
                     {JSON.stringify(pane(key).config, null, 2)}

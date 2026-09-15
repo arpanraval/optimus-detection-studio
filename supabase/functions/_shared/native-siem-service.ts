@@ -257,6 +257,47 @@ export async function processNativeSync(deps: Dependencies): Promise<{ processed
   return { processed: true };
 }
 
+/**
+ * The ATT&CK ids CrowdStrike wants, resolved from the names Optimus stores.
+ *
+ * A detection records "Privilege Escalation" and "Account Manipulation: Additional Cloud Roles";
+ * the API takes `TA0004` and `T1098.003` and nothing else, which is why an imported rule's tactic
+ * and technique stayed empty however well the detection was mapped. A sub-technique is stored
+ * under its own name in the catalog ("Additional Cloud Roles"), so a "Parent: Sub" label is also
+ * tried by its trailing segment.
+ *
+ * The API refuses a technique without a tactic, so an unresolved tactic suppresses both.
+ */
+async function attackIds(
+  deps: Dependencies,
+  detection: { mitreTactics?: unknown; mitreTechniques?: unknown },
+): Promise<{ tactic?: string; technique?: string }> {
+  const names = (value: unknown) => (Array.isArray(value) ? value : []).filter(
+    (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+  const tacticNames = names(detection.mitreTactics);
+  const techniqueNames = names(detection.mitreTechniques);
+  if (!tacticNames.length) return {};
+
+  const tactics = checked(await deps.db.from('mitre_objects').select('mitre_id,name')
+    .in('name', tacticNames).like('mitre_id', 'TA*')) ?? [];
+  const tactic = tacticNames
+    .map(name => tactics.find((row: { name: string }) => row.name === name)?.mitre_id)
+    .find((id: string | undefined) => !!id);
+  if (!tactic) return {};
+  if (!techniqueNames.length) return { tactic };
+
+  // Each label is looked up whole and, for "Parent: Sub", by its trailing segment too.
+  const candidates = [...new Set(techniqueNames.flatMap(name =>
+    name.includes(':') ? [name, name.slice(name.lastIndexOf(':') + 1).trim()] : [name]))];
+  const techniques = checked(await deps.db.from('mitre_techniques').select('mitre_id,name')
+    .in('name', candidates)) ?? [];
+  const idFor = (name: string) => techniques.find((row: { name: string }) => row.name === name)?.mitre_id;
+  const technique = techniqueNames
+    .map(name => idFor(name) ?? (name.includes(':') ? idFor(name.slice(name.lastIndexOf(':') + 1).trim()) : undefined))
+    .find((id: string | undefined) => !!id);
+  return technique ? { tactic, technique } : { tactic };
+}
+
 async function boundRule(deps: Dependencies, bindingId: string, actor: string) {
   const binding = checked(await deps.db.from('siem_rule_bindings').select('*').eq('id', bindingId).single());
   const integration = await connection(deps, binding.integration_id, actor);
@@ -277,7 +318,14 @@ async function boundRule(deps: Dependencies, bindingId: string, actor: string) {
   const baseline = snapshots.find(s => s.id === binding.baseline_snapshot_id) ?? null;
   const remote = snapshots.find(s => s.id === binding.latest_remote_snapshot_id);
   if (!remote) throw new Error('Sync this rule before reviewing changes');
-  const local = localContent(detection, binding.selected_query_id, binding.desired_content);
+  const base = localContent(detection, binding.selected_query_id, binding.desired_content);
+  // The library's ATT&CK mapping is part of the content it would write. Leaving it out meant a
+  // detection mapped to a tactic and technique still updated the rule with the empty values the
+  // import had observed.
+  const attack = await attackIds(deps, detection);
+  const local: RuleContent = attack.tactic
+    ? { ...base, config: { ...base.config, tactic: attack.tactic, technique: attack.technique ?? '' } }
+    : base;
   return { binding, integration, detection, baseline, remote, local,
            ruleFamily: (catalog?.rule_family as string | undefined) ?? null };
 }
