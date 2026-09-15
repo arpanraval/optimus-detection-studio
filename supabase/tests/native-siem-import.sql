@@ -450,4 +450,84 @@ BEGIN
   UPDATE public.siem_sync_runs SET status='cancelled', completed_at=now(), lease_token=NULL, lease_expires_at=NULL
     WHERE id=import_run.id;
 END $$;
+
+-- siem_prune_remote_snapshots' safety contract: the current snapshot always survives (by
+-- identity, not recency), a pending import blocks pruning for that rule, the keep floor is
+-- enforced, and binding snapshots (siem_rule_snapshots) are never touched.
+INSERT INTO auth.users(id,email) VALUES
+  ('19000000-0000-0000-0000-000000000001','import-prune-owner@example.test');
+INSERT INTO public.profiles(id,role,status) VALUES
+  ('19000000-0000-0000-0000-000000000001','admin','active')
+  ON CONFLICT(id) DO UPDATE SET role='admin',status='active';
+INSERT INTO public.integrations(id,user_id,name,provider,category,status,config,auth_type) VALUES
+  ('19100000-0000-0000-0000-000000000001','19000000-0000-0000-0000-000000000001',
+   'Falcon prune fixture','crowdstrike','siem','connected','{}','oauth2_client_credentials');
+
+DO $$
+DECLARE integration uuid := '19100000-0000-0000-0000-000000000001';
+  actor uuid := '19000000-0000-0000-0000-000000000001';
+  scope text := 'scope-prune-1';
+  rule_a uuid; rule_b uuid; snap_id uuid; keep_snap uuid; run public.siem_sync_runs;
+  before_count integer; after_count integer; removed integer; failed boolean := false;
+BEGIN
+  -- Rule A: 8 snapshots at distinct observed_at, latest pinned to one that is NOT the newest,
+  -- so survival proves identity-based exclusion rather than a recency shortcut.
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'crowdstrike',scope,'prune-rule-a','Prune rule A',true,'present') RETURNING id INTO rule_a;
+  FOR i IN 1..8 LOOP
+    INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,
+      raw_payload,observed_at)
+      VALUES(rule_a,'test-v1','hash-a-'||i,'raw-a-'||i,'{}'::jsonb,'{}'::jsonb,now() - (i || ' days')::interval)
+      RETURNING id INTO snap_id;
+    IF i = 3 THEN keep_snap := snap_id; END IF;
+  END LOOP;
+  UPDATE public.siem_remote_rules SET latest_snapshot_id=keep_snap WHERE id=rule_a;
+
+  -- Rule B: same surplus, but a pending import item references it, so pruning must skip it entirely.
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'crowdstrike',scope,'prune-rule-b','Prune rule B',true,'present') RETURNING id INTO rule_b;
+  FOR i IN 1..8 LOOP
+    INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,
+      raw_payload,observed_at)
+      VALUES(rule_b,'test-v1','hash-b-'||i,'raw-b-'||i,'{}'::jsonb,'{}'::jsonb,now() - (i || ' days')::interval)
+      RETURNING id INTO snap_id;
+  END LOOP;
+  UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_id WHERE id=rule_b;
+
+  run := public.siem_start_inventory(actor, integration, scope);
+  INSERT INTO public.siem_sync_items(run_id,vendor_rule_id,status,remote_rule_id)
+    VALUES(run.id,'prune-rule-b','pending',rule_b);
+
+  SELECT count(*) INTO before_count FROM public.siem_rule_snapshots;
+
+  removed := public.siem_prune_remote_snapshots(integration, 2);
+
+  PERFORM pg_temp.assert_true(removed = 5,
+    'pruning rule A to keep 2 surplus snapshots (8 total, 1 excluded as latest, 5 over the keep floor) removes exactly 5');
+  PERFORM pg_temp.assert_true(
+    (SELECT count(*) FROM public.siem_remote_rule_snapshots WHERE id = keep_snap) = 1,
+    'the snapshot the catalog points at survives even though it is not the newest by observed_at');
+  PERFORM pg_temp.assert_true(
+    (SELECT count(*) FROM public.siem_remote_rule_snapshots WHERE remote_rule_id = rule_b) = 8,
+    'a rule with a pending import item is left untouched entirely');
+
+  SELECT count(*) INTO after_count FROM public.siem_rule_snapshots;
+  PERFORM pg_temp.assert_true(before_count = after_count,
+    'pruning remote catalog snapshots never deletes a binding snapshot (siem_rule_snapshots)');
+
+  BEGIN
+    PERFORM public.siem_prune_remote_snapshots(integration, 0);
+  EXCEPTION WHEN OTHERS THEN
+    failed := true;
+    PERFORM pg_temp.assert_true(SQLERRM = 'Keep at least one observation per rule',
+      'a keep of zero is refused with product copy');
+  END;
+  PERFORM pg_temp.assert_true(failed, 'a keep floor below 1 raises rather than pruning everything');
+
+  -- Retire the inventory run so no later block trips over it.
+  UPDATE public.siem_sync_runs SET status='cancelled', completed_at=now(), lease_token=NULL, lease_expires_at=NULL
+    WHERE id=run.id;
+END $$;
 ROLLBACK;
