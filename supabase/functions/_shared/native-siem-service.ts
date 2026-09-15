@@ -70,10 +70,17 @@ export async function readRuleDetails(
   const found = new Map<string, Record<string, Json>>();
   const missing = new Map<string, string>();
   if (!ids.length) return { found, missing };
+  /** CrowdStrike's list endpoint (`queries/rules/v1`) returns a rule's STABLE identity, but the
+   *  entity endpoint returns a rule that has been edited past version 1 with `id` set to the
+   *  CURRENT VERSION's id and `rule_id` holding that stable identity. A version-1 rule has the two
+   *  equal, which is why this only ever bit edited rules. Match on either and key the result under
+   *  the id we asked for, so the caller's identity stays the stable one. */
   const collect = (response: Record<string, Json>) => {
     if (!Array.isArray(response.resources)) throw new Error('Invalid rule detail response');
     for (const raw of response.resources as Record<string, Json>[]) {
-      if (typeof raw?.id === 'string' && ids.includes(raw.id)) found.set(raw.id, raw);
+      const requested = [raw?.id, raw?.rule_id]
+        .find(value => typeof value === 'string' && ids.includes(value));
+      if (typeof requested === 'string') found.set(requested, raw);
     }
   };
   collect(await request(`entities/rules/v1?${ids.map(id => `ids=${encodeURIComponent(id)}`).join('&')}`));

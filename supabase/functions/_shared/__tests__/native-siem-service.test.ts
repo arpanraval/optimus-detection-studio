@@ -124,6 +124,33 @@ describe('import entry point', () => {
 });
 
 describe('rule detail reads', () => {
+  // Regression: production had one rule permanently stranded as "failed". CrowdStrike was
+  // returning it every time -- the list endpoint yields a rule's STABLE id, but a rule edited
+  // past version 1 comes back from the entity endpoint with `id` set to the CURRENT VERSION's
+  // id and `rule_id` carrying the stable one. Matching only on `id` silently discarded it.
+  it('matches a rule returned under its version id via rule_id, keyed by the requested id', async () => {
+    const stable = '019c5894e8647a57a57fc986b5c84ee9';
+    const versionId = '019c770c285b7a59b66a15d27388750f';
+    const request = vi.fn(async () => ({
+      resources: [{ id: versionId, rule_id: stable, name: 'Edited rule', version: 4 }],
+    }));
+
+    const { found, missing } = await readRuleDetails(request as never, [stable]);
+
+    expect(found.has(stable)).toBe(true);
+    expect(found.get(stable)).toMatchObject({ id: versionId, rule_id: stable });
+    expect(missing.size).toBe(0);
+    // One request: the match must happen on the batch, not via a needless retry.
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('still records a rule as unreadable when neither id nor rule_id matches', async () => {
+    const request = vi.fn(async () => ({ resources: [{ id: 'other', rule_id: 'also-other' }] }));
+    const { found, missing } = await readRuleDetails(request as never, ['wanted']);
+    expect(found.size).toBe(0);
+    expect(missing.get('wanted')).toContain('did not return this rule');
+  });
+
   it('retries an omitted id individually before giving up on it', async () => {
     const wanted = ['a', 'b', 'c'];
     const request = vi.fn(async (path: string) => {
