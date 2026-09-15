@@ -1420,6 +1420,9 @@ async function crowdStrikeListRules(
     )
     if (!entRes.ok) throw new Error(`CrowdStrike get rules failed: ${entRes.status}`)
     const entData = await entRes.json()
+    const CS_MAPPED_KEYS = new Set([
+      'id', 'name', 'search', 'operation', 'status', 'severity', 'last_updated_on', 'description', 'tactic', 'technique',
+    ]);
     const rules = (entData.resources || []).map((r: any) => ({
       id: r.id,
       name: r.name,
@@ -1427,11 +1430,21 @@ async function crowdStrikeListRules(
       enabled: r.status === 'active',
       severity: r.severity,
       lookback: r.search?.lookback,
+      outcome: r.search?.outcome,
       schedule: r.operation?.schedule?.definition,
       trigger_mode: r.search?.trigger_mode,
       status: r.status,
       last_updated_on: r.last_updated_on,
       description: r.description,
+      // This rule's own MITRE mapping, as CrowdStrike reports it back -- previously dropped
+      // entirely, so an imported rule's ATT&CK mapping never carried through the one-shot list.
+      tactic: r.tactic,
+      technique: r.technique,
+      // Full raw entity preserved -- matching every other provider's reader (splunk.ts,
+      // sentinel.ts, elastic.ts, defender-xdr.ts, chronicle.ts all snapshot `raw` in full) --
+      // rather than the 10 named fields this projection used to stop at.
+      raw: r,
+      unmappedFields: Object.keys(r).filter((key: string) => !CS_MAPPED_KEYS.has(key)),
     }))
     allRules.push(...rules)
   }
