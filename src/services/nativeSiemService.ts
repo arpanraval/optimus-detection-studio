@@ -369,6 +369,8 @@ export const nativeSiemService = {
     if (error) throw new Error(error.message);
     return data.content as RuleContent;
   },
+  dismissMatch: (integrationId: string, vendorRuleId: string) =>
+    invoke<{ success: true }>({ action: 'native_dismiss_match', integrationId, vendorRuleId }),
   matchCandidates: (integrationId: string, vendorRuleId: string) =>
     invoke<MatchCandidate[]>({ action: 'native_match_candidates', integrationId, vendorRuleId }),
   linkExisting: (args: {

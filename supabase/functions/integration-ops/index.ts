@@ -42,6 +42,7 @@ type Action =
   | 'native_apply'
   | 'native_match_candidates'
   | 'native_link_existing'
+  | 'native_dismiss_match'
   | 'native_sync_tick'
 
 type Provider =
@@ -153,6 +154,7 @@ const ACTION_PERMISSIONS: Record<Action, GranularPermission> = {
   native_apply: 'integrations:sync',
   native_match_candidates: 'integrations:view',
   native_link_existing: 'integrations:import',
+  native_dismiss_match: 'integrations:import',
   native_sync_tick: 'internal:worker',
   save_credentials: 'integrations:configure',
   test_connection: 'integrations:configure',

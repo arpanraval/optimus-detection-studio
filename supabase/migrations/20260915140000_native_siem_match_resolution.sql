@@ -38,7 +38,7 @@ BEGIN
   )
   SELECT d.id, d.name, e.evidence, q ->> 'id', q ->> 'language', q ->> 'query', d.version
     FROM evidenced e
-    JOIN detections d ON d.id = e.detection_id AND d.user_id = p_actor
+    JOIN detections d ON d.id = e.detection_id AND d.user_id = p_actor AND d.library_type = 'production'
     CROSS JOIN LATERAL jsonb_array_elements(d.queries) q
    WHERE q ->> 'language' = 'CQL' AND length(trim(q ->> 'query')) > 0;
 END;
@@ -101,8 +101,12 @@ BEGIN
     RAISE EXCEPTION 'This rule is not an eligible match for the selected library rule';
   END IF;
 
+  -- Pinned to the exact catalog row the snapshot belongs to, not just (integration, vendor_rule_id):
+  -- the table's real uniqueness is (integration_id, provider_scope, vendor_rule_id), and this
+  -- avoids needing provider_scope as a separate input.
   SELECT * INTO rr FROM siem_remote_rules
    WHERE integration_id = p_integration AND vendor_rule_id = p_vendor_rule_id
+     AND id = (SELECT remote_rule_id FROM siem_remote_rule_snapshots WHERE id = p_snapshot)
    FOR UPDATE;
   IF NOT FOUND OR rr.latest_snapshot_id IS DISTINCT FROM p_snapshot THEN
     RAISE EXCEPTION 'The rule changed in CrowdStrike. Fetch rules again.';
@@ -135,7 +139,7 @@ BEGIN
          -- No agreed baseline is invented: only set when the chosen query already matches the
          -- observed remote query. Otherwise NULL, surfaced by the UI as "Baseline not established".
          baseline_snapshot_id = CASE WHEN qtext = (rrs.content ->> 'query') THEN new_snap ELSE NULL END,
-         observed_enabled = rr.observed_enabled, availability = 'present', last_seen_at = now()
+         observed_enabled = rr.observed_enabled, availability = rr.availability, last_seen_at = now()
    WHERE id = b.id
   RETURNING * INTO b;
 

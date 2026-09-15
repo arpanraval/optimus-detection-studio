@@ -48,6 +48,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
   const navigate = useNavigate();
   const [selected, setSelected] = React.useState<InventoryRow | null>(null);
   const [resolvingRow, setResolvingRow] = React.useState<InventoryRow | null>(null);
+  const [separateImportSubmitting, setSeparateImportSubmitting] = React.useState(false);
   const openerRef = React.useRef<HTMLElement | null>(null);
 
   const rows = page?.rows ?? [];
@@ -196,13 +197,19 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
     }
   };
 
-  // "Import as a separate rule" reuses the normal single-selection import path: the server's
-  // import worker never re-checks match candidates for an explicit selection, so this behaves
-  // exactly like importing any not_in_library rule.
+  // "Import as a separate rule" is the user resolving the ambiguity themselves: they reviewed
+  // the candidates and rejected them. siem_dismiss_match_candidates records that decision by
+  // clearing the catalog row's match_candidate_count, after which the row reads as
+  // not_in_library and the ordinary, unmodified single-selection import path can adopt it —
+  // siem_start_import freezes a match_needed item as skipped, so the dismissal must happen
+  // first or the import would silently do nothing.
   const handleImportSeparate = async (row: InventoryRow) => {
+    if (separateImportSubmitting) return;
+    setSeparateImportSubmitting(true);
     setResolvingRow(null);
     setImportError(null);
     try {
+      await nativeSiemService.dismissMatch(integration.id, row.vendor_rule_id);
       const source = await nativeSiemService.latestRun(integration.id, ['inventory']);
       if (!source) throw new Error('Fetch rules from CrowdStrike before importing');
       const started = await nativeSiemService.startImport({
@@ -215,6 +222,8 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
       await loadImportResults(started.id);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'Could not start import');
+    } finally {
+      setSeparateImportSubmitting(false);
     }
   };
 

@@ -548,9 +548,11 @@ DO $$
 DECLARE actor uuid := '20000000-0000-0000-0000-000000000001';
   integration uuid := '20100000-0000-0000-0000-000000000001';
   other_integration uuid := '20100000-0000-0000-0000-000000000002';
-  rule_a uuid; rule_b uuid; snap_a uuid; snap_b uuid;
+  rule_a uuid; rule_b uuid; rule_c uuid; snap_a uuid; snap_b uuid; snap_c uuid;
   candidate_ids text[]; binding_a public.siem_rule_bindings; binding_b public.siem_rule_bindings;
   events_count integer; queries_after jsonb; src_after text; user_after uuid; failed boolean := false;
+  inventory_run public.siem_sync_runs; import_run public.siem_sync_runs;
+  relationship_before text; relationship_after text; item_status text;
 BEGIN
   -- Detection A: a GitHub-sourced production rule with two CQL queries, adoptable via its
   -- legacy external_id (no deployment_history row -- exercises the fallback evidence path).
@@ -641,8 +643,15 @@ BEGIN
     'linking never rewrites external_id or native_provenance');
 
   SELECT queries INTO queries_after FROM public.detections WHERE id='link-detection-a';
-  PERFORM pg_temp.assert_true(jsonb_array_length(queries_after) = 2,
-    'linking a detection with two CQL queries leaves both queries in place, unchanged');
+  PERFORM pg_temp.assert_true(jsonb_array_length(queries_after) = 2, 'no query was added or removed');
+  PERFORM pg_temp.assert_true(
+    (SELECT q->>'query' FROM jsonb_array_elements(queries_after) q WHERE q->>'id'='qa1')
+      = '#event_simpleName=ProcessRollup2',
+    'linking leaves the bound query''s text exactly unchanged');
+  PERFORM pg_temp.assert_true(
+    (SELECT q->>'query' FROM jsonb_array_elements(queries_after) q WHERE q->>'id'='qa2')
+      = '#event_simpleName=NetworkConnectIP4',
+    'linking leaves the OTHER (unselected) query''s text exactly unchanged too');
 
   SELECT count(*) INTO events_count FROM public.siem_rule_events
     WHERE binding_id=binding_a.id AND action='linked_existing';
@@ -668,5 +677,73 @@ BEGIN
     'a local/remote query mismatch at first link leaves baseline_snapshot_id NULL rather than inventing one');
   PERFORM pg_temp.assert_true(binding_b.latest_remote_snapshot_id IS NOT NULL,
     'the observed remote snapshot is still recorded even without a baseline');
+
+  -- siem_dismiss_match_candidates + siem_start_import: "Import as a separate rule" must be a
+  -- live path, not a dead one. link-rule-3 simulates a match_needed catalog row (a candidate
+  -- count with no binding). Before dismissal the ordinary import path freezes it 'skipped'
+  -- ('Match needed'); after dismissal it must read as not_in_library and freeze 'pending'.
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability,match_candidate_count)
+    VALUES(integration,'crowdstrike','scope-link-1','link-rule-3','Match resolution rule C',true,'present',1)
+    RETURNING id INTO rule_c;
+  INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+    VALUES(rule_c,'test-v1','hash-link-c','raw-link-c',
+      jsonb_build_object('name','Match resolution rule C','description','','query','#event_simpleName=DnsRequest',
+        'language','CQL','severity','High','enabled',true,'config','{}'::jsonb),
+      '{}'::jsonb)
+    RETURNING id INTO snap_c;
+  UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_c WHERE id=rule_c;
+
+  SELECT relationship INTO relationship_before FROM public.siem_inventory_rows
+    WHERE integration_id=integration AND vendor_rule_id='link-rule-3';
+  PERFORM pg_temp.assert_true(relationship_before = 'match_needed',
+    'sanity: the fixture starts as match_needed, the state this whole task exists to resolve');
+
+  inventory_run := public.siem_start_inventory(actor, integration, 'scope-link-1');
+  UPDATE public.siem_sync_runs SET status='complete', discovery_complete=true, completed_at=now(),
+    lease_token=NULL, lease_expires_at=NULL WHERE id=inventory_run.id RETURNING * INTO inventory_run;
+
+  -- Requesting only this one match_needed id freezes zero pending items, and siem_start_import
+  -- completes the run instantly with the no-eligible-rules message -- this is the dead path
+  -- the fix addresses: none of the three dialog choices should silently do nothing.
+  import_run := public.siem_start_import(actor, integration, inventory_run.id,
+    ARRAY['link-rule-3'], '{}', false, 'idem-dismiss-before-1');
+  PERFORM pg_temp.assert_true(import_run.status = 'complete'
+      AND import_run.error_message = 'None of the selected rules can be imported right now',
+    'before dismissal, importing only a match_needed rule completes with nothing frozen');
+  SELECT status INTO item_status FROM public.siem_sync_items
+    WHERE run_id=import_run.id AND vendor_rule_id='link-rule-3';
+  PERFORM pg_temp.assert_true(item_status = 'skipped',
+    'before dismissal, the item itself freezes skipped with the Match needed reason');
+
+  PERFORM public.siem_dismiss_match_candidates(actor, integration, 'link-rule-3');
+
+  SELECT relationship INTO relationship_after FROM public.siem_inventory_rows
+    WHERE integration_id=integration AND vendor_rule_id='link-rule-3';
+  PERFORM pg_temp.assert_true(relationship_after = 'not_in_library',
+    'dismissing candidates clears match_candidate_count, so the row reads as not_in_library');
+
+  import_run := public.siem_start_import(actor, integration, inventory_run.id,
+    ARRAY['link-rule-3'], '{}', false, 'idem-dismiss-after-1');
+  SELECT status INTO item_status FROM public.siem_sync_items
+    WHERE run_id=import_run.id AND vendor_rule_id='link-rule-3';
+  PERFORM pg_temp.assert_true(item_status = 'pending',
+    'after dismissal, siem_start_import freezes the same rule as pending -- the "Import as a separate rule" path is live');
+  UPDATE public.siem_sync_runs SET status='cancelled', completed_at=now(), lease_token=NULL, lease_expires_at=NULL
+    WHERE id=import_run.id;
+
+  -- Dismissing a rule that is already bound is refused, not silently accepted.
+  BEGIN
+    PERFORM public.siem_dismiss_match_candidates(actor, integration, 'link-rule-1');
+    failed := false;
+  EXCEPTION WHEN OTHERS THEN
+    failed := true;
+    PERFORM pg_temp.assert_true(SQLERRM = 'This rule is already linked to a library rule.',
+      'dismissing an already-linked rule names the conflict');
+  END;
+  PERFORM pg_temp.assert_true(failed, 'dismissing an already-bound rule is refused');
+
+  UPDATE public.siem_sync_runs SET status='cancelled', completed_at=now(), lease_token=NULL, lease_expires_at=NULL
+    WHERE id=inventory_run.id;
 END $$;
 ROLLBACK;

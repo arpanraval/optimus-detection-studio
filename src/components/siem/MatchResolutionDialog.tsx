@@ -107,7 +107,7 @@ export function MatchResolutionDialog({
     }
   };
 
-  const canLink = !!selectedGroup && !!selectedQuery && !busy;
+  const canLink = !!selectedGroup && !!selectedQuery && !!row.latest_snapshot_id && !busy;
 
   return (
     <Modal
@@ -141,6 +141,11 @@ export function MatchResolutionDialog({
           </p>
         )}
         {candidates === null && !loadError && <p className="text-sm text-on-surface-variant">Loading candidates…</p>}
+        {candidates !== null && !row.latest_snapshot_id && (
+          <p role="status" className="text-sm text-on-surface-variant">
+            This rule hasn't been read from CrowdStrike yet, so it can't be linked. Fetch rules again.
+          </p>
+        )}
         {candidates !== null && groups.length === 0 && !loadError && (
           <p className="text-sm text-on-surface-variant">No eligible library rule found for this CrowdStrike rule.</p>
         )}
@@ -184,7 +189,7 @@ export function MatchResolutionDialog({
         {selectedQuery && (
           <>
             {!baselineEstablished && (
-              <p role="alert" className="text-sm text-on-surface-variant">
+              <p role="status" className="text-sm text-on-surface-variant">
                 Baseline not established. Linking will not change either copy. Review the difference before
                 deploying.
               </p>

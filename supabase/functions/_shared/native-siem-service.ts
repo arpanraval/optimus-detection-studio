@@ -240,6 +240,14 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
       p_actor: actor, p_integration: integration.id, p_vendor_rule_id: body.vendorRuleId,
     }));
   }
+  if (body.action === 'native_dismiss_match') {
+    const integration = await connection(deps, body.integrationId || '', actor);
+    if (!body.vendorRuleId) throw new Error('A CrowdStrike rule id is required');
+    checked(await deps.db.rpc('siem_dismiss_match_candidates', {
+      p_actor: actor, p_integration: integration.id, p_vendor_rule_id: body.vendorRuleId,
+    }));
+    return { success: true };
+  }
   if (body.action === 'native_link_existing') {
     const integration = await connection(deps, body.integrationId || '', actor);
     if (!body.vendorRuleId || !body.detectionId || !body.queryId || body.detectionVersion == null || !body.snapshotId) {
