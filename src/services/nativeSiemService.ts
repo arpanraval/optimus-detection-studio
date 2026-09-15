@@ -273,14 +273,6 @@ export const nativeSiemService = {
     if (error) throw new Error(error.message);
     return data as Array<{ id: string; created_at: string; content: { name: string; version: number } }>;
   },
-  apply: (preview: NativePreview, operation: 'update' | 'enable' | 'disable' | 'delete') =>
-    invoke({
-      action: 'native_apply',
-      bindingId: preview.binding.id,
-      operation,
-      expectedHash: preview.remoteHash,
-      expectedVersion: preview.localVersion,
-    }),
   async inventoryPage({
     integrationId,
     relationship = 'all',

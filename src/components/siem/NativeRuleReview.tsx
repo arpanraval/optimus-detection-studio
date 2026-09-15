@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/Button';
-import { nativeSiemService, type NativePreview, type NativeDrift, type NativeOperation }
+import { nativeSiemService, type NativePreview, type NativeDrift }
   from '@/services/nativeSiemService';
 import { NativeLocalEditor } from './NativeLocalEditor';
 
@@ -18,7 +18,7 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
   const [preview, setPreview] = useState<NativePreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [confirm, setConfirm] = useState<'update' | 'enable' | 'disable' | 'delete' | 'accept' | 'reconcile' | 'restore' | null>(
+  const [confirm, setConfirm] = useState<'accept' | 'reconcile' | 'restore' | null>(
     null,
   );
   const [editing, setEditing] = useState(false);
@@ -45,8 +45,7 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
     try {
       if (confirm === 'accept') await nativeSiemService.accept(preview);
       else if (confirm === 'reconcile') await nativeSiemService.reconcile(preview);
-      else if (confirm === 'restore') await nativeSiemService.restore(preview, revisionId);
-      else await nativeSiemService.apply(preview, confirm);
+      else await nativeSiemService.restore(preview, revisionId);
       setConfirm(null);
       await load();
       onChanged?.();
@@ -59,11 +58,6 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
   // The baseline pane is only rendered when a baseline exists; this keeps that guarantee local
   // rather than asserting it with a non-null assertion at five call sites.
   const withBaseline = preview?.baseline != null;
-  // capabilities is computed server-side; an older cached preview simply reports "no reason",
-  // and the server still refuses, so this degrades to the previous behaviour rather than
-  // enabling something it should not.
-  const blocked = (operation: NativeOperation): string | null => preview?.capabilities?.[operation] ?? null;
-  const toggleOperation: NativeOperation = preview?.remote.enabled ? 'disable' : 'enable';
   const pane = (key: 'baseline' | 'local' | 'remote') =>
     key === 'baseline' ? (preview!.baseline ?? preview!.remote) : preview![key];
   return (
@@ -140,12 +134,6 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
             Library edits stay in Optimus until you send them to CrowdStrike. Fetch rules again to check for newer
             changes made in CrowdStrike.
           </p>
-          {!preview.writesEnabled && (
-            <p className="text-sm text-on-surface-variant">
-              Sending changes to CrowdStrike is not enabled for this connection. You can edit your library copy and
-              bring in changes from CrowdStrike.
-            </p>
-          )}
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="tonal" disabled={busy} onClick={() => setEditing(!editing)}>
               Edit library copy
@@ -168,39 +156,10 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
                 Keep library version and mark reconciled
               </Button>
             )}
-            {preview.writesEnabled && (
-              <>
-                {/* title carries the server's own reason, so a disabled control explains itself
-                    instead of the user discovering the refusal by clicking. */}
-                <Button
-                  size="sm"
-                  disabled={busy || blocked('update') !== null}
-                  title={blocked('update') ?? undefined}
-                  onClick={() => setConfirm('update')}
-                >
-                  Send changes to CrowdStrike
-                </Button>
-                <Button
-                  size="sm"
-                  variant="text"
-                  disabled={busy || blocked(toggleOperation) !== null}
-                  title={blocked(toggleOperation) ?? undefined}
-                  onClick={() => setConfirm(toggleOperation)}
-                >
-                  {preview.remote.enabled ? 'Disable' : 'Enable'} in SIEM
-                </Button>
-                <Button
-                  size="sm"
-                  variant="text"
-                  color="error"
-                  disabled={busy || !preview.writesEnabled}
-                  onClick={() => setConfirm('delete')}
-                >
-                  Delete from CrowdStrike
-                </Button>
-              </>
-            )}
           </div>
+          <p className="text-sm text-on-surface-variant">
+            To send these changes to CrowdStrike, use Deploy on the rule.
+          </p>
           {editing && (
             <NativeLocalEditor
               key={preview.localVersion}
@@ -249,16 +208,12 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
                   ? 'Restore this historical query and configuration into a new local revision? Production will not change.'
                   : confirm === 'accept'
                     ? 'Replace the saved library query and supported configuration with the observed production version?'
-                    : confirm === 'reconcile'
-                    ? 'Keep the library version as it is and record the current CrowdStrike version as the one it diverged from? Neither the library rule nor production changes.'
-                    : `${confirm === 'delete' ? 'Delete' : confirm === 'update' ? 'Update' : confirm === 'enable' ? 'Enable' : 'Disable'} production rule “${preview.remote.name}” (${preview.binding.vendor_rule_id})?`}
+                    : 'Keep the library version as it is and record the current CrowdStrike version as the one it diverged from? Neither the library rule nor production changes.'}
               </p>
               <p className="text-xs text-on-surface-variant">
                 {confirm === 'reconcile'
                   ? 'Future comparisons will show your library edits as unsent changes rather than an unresolved link.'
-                  : confirm === 'accept' || confirm === 'restore'
-                  ? 'The previous local revision is retained in history.'
-                  : 'The server will recheck production for changes before applying this action.'}
+                  : 'The previous local revision is retained in history.'}
               </p>
               <Button size="sm" disabled={busy} onClick={apply}>
                 {busy ? 'Applying…' : 'Confirm'}

@@ -35,15 +35,6 @@ import {
 
 const IS_DEV = import.meta.env.DEV;
 
-async function requireUnboundTarget(detectionId?: string, integrationId?: string, vendorRuleId?: string) {
-  let query = supabase.from('siem_rule_bindings').select('id').limit(1);
-  if (detectionId) query = query.eq('detection_id', detectionId);
-  else if (integrationId && vendorRuleId) query = query.eq('integration_id', integrationId).eq('vendor_rule_id', vendorRuleId);
-  else throw new Error('A detection or target rule is required');
-  const { data, error } = await query;
-  if (error) throw new Error('Unable to verify production rule bindings');
-  if (data?.length) throw new Error('Open the detection’s Deployments tab to compare and update its linked production rule.');
-}
 const PREFLIGHT_POLL_INTERVAL_MS = 10_000;
 
 interface RunPreflightOptions {
@@ -2567,12 +2558,6 @@ export const integrationService = {
     expectedHash?: string;
     expectedVersion?: number;
   }): Promise<DeploymentRecord> {
-    // A reviewed write (expectedHash set) has already shown the user the production comparison;
-    // the server's deploy_rule route enforces the hash/version match itself. Only an unreviewed
-    // call needs to be blocked here and redirected to the Deployments tab.
-    if (params.expectedHash === undefined) {
-      await requireUnboundTarget(params.detectionId, params.integrationId, params.vendorRuleId);
-    }
     // Guard: only Production Library detections can be deployed
     const { data: detectionCheck } = await supabase
       .from('detections')
@@ -2869,7 +2854,6 @@ export const integrationService = {
   },
 
   async toggleVendorRule(integrationId: string, vendorRuleId: string, enabled: boolean): Promise<void> {
-    await requireUnboundTarget(undefined, integrationId, vendorRuleId);
     if (IS_DEV) {
       const { data: integration, error } = await supabase
         .from('integrations')
@@ -2921,7 +2905,6 @@ export const integrationService = {
   },
 
   async deleteVendorRule(integrationId: string, vendorRuleId: string): Promise<void> {
-    await requireUnboundTarget(undefined, integrationId, vendorRuleId);
     if (IS_DEV) {
       const { data: integration, error } = await supabase
         .from('integrations')
@@ -3090,7 +3073,6 @@ export const integrationService = {
     const { data: target, error: targetError } = await supabase.from('deployment_history')
       .select('detection_id,integration_id,vendor_rule_id').eq('id', deploymentId).single();
     if (targetError) throw new Error('Deployment not found');
-    await requireUnboundTarget(target.detection_id, target.integration_id, target.vendor_rule_id);
     if (IS_DEV) {
       const { data: deployment, error: depErr } = await supabase
         .from('deployment_history')

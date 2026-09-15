@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NativeRulesPanel } from '../NativeRulesPanel';
+import { NativeRuleReview } from '../NativeRuleReview';
 import { SiemLibraryBadge } from '../SiemLibraryBadge';
 import { nativeSiemService } from '@/services/nativeSiemService';
 import type { Detection, Integration } from '@/types';
@@ -565,5 +566,24 @@ describe('NativeRulesPanel — "Check for SIEM changes" (I2)', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Check for SIEM changes' }));
     expect(refreshTracked).toHaveBeenCalledWith('connection');
     expect(startInventory).not.toHaveBeenCalled();
+  });
+});
+
+describe('NativeRuleReview is review, not a second deploy button', () => {
+  it('offers local actions but no vendor write', async () => {
+    vi.spyOn(nativeSiemService, 'preview').mockResolvedValue({
+      binding: { id: 'b1', detection_id: 'd1', vendor_rule_id: 'v1', availability: 'present' },
+      baseline: { query: 'old' }, local: { query: 'new' }, remote: { query: 'old', enabled: true },
+      drift: 'local_changed', remoteHash: 'h', localVersion: 1, writesEnabled: true,
+      capabilities: { update: null, enable: null, disable: null, delete: null },
+    } as never);
+    vi.spyOn(nativeSiemService, 'revisions').mockResolvedValue([] as never);
+    render(<NativeRuleReview bindingId="b1" />);
+
+    expect(await screen.findByRole('button', { name: 'Edit library copy' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Replace library copy/ })).toBeTruthy();
+    // The one write path is the Deploy button; a second one here is the duplication being removed.
+    expect(screen.queryByRole('button', { name: /Send changes to CrowdStrike/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /in SIEM/ })).toBeNull();
   });
 });
