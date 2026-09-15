@@ -7,6 +7,7 @@ import { handleNativeRequest, processNativeSync, applyNativeMutation } from '../
 import { resolveDeployTarget, deployRouteDecision, nativeOperationFor } from '../_shared/siem-deploy-target.ts'
 import { readSplunkCorrelationSearches, type SplunkEntry } from '../_shared/siem-readers/splunk.ts'
 import { readSentinelAlertRules, type SentinelRuleEntry } from '../_shared/siem-readers/sentinel.ts'
+import { readElasticRules, type ElasticRuleEntry } from '../_shared/siem-readers/elastic.ts'
 import {
   buildCrowdStrikeQueries,
   isCrowdStrikeQueryRepository,
@@ -1179,38 +1180,58 @@ async function elasticTestConnection(
   return { success: true, message: `Connected to Elastic Security (${total} existing rules)`, latency_ms: latency }
 }
 
+/** Bounded page size for the checkpointed page/per_page paging below -- replaces the previous
+ *  in-invocation `while (true)` loop that compared accumulated length against `data.total` alone
+ *  (unsafe: `total` can move during a scan). */
+const ELASTIC_PAGE_SIZE = 50
+
 async function elasticListRules(
   config: Record<string, unknown>,
   credentials: Record<string, string>
 ): Promise<unknown[]> {
   const { baseUrl, headers } = await elasticGetAuth(config, credentials)
 
-  const allRules: unknown[] = []
-  let page = 1
-  const perPage = 50
-
-  while (true) {
+  const outcome = await readElasticRules(async (page, perPage) => {
     const response = await withRetry(() =>
       vendorFetch(`${baseUrl}/api/detection_engine/rules/_find?per_page=${perPage}&page=${page}`, { method: 'GET', headers })
     )
     if (!response.ok) throw new Error(`Elastic list rules failed: ${response.status}`)
     const data = await response.json()
-    const rules = (data.data || []).map((r: any) => ({
-      id: r.id,
-      ruleId: r.rule_id,
-      name: r.name,
-      type: r.type,
-      language: r.language,
-      query: r.query,
-      severity: r.severity,
-      enabled: r.enabled,
-    }))
-    allRules.push(...rules)
-    if (allRules.length >= (data.total || 0)) break
-    page++
-  }
+    return { page: data.page, perPage: data.perPage, total: data.total, data: (data.data ?? []) as ElasticRuleEntry[] }
+  }, 1, ELASTIC_PAGE_SIZE)
 
-  return allRules
+  // rule_id is the canonical identity (id is only the current-instance saved-object locator, see
+  // siem-readers/elastic.ts header). Space is already carried on provider_scope, so the same
+  // rule_id installed in two spaces produces two independent rows, not a collision.
+  const supported = outcome.rules.map(rule => ({
+    id: rule.vendorRuleId,
+    objectId: rule.objectId,
+    name: rule.name,
+    type: rule.type,
+    language: rule.language,
+    query: rule.query,
+    index: rule.index,
+    filters: rule.filters,
+    threshold: rule.threshold,
+    severity: rule.severity,
+    riskScore: rule.riskScore,
+    interval: rule.interval,
+    from: rule.from,
+    enabled: rule.enabled === 'unknown' ? null : rule.enabled,
+    observedState: rule.enabled,
+    revision: rule.revision,
+    version: rule.version,
+    exceptionsList: rule.exceptionsList,
+    actions: rule.actions,
+    alertSuppression: rule.alertSuppression,
+    immutable: rule.immutable,
+    unmappedFields: rule.unmappedFields,
+  }))
+  const unsupported = outcome.unsupported.map(rule => ({
+    id: rule.vendorRuleId, objectId: rule.objectId, name: rule.name, type: rule.type,
+    unsupported: true, unsupportedReason: rule.reason,
+  }))
+  return [...supported, ...unsupported]
 }
 
 async function elasticDeployRule(

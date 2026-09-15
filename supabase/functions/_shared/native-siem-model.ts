@@ -141,7 +141,11 @@ export const PROVIDER_CAPABILITIES: Record<string, ProviderCapabilities> = {
     operations: [],
   },
   elastic: {
-    readFamilies: ['query'],
+    // Real families qualified by the Elastic reader (siem-readers/elastic.ts): query (kuery or
+    // lucene), eql, esql, and threshold (with its full threshold{field,value,cardinality}).
+    // saved_query, machine_learning, threat_match and new_terms stay outside readFamilies and are
+    // surfaced with an unsupported-family reason instead of being flattened into a plain query.
+    readFamilies: ['query', 'eql', 'esql', 'threshold'],
     writeFamilies: [],
     operations: [],
   },
