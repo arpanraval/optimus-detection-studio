@@ -22,6 +22,7 @@ import { hasPermission } from '../../types';
 import { getDefaultRuleConfig } from '../../lib/providerRuleConfigDefaults';
 import { QueryDiff } from '@/components/siem/QueryDiff';
 import { RuleFieldChanges } from '@/components/siem/RuleFieldChanges';
+import { RuleConfigSummary } from '@/components/siem/RuleConfigSummary';
 import { NATIVE_DRIFT_LABELS } from '@/components/siem/NativeRuleReview';
 import { ProviderRuleConfigForm } from './ProviderRuleConfigForm';
 import { SiemPreflightPanel } from './SiemPreflightPanel';
@@ -1017,6 +1018,10 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                       <p className="text-xs text-on-surface-variant break-all">
                         {selectedIntegration.name} ID: <code>{boundPreview.binding.vendor_rule_id}</code>
                       </p>
+                      {/* A new rule gets the configuration form; a tracked rule already has real
+                          settings, and a form full of defaults would invite overwriting them. It
+                          still needs to SHOW them: the update writes these values. */}
+                      <RuleConfigSummary content={boundPreview.local} />
                       {/* The drift verdict first: whether anything differs at all is the question,
                           and reading 900 characters across two panes is not how to answer it. */}
                       <p className="text-sm font-semibold">
