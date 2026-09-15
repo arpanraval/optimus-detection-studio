@@ -6,11 +6,14 @@ import { DeployDetectionModal } from '../DeployDetectionModal';
 import { integrationService } from '@/lib/integrationService';
 import { nativeSiemService } from '@/services/nativeSiemService';
 import { Status } from '@/types';
+import { ThemeProvider } from '@/context/ThemeContext';
 
 function renderModal(props: ReturnType<typeof boundProps>) {
   render(
     <MemoryRouter>
-      <DeployDetectionModal {...props} />
+      <ThemeProvider>
+        <DeployDetectionModal {...props} />
+      </ThemeProvider>
     </MemoryRouter>,
   );
 }
@@ -117,5 +120,87 @@ describe('DeployDetectionModal for a rule already tracked in a SIEM', () => {
     const button = await screen.findByRole('button', { name: /^Update in CrowdStrike/ });
     expect((button as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(/not enabled for this installation/)).toBeTruthy();
+  });
+});
+
+// The regression that would hurt most: a future change that started attaching
+// expectedHash/expectedVersion unconditionally would silently break every one of the five
+// providers that can never have a binding (Splunk, Sentinel, Defender XDR, Elastic,
+// Chronicle) — none of the bound-rule tests above would notice, since they all pass a binding.
+const SPLUNK_INTEGRATION = {
+  id: 'int-2',
+  user_id: 'u1',
+  provider: 'splunk' as const,
+  name: 'Splunk Prod',
+  category: 'siem' as const,
+  config: {},
+  auth_type: 'api_key' as const,
+  status: 'connected' as const,
+  last_tested_at: null,
+  last_test_result: null,
+  last_synced_at: null,
+  is_default: false,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+};
+
+function unboundProps() {
+  const detection = {
+    id: 'd2',
+    user_id: 'u1',
+    version: 1,
+    createdDate: '2026-01-01',
+    updatedDate: '2026-01-01',
+    name: 'Suspicious PowerShell Download',
+    description: 'Detects suspicious PowerShell activity',
+    author: 'analyst',
+    status: Status.Production,
+    detectionQuery: 'index=main sourcetype=powershell',
+    queryLanguage: 'SPL',
+    siem_observations: [],
+  } as any;
+
+  return {
+    detection,
+    onClose: vi.fn(),
+    userRole: 'admin',
+  };
+}
+
+describe('DeployDetectionModal for a detection with no SIEM binding', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(integrationService, 'listIntegrations').mockResolvedValue([SPLUNK_INTEGRATION] as never);
+    vi.spyOn(integrationService, 'getDeploymentHistory').mockResolvedValue([
+      { id: 'dep-1', action: 'create', status: 'success', vendor_rule_id: 'splunk-rule-1', created_at: '2026-01-01T00:00:00Z' },
+    ] as never);
+  });
+
+  it('sends no expectedHash/expectedVersion, and keeps the create-vs-update radio and config form', async () => {
+    const deploy = vi.spyOn(integrationService, 'deployDetection').mockResolvedValue({} as never);
+    renderModal(unboundProps());
+
+    fireEvent.click(await screen.findByRole('button', { name: /Splunk Prod/ }));
+
+    // The create-vs-update radio (existingDeployment path) is intact, not replaced by the
+    // production-comparison panel — there is no binding, so nothing to compare against.
+    expect(await screen.findByText(/Previously Deployed/i)).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /Update existing rule/i })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /Create new rule/i })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Continue$/ }));
+
+    // ProviderRuleConfigForm renders (the comparison panel does not) — Splunk's own config
+    // fields, e.g. the security domain selector, are the giveaway that this is the unbound form.
+    expect(await screen.findByText(/Security Domain/i)).toBeTruthy();
+    expect(screen.queryByText(/already exists in/i)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Update$/ }));
+
+    await waitFor(() => expect(deploy).toHaveBeenCalled());
+    const call = deploy.mock.calls[0][0] as Record<string, unknown>;
+    expect('expectedHash' in call).toBe(false);
+    expect('expectedVersion' in call).toBe(false);
+    expect(call.vendorRuleId).toBe('splunk-rule-1');
   });
 });
