@@ -476,6 +476,31 @@ describe('applyNativeMutation as a shared entry point', () => {
     expect(deps.fetch).not.toHaveBeenCalled();
   });
 
+  // The real failure this replaces: CrowdStrike derives `fields.mitre_attack` from the tactic and
+  // technique it is sent, so a rule read back after a perfectly successful write carries a value
+  // we never sent and could not predict. Demanding the whole object match made a correct write
+  // impossible to verify.
+  it('verifies the fields it asked for and not the ones CrowdStrike derives', async () => {
+    const { deps, rpc, hash } = await fixture({
+      enabled: true, localQuery: EDITED_QUERY,
+      afterResource: [{
+        ...raw,
+        search: { ...raw.search, filter: EDITED_QUERY },
+        // Production's own derivation, absent from what was sent.
+        mitre_attack: [{ tactic_id: 'TA0004', technique_id: 'T1098' }],
+      }],
+    });
+    const result = await applyNativeMutation(deps,
+      { bindingId: 'binding', operation: 'update', expectedVersion: 1, expectedHash: hash }, 'owner');
+    expect(result.success).toBe(true);
+    // Production's content, derived fields included, is what gets recorded.
+    expect(rpc).toHaveBeenCalledWith('siem_finish_deployment', expect.objectContaining({
+      p_content: expect.objectContaining({
+        config: expect.objectContaining({ fields: { mitre_attack: [{ tactic_id: 'TA0004', technique_id: 'T1098' }] } }),
+      }),
+    }));
+  });
+
   // "Production readback differs from the reviewed change" named no field, and the readback is
   // exactly where the field matters: it is the one CrowdStrike would not accept.
   it('names the field production did not accept when the readback differs', async () => {

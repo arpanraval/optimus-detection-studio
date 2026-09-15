@@ -1,5 +1,5 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
-import { ADAPTER_VERSION, contentHash, crowdStrikeScope, normalizeCrowdStrike, sanitizeSnapshot,
+import { ADAPTER_VERSION, canonicalJson, contentHash, crowdStrikeScope, normalizeCrowdStrike, sanitizeSnapshot,
   classifyDrift, localContent, crowdStrikeUpdate, mutationBlockedReason,  NATIVE_OPERATIONS, type Json, type NativeOperation, type RuleContent } from './native-siem-model.ts';
 
 type Dependencies = {
@@ -299,28 +299,43 @@ async function attackIds(
 }
 
 /**
- * Which fields of a rule differ, for an error that can be acted on.
+ * What an update actually asks production for.
+ *
+ * CrowdStrike DERIVES `fields.mitre_attack` from the tactic and technique it is sent, so a rule
+ * read back after a perfectly successful write differs from the content that was sent: production
+ * holds `[{tactic_id, technique_id}]` while our copy still carries the empty array the last import
+ * observed. Requiring the whole object to match made a correct write impossible to verify and
+ * reported it as a failure.
+ *
+ * So verification is: every field we asked for must now hold what we asked. Everything else
+ * belongs to production and is recorded rather than argued with -- siem_finish_deployment stores
+ * production's own content as the new baseline, derived fields included.
+ */
+export function writtenFields(content: RuleContent): Record<string, unknown> {
+  const config = (content.config ?? {}) as Record<string, unknown>;
+  const at = (...path: string[]): unknown => path.reduce<unknown>((value, key) =>
+    value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined, config);
+  return {
+    name: content.name, description: content.description, severity: content.severity,
+    enabled: content.enabled, query: content.query,
+    outcome: at('search', 'outcome') ?? null,
+    lookback: at('search', 'lookback') ?? null,
+    schedule: at('operation', 'schedule', 'definition') ?? null,
+    tactic: config.tactic ?? '', technique: config.technique ?? '',
+  };
+}
+
+/**
+ * Which of those fields differ, for an error that can be acted on.
  *
  * "Production readback differs from the reviewed change" told the user that something was wrong
  * and nothing about what -- and the readback is exactly the moment where the specific field
- * matters, because it is the field CrowdStrike would not accept or stores differently.
+ * matters, because it is the field CrowdStrike would not take or stores differently.
  */
 export function contentDifferences(expected: RuleContent, actual: RuleContent): string[] {
-  const flatten = (content: RuleContent) => {
-    const out: Record<string, string> = {};
-    const walk = (value: unknown, prefix: string) => {
-      if (value && typeof value === 'object' && !Array.isArray(value)) {
-        for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-          walk(child, prefix ? `${prefix}.${key}` : key);
-        }
-        return;
-      }
-      out[prefix] = typeof value === 'string' ? value : JSON.stringify(value) ?? String(value);
-    };
-    walk({ name: content.name, description: content.description, severity: content.severity,
-      enabled: content.enabled, query: content.query, ...content.config }, '');
-    return out;
-  };
+  const flatten = (content: RuleContent) => Object.fromEntries(
+    Object.entries(writtenFields(content)).map(([field, value]) =>
+      [field, typeof value === 'string' ? value : JSON.stringify(value) ?? String(value)]));
   const sent = flatten(expected);
   const found = flatten(actual);
   // The query and the description run to hundreds of characters; naming them is the useful part.
@@ -601,16 +616,17 @@ export async function applyNativeMutation(
         throw new Error('Deletion could not be verified');
       }
     } else {
-      // The rule is read back until it settles on what was reviewed: a read taken while the change
-      // is still being applied shows the old value, and calling that a mismatch would report a
-      // successful write as a failed one.
-      const desiredHash = await contentHash(desired);
+      // The rule is read back until the fields we asked for hold what we asked: a read taken while
+      // the change is still being applied shows the old value, and calling that a mismatch would
+      // report a successful write as a failed one.
+      const asked = canonicalJson(writtenFields(desired) as Json);
+      const holds = () => canonicalJson(writtenFields(after!.content) as Json) === asked;
       after = await read();
-      for (let attempt = 0; attempt < SETTLE_BACKOFF_MS.length && await contentHash(after.content) !== desiredHash; attempt++) {
+      for (let attempt = 0; attempt < SETTLE_BACKOFF_MS.length && !holds(); attempt++) {
         await wait(SETTLE_BACKOFF_MS[attempt]);
         after = await read();
       }
-      if (await contentHash(after.content) !== desiredHash) {
+      if (!holds()) {
         const differences = contentDifferences(desired, after.content);
         throw new Error('Production readback differs from the reviewed change: ' +
           (differences.slice(0, 4).join('; ') || 'no field-level difference found, so the two hash differently') +
