@@ -3,7 +3,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import { getCorsHeaders, handleCorsPreflight, corsErrorResponse } from '../_shared/cors.ts'
 import { validateUrl } from '../_shared/url-validator.ts'
 import { checkRateLimit } from '../_shared/rate-limiter.ts'
-import { handleNativeRequest, processNativeSync } from '../_shared/native-siem-service.ts'
+import { handleNativeRequest, processNativeSync, applyNativeMutation } from '../_shared/native-siem-service.ts'
+import { findDeployBinding, deployRouteDecision, nativeOperationFor } from '../_shared/siem-deploy-target.ts'
 import {
   buildCrowdStrikeQueries,
   isCrowdStrikeQueryRepository,
@@ -3418,7 +3419,9 @@ serve(async (req: Request) => {
       }
     }
 
-    // Imported targets must use the reviewed binding path, including direct API and bulk callers.
+    // A rule Optimus already tracks in a SIEM is UPDATED in place, through the reviewed write
+    // path. This used to be a 409 refusal telling the user to go and find another button; the
+    // routing is the same question, answered by doing the right thing instead.
     if (['deploy_rule', 'toggle_rule', 'delete_rule', 'delete_vendor_rule'].includes(body.action)) {
       let detectionId = body.detectionId, integrationId = body.integrationId, vendorRuleId = body.vendorRuleId
       if (body.deploymentId) {
@@ -3427,13 +3430,24 @@ serve(async (req: Request) => {
         if (error) return corsErrorResponse('Deployment not found', req, 404)
         detectionId = deployment.detection_id; integrationId = deployment.integration_id; vendorRuleId = deployment.vendor_rule_id
       }
-      let bindings = getServiceClient().from('siem_rule_bindings').select('id').limit(1)
-      if (detectionId) bindings = bindings.eq('detection_id', detectionId)
-      else if (integrationId && vendorRuleId) bindings = bindings.eq('integration_id', integrationId).eq('vendor_rule_id', vendorRuleId)
-      else return corsErrorResponse('A detection or target rule is required', req, 400)
-      const { data, error } = await bindings
-      if (error) return corsErrorResponse('Unable to verify native rule bindings', req, 503)
-      if (data?.length) return corsErrorResponse('This rule is linked to production. Use its Production comparison to review and deploy changes.', req, 409)
+      if (!detectionId && !(integrationId && vendorRuleId)) {
+        return corsErrorResponse('A detection or target rule is required', req, 400)
+      }
+      const binding = await findDeployBinding(getServiceClient() as never, { detectionId, integrationId, vendorRuleId })
+      const decision = deployRouteDecision(binding, {
+        expectedHash: body.expectedHash,
+        expectedVersion: body.expectedVersion,
+        operation: nativeOperationFor(body.action, body.enabled),
+      })
+      if (decision.route === 'refuse') return corsErrorResponse(decision.message, req, 409)
+      if (decision.route === 'native') {
+        try {
+          const result = await applyNativeMutation(nativeDependencies, decision.params, user.id)
+          return new Response(JSON.stringify(result), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        } catch (error) {
+          return corsErrorResponse(error instanceof Error ? error.message : 'Production change failed', req, 400)
+        }
+      }
     }
 
     // Route to action handler

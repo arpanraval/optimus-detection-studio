@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
-import { findDeployBinding } from '../siem-deploy-target';
+import { findDeployBinding, deployRouteDecision, nativeOperationFor } from '../siem-deploy-target';
 
 /** Minimal PostgREST double: records the filters applied, returns `rows`. */
 function dbDouble(rows: unknown[]) {
@@ -43,5 +43,63 @@ describe('findDeployBinding', () => {
     const { db } = dbDouble([{ id: 'b1' }]);
     expect(await findDeployBinding(db as never, {})).toBeNull();
     expect(db.from).not.toHaveBeenCalled();
+  });
+});
+
+const binding = { id: 'b1', detection_id: 'd1', integration_id: 'i1', vendor_rule_id: 'v1' };
+
+describe('deployRouteDecision', () => {
+  it('leaves an unbound target on the legacy vendor path', () => {
+    expect(deployRouteDecision(null, { expectedHash: 'h', expectedVersion: 1 }))
+      .toEqual({ route: 'legacy' });
+  });
+
+  it('routes a bound target to the native write path with its reviewed hash', () => {
+    expect(deployRouteDecision(binding, { expectedHash: 'h', expectedVersion: 3, operation: 'update' }))
+      .toEqual({ route: 'native', params: {
+        bindingId: 'b1', operation: 'update', expectedVersion: 3, expectedHash: 'h' } });
+  });
+
+  it('defaults an unspecified operation to update', () => {
+    const decision = deployRouteDecision(binding, { expectedHash: 'h', expectedVersion: 3 });
+    expect(decision).toMatchObject({ route: 'native', params: { operation: 'update' } });
+  });
+
+  // A caller that cannot show the user what will change must not write. Bulk deploy is the case
+  // this protects: it would otherwise overwrite production rules nobody had looked at.
+  it('refuses a bound target when the caller did not review it', () => {
+    expect(deployRouteDecision(binding, {})).toEqual({
+      route: 'refuse',
+      message: 'Open this rule’s production comparison and review the change before deploying it.',
+    });
+    expect(deployRouteDecision(binding, { expectedHash: 'h' })).toMatchObject({ route: 'refuse' });
+    expect(deployRouteDecision(binding, { expectedVersion: 1 })).toMatchObject({ route: 'refuse' });
+  });
+});
+
+describe('nativeOperationFor', () => {
+  it('maps each legacy action to its native operation', () => {
+    expect(nativeOperationFor('deploy_rule')).toBe('update');
+    expect(nativeOperationFor('toggle_rule', true)).toBe('enable');
+    expect(nativeOperationFor('toggle_rule', false)).toBe('disable');
+    expect(nativeOperationFor('delete_rule')).toBe('delete');
+    expect(nativeOperationFor('delete_vendor_rule')).toBe('delete');
+  });
+});
+
+describe('deployRouteDecision with connection scoping', () => {
+  it('is reached with both detectionId and integrationId passed to findDeployBinding', async () => {
+    const filters: Record<string, unknown> = {};
+    const query: Record<string, unknown> = {};
+    for (const method of ['select', 'limit']) (query as Record<string, unknown>)[method] = () => query;
+    (query as Record<string, unknown>).eq = (column: string, value: unknown) => { filters[column] = value; return query; };
+    (query as Record<string, unknown>).then = (resolve: (r: unknown) => void) =>
+      resolve({ data: [binding], error: null });
+    const db = { from: () => query };
+
+    const found = await findDeployBinding(db as never, { detectionId: 'd1', integrationId: 'i1' });
+    expect(filters).toMatchObject({ detection_id: 'd1', integration_id: 'i1' });
+    const decision = deployRouteDecision(found, { expectedHash: 'h', expectedVersion: 1 });
+    expect(decision.route).toBe('native');
   });
 });

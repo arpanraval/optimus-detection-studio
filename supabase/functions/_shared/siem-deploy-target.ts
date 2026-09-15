@@ -1,3 +1,6 @@
+import type { NativeMutationParams } from './native-siem-service.ts';
+import type { NativeOperation } from './native-siem-model.ts';
+
 /** The active SIEM binding a deploy, toggle or delete request is aimed at. */
 export interface DeployBinding {
   id: string;
@@ -44,4 +47,48 @@ export async function findDeployBinding(
   if (error) throw new Error('Unable to verify native rule bindings');
   const rows = (data ?? []) as DeployBinding[];
   return rows[0] ?? null;
+}
+
+export type DeployRoute =
+  | { route: 'legacy' }
+  | { route: 'native'; params: NativeMutationParams }
+  | { route: 'refuse'; message: string };
+
+/**
+ * Which write path fulfils this request.
+ *
+ * An unbound target is an ordinary deploy and keeps the behaviour it has always had — every
+ * provider other than CrowdStrike lands here, because a binding can only exist for CrowdStrike.
+ *
+ * A bound target is an UPDATE of a rule that already exists in production, and the native path
+ * owns it. It requires the hash and version the caller actually reviewed: writing without them
+ * would mean changing a live rule against a diff nobody saw.
+ */
+export function deployRouteDecision(
+  binding: DeployBinding | null,
+  body: { expectedHash?: string; expectedVersion?: number; operation?: string },
+): DeployRoute {
+  if (!binding) return { route: 'legacy' };
+  if (!body.expectedHash || typeof body.expectedVersion !== 'number') {
+    return {
+      route: 'refuse',
+      message: 'Open this rule’s production comparison and review the change before deploying it.',
+    };
+  }
+  return {
+    route: 'native',
+    params: {
+      bindingId: binding.id,
+      operation: (body.operation as NativeOperation) || 'update',
+      expectedVersion: body.expectedVersion,
+      expectedHash: body.expectedHash,
+    },
+  };
+}
+
+/** The native operation an existing action corresponds to. */
+export function nativeOperationFor(action: string, enabled?: boolean): NativeOperation {
+  if (action === 'toggle_rule') return enabled ? 'enable' : 'disable';
+  if (action === 'delete_rule' || action === 'delete_vendor_rule') return 'delete';
+  return 'update';
 }
