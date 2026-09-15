@@ -190,6 +190,118 @@ describe('NativeRulesPanel', () => {
   });
 });
 
+describe('NativeRulesPanel import submission', () => {
+  it('submits explicit ids from a partial, incomplete inventory run', async () => {
+    const partialRun = {
+      id: 'run-partial',
+      status: 'partial',
+      phase: 'hydration',
+      kind: 'inventory',
+      discovery_complete: false,
+      created_at: '2026-09-15T00:00:00Z',
+      completed_at: null,
+      heartbeat_at: null,
+      error_message: null,
+    };
+    vi.spyOn(nativeSiemService, 'latestRun').mockImplementation(async (_integrationId, kinds) => {
+      if (kinds.includes('import_selection')) return null;
+      return partialRun;
+    });
+    vi.spyOn(nativeSiemService, 'inventoryPage').mockResolvedValue({ rows: rowsFixture(1), hasMore: false });
+    vi.spyOn(nativeSiemService, 'inventoryCounts').mockResolvedValue({ ...ZERO_COUNTS, not_in_library: 1 });
+    vi.spyOn(nativeSiemService, 'importResults').mockResolvedValue([]);
+    const startImport = vi.spyOn(nativeSiemService, 'startImport').mockResolvedValue({
+      id: 'import-1',
+      status: 'queued',
+      phase: 'hydration',
+      kind: 'import_selection',
+      created_at: '2026-09-15T00:00:00Z',
+      completed_at: null,
+      heartbeat_at: null,
+      error_message: null,
+    });
+
+    render(
+      <MemoryRouter>
+        <NativeRulesPanel integration={integrationFixture} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Suspicious process 0' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Import selected (1)' }));
+
+    await vi.waitFor(() => expect(startImport).toHaveBeenCalled());
+    expect(startImport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceRunId: 'run-partial',
+        ids: ['vendor-0'],
+      }),
+    );
+    expect(startImport.mock.calls[0][0].allMatching).toBeFalsy();
+  });
+
+  it('shows the fetch-first message and issues no import call when there is no inventory run at all', async () => {
+    // Current production state for the one live connection: its catalog came from the Task 1
+    // backfill, so latestRun(['inventory']) resolves null even though rows already exist.
+    vi.spyOn(nativeSiemService, 'latestRun').mockResolvedValue(null);
+    vi.spyOn(nativeSiemService, 'inventoryPage').mockResolvedValue({ rows: rowsFixture(1), hasMore: false });
+    vi.spyOn(nativeSiemService, 'inventoryCounts').mockResolvedValue({ ...ZERO_COUNTS, not_in_library: 1 });
+    const startImport = vi.spyOn(nativeSiemService, 'startImport');
+
+    render(
+      <MemoryRouter>
+        <NativeRulesPanel integration={integrationFixture} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Suspicious process 0' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Import selected (1)' }));
+
+    expect(await screen.findByText('Fetch rules from CrowdStrike before importing')).toBeTruthy();
+    expect(startImport).not.toHaveBeenCalled();
+  });
+
+  it('submits a completed inventory run id unchanged', async () => {
+    const completeRun = {
+      id: 'run-complete',
+      status: 'complete',
+      phase: 'complete',
+      kind: 'inventory',
+      discovery_complete: true,
+      created_at: '2026-09-15T00:00:00Z',
+      completed_at: '2026-09-15T00:05:00Z',
+      heartbeat_at: null,
+      error_message: null,
+    };
+    vi.spyOn(nativeSiemService, 'latestRun').mockImplementation(async (_integrationId, kinds) => {
+      if (kinds.includes('import_selection')) return null;
+      return completeRun;
+    });
+    vi.spyOn(nativeSiemService, 'inventoryPage').mockResolvedValue({ rows: rowsFixture(1), hasMore: false });
+    vi.spyOn(nativeSiemService, 'inventoryCounts').mockResolvedValue({ ...ZERO_COUNTS, not_in_library: 1 });
+    vi.spyOn(nativeSiemService, 'importResults').mockResolvedValue([]);
+    const startImport = vi.spyOn(nativeSiemService, 'startImport').mockResolvedValue({
+      id: 'import-2',
+      status: 'queued',
+      phase: 'hydration',
+      kind: 'import_selection',
+      created_at: '2026-09-15T00:00:00Z',
+      completed_at: null,
+      heartbeat_at: null,
+      error_message: null,
+    });
+
+    render(
+      <MemoryRouter>
+        <NativeRulesPanel integration={integrationFixture} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Suspicious process 0' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Import selected (1)' }));
+
+    await vi.waitFor(() => expect(startImport).toHaveBeenCalled());
+    expect(startImport).toHaveBeenCalledWith(expect.objectContaining({ sourceRunId: 'run-complete' }));
+  });
+});
+
 describe('SiemLibraryBadge', () => {
   it('does not infer deployment from library status or hidden connection data', () => {
     render(

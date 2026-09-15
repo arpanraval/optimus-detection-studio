@@ -166,6 +166,11 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
     const key = idempotencyKeyRef.current ?? crypto.randomUUID();
     idempotencyKeyRef.current = key;
     try {
+      // Deliberately no status filter: the server accepts explicit ids sourced from a
+      // partial (still-running or incomplete) inventory run and only rejects `allMatching`
+      // against one (siem_start_import requires status = 'complete' AND discovery_complete
+      // for allMatching only). Filtering to completed runs here would silently block the
+      // exact case the selection bar's "You can import the rules found so far" copy promises.
       const source = await nativeSiemService.latestRun(integration.id, ['inventory']);
       if (!source) throw new Error('Fetch rules from CrowdStrike before importing');
       const started = await nativeSiemService.startImport({
