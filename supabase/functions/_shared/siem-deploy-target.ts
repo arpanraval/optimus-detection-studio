@@ -61,7 +61,11 @@ export function deployRouteDecision(
   body: { expectedHash?: string; expectedVersion?: number; operation?: string },
 ): DeployRoute {
   if (!binding) return { route: 'legacy' };
-  if (!body.expectedHash || typeof body.expectedVersion !== 'number') {
+  const operation = (body.operation as NativeOperation) || 'update';
+  // Only an update carries library content into production, so only an update needs the user to
+  // have seen a diff. applyNativeMutation still reads production first for every operation and
+  // refuses under drift, so enable/disable/delete are not unguarded -- just not diff-reviewed.
+  if (operation === 'update' && (!body.expectedHash || typeof body.expectedVersion !== 'number')) {
     return {
       route: 'refuse',
       message: 'Open this rule’s production comparison and review the change before deploying it.',
@@ -71,9 +75,9 @@ export function deployRouteDecision(
     route: 'native',
     params: {
       bindingId: binding.id,
-      operation: (body.operation as NativeOperation) || 'update',
-      expectedVersion: body.expectedVersion,
-      expectedHash: body.expectedHash,
+      operation,
+      expectedVersion: body.expectedVersion ?? 0,
+      expectedHash: body.expectedHash ?? '',
     },
   };
 }

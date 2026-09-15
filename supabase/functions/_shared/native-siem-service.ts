@@ -397,12 +397,23 @@ export async function applyNativeMutation(
     pendingOperation: binding.pending_operation_id != null,
   });
   if (blocked) throw new Error(blocked);
-  if (params.expectedVersion !== detection.version || params.expectedHash !== remote.content_hash) throw new Error('Review is stale; refresh the diff');
+  // Only an update is reviewed against a specific revision. A toggle or delete is still guarded:
+  // the capability gate above refuses it under remote drift, and the pre-write read below refuses
+  // it if production has moved since.
+  if (operation === 'update' &&
+      (params.expectedVersion !== detection.version || params.expectedHash !== remote.content_hash)) {
+    throw new Error('Review is stale; refresh the diff');
+  }
+  // siem_begin_deployment independently re-checks the detection version and snapshot hash. For a
+  // non-update operation the caller legitimately sent no hash, so pass the binding's current
+  // values instead of the caller's -- that is what production actually is right now.
+  const reviewedVersion = operation === 'update' ? params.expectedVersion : detection.version;
+  const reviewedHash = operation === 'update' ? params.expectedHash : remote.content_hash;
   const isToggle = operation === 'enable' || operation === 'disable';
   const desired = isToggle ? { ...remote.content, enabled: operation === 'enable' } : local;
   // Permission, eligibility and operation lease are checked atomically before any vendor mutation.
   const operationId = checked(await deps.db.rpc('siem_begin_deployment', { p_actor: actor, p_binding: binding.id,
-    p_version: detection.version, p_hash: remote.content_hash, p_content: desired, p_action: operation }));
+    p_version: reviewedVersion, p_hash: reviewedHash, p_content: desired, p_action: operation }));
   let attempted = false;
   try {
     const request = await client(deps, integration);
@@ -413,7 +424,7 @@ export async function applyNativeMutation(
       return { raw, content: normalizeCrowdStrike(raw) };
     };
     const before = await read();
-    if (await contentHash(before.content) !== params.expectedHash) throw new Error('Production changed since review; sync and review again');
+    if (await contentHash(before.content) !== reviewedHash) throw new Error('Production changed since review; sync and review again');
     // Serialize before marking the operation as attempted; unsupported payloads are safe failures.
     const payload = params.operation === 'delete' ? undefined : isToggle ?
       { id: binding.vendor_rule_id, status: desired.enabled ? 'active' : 'inactive' } : crowdStrikeUpdate(binding.vendor_rule_id, desired);

@@ -77,6 +77,22 @@ describe('deployRouteDecision', () => {
   });
 });
 
+describe('review requirements per operation', () => {
+  // Only `update` carries library content to production, so only `update` needs the user to have
+  // seen a diff. Requiring a hash for a delete would make deleting a tracked rule impossible.
+  it('does not demand a reviewed hash for enable, disable or delete', () => {
+    for (const operation of ['enable', 'disable', 'delete']) {
+      expect(deployRouteDecision(binding, { operation })).toMatchObject({
+        route: 'native', params: { operation, bindingId: 'b1' },
+      });
+    }
+  });
+
+  it('still demands one for an update', () => {
+    expect(deployRouteDecision(binding, { operation: 'update' })).toMatchObject({ route: 'refuse' });
+  });
+});
+
 describe('nativeOperationFor', () => {
   it('maps each legacy action to its native operation', () => {
     expect(nativeOperationFor('deploy_rule')).toBe('update');
