@@ -22,7 +22,9 @@ import { hasPermission } from '../../types';
 import { getDefaultRuleConfig } from '../../lib/providerRuleConfigDefaults';
 import { QueryDiff } from '@/components/siem/QueryDiff';
 import { RuleFieldChanges } from '@/components/siem/RuleFieldChanges';
-import { RuleConfigSummary } from '@/components/siem/RuleConfigSummary';
+import { BoundRuleConfig, boundConfigFrom, applyBoundConfig, boundConfigChanged }
+  from '@/components/siem/BoundRuleConfig';
+import type { BoundConfigDraft } from '@/components/siem/BoundRuleConfig';
 import { NATIVE_DRIFT_LABELS } from '@/components/siem/NativeRuleReview';
 import { ProviderRuleConfigForm } from './ProviderRuleConfigForm';
 import { SiemPreflightPanel } from './SiemPreflightPanel';
@@ -263,6 +265,9 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
   // rule whose comparison failed must not fall back to the ordinary create/update form: that form
   // has no reviewed revision, so it can only end in a server refusal.
   const [boundBinding, setBoundBinding] = useState<{ id: string; integration_id: string } | null>(null);
+  // What the user has the configuration set to, starting from what the rule has now. Saved to the
+  // library copy on deploy, because the server writes the SAVED content, never the request's.
+  const [configDraft, setConfigDraft] = useState<BoundConfigDraft | null>(null);
   // Selections are async. Without a token, a slow response for connection A can land after the
   // user has moved to connection B and leave B selected beside A's comparison.
   const selectionToken = React.useRef(0);
@@ -342,6 +347,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
     setValidation(result);
     setPreflightResult(null);
     setBoundPreview(null);
+    setConfigDraft(null);
     setBoundError(null);
 
     // Scoped to the CONNECTION being deployed to: a detection can be bound to more than one, and
@@ -371,6 +377,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
         const nativePreview = await nativeSiemService.preview(binding.id);
         if (!current()) return;
         setBoundPreview(nativePreview);
+        setConfigDraft(boundConfigFrom(nativePreview.local));
         setDeployAction('update');
         setRuleConfig(getDefaultRuleConfig(integration.provider));
         // The lifecycle gate applies to a tracked rule exactly as it does to a new one -- SQL
@@ -497,22 +504,48 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
     const { query, language } = getDeployQuery();
 
     try {
+      // The server writes the SAVED library content, and SQL refuses a deploy whose query and
+      // version do not match it -- so a configuration edit has to be saved before it can be
+      // deployed, not sent alongside the request.
+      let review = boundPreview;
+      if (review && configDraft && configDirty) {
+        await nativeSiemService.save(review, {
+          name: review.local.name,
+          description: review.local.description,
+          query: review.local.query,
+          severity: configDraft.severity,
+          schedule: configDraft.schedule,
+          lookback: configDraft.lookback,
+          outcome: configDraft.outcome,
+          enabled: configDraft.enabled,
+        });
+        const fresh = await nativeSiemService.preview(review.binding.id);
+        setBoundPreview(fresh);
+        setConfigDraft(boundConfigFrom(fresh.local));
+        // Saving changes nothing in production. If production moved while the form was open, the
+        // comparison the user approved is not the one about to be overwritten.
+        if (fresh.remoteHash !== review.remoteHash) {
+          throw new Error('Your changes are saved, but CrowdStrike changed while you were editing. Review the comparison again before deploying.');
+        }
+        review = fresh;
+      }
+
       const record = await integrationService.deployDetection({
         integrationId: selectedIntegration.id,
         detectionId: detection.id,
-        query,
-        queryLanguage: language,
+        query: review ? review.local.query : query,
+        queryLanguage: review ? review.local.language : language,
         ruleConfig: {
           ...ruleConfig,
           // A tracked rule's name and description come from the saved detection, server-side.
           // Sending edits here would show the user a change that is silently dropped.
-          name: boundPreview ? boundPreview.local.name : ruleName,
-          description: boundPreview ? boundPreview.local.description : ruleDescription,
+          name: review ? review.local.name : ruleName,
+          description: review ? review.local.description : ruleDescription,
           action: deployAction,
         },
-        vendorRuleId: boundPreview?.binding.vendor_rule_id ?? existingDeployment?.vendor_rule_id ?? undefined,
+        vendorRuleId: review?.binding.vendor_rule_id ?? existingDeployment?.vendor_rule_id ?? undefined,
         // Only set for a tracked rule: the exact revision the diff above showed.
-        ...(boundPreview ? { expectedHash: boundPreview.remoteHash, expectedVersion: boundPreview.localVersion } : {}),
+        ...(review ? { expectedHash: review.remoteHash, expectedVersion: review.localVersion } : {}),
       });
 
       // Extract transient _autoRetried field
@@ -580,6 +613,17 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
   };
 
   const { query: deployQuery, language: deployLanguage } = getDeployQuery();
+  // The review below the form describes the content as EDITED, so what the user reads is what the
+  // update would write.
+  const editedLocal = boundPreview && configDraft
+    ? applyBoundConfig(boundPreview.local, configDraft) : boundPreview?.local;
+  const configDirty = !!boundPreview && !!configDraft
+    && boundConfigChanged(configDraft, boundConfigFrom(boundPreview.local));
+  // A rule that matches production cannot be updated -- unless the user has just changed a
+  // setting, which is precisely what makes it no longer match.
+  const updateBlocked = boundPreview
+    ? (boundPreview.drift === 'in_sync' && configDirty ? null : boundPreview.capabilities.update)
+    : null;
 
   // Non-connected integrations for display
   const disconnectedIntegrations = allIntegrations.filter(i => i.status !== 'connected');
@@ -1021,7 +1065,9 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                       {/* A new rule gets the configuration form; a tracked rule already has real
                           settings, and a form full of defaults would invite overwriting them. It
                           still needs to SHOW them: the update writes these values. */}
-                      <RuleConfigSummary content={boundPreview.local} />
+                      {configDraft && (
+                        <BoundRuleConfig draft={configDraft} onChange={setConfigDraft} disabled={deploying} />
+                      )}
                       {/* The drift verdict first: whether anything differs at all is the question,
                           and reading 900 characters across two panes is not how to answer it. */}
                       <p className="text-sm font-semibold">
@@ -1036,13 +1082,13 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                           and the stored rule configuration all travel with it. A review that showed
                           only the query would be a review of part of the change. */}
                       <RuleFieldChanges
-                        local={boundPreview.local}
+                        local={editedLocal ?? boundPreview.local}
                         remote={boundPreview.remote}
                         remoteTitle={selectedIntegration.name}
                       />
-                      {boundPreview.capabilities.update && (
+                      {updateBlocked && (
                         <p role="alert" className="text-sm text-on-surface-variant">
-                          {boundPreview.capabilities.update}
+                          {updateBlocked}
                         </p>
                       )}
                     </div>
@@ -1076,7 +1122,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                       disabled={!deployQuery
                         || (validation ? !validation.eligible : false)
                         || (!!boundBinding && !boundPreview)
-                        || (boundPreview ? !!boundPreview.capabilities.update : false)}
+                        || !!updateBlocked}
                       variant="filled"
                       color="primary"
                       fullWidth

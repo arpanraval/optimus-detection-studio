@@ -37,6 +37,17 @@ const preview = {
   capabilities: { update: null, enable: null, disable: null, delete: null },
 };
 
+// The same rule with the configuration an update writes, for the tests that edit it.
+const ruleConfig = {
+  search: { outcome: 'detection', lookback: '1h0m' },
+  operation: { schedule: { definition: '@every 1h0m' } },
+};
+const configuredPreview = {
+  ...preview,
+  local: { ...preview.local, language: 'CQL', severity: 'High', enabled: true, config: ruleConfig },
+  remote: { ...preview.remote, severity: 'High', enabled: true, config: ruleConfig },
+};
+
 const CROWDSTRIKE_INTEGRATION = {
   id: 'int-1',
   user_id: 'u1',
@@ -182,6 +193,44 @@ describe('DeployDetectionModal for a rule already tracked in a SIEM', () => {
     await waitFor(() => expect(deploy).toHaveBeenCalled());
     expect((deploy.mock.calls[0][0] as { ruleConfig: Record<string, unknown> }).ruleConfig)
       .toMatchObject({ name: 'Saved library name', description: 'Saved description' });
+  });
+
+  // Re-deploying is not only a query change. The server writes the SAVED library content and SQL
+  // refuses a deploy whose version does not match it, so a settings edit has to be saved first and
+  // the write has to use the revision that save produced.
+  it('saves a settings change to the library, then deploys that revision', async () => {
+    const save = vi.spyOn(nativeSiemService, 'save').mockResolvedValue({} as never);
+    vi.spyOn(nativeSiemService, 'preview')
+      .mockResolvedValueOnce(configuredPreview as never)
+      .mockResolvedValueOnce({ ...configuredPreview, localVersion: 4 } as never);
+    const deploy = vi.spyOn(integrationService, 'deployDetection').mockResolvedValue({} as never);
+    renderModal(boundProps());
+    await proceedThroughPreflight();
+
+    fireEvent.change(await screen.findByDisplayValue('1h0m'), { target: { value: '24h0m' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Update in CrowdStrike/ }));
+
+    await waitFor(() => expect(deploy).toHaveBeenCalled());
+    expect(save.mock.calls[0][1]).toMatchObject({ lookback: '24h0m', schedule: '@every 1h0m', severity: 'High' });
+    expect(deploy.mock.calls[0][0]).toMatchObject({ expectedVersion: 4, expectedHash: 'hash-1' });
+  });
+
+  // Saving touches nothing in production, so the comparison the user approved may have gone stale
+  // in the meantime. Writing then would overwrite a version nobody looked at.
+  it('does not write when production moved while the settings were being edited', async () => {
+    vi.spyOn(nativeSiemService, 'save').mockResolvedValue({} as never);
+    vi.spyOn(nativeSiemService, 'preview')
+      .mockResolvedValueOnce(configuredPreview as never)
+      .mockResolvedValueOnce({ ...configuredPreview, remoteHash: 'hash-2' } as never);
+    const deploy = vi.spyOn(integrationService, 'deployDetection').mockResolvedValue({} as never);
+    renderModal(boundProps());
+    await proceedThroughPreflight();
+
+    fireEvent.change(await screen.findByDisplayValue('1h0m'), { target: { value: '24h0m' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Update in CrowdStrike/ }));
+
+    expect(await screen.findByText(/CrowdStrike changed while you were editing/)).toBeTruthy();
+    expect(deploy).not.toHaveBeenCalled();
   });
 });
 

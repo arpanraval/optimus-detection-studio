@@ -248,6 +248,9 @@ export const nativeSiemService = {
       severity: string;
       schedule: string;
       lookback: string;
+      /** Optional: the two remaining fields an update writes. Omitted, they keep their saved value. */
+      outcome?: string;
+      enabled?: boolean;
     },
   ) =>
     invoke({

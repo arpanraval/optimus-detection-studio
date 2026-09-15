@@ -377,14 +377,25 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
       if (!config) throw new Error('This revision does not contain configuration for this connection');
       desired = localContent(revision.content, binding.selected_query_id, config);
     } else {
-      const changes = body.localChanges;
-      if (!changes || Object.values(changes).some(value => typeof value !== 'string') ||
-          !changes.name?.trim() || !changes.query?.trim() || !changes.schedule?.trim() || !changes.lookback?.trim() ||
-          !['Critical','High','Medium','Low','Informational'].includes(changes.severity)) throw new Error('Invalid rule changes');
-      desired = { ...local, name: changes.name, description: changes.description, query: changes.query, severity: changes.severity,
+      // Everything an update actually writes can be edited here, because a re-deploy is not only
+      // a query change: outcome, severity, the search window, the schedule and whether the rule
+      // runs are all part of the payload, and sending them straight from the last import would
+      // make them permanently unchangeable from Optimus.
+      const changes = (body.localChanges ?? {}) as Record<string, unknown>;
+      const TEXT_FIELDS = ['name', 'description', 'query', 'severity', 'schedule', 'lookback', 'outcome'];
+      const text = (key: string) => String(changes[key] ?? '');
+      if (Object.keys(changes).some(key => !TEXT_FIELDS.includes(key) && key !== 'enabled') ||
+          TEXT_FIELDS.some(key => changes[key] !== undefined && typeof changes[key] !== 'string') ||
+          (changes.enabled !== undefined && typeof changes.enabled !== 'boolean') ||
+          !text('name').trim() || !text('query').trim() || !text('schedule').trim() || !text('lookback').trim() ||
+          !['Critical','High','Medium','Low','Informational'].includes(text('severity'))) throw new Error('Invalid rule changes');
+      desired = { ...local, name: text('name'), description: text('description'), query: text('query'),
+        severity: text('severity'),
+        ...(changes.enabled === undefined ? {} : { enabled: changes.enabled as boolean }),
         config: { ...local.config,
-          search: { ...(local.config.search as Record<string, Json>), lookback: changes.lookback },
-          operation: { ...(local.config.operation as Record<string, Json>), schedule: { definition: changes.schedule } } } };
+          search: { ...(local.config.search as Record<string, Json>), lookback: text('lookback'),
+            ...(changes.outcome === undefined ? {} : { outcome: text('outcome') }) },
+          operation: { ...(local.config.operation as Record<string, Json>), schedule: { definition: text('schedule') } } } };
     }
     checked(await deps.db.rpc('siem_save_local', { p_actor: actor, p_binding: binding.id,
       p_version: body.expectedVersion, p_content: desired }));
