@@ -11,6 +11,7 @@ import type { Integration } from '@/types';
 import { NativeRuleReview } from './NativeRuleReview';
 import { InventoryTable } from './InventoryTable';
 import { MatchResolutionDialog } from './MatchResolutionDialog';
+import { RulePreviewDialog } from './RulePreviewDialog';
 import { InventorySelectionBar } from './InventorySelectionBar';
 import { ImportResultsPanel } from './ImportResultsPanel';
 import { nativeSiemService, type ImportResult, type NativeSyncRun } from '@/services/nativeSiemService';
@@ -51,20 +52,24 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
   const navigate = useNavigate();
   const [selected, setSelected] = React.useState<InventoryRow | null>(null);
   const [resolvingRow, setResolvingRow] = React.useState<InventoryRow | null>(null);
+  const [previewRow, setPreviewRow] = React.useState<InventoryRow | null>(null);
   const [separateImportSubmitting, setSeparateImportSubmitting] = React.useState(false);
   const openerRef = React.useRef<HTMLElement | null>(null);
 
   const rows = page?.rows ?? [];
-  const totalCount = Object.values(counts).reduce((sum, value) => sum + value, 0);
+  // `importable` is a subset of not_in_library, not a sixth relationship: summing every value
+  // would double-count it.
+  const totalCount = CHIPS.filter((chip) => chip.id !== 'all')
+    .reduce((sum, chip) => sum + (counts[chip.id as InventoryRelationship] ?? 0), 0);
   const hasEverFetched = !!run;
 
   // Connection is part of the selection's identity: without it a panel that switches
   // connection keeps a selection of ids belonging to the previous one.
   const filterKey = `${integration.id}|${relationship}|${search}`;
-  // Eligible means importable AND matching the active filter. siem_inventory_counts is already
-  // computed under the search, but only not_in_library rows can be imported, so a relationship
-  // chip that excludes them leaves nothing to select all of.
-  const eligibleTotal = relationship === 'all' || relationship === 'not_in_library' ? counts.not_in_library : 0;
+  // Eligible means importable AND matching the active filter. The server computes `importable`
+  // under the same search using its own freeze predicate, so this number is one the import can
+  // honour; a relationship chip that excludes not_in_library leaves nothing to select all of.
+  const eligibleTotal = relationship === 'all' || relationship === 'not_in_library' ? counts.importable : 0;
   const selection = useInventorySelection({
     rows,
     eligibleTotal,
@@ -77,11 +82,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
 
   const handleReview = (row: InventoryRow, opener?: HTMLElement | null) => {
     openerRef.current = opener ?? document.activeElement as HTMLElement | null;
-    if (row.binding_id) {
-      setSelected(row);
-    } else if (row.detection_id) {
-      navigate(routeHelpers.detectionDetail(row.detection_id));
-    }
+    if (row.binding_id) setSelected(row);
   };
 
   const closeReview = () => {
@@ -297,7 +298,28 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
       emptyHeading = 'No inventory yet';
       emptyBody =
         'Fetch rules from CrowdStrike to see what exists in production. Nothing is added to your library until you choose it.';
+    } else if (running) {
+      emptyHeading = 'Checking CrowdStrike';
+      emptyBody = 'Rules appear here as they are found.';
+    } else if (!inventoryRun) {
+      // `run` also covers refresh_tracked, which re-reads rules already tracked and never
+      // enumerates the account. It cannot answer "what exists in CrowdStrike".
+      emptyHeading = 'No inventory yet';
+      emptyBody =
+        'Fetch rules from CrowdStrike to see what exists in production. Nothing is added to your library until you choose it.';
+    } else if (inventoryRun.status === 'failed') {
+      emptyHeading = 'Could not finish checking CrowdStrike';
+      // The raw vendor message is already shown once by the run-status banner above; repeating it
+      // here says the same thing twice and buries the consequence.
+      emptyBody =
+        'The check stopped before it finished, so this list is not what production contains. Fetch rules again.';
+    } else if (inventoryRun.status !== 'complete' || inventoryRun.discovery_complete !== true) {
+      // An incomplete check found nothing YET. Saying the account is empty would turn a failure
+      // to look into a statement about production.
+      emptyHeading = 'The last check did not finish';
+      emptyBody = 'Rules may be missing from this list. Fetch rules again to complete the check.';
     } else {
+      // Only here has a scan actually enumerated the account and come back empty.
       emptyHeading = 'No rules in this CrowdStrike account';
       emptyBody = "This connection's scope contains no correlation rules.";
     }
@@ -435,6 +457,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
             loading={false}
             onReview={(row) => handleReview(row)}
             onResolveMatch={(row) => setResolvingRow(row)}
+            onPreview={(row) => setPreviewRow(row)}
             selectedIds={pageSelectedIds}
             pageAllSelected={selection.pageAllSelected}
             onToggle={selection.toggle}
@@ -504,6 +527,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
           <NativeRuleReview key={selected.binding_id} bindingId={selected.binding_id} onChanged={() => void reload()} />
         </Modal>
       )}
+      {previewRow && <RulePreviewDialog row={previewRow} onClose={() => setPreviewRow(null)} />}
       {resolvingRow && (
         <MatchResolutionDialog
           key={resolvingRow.vendor_rule_id}

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { canonicalJson, classifyDrift, contentHash, crowdStrikeScope, crowdStrikeUpdate,
+  importBlockedReason,
   localContent, normalizeCrowdStrike, sanitizeSnapshot } from '../native-siem-model';
 
 const raw = {
@@ -73,6 +74,27 @@ describe('native SIEM content contracts', () => {
     expect(classifyDrift(null, base, base)).toBe('in_sync');
     // Availability still wins: we cannot compare against a rule that is gone.
     expect(classifyDrift(null, local, base, 'missing')).toBe('missing');
+  });
+
+  // The table used to key eligibility purely off relationship, so a rule the scan never read, or
+  // one deleted in CrowdStrike since, advertised "Ready to import" and offered a live checkbox for
+  // an import siem_start_import would then record as skipped.
+  it('blocks an import the server would skip, for the same reasons the server gives', () => {
+    const readable = {
+      relationship: 'not_in_library' as const, availability: 'present' as const,
+      latest_snapshot_id: 'snap-1', normalization_error: null,
+    };
+    expect(importBlockedReason(readable)).toBeNull();
+    expect(importBlockedReason({ ...readable, latest_snapshot_id: null }))
+      .toBe('Not read from CrowdStrike yet');
+    expect(importBlockedReason({ ...readable, availability: 'missing' }))
+      .toBe('No longer in CrowdStrike');
+    expect(importBlockedReason({ ...readable, availability: 'unknown' }))
+      .toBe('Could not be read in the last check');
+    expect(importBlockedReason({ ...readable, relationship: 'already_in_library' }))
+      .toBe('Already in library');
+    expect(importBlockedReason({ ...readable, relationship: 'unsupported', normalization_error: 'No CQL query' }))
+      .toBe('No CQL query');
   });
 
   it('detects schedule-only changes but ignores vendor timestamps', () => {

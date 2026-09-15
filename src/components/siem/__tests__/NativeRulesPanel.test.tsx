@@ -22,11 +22,11 @@ function rowsFixture(count: number): InventoryRow[] {
     normalization_error: null,
     match_candidate_count: 0,
     relationship: 'not_in_library',
+    latest_snapshot_id: `snap-${i}`,
     binding_id: null,
     binding_status: null,
     detection_id: null,
     last_seen_at: '2026-09-15T00:00:00Z',
-    latest_snapshot_id: null,
   }));
 }
 
@@ -36,6 +36,7 @@ const ZERO_COUNTS = {
   archived_in_library: 0,
   match_needed: 0,
   unsupported: 0,
+  importable: 0,
 };
 
 beforeEach(() => {
@@ -46,6 +47,64 @@ beforeEach(() => {
 });
 
 describe('NativeRulesPanel', () => {
+  // An empty list after a check that did not finish is a statement about the CHECK, not about
+  // production. Reporting "no rules in this account" there turns a failure to look into a claim.
+  it('does not call the account empty when the last check failed', async () => {
+    // latestRun is asked for inventory kinds and, separately, for an in-flight import run.
+    // Answering both with the same row makes the panel adopt the failed scan as an import too.
+    vi.spyOn(nativeSiemService, 'latestRun').mockImplementation(async (_id, kinds) =>
+      kinds?.includes('import_selection') ? null : ({
+      id: 'run-failed', status: 'failed', phase: 'hydration', kind: 'inventory',
+      created_at: '2026-09-15T00:00:00Z', completed_at: '2026-09-15T00:01:00Z',
+      heartbeat_at: null, discovery_complete: false,
+      error_message: 'CrowdStrike request failed (429)',
+    } as never));
+    render(
+      <MemoryRouter>
+        <NativeRulesPanel integration={integrationFixture} />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('Could not finish checking CrowdStrike')).toBeTruthy();
+    // Shown once, by the run-status banner -- not repeated in the empty state.
+    expect(screen.getAllByText('CrowdStrike request failed (429)')).toHaveLength(1);
+    expect(screen.queryByText('No rules in this CrowdStrike account')).toBeNull();
+  });
+
+  it('does not call the account empty when discovery never completed', async () => {
+    // latestRun is asked for inventory kinds and, separately, for an in-flight import run.
+    // Answering both with the same row makes the panel adopt the failed scan as an import too.
+    vi.spyOn(nativeSiemService, 'latestRun').mockImplementation(async (_id, kinds) =>
+      kinds?.includes('import_selection') ? null : ({
+      id: 'run-partial', status: 'partial', phase: 'hydration', kind: 'inventory',
+      created_at: '2026-09-15T00:00:00Z', completed_at: '2026-09-15T00:01:00Z',
+      heartbeat_at: null, discovery_complete: false, error_message: null,
+    } as never));
+    render(
+      <MemoryRouter>
+        <NativeRulesPanel integration={integrationFixture} />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('The last check did not finish')).toBeTruthy();
+    expect(screen.queryByText('No rules in this CrowdStrike account')).toBeNull();
+  });
+
+  it('calls the account empty only after a completed, fully discovered check', async () => {
+    // latestRun is asked for inventory kinds and, separately, for an in-flight import run.
+    // Answering both with the same row makes the panel adopt the failed scan as an import too.
+    vi.spyOn(nativeSiemService, 'latestRun').mockImplementation(async (_id, kinds) =>
+      kinds?.includes('import_selection') ? null : ({
+      id: 'run-complete', status: 'complete', phase: 'hydration', kind: 'inventory',
+      created_at: '2026-09-15T00:00:00Z', completed_at: '2026-09-15T00:01:00Z',
+      heartbeat_at: null, discovery_complete: true, error_message: null,
+    } as never));
+    render(
+      <MemoryRouter>
+        <NativeRulesPanel integration={integrationFixture} />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('No rules in this CrowdStrike account')).toBeTruthy();
+  });
+
   it('shows the fetch action and the never-fetched empty state', async () => {
     render(
       <MemoryRouter>
@@ -120,6 +179,7 @@ describe('NativeRulesPanel', () => {
   it('renders the six classification chips with counts', async () => {
     vi.spyOn(nativeSiemService, 'inventoryCounts').mockResolvedValue({
       not_in_library: 3,
+      importable: 3,
       already_in_library: 1,
       archived_in_library: 2,
       match_needed: 1,
@@ -155,6 +215,7 @@ describe('NativeRulesPanel', () => {
       .mockResolvedValue({ rows: rowsFixture(50), hasMore: true });
     vi.spyOn(nativeSiemService, 'inventoryCounts').mockResolvedValue({
       not_in_library: 2000,
+      importable: 2000,
       already_in_library: 0,
       archived_in_library: 0,
       match_needed: 0,
@@ -401,6 +462,7 @@ describe('NativeRulesPanel — span-pages selection under a narrowing filter (C1
     vi.spyOn(nativeSiemService, 'inventoryCounts').mockResolvedValue({
       ...ZERO_COUNTS,
       not_in_library: 800,
+      importable: 800,
     });
     vi.spyOn(nativeSiemService, 'inventoryPage').mockResolvedValue({ rows: rowsFixture(3), hasMore: true });
   });

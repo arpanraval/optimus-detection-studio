@@ -20,6 +20,7 @@ const zeroCounts = {
   archived_in_library: 0,
   match_needed: 0,
   unsupported: 0,
+  importable: 0,
 };
 const queuedRun: NativeSyncRun = {
   id: 'run-1',

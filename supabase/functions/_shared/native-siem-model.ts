@@ -183,3 +183,29 @@ export const IMPORT_OUTCOME_LABELS: Record<string, string> = {
 export function isImportEligible(relationship: InventoryRelationship): boolean {
   return relationship === 'not_in_library';
 }
+
+/** Why siem_start_import would refuse to freeze this row, or null if it would accept it.
+ *
+ *  Membership is only half the question. The server's freeze predicate also requires that the
+ *  reviewed scan actually READ the rule (a snapshot exists) and that the rule is still present in
+ *  CrowdStrike; a row failing either is recorded 'skipped' with a reason. The table used to key
+ *  purely off relationship, so a never-read or since-deleted rule advertised "Ready to import" and
+ *  offered a live checkbox for an import that could not happen. Keeping the two predicates in one
+ *  place is what stops them drifting apart again. */
+export function importBlockedReason(row: {
+  relationship: InventoryRelationship;
+  availability: 'present' | 'missing' | 'unknown';
+  latest_snapshot_id: string | null;
+  normalization_error: string | null;
+}): string | null {
+  switch (row.relationship) {
+    case 'already_in_library': return 'Already in library';
+    case 'archived_in_library': return 'Archived in library. Restore it from the library to track it again.';
+    case 'match_needed': return 'Needs matching to an existing library rule first';
+    case 'unsupported': return row.normalization_error || 'Not supported';
+  }
+  if (row.availability === 'missing') return 'No longer in CrowdStrike';
+  if (row.availability !== 'present') return 'Could not be read in the last check';
+  if (!row.latest_snapshot_id) return 'Not read from CrowdStrike yet';
+  return null;
+}

@@ -9,6 +9,7 @@ import type { NativeSyncRun, ImportResult } from '@/services/nativeSiemService';
 const SUCCESS_STATUSES = new Set(['imported', 'linked', 'unchanged', 'changed']);
 const ALREADY_PRESENT_STATUSES = new Set(['linked', 'unchanged', 'changed']);
 const SKIPPED_STATUSES = new Set(['skipped', 'ignored', 'ambiguous']);
+const PAGE_SIZE = 25;
 
 export interface ImportResultsPanelProps {
   run: NativeSyncRun | null;
@@ -31,6 +32,15 @@ export function ImportResultsPanel({
   onRetry,
   onDismiss,
 }: ImportResultsPanelProps): React.JSX.Element | null {
+  const [page, setPage] = React.useState(0);
+  const [problemsOnly, setProblemsOnly] = React.useState(false);
+  // A new run is a new result set; leaving the reader on page 7 of the previous import would show
+  // an empty table with no explanation.
+  React.useEffect(() => {
+    setPage(0);
+    setProblemsOnly(false);
+  }, [run?.id]);
+
   if (!run) return null;
 
   const running = ['queued', 'running'].includes(run.status);
@@ -44,6 +54,23 @@ export function ImportResultsPanel({
   const unsupportedCount = results.filter((item) => item.status === 'unsupported').length;
   const notImportableCount = failedCount + changedSincePreviewCount + unsupportedCount;
   const hasAnySuccess = importedCount + alreadyPresentCount > 0;
+
+  // A 2,000-rule import used to render 2,000 rows. Counters answer "what happened" without
+  // scrolling; the table below is for looking up a specific rule, so it pages.
+  const counters: Array<{ label: string; value: number }> = [
+    { label: 'Newly imported', value: importedCount },
+    { label: 'Already present', value: alreadyPresentCount },
+    { label: 'Skipped', value: skippedCount },
+    { label: 'Changed since you reviewed', value: changedSincePreviewCount },
+    { label: 'Not supported', value: unsupportedCount },
+    { label: 'Failed', value: failedCount },
+  ].filter((counter) => counter.value > 0);
+
+  const needsAttention = results.filter((item) => !SUCCESS_STATUSES.has(item.status) && item.status !== 'pending');
+  const visible = problemsOnly ? needsAttention : results;
+  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageRows = visible.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
   let situationCopy: string;
   if (running) {
@@ -102,6 +129,29 @@ export function ImportResultsPanel({
       {showFetchAgain && (
         <p className="text-xs text-on-surface-variant">Fetch rules again to review what changed.</p>
       )}
+      {counters.length > 0 && (
+        <dl aria-label="Import summary" className="flex flex-wrap gap-x-5 gap-y-1.5 text-xs">
+          {counters.map((counter) => (
+            <div key={counter.label} className="flex items-baseline gap-1.5">
+              <dt className="text-on-surface-variant">{counter.label}</dt>
+              <dd className="font-semibold text-on-surface">{counter.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {needsAttention.length > 0 && results.length > PAGE_SIZE && (
+        <label className="flex items-center gap-2 text-xs text-on-surface-variant">
+          <input
+            type="checkbox"
+            checked={problemsOnly}
+            onChange={() => {
+              setProblemsOnly(!problemsOnly);
+              setPage(0);
+            }}
+          />
+          {`Show only the ${needsAttention.length} rules that need attention`}
+        </label>
+      )}
       {results.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -113,7 +163,7 @@ export function ImportResultsPanel({
               </tr>
             </thead>
             <tbody>
-              {results.map((item) => {
+              {pageRows.map((item) => {
                 const name = displayNames[item.vendor_rule_id] ?? item.vendor_rule_id;
                 const label = IMPORT_OUTCOME_LABELS[item.status] ?? item.status;
                 const iconName =
@@ -145,6 +195,26 @@ export function ImportResultsPanel({
               })}
             </tbody>
           </table>
+        </div>
+      )}
+      {pageCount > 1 && (
+        <div className="flex items-center justify-between gap-3 text-xs text-on-surface-variant">
+          <span>
+            {`Showing ${safePage * PAGE_SIZE + 1}\u2013${Math.min((safePage + 1) * PAGE_SIZE, visible.length)} of ${visible.length}`}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="text" disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>
+              Previous
+            </Button>
+            <Button
+              size="sm"
+              variant="text"
+              disabled={safePage >= pageCount - 1}
+              onClick={() => setPage(safePage + 1)}
+            >
+              Next
+            </Button>
+          </div>
         </div>
       )}
     </div>

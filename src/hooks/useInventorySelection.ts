@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { isImportEligible, type InventoryRow } from '../../supabase/functions/_shared/native-siem-model';
+import { importBlockedReason, type InventoryRow } from '../../supabase/functions/_shared/native-siem-model';
 
 export type InventorySelection =
   | { mode: 'explicit'; ids: ReadonlySet<string> }
@@ -7,7 +7,7 @@ export type InventorySelection =
 
 export interface UseInventorySelectionArgs {
   rows: InventoryRow[]; // current page
-  eligibleTotal: number; // count of not_in_library under the active filter+search
+  eligibleTotal: number; // count of IMPORTABLE rows under the active filter+search
   filterKey: string; // relationship + search; a change clears selection
   discoveryComplete: boolean;
 }
@@ -44,7 +44,9 @@ export function useInventorySelection({
     setClearedByFilterChange(true);
   }, [filterKey]);
 
-  const eligibleRowIds = rows.filter((row) => isImportEligible(row.relationship)).map((row) => row.vendor_rule_id);
+  const eligibleRowIds = rows
+    .filter((row) => importBlockedReason(row) === null)
+    .map((row) => row.vendor_rule_id);
 
   const isSelected = useCallback(
     (vendorRuleId: string): boolean => {
@@ -57,7 +59,7 @@ export function useInventorySelection({
   const isEligibleId = useCallback(
     (vendorRuleId: string): boolean => {
       const row = rows.find((candidate) => candidate.vendor_rule_id === vendorRuleId);
-      return row ? isImportEligible(row.relationship) : false;
+      return row ? importBlockedReason(row) === null : false;
     },
     [rows],
   );

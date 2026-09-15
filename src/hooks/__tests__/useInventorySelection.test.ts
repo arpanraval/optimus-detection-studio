@@ -7,7 +7,7 @@ const row = (id: string, relationship: InventoryRow['relationship'] = 'not_in_li
   id, integration_id: 'c', vendor_rule_id: id, rule_family: 'correlation', display_name: id,
   observed_enabled: true, availability: 'present', normalization_error: null, match_candidate_count: 0,
   relationship, binding_id: null, binding_status: null, detection_id: null,
-  last_seen_at: '2026-09-15T00:00:00Z', latest_snapshot_id: null,
+  last_seen_at: '2026-09-15T00:00:00Z', latest_snapshot_id: `snap-${id}`,
 });
 const setup = (overrides = {}) => renderHook((props: Parameters<typeof useInventorySelection>[0]) =>
   useInventorySelection(props), { initialProps: { rows: [row('a'), row('b'), row('c', 'already_in_library')],

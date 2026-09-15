@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { routeHelpers } from '@/router/routes';
 import {
   RELATIONSHIP_LABELS,
-  isImportEligible,
+  importBlockedReason,
   type InventoryRow,
 } from '../../../supabase/functions/_shared/native-siem-model';
 
@@ -16,35 +16,16 @@ export interface InventoryTableProps {
   onToggle?: (vendorRuleId: string) => void;
   onTogglePage?: () => void;
   onResolveMatch?: (row: InventoryRow) => void;
+  /** Opens the production comparison for a tracked rule. */
   onReview?: (row: InventoryRow) => void;
+  /** Opens the read-only look at a rule that is not in the library yet. */
+  onPreview?: (row: InventoryRow) => void;
 }
-
-const ELIGIBILITY_LABELS: Record<InventoryRow['relationship'], string> = {
-  not_in_library: 'Ready to import',
-  already_in_library: 'Already in library',
-  archived_in_library: 'Archived in library',
-  match_needed: 'Match needed',
-  unsupported: '',
-};
 
 function siemStateLabel(row: InventoryRow): string {
   if (row.availability === 'missing') return 'Not found';
   if (row.availability !== 'present' || row.observed_enabled === null) return 'Unknown';
   return row.observed_enabled ? 'Enabled' : 'Disabled';
-}
-
-function eligibilityText(row: InventoryRow): string {
-  if (row.relationship === 'unsupported') return row.normalization_error || 'Unsupported';
-  return ELIGIBILITY_LABELS[row.relationship];
-}
-
-function disabledReason(row: InventoryRow): string | undefined {
-  if (isImportEligible(row.relationship)) return undefined;
-  if (row.relationship === 'unsupported') return row.normalization_error || 'Unsupported';
-  if (row.relationship === 'archived_in_library') {
-    return 'Archived in library. Restore it from the library to track it again.';
-  }
-  return RELATIONSHIP_LABELS[row.relationship];
 }
 
 export function InventoryTable({
@@ -56,6 +37,7 @@ export function InventoryTable({
   onTogglePage,
   onResolveMatch,
   onReview,
+  onPreview,
 }: InventoryTableProps): React.JSX.Element {
   const showSelection = !!onTogglePage;
   const allEligibleSelected = showSelection && !!pageAllSelected;
@@ -97,11 +79,14 @@ export function InventoryTable({
         </thead>
         <tbody className="divide-y divide-outline-variant/20">
           {rows.map((row) => {
-            const eligible = isImportEligible(row.relationship);
-            const canOpenLibraryRule =
-              (row.relationship === 'already_in_library' || row.relationship === 'archived_in_library') &&
-              row.detection_id != null;
+            // One predicate for the checkbox, the tooltip and the eligibility column, shared with
+            // the server: the table must never offer an import that siem_start_import would skip.
+            const blocked = importBlockedReason(row);
+            const eligible = blocked === null;
+            const canOpenLibraryRule = row.detection_id != null;
+            const canReviewChanges = row.binding_id != null;
             const canResolveMatch = row.relationship === 'match_needed';
+            const canPreview = row.latest_snapshot_id != null && row.detection_id == null;
             return (
               <tr key={row.id} className="transition-colors hover:bg-surface-container-high/50">
                 {showSelection && (
@@ -111,7 +96,7 @@ export function InventoryTable({
                       aria-label={`Select ${row.display_name}`}
                       checked={!!selectedIds?.has(row.vendor_rule_id)}
                       disabled={!eligible}
-                      title={disabledReason(row)}
+                      title={blocked ?? undefined}
                       onChange={() => onToggle?.(row.vendor_rule_id)}
                     />
                   </td>
@@ -141,17 +126,35 @@ export function InventoryTable({
                     {siemStateLabel(row)}
                   </span>
                 </td>
-                <td className="px-5 py-3.5 text-xs text-on-surface-variant">{eligibilityText(row)}</td>
+                <td className="px-5 py-3.5 text-xs text-on-surface-variant">
+                  {blocked ?? 'Ready to import'}
+                </td>
                 <td className="px-5 py-3.5 text-right">
-                  {canOpenLibraryRule ? (
-                    <Button size="sm" variant="text" onClick={() => onReview?.(row)}>
-                      Open library rule
-                    </Button>
-                  ) : canResolveMatch ? (
-                    <Button size="sm" variant="text" onClick={() => onResolveMatch?.(row)}>
-                      Resolve match
-                    </Button>
-                  ) : null}
+                  <div className="flex flex-wrap items-center justify-end gap-1">
+                    {canPreview && (
+                      <Button size="sm" variant="text" onClick={() => onPreview?.(row)}>
+                        Preview
+                      </Button>
+                    )}
+                    {canOpenLibraryRule && row.detection_id && (
+                      <Link
+                        className="rounded px-2 py-1 text-sm font-medium text-primary hover:underline"
+                        to={routeHelpers.detectionDetail(row.detection_id)}
+                      >
+                        Open library rule
+                      </Link>
+                    )}
+                    {canReviewChanges && (
+                      <Button size="sm" variant="text" onClick={() => onReview?.(row)}>
+                        Review changes
+                      </Button>
+                    )}
+                    {canResolveMatch && (
+                      <Button size="sm" variant="text" onClick={() => onResolveMatch?.(row)}>
+                        Resolve match
+                      </Button>
+                    )}
+                  </div>
                 </td>
               </tr>
             );

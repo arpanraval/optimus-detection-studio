@@ -1,20 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { nativeSiemService, type InventoryPage, type NativeSyncRun } from '@/services/nativeSiemService';
+import { nativeSiemService, type InventoryCounts, type InventoryPage, type NativeSyncRun }
+  from '@/services/nativeSiemService';
 import type { InventoryRelationship } from '../../supabase/functions/_shared/native-siem-model';
 
-const ZERO_COUNTS: Record<InventoryRelationship, number> = {
+const ZERO_COUNTS: InventoryCounts = {
   not_in_library: 0,
   already_in_library: 0,
   archived_in_library: 0,
   match_needed: 0,
   unsupported: 0,
+  importable: 0,
 };
 
 const RUN_KINDS = ['inventory', 'refresh_tracked'];
 
 export function useRemoteInventory(integrationId: string) {
   const [page, setPage] = useState<InventoryPage | null>(null);
-  const [counts, setCounts] = useState<Record<InventoryRelationship, number>>(ZERO_COUNTS);
+  const [counts, setCounts] = useState<InventoryCounts>(ZERO_COUNTS);
   const [run, setRun] = useState<NativeSyncRun | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

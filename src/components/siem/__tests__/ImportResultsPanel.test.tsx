@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi } from 'vitest';
 import { ImportResultsPanel } from '../ImportResultsPanel';
@@ -141,6 +141,40 @@ describe('ImportResultsPanel', () => {
     const results = [result({ vendor_rule_id: 'v1', status: 'unsupported' })];
     renderPanel({ run: run({ status: 'complete', completed_at: '2026-09-15T00:05:00Z' }), results });
     expect(screen.getByText('None of the selected rules can be imported right now.')).toBeTruthy();
+  });
+
+  // A 2,000-rule import rendered 2,000 rows, so the outcome of the run was only discoverable by
+  // scrolling. Counters carry the summary; the table pages.
+  it('summarises with counters and pages the detail table', () => {
+    const results = Array.from({ length: 60 }, (_, i) =>
+      result({ vendor_rule_id: `vendor-${i}`, status: i < 58 ? 'imported' : 'failed',
+               error_message: i < 58 ? null : 'CrowdStrike request failed (500)' }));
+    renderPanel({ run: run({ status: 'partial', completed_at: '2026-09-15T00:01:00Z' }), results });
+
+    // Scoped to the summary list: the same words also label individual rows in the table below.
+    const summary = within(screen.getByLabelText('Import summary'));
+    expect(within(summary.getByText('Newly imported').closest('div') as HTMLElement).getByText('58')).toBeTruthy();
+    expect(within(summary.getByText('Failed').closest('div') as HTMLElement).getByText('2')).toBeTruthy();
+
+    expect(screen.getByText('Showing 1\u201325 of 60')).toBeTruthy();
+    expect(screen.getByText('vendor-0')).toBeTruthy();
+    expect(screen.queryByText('vendor-30')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(screen.getByText('vendor-30')).toBeTruthy();
+    expect(screen.queryByText('vendor-0')).toBeNull();
+  });
+
+  it('can narrow the table to only the rules that need attention', () => {
+    const results = Array.from({ length: 60 }, (_, i) =>
+      result({ vendor_rule_id: `vendor-${i}`, status: i < 58 ? 'imported' : 'failed' }));
+    renderPanel({ run: run({ status: 'partial', completed_at: '2026-09-15T00:01:00Z' }), results });
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Show only the 2 rules that need attention/ }));
+    expect(screen.getByText('vendor-58')).toBeTruthy();
+    expect(screen.queryByText('vendor-0')).toBeNull();
+    // Two rows fit on one page, so the pager goes away rather than showing a dead control.
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull();
   });
 
   it('renders nothing when there is no run', () => {

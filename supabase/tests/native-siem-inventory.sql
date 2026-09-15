@@ -472,6 +472,70 @@ BEGIN
   RAISE NOTICE 'reconcile-baseline assertions passed';
 END $$;
 
+
+-- Milestone 3: siem_inventory_counts emits an 'importable' row alongside the relationship counts.
+-- The chips need membership; the selection bar needs a number the import can actually honour, and
+-- a rule that was never read or has since been deleted is not_in_library but not importable.
+INSERT INTO auth.users(id,email) VALUES
+  ('24000000-0000-0000-0000-000000000001','counts-owner@example.test');
+INSERT INTO public.profiles(id,role,status) VALUES
+  ('24000000-0000-0000-0000-000000000001','admin','active')
+  ON CONFLICT(id) DO UPDATE SET role='admin',status='active';
+INSERT INTO public.integrations(id,user_id,name,provider,category,status,config,auth_type) VALUES
+  ('25000000-0000-0000-0000-000000000001','24000000-0000-0000-0000-000000000001',
+   'Falcon counts fixture','crowdstrike','siem','connected','{}','oauth2_client_credentials');
+
+DO $$
+DECLARE integration uuid := '25000000-0000-0000-0000-000000000001';
+  actor uuid := '24000000-0000-0000-0000-000000000001';
+  scope text := 'scope-counts-1';
+  rule_id uuid; snap_id uuid; importable bigint; not_in_library bigint;
+BEGIN
+  -- Three rules that are all 'not_in_library', but only one is importable.
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'crowdstrike',scope,'count-readable','Countable readable',true,'present')
+    RETURNING id INTO rule_id;
+  INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+    VALUES(rule_id,'test-v1','count-hash','count-raw','{}'::jsonb,'{}'::jsonb) RETURNING id INTO snap_id;
+  UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_id WHERE id=rule_id;
+
+  -- Never read: discovery listed it but hydration never returned content.
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'crowdstrike',scope,'count-unread','Countable unread',NULL,'present');
+
+  -- Read once, but confirmed gone since.
+  INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+    observed_enabled,availability)
+    VALUES(integration,'crowdstrike',scope,'count-gone','Countable gone',true,'missing')
+    RETURNING id INTO rule_id;
+  INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+    VALUES(rule_id,'test-v1','gone-hash','gone-raw','{}'::jsonb,'{}'::jsonb) RETURNING id INTO snap_id;
+  UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_id WHERE id=rule_id;
+
+  SELECT rules INTO not_in_library FROM public.siem_inventory_counts(integration, NULL)
+   WHERE relationship = 'not_in_library';
+  SELECT rules INTO importable FROM public.siem_inventory_counts(integration, NULL)
+   WHERE relationship = 'importable';
+
+  PERFORM pg_temp.assert_true(not_in_library = 3,
+    'all three rules are not_in_library: membership is what the chips count');
+  PERFORM pg_temp.assert_true(importable = 1,
+    'only the read, still-present rule is importable: the number the selection bar must show');
+
+  -- The search narrows both, so "Select all N matching" stays honest under a filter.
+  SELECT rules INTO importable FROM public.siem_inventory_counts(integration, 'readable')
+   WHERE relationship = 'importable';
+  PERFORM pg_temp.assert_true(importable = 1, 'the importable count respects the search');
+  SELECT rules INTO importable FROM public.siem_inventory_counts(integration, 'gone')
+   WHERE relationship = 'importable';
+  PERFORM pg_temp.assert_true(coalesce(importable, 0) = 0,
+    'a search matching only an unimportable rule reports nothing to select');
+
+  RAISE NOTICE 'importable-count assertions passed';
+END $$;
+
 -- The catalog is owner scoped. Another authenticated user sees nothing.
 SET LOCAL ROLE authenticated;
 SET LOCAL request.jwt.claim.sub = '03000000-0000-0000-0000-000000000002';

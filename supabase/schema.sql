@@ -10715,7 +10715,21 @@ SET search_path = public AS $$
      AND (p_search IS NULL OR p_search = ''
           OR v.display_name ILIKE '%' || p_search || '%'
           OR v.vendor_rule_id ILIKE '%' || p_search || '%')
-   GROUP BY v.relationship;
+   GROUP BY v.relationship
+  UNION ALL
+  -- Not a relationship: the count the SELECTION BAR needs. The chips answer "what is this rule's
+  -- relationship to the library", so not_in_library is the wrong number there -- a rule the last
+  -- scan could not read, or one since deleted in CrowdStrike, is not_in_library but not
+  -- importable. These are the same three conditions siem_start_import requires to freeze a row.
+  SELECT 'importable', count(*)
+    FROM siem_inventory_rows v
+   WHERE v.integration_id = p_integration
+     AND (p_search IS NULL OR p_search = ''
+          OR v.display_name ILIKE '%' || p_search || '%'
+          OR v.vendor_rule_id ILIKE '%' || p_search || '%')
+     AND v.relationship = 'not_in_library'
+     AND v.availability = 'present'
+     AND v.latest_snapshot_id IS NOT NULL;
 $$;
 REVOKE ALL ON FUNCTION public.siem_inventory_relationship(text,text,integer) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.siem_inventory_counts(uuid,text) FROM PUBLIC, anon;

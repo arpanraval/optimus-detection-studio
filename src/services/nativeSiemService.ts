@@ -71,6 +71,11 @@ export interface MatchCandidate {
   query_text: string;
   detection_version: number;
 }
+/** Per-relationship counts for the filter chips, plus `importable` — how many rows the server
+ *  would actually freeze. `importable` is a subset of `not_in_library`, so summing every value
+ *  here would double-count; total rules is the sum of the five relationships only. */
+export type InventoryCounts = Record<InventoryRelationship, number> & { importable: number };
+
 export interface NativePreview {
   binding: NativeBinding;
   /** null when the rule is linked but not yet reconciled: siem_link_existing refuses to invent an
@@ -291,21 +296,22 @@ export const nativeSiemService = {
     const rows = (data || []) as unknown as InventoryRow[];
     return { rows: rows.slice(0, pageSize), hasMore: rows.length > pageSize };
   },
-  async inventoryCounts(integrationId: string, search = ''): Promise<Record<InventoryRelationship, number>> {
+  async inventoryCounts(integrationId: string, search = ''): Promise<InventoryCounts> {
     const { data, error } = await supabase.rpc('siem_inventory_counts', {
       p_integration: integrationId,
       p_search: safeSearch(search) || null,
     });
     if (error) throw new Error(error.message);
-    const counts: Record<InventoryRelationship, number> = {
+    const counts: InventoryCounts = {
       not_in_library: 0,
       already_in_library: 0,
       archived_in_library: 0,
       match_needed: 0,
       unsupported: 0,
+      importable: 0,
     };
-    for (const row of (data || []) as Array<{ relationship: InventoryRelationship; rules: number }>) {
-      counts[row.relationship] = Number(row.rules);
+    for (const row of (data || []) as Array<{ relationship: keyof InventoryCounts; rules: number }>) {
+      if (row.relationship in counts) counts[row.relationship] = Number(row.rules);
     }
     return counts;
   },

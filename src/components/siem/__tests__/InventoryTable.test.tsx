@@ -9,7 +9,7 @@ const base: InventoryRow = {
   display_name: 'Suspicious process', observed_enabled: true, availability: 'present',
   normalization_error: null, match_candidate_count: 0, relationship: 'not_in_library',
   binding_id: null, binding_status: null, detection_id: null, last_seen_at: '2026-09-15T00:00:00Z',
-  latest_snapshot_id: null,
+  latest_snapshot_id: 'snap-1',
 };
 const draw = (rows: InventoryRow[]) =>
   render(<MemoryRouter><InventoryTable rows={rows} loading={false} /></MemoryRouter>);
@@ -20,6 +20,69 @@ describe('inventory table', () => {
     expect(screen.getByText('Not in library')).toBeTruthy();
     expect(screen.getByText('Enabled')).toBeTruthy();
     expect(screen.getByText('Ready to import')).toBeTruthy();
+  });
+
+  it('does not promise an import for a rule the scan never read', () => {
+    render(
+      <MemoryRouter>
+        <InventoryTable
+          rows={[{ ...base, latest_snapshot_id: null }]}
+          loading={false}
+          selectedIds={new Set()}
+          onTogglePage={() => {}}
+          onToggle={() => {}}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('Not read from CrowdStrike yet')).toBeTruthy();
+    expect(screen.queryByText('Ready to import')).toBeNull();
+    expect((screen.getByRole('checkbox', { name: /Select Suspicious process/ }) as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('does not promise an import for a rule that is gone from CrowdStrike', () => {
+    render(
+      <MemoryRouter>
+        <InventoryTable
+          rows={[{ ...base, availability: 'missing' }]}
+          loading={false}
+          selectedIds={new Set()}
+          onTogglePage={() => {}}
+          onToggle={() => {}}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('No longer in CrowdStrike')).toBeTruthy();
+    expect((screen.getByRole('checkbox', { name: /Select Suspicious process/ }) as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('offers a read-only preview for a readable rule that is not in the library', () => {
+    const seen: string[] = [];
+    render(
+      <MemoryRouter>
+        <InventoryTable rows={[base]} loading={false} onPreview={(row) => seen.push(row.vendor_rule_id)} />
+      </MemoryRouter>,
+    );
+    screen.getByRole('button', { name: 'Preview' }).click();
+    expect(seen).toEqual([base.vendor_rule_id]);
+  });
+
+  it('offers Review changes separately from opening the library rule', () => {
+    const reviewed: string[] = [];
+    render(
+      <MemoryRouter>
+        <InventoryTable
+          rows={[{ ...base, relationship: 'already_in_library', binding_status: 'active',
+                   detection_id: 'd1', binding_id: 'b1' }]}
+          loading={false}
+          onReview={(row) => reviewed.push(row.vendor_rule_id)}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('link', { name: 'Open library rule' }).getAttribute('href')).toContain('d1');
+    screen.getByRole('button', { name: 'Review changes' }).click();
+    expect(reviewed).toEqual([base.vendor_rule_id]);
+    // A tracked rule is already in the library; previewing the catalog copy is not the question.
+    expect(screen.queryByRole('button', { name: 'Preview' })).toBeNull();
   });
 
   it('does not link a rule that has no library copy', () => {
@@ -59,7 +122,9 @@ describe('inventory table', () => {
   it('still links and offers to open the library rule for an archived copy', () => {
     draw([{ ...base, relationship: 'archived_in_library', binding_status: 'tombstone', detection_id: 'd1' }]);
     expect(screen.getByRole('link', { name: /Suspicious process/ }).getAttribute('href')).toContain('d1');
-    expect(screen.getByRole('button', { name: 'Open library rule' })).toBeTruthy();
+    // "Open library rule" now navigates to the rule. It used to be a button that opened the
+    // production comparison, so the label and the destination disagreed.
+    expect(screen.getByRole('link', { name: 'Open library rule' }).getAttribute('href')).toContain('d1');
   });
 
   it('disables selection of an archived row and explains how to restore it', () => {
