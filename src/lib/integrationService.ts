@@ -57,6 +57,29 @@ async function requireUnboundTarget(detectionId?: string, integrationId?: string
  * live, which only the server route can do safely, so it goes there in development as well as in a
  * production build. Refusing instead left the Deploy button telling the user to press Deploy.
  */
+/**
+ * The connection and browser-held credentials the dev proxy would need, or null.
+ *
+ * Whether this browser holds credentials is a ROUTING question, not an error: the credentials the
+ * proxy uses live in this tab's memory (or a legacy config blob), while the real ones are
+ * encrypted server-side, where the Edge Function can use them. Treating their absence as a failure
+ * meant deploying a new rule from a dev server said "Dev credentials not found" while the deployed
+ * app -- and a tracked rule from the same dev server -- went through the server and worked.
+ */
+async function devProxyTarget(integrationId: string): Promise<
+  { integration: Record<string, unknown>; config: Record<string, unknown>; credentials: Record<string, string> } | null
+> {
+  const { data: integration, error } = await supabase
+    .from('integrations')
+    .select('*')
+    .eq('id', integrationId)
+    .single();
+  if (error || !integration) return null;
+  const config = (integration.config || {}) as Record<string, unknown>;
+  const credentials = await migrateDevCredentials(integrationId, config);
+  return credentials ? { integration, config, credentials } : null;
+}
+
 async function hasActiveBinding(
   integrationId: string,
   target: { detectionId?: string; vendorRuleId?: string },
@@ -2638,22 +2661,19 @@ export const integrationService = {
     // readback. A rule this connection already tracks is therefore the server route's to write, in
     // development too -- otherwise the only UI route to update it dead-ends. Untracked targets keep
     // the proxy, and requireUnboundTarget still refuses one bound anywhere else.
-    if (IS_DEV && !(await hasActiveBinding(params.integrationId, { detectionId: params.detectionId }))) {
+    // ... and the proxy is only usable at all when this browser holds credentials for the
+    // connection. Without them the deploy belongs to the server route, which has the encrypted
+    // ones -- the same path the deployed app always takes.
+    const devTarget = IS_DEV && !(await hasActiveBinding(params.integrationId, { detectionId: params.detectionId }))
+      ? await devProxyTarget(params.integrationId)
+      : null;
+    if (devTarget) {
       await requireUnboundTarget(params.detectionId, params.integrationId, params.vendorRuleId);
 
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      const { data: integration, error: intErr } = await supabase
-        .from('integrations')
-        .select('*')
-        .eq('id', params.integrationId)
-        .single();
-      if (intErr || !integration) throw new Error('Integration not found');
-
-      const config = (integration.config || {}) as Record<string, unknown>;
-      const credentials = await migrateDevCredentials(params.integrationId, config);
-      if (!credentials) throw new Error('Dev credentials not found — please re-enter credentials in integration settings.');
+      const { integration, config, credentials } = devTarget;
 
       // Check for existing deployment (auto-upgrade create → update)
       let action = params.vendorRuleId ? 'update' : 'create';
