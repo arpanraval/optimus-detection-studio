@@ -11,7 +11,8 @@ INSERT INTO public.profiles(id,role,status) VALUES
   ('01000000-0000-0000-0000-000000000002','admin','active')
   ON CONFLICT(id) DO UPDATE SET role='admin',status='active';
 INSERT INTO public.integrations(id,user_id,name,provider,category,status,config,auth_type) VALUES
-  ('02000000-0000-0000-0000-000000000001','01000000-0000-0000-0000-000000000001','Falcon fixture','crowdstrike','siem','connected','{}','oauth2_client_credentials');
+  ('02000000-0000-0000-0000-000000000001','01000000-0000-0000-0000-000000000001','Falcon fixture','crowdstrike','siem','connected','{}','oauth2_client_credentials'),
+  ('02000000-0000-0000-0000-000000000002','01000000-0000-0000-0000-000000000001','Splunk fixture','splunk','siem','connected','{}','oauth2_client_credentials');
 
 DO $$
 DECLARE actor uuid := '01000000-0000-0000-0000-000000000001'; integration uuid := '02000000-0000-0000-0000-000000000001';
@@ -115,6 +116,31 @@ BEGIN
   PERFORM pg_temp.assert_true(NOT public.siem_can_import(actor,integration),'disconnected integration cannot sync');
 END $$;
 
+-- Multi-provider constraints: the six-provider list is admitted; anything outside it still fails.
+DO $$
+DECLARE actor uuid := '01000000-0000-0000-0000-000000000001'; splunk_integration uuid := '02000000-0000-0000-0000-000000000002';
+  splunk_binding_id uuid; did text; failed boolean;
+BEGIN
+  SELECT detection_id INTO did FROM public.siem_rule_bindings WHERE integration_id='02000000-0000-0000-0000-000000000001' LIMIT 1;
+  UPDATE public.detections SET queries = queries || jsonb_build_array(jsonb_build_object(
+    'id','q-s1','language','SPL','query','search index=main','isPrimary',false,
+    'createdDate',now(),'updatedDate',now())) WHERE id=did;
+
+  INSERT INTO public.siem_rule_bindings(detection_id,integration_id,provider,provider_scope,vendor_rule_id,selected_query_id,query_language,desired_content)
+    VALUES(did,splunk_integration,'splunk','scope-splunk','rule-s1','q-s1','SPL','{}'::jsonb)
+    RETURNING id INTO splunk_binding_id;
+  PERFORM pg_temp.assert_true((SELECT count(*)=1 FROM public.siem_rule_bindings WHERE id=splunk_binding_id),'splunk/SPL binding is accepted');
+
+  failed:=false;
+  BEGIN
+    INSERT INTO public.siem_rule_bindings(detection_id,integration_id,provider,provider_scope,vendor_rule_id,selected_query_id,query_language,desired_content)
+      VALUES(did,splunk_integration,'jira','scope-jira','rule-j1','q-j1','SPL','{}'::jsonb);
+  EXCEPTION WHEN OTHERS THEN failed:=true; END;
+  PERFORM pg_temp.assert_true(failed,'a provider outside the six is still rejected');
+
+  PERFORM pg_temp.assert_true(public.siem_can_import(actor,splunk_integration),'authorized owner can import from a Splunk connection');
+END $$;
+
 SELECT pg_temp.assert_true(NOT has_function_privilege('authenticated','public.siem_commit_chunk(uuid,uuid,text[],integer,boolean,jsonb)','execute'),'client cannot forge import');
 SELECT pg_temp.assert_true(NOT has_table_privilege('authenticated','public.siem_rule_snapshots','truncate'),'client cannot truncate snapshots');
 SELECT pg_temp.assert_true(NOT has_table_privilege('anon','public.siem_rule_snapshots','select'),'anon cannot read snapshots');
@@ -123,7 +149,7 @@ SELECT set_config('request.jwt.claim.sub','01000000-0000-0000-0000-000000000002'
 SELECT pg_temp.assert_true((SELECT count(*)=0 FROM public.siem_rule_snapshots),'other admin cannot read private snapshots');
 SELECT pg_temp.assert_true((SELECT count(*)=0 FROM public.siem_rule_bindings),'other admin cannot read bindings');
 SELECT set_config('request.jwt.claim.sub','01000000-0000-0000-0000-000000000001',true);
-SELECT pg_temp.assert_true((SELECT count(*)=1 FROM public.siem_rule_bindings),'owner can read persisted binding');
+SELECT pg_temp.assert_true((SELECT count(*)=2 FROM public.siem_rule_bindings),'owner can read persisted bindings');
 RESET ROLE;
 SET CONSTRAINTS ALL IMMEDIATE;
 ROLLBACK;

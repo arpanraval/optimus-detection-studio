@@ -9926,11 +9926,11 @@ CREATE TABLE public.siem_rule_bindings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   detection_id text NOT NULL REFERENCES public.detections(id) ON DELETE RESTRICT,
   integration_id uuid NOT NULL REFERENCES public.integrations(id) ON DELETE RESTRICT,
-  provider text NOT NULL CHECK (provider = 'crowdstrike'),
+  provider text NOT NULL CHECK (provider = ANY (ARRAY['crowdstrike','splunk','sentinel','elastic','defender_xdr','chronicle'])),
   provider_scope text NOT NULL,
   vendor_rule_id text NOT NULL CHECK (length(vendor_rule_id) > 0),
   selected_query_id text NOT NULL,
-  query_language text NOT NULL CHECK (query_language = 'CQL'),
+  query_language text NOT NULL CHECK (query_language = ANY (ARRAY['SPL','KQL','Kuery','Sigma','EQL','ESQL','CQL','SQL','YARA','YARA-L','Lucene','Carbon Black','Datadog','Elasticsearch DSL'])),
   binding_status text NOT NULL DEFAULT 'active' CHECK (binding_status IN ('active','detached','ignored','tombstone')),
   availability text NOT NULL DEFAULT 'present' CHECK (availability IN ('present','missing','unknown')),
   observed_enabled boolean,
@@ -10015,7 +10015,8 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public AS
   SELECT EXISTS (
     SELECT 1 FROM integrations i JOIN profiles p ON p.id = i.user_id
     WHERE i.id = p_integration AND i.user_id = p_actor AND i.archived_at IS NULL
-      AND i.provider = 'crowdstrike' AND coalesce(p.status,'active') <> 'deactivated'
+      AND i.provider = ANY (ARRAY['crowdstrike','splunk','sentinel','elastic','defender_xdr','chronicle'])
+      AND coalesce(p.status,'active') <> 'deactivated'
       AND ((p.role IN ('owner','admin','lead') OR coalesce(p.permission_overrides->'granted','[]'::jsonb) ? 'integrations:import')
            AND NOT coalesce(p.permission_overrides->'revoked','[]'::jsonb) ? 'integrations:import')
       AND ((p.role IN ('owner','admin','lead','analyst') OR coalesce(p.permission_overrides->'granted','[]'::jsonb) ? 'detection:create')
@@ -10436,7 +10437,8 @@ DECLARE run siem_maintenance_runs; conn record; removed integer; total integer :
 BEGIN
   INSERT INTO siem_maintenance_runs(task) VALUES('snapshot_retention') RETURNING * INTO run;
 
-  FOR conn IN SELECT id FROM integrations WHERE provider = 'crowdstrike' LOOP
+  FOR conn IN SELECT id FROM integrations
+    WHERE provider = ANY (ARRAY['crowdstrike','splunk','sentinel','elastic','defender_xdr','chronicle']) LOOP
     BEGIN
       removed := siem_prune_remote_snapshots(conn.id, p_keep);
       total := total + coalesce(removed, 0);
@@ -10549,7 +10551,7 @@ CREATE TRIGGER siem_delete_library_rule BEFORE DELETE ON public.detections
 CREATE TABLE public.siem_remote_rules (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   integration_id uuid NOT NULL REFERENCES public.integrations(id) ON DELETE RESTRICT,
-  provider text NOT NULL CHECK (provider = 'crowdstrike'),
+  provider text NOT NULL CHECK (provider = ANY (ARRAY['crowdstrike','splunk','sentinel','elastic','defender_xdr','chronicle'])),
   provider_scope text NOT NULL,
   vendor_rule_id text NOT NULL CHECK (length(vendor_rule_id) > 0),
   rule_family text NOT NULL DEFAULT 'correlation',
