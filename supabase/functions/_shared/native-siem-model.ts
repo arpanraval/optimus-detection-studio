@@ -123,7 +123,10 @@ export const PROVIDER_CAPABILITIES: Record<string, ProviderCapabilities> = {
   // The five providers below are read/import-only: P5 (production writes) is out of scope for
   // this entire project, so every one of them declares no writeFamilies and no operations.
   splunk: {
-    readFamilies: ['savedsearch'],
+    // Real family qualified by the Splunk reader (siem-readers/splunk.ts): ES correlation
+    // searches, identified by `action.correlationsearch.enabled`. Plain saved searches without
+    // that field are out of scope and never surfaced by the reader.
+    readFamilies: ['correlation_search'],
     writeFamilies: [],
     operations: [],
   },

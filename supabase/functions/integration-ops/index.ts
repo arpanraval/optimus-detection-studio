@@ -5,6 +5,7 @@ import { validateUrl } from '../_shared/url-validator.ts'
 import { checkRateLimit } from '../_shared/rate-limiter.ts'
 import { handleNativeRequest, processNativeSync, applyNativeMutation } from '../_shared/native-siem-service.ts'
 import { resolveDeployTarget, deployRouteDecision, nativeOperationFor } from '../_shared/siem-deploy-target.ts'
+import { readSplunkCorrelationSearches, type SplunkEntry } from '../_shared/siem-readers/splunk.ts'
 import {
   buildCrowdStrikeQueries,
   isCrowdStrikeQueryRepository,
@@ -512,6 +513,10 @@ async function splunkTestConnection(
   return { success: true, message: `Connected to ${serverName} (Splunk ${version})`, latency_ms: latency }
 }
 
+/** Bounded page size for the checkpointed count/offset paging below -- replaces the previous
+ *  `count=0` ("return everything in one call") shape per the batch-3 brief. */
+const SPLUNK_PAGE_SIZE = 100
+
 async function splunkListRules(
   config: Record<string, unknown>,
   credentials: Record<string, string>
@@ -531,25 +536,39 @@ async function splunkListRules(
     headers['Authorization'] = `Basic ${btoa(`${credentials.username}:${credentials.password}`)}`
   }
 
-  const response = await withRetry(() =>
-    vendorFetch(
-      `${baseUrl}/saved/searches?output_mode=json&count=0&search=action.correlationsearch.enabled%3D1`,
-      { method: 'GET', headers }
+  const outcome = await readSplunkCorrelationSearches(async (offset, count) => {
+    const response = await withRetry(() =>
+      vendorFetch(
+        `${baseUrl}/saved/searches?output_mode=json&count=${count}&offset=${offset}` +
+          `&search=action.correlationsearch.enabled%3D1`,
+        { method: 'GET', headers }
+      )
     )
-  )
+    if (!response.ok) {
+      throw new Error(`Splunk list rules failed: ${response.status}`)
+    }
+    const data = await response.json()
+    return { entry: (data.entry ?? []) as SplunkEntry[] }
+  }, 0, SPLUNK_PAGE_SIZE)
 
-  if (!response.ok) {
-    throw new Error(`Splunk list rules failed: ${response.status}`)
-  }
-
-  const data = await response.json()
-  return (data.entry || []).map((e: any) => ({
-    name: e.name,
-    id: e.name,
-    search: e.content?.search,
-    cronSchedule: e.content?.cron_schedule,
-    enabled: !e.content?.disabled,
-    updated: e.updated,
+  // Identity is (owner, app, name), not name alone -- vendorRuleId carries all three since
+  // provider_scope only carries the endpoint+app half of the boundary. The full acl and content
+  // object are preserved rather than projected down to a handful of keys.
+  return outcome.rules.map(rule => ({
+    id: rule.vendorRuleId,
+    name: rule.name,
+    owner: rule.identity.owner,
+    app: rule.identity.app,
+    acl: rule.acl,
+    search: rule.query,
+    language: rule.language,
+    cronSchedule: rule.content.cron_schedule,
+    enabled: rule.observedState === 'unknown' ? null : rule.observedState === 'enabled',
+    observedState: rule.observedState,
+    stateSignals: rule.stateSignals,
+    scopeLabel: rule.scopeLabel,
+    content: rule.content,
+    updated: rule.raw.updated,
   }))
 }
 

@@ -139,6 +139,10 @@ export function providerEndpoint(provider: ImportProvider, config: Record<string
         pathPrefix: 'correlation-rules/' };
 
     case 'splunk': {
+      // CF1 verified against docs (siem-multi-provider-library-import-plan/recon-provider-apis.md
+      // section 1): `GET /servicesNS/{owner}/{app}/saved/searches` is the namespaced endpoint the
+      // Splunk REST manual documents for owner/app-scoped listing. `owner` defaults to `-` (all
+      // users) exactly as the REST manual's basic-concepts page describes for that segment.
       const base = endpointScope(config, 'Splunk');
       const app = requireString(config.app, 'Splunk requires an app to connect');
       const owner = typeof config.owner === 'string' && config.owner.trim() ? config.owner : '-';

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { ADAPTER_VERSION, canonicalJson, contentHash, crowdStrikeScope, normalizeCrowdStrike, sanitizeSnapshot,
   classifyDrift, localContent, crowdStrikeUpdate, mutationBlockedReason,  NATIVE_OPERATIONS, type Json, type NativeOperation, type RuleContent } from './native-siem-model.ts';
-import { resolveProvider, providerEndpoint, type ImportProvider } from './siem-providers.ts';
+import { resolveProvider, providerEndpoint, providerScope, type ImportProvider } from './siem-providers.ts';
 
 type Dependencies = {
   db: SupabaseClient;
@@ -223,7 +223,13 @@ export async function processNativeSync(deps: Dependencies): Promise<{ processed
       throw new Error('Native import permission revoked');
     }
     const integration = await connection(deps, run.integration_id, run.actor_id);
-    if (crowdStrikeScope(integration.config) !== run.provider_scope) throw new Error('Connection scope changed');
+    // CF2: this used to call crowdStrikeScope() unconditionally, which threw a CrowdStrike-shaped
+    // "Invalid URL" for any other provider's config instead of comparing that provider's own scope.
+    // connection() already admits all six providers via resolveProvider, so the scope check must
+    // use the same registry-driven derivation.
+    if (providerScope(resolveProvider(integration), integration.config) !== run.provider_scope) {
+      throw new Error('Connection scope changed');
+    }
     const request = await client(deps, integration);
     let ids: string[] = [], next = run.cursor_offset, done = false;
     const results: Array<Record<string, Json>> = [];
@@ -390,7 +396,11 @@ export function contentDifferences(expected: RuleContent, actual: RuleContent): 
 async function boundRule(deps: Dependencies, bindingId: string, actor: string) {
   const binding = checked(await deps.db.from('siem_rule_bindings').select('*').eq('id', bindingId).single());
   const integration = await connection(deps, binding.integration_id, actor);
-  if (crowdStrikeScope(integration.config) !== binding.provider_scope) throw new Error('Connection scope changed');
+  // CF2: same fix as processNativeSync -- derive the scope through the registry rather than
+  // assuming CrowdStrike's shape for a binding that may belong to any of the six providers.
+  if (providerScope(resolveProvider(integration), integration.config) !== binding.provider_scope) {
+    throw new Error('Connection scope changed');
+  }
   const detection = checked(await deps.db.from('detections').select('*').eq('id', binding.detection_id).single());
   // Rule family lives on the catalog row, not the binding: it is a property of the rule in
   // CrowdStrike, and it decides whether this adapter can serialize a write for it at all.
@@ -427,7 +437,7 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
   if (body.action === 'native_sync_start' || body.action === 'native_inventory_start') {
     const integration = await connection(deps, body.integrationId || '', actor);
     return checked(await deps.db.rpc('siem_start_inventory', { p_actor: actor, p_integration: integration.id,
-      p_scope: crowdStrikeScope(integration.config) }));
+      p_scope: providerScope(resolveProvider(integration), integration.config) }));
   }
   if (body.action === 'native_import_cancel') {
     checked(await deps.db.rpc('siem_cancel_import', { p_actor: actor, p_run: body.runId }));
@@ -439,7 +449,7 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
   if (body.action === 'native_refresh_tracked') {
     const integration = await connection(deps, body.integrationId || '', actor);
     return checked(await deps.db.rpc('siem_start_refresh', { p_actor: actor, p_integration: integration.id,
-      p_scope: crowdStrikeScope(integration.config) }));
+      p_scope: providerScope(resolveProvider(integration), integration.config) }));
   }
   if (body.action === 'native_import_start') {
     const integration = await connection(deps, body.integrationId || '', actor);
