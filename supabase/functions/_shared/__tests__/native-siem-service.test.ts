@@ -203,6 +203,28 @@ describe('native production mutation boundary', () => {
     expect(deps.fetch).not.toHaveBeenCalled();
   });
 
+  // deployRouteDecision sends exactly this shape for enable/disable/delete: no reviewed hash or
+  // version at all, because those operations carry no library content to diff. If the pre-write
+  // freshness check regressed to compare against the caller's (now-empty) expectedHash instead of
+  // the binding's current reviewed hash, this would throw "Production changed since review" for
+  // every such request and make enable/disable/delete impossible again.
+  it('reaches the vendor for a toggle sent with no reviewed hash or version', async () => {
+    const { deps, rpc } = await fixture({ enabled: true });
+    await applyNativeMutation(deps, { bindingId: 'binding', operation: 'enable', expectedHash: '', expectedVersion: 0 }, 'owner');
+    const writes = deps.fetch.mock.calls.filter(([, request]) => request.method === 'PATCH');
+    expect(writes).toHaveLength(1);
+    expect(JSON.parse(String(writes[0][1].body))[0]).toMatchObject({ id: raw.id, status: 'active' });
+    expect(rpc).toHaveBeenCalledWith('siem_finish_deployment', expect.objectContaining({ p_operation: 'operation-id' }));
+  });
+
+  it('reaches the vendor for a delete sent with no reviewed hash or version', async () => {
+    const { deps, rpc } = await fixture({ enabled: true, afterResource: [] });
+    await applyNativeMutation(deps, { bindingId: 'binding', operation: 'delete', expectedHash: '', expectedVersion: 0 }, 'owner');
+    const writes = deps.fetch.mock.calls.filter(([, request]) => request.method === 'DELETE');
+    expect(writes).toHaveLength(1);
+    expect(rpc).toHaveBeenCalledWith('siem_finish_deployment', expect.objectContaining({ p_operation: 'operation-id' }));
+  });
+
   it('records uncertainty when a write fails instead of blindly retrying', async () => {
     const { deps, hash, rpc } = await fixture({ enabled: true, localQuery: EDITED_QUERY });
     deps.fetch.mockImplementation(async (_url, request) => {
