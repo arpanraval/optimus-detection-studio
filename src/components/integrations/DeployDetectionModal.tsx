@@ -20,6 +20,8 @@ import { logAuditEvent } from '../../lib/audit';
 import type { AutoRetryKind } from '../../lib/integrationService';
 import { hasPermission } from '../../types';
 import { getDefaultRuleConfig } from '../../lib/providerRuleConfigDefaults';
+import { QueryDiff } from '@/components/siem/QueryDiff';
+import { NATIVE_DRIFT_LABELS } from '@/components/siem/NativeRuleReview';
 import { ProviderRuleConfigForm } from './ProviderRuleConfigForm';
 import { SiemPreflightPanel } from './SiemPreflightPanel';
 import type { PreflightResult } from '../../types';
@@ -939,20 +941,16 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                       <p className="text-xs text-on-surface-variant break-all">
                         {selectedIntegration.name} ID: <code>{boundPreview.binding.vendor_rule_id}</code>
                       </p>
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                        <section className="min-w-0 p-3 rounded-xl bg-surface-container-high">
-                          <h4 className="text-sm font-semibold mb-2">In your library</h4>
-                          <pre className="text-xs whitespace-pre-wrap break-words max-h-48 overflow-auto font-mono">
-                            {boundPreview.local.query}
-                          </pre>
-                        </section>
-                        <section className="min-w-0 p-3 rounded-xl bg-surface-container-high">
-                          <h4 className="text-sm font-semibold mb-2">In {selectedIntegration.name} · last fetched</h4>
-                          <pre className="text-xs whitespace-pre-wrap break-words max-h-48 overflow-auto font-mono">
-                            {boundPreview.remote.query}
-                          </pre>
-                        </section>
-                      </div>
+                      {/* The drift verdict first: whether anything differs at all is the question,
+                          and reading 900 characters across two panes is not how to answer it. */}
+                      <p className="text-sm font-semibold">
+                        {NATIVE_DRIFT_LABELS[boundPreview.drift] ?? boundPreview.drift}
+                      </p>
+                      <QueryDiff
+                        local={boundPreview.local.query}
+                        remote={boundPreview.remote.query}
+                        remoteTitle={selectedIntegration.name}
+                      />
                       {boundPreview.capabilities.update && (
                         <p role="alert" className="text-sm text-on-surface-variant">
                           {boundPreview.capabilities.update}
