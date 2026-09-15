@@ -146,10 +146,18 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
                   ))}
                 </dl>
                 <details className="mt-3 text-xs">
-                  <summary>Description and raw configuration</summary>
+                  <summary>Description and full rule content</summary>
                   <p className="mt-2 whitespace-pre-wrap">{pane(key).description}</p>
+                  {/* The whole content object, not just `config`. Normalisation lifts CrowdStrike's
+                      `status` out of the configuration into `enabled`, so a dump of `config` alone
+                      looked like the complete rule while omitting whether it runs. The query is
+                      left out because it is printed above in full. */}
                   <pre className="whitespace-pre-wrap break-words mt-2">
-                    {JSON.stringify(pane(key).config, null, 2)}
+                    {JSON.stringify(
+                      Object.fromEntries(Object.entries(pane(key)).filter(([field]) => field !== 'query')),
+                      null,
+                      2,
+                    )}
                   </pre>
                 </details>
               </section>

@@ -78,6 +78,19 @@ describe('NativeRuleReview production actions', () => {
     await waitFor(() => expect(remove).toHaveBeenCalledWith('int-1', 'rule-42'));
   });
 
+  // `enabled` lives beside `config`, not inside it, so a dump of `config` alone showed every
+  // setting except whether the rule runs -- the field this comparison turns on.
+  it('answers whether each side is running, as a field and in the raw content', async () => {
+    vi.spyOn(nativeSiemService, 'preview').mockResolvedValue(previewFixture({
+      local: { ...content, enabled: false },
+    }) as never);
+    const { container } = render(<NativeRuleReview bindingId="b1" />);
+
+    expect(await screen.findByText('Inactive')).toBeTruthy();
+    expect(screen.getByText('Active')).toBeTruthy();
+    expect(container.textContent).toContain('"enabled": false');
+  });
+
   // The server refuses with this sentence; offering the button anyway would only find that out
   // after the user pressed it.
   it('disables a gated action and states the reason the server gave', async () => {
