@@ -40,6 +40,42 @@ async function connection(deps: Dependencies, id: string, actor: string) {
   return row;
 }
 
+/**
+ * A refusal from CrowdStrike, carrying what it said and whether anything can have been written.
+ *
+ * Reporting only the status turned a precise validation complaint -- which field is wrong -- into
+ * "retry the sync after checking access", which is not what the user should do about it.
+ */
+export class VendorRequestError extends Error {
+  readonly status: number;
+  constructor(status: number, detail: string) {
+    super(`CrowdStrike refused the request (${status})${detail ? `: ${detail}` : ''}; ` +
+      'fetch rules again if this persists');
+    this.status = status;
+  }
+  /**
+   * A 4xx that is not a timeout or a rate limit means the request was understood and refused, so
+   * production was NOT changed. Recording that as an uncertain write would lock the rule and send
+   * the user to reconcile something that never happened. 5xx, 408 and 429 stay uncertain.
+   */
+  get refusedWithoutWriting(): boolean {
+    return this.status >= 400 && this.status < 500 && this.status !== 408 && this.status !== 429;
+  }
+}
+
+/** CrowdStrike puts the reason in `errors[].message`. */
+async function vendorDetail(response: Response): Promise<string> {
+  try {
+    const body = await response.json();
+    const messages = (Array.isArray(body?.errors) ? body.errors : [])
+      .map((entry: { message?: string }) => entry?.message).filter(Boolean);
+    if (messages.length) return messages.join('; ').slice(0, 400);
+  } catch {
+    /* the body may not be JSON */
+  }
+  return '';
+}
+
 async function client(deps: Dependencies, integration: { id: string; config: Record<string, unknown> }) {
   crowdStrikeScope(integration.config);
   const credentials = await deps.credentials(integration.id);
@@ -49,7 +85,7 @@ async function client(deps: Dependencies, integration: { id: string; config: Rec
     const response = await deps.fetch(`${base}/correlation-rules/${path}`, {
       ...options, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     }, 10000);
-    if (!response.ok) throw new Error(`CrowdStrike request failed (${response.status}); retry the sync after checking access`);
+    if (!response.ok) throw new VendorRequestError(response.status, await vendorDetail(response));
     const result = await response.json();
     if (Array.isArray(result.errors) && result.errors.length) throw new Error('CrowdStrike returned an incomplete result');
     return result;
@@ -446,8 +482,12 @@ export async function applyNativeMutation(
       p_raw_hash: raw ? await contentHash(raw) : null, p_adapter: ADAPTER_VERSION }));
     return { success: true, deploymentId: operationId as string };
   } catch (error) {
+    // "We sent it and never learned the outcome" and "CrowdStrike read it and refused it" are
+    // different facts. Only the first is uncertain; the second leaves production untouched, so the
+    // rule stays usable and the user is told what to fix.
+    const uncertain = attempted && !(error instanceof VendorRequestError && error.refusedWithoutWriting);
     checked(await deps.db.rpc('siem_fail_deployment', { p_operation: operationId, p_actor: actor,
-      p_uncertain: attempted, p_error: attempted ? 'Vendor write attempted; sync and verify production before retrying' :
+      p_uncertain: uncertain, p_error: uncertain ? 'Vendor write attempted; sync and verify production before retrying' :
         error instanceof Error ? error.message : 'Deployment failed' }));
     throw error;
   }

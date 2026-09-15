@@ -11,7 +11,8 @@ const raw = { id: 'remote-1', name: 'Rule', description: '', status: 'active', s
 
 async function fixture(options: { phase?: string; enabled?: boolean; resource?: unknown; stale?: boolean;
   noBaseline?: boolean; localQuery?: string; afterResource?: unknown;
-  pendingOperation?: boolean; ruleFamily?: string; connectionStatus?: string } = {}) {
+  pendingOperation?: boolean; ruleFamily?: string; connectionStatus?: string;
+  writeRejection?: { status: number; message: string } } = {}) {
   const content = normalizeCrowdStrike(raw), hash = await contentHash(content);
   // This fixture exercises the legacy siem_commit_chunk path: kind 'refresh_tracked' is a real
   // kind (re-observing rules already tracked in the library) that Task 8 does not touch, so it
@@ -47,6 +48,10 @@ async function fixture(options: { phase?: string; enabled?: boolean; resource?: 
   let written = false;
   const fetch = vi.fn(async (_url: string, request: RequestInit) => {
     if (request.method === 'PATCH' || request.method === 'DELETE') {
+      if (options.writeRejection) {
+        return new Response(JSON.stringify({ errors: [{ message: options.writeRejection.message }] }),
+          { status: options.writeRejection.status });
+      }
       written = true;
       return new Response(JSON.stringify({ resources: [raw] }));
     }
@@ -385,10 +390,10 @@ describe('rule detail reads', () => {
   it('propagates a thrown error from an individual retry instead of reporting the rule unreadable', async () => {
     const request = vi.fn(async (path: string) => {
       if (path.includes('ids=a&ids=b')) return { resources: [{ id: 'a' }] };
-      throw new Error('CrowdStrike request failed (429); retry the sync after checking access');
+      throw new Error('CrowdStrike refused the request (429); fetch rules again if this persists');
     });
     await expect(readRuleDetails(request as never, ['a', 'b']))
-      .rejects.toThrow('CrowdStrike request failed (429); retry the sync after checking access');
+      .rejects.toThrow('CrowdStrike refused the request (429); fetch rules again if this persists');
   });
 
   it('distinguishes a legitimate empty result from a thrown outage', async () => {
@@ -401,7 +406,7 @@ describe('rule detail reads', () => {
     // A thrown error on the individual retry is not evidence of anything about the rule -> propagate.
     const thrown = vi.fn(async (path: string) => {
       if (path.includes('ids=a&ids=b')) return { resources: [{ id: 'a' }] };
-      throw new Error('CrowdStrike request failed (401); retry the sync after checking access');
+      throw new Error('CrowdStrike refused the request (401); fetch rules again if this persists');
     });
     await expect(readRuleDetails(thrown as never, ['a', 'b'])).rejects.toThrow(/401/);
   });
@@ -450,6 +455,34 @@ describe('applyNativeMutation as a shared entry point', () => {
       { bindingId: 'binding', operation: 'update', expectedVersion: 1, expectedHash: hash }, 'owner'))
       .rejects.toThrow(/not enabled for this installation/);
     expect(deps.fetch).not.toHaveBeenCalled();
+  });
+
+  // A rejected request and a lost one are different facts. CrowdStrike read this one and refused
+  // it, so production is untouched: say what it objected to, and leave the rule usable instead of
+  // locking it behind a reconciliation for a write that never happened.
+  it('reports what CrowdStrike objected to, and does not call the write uncertain', async () => {
+    const { deps, rpc, hash } = await fixture({
+      enabled: true, localQuery: EDITED_QUERY,
+      writeRejection: { status: 400, message: 'operation.start_on must be in the future' },
+    });
+    await expect(applyNativeMutation(deps,
+      { bindingId: 'binding', operation: 'update', expectedVersion: 1, expectedHash: hash }, 'owner'))
+      .rejects.toThrow(/operation\.start_on must be in the future/);
+    expect(rpc).toHaveBeenCalledWith('siem_fail_deployment', expect.objectContaining({
+      p_uncertain: false, p_error: expect.stringContaining('operation.start_on must be in the future'),
+    }));
+  });
+
+  // A rate limit or an outage after the request was sent IS uncertain: the write may have landed.
+  it('still records an uncertain write when the outcome was never learned', async () => {
+    const { deps, rpc, hash } = await fixture({
+      enabled: true, localQuery: EDITED_QUERY,
+      writeRejection: { status: 503, message: 'service unavailable' },
+    });
+    await expect(applyNativeMutation(deps,
+      { bindingId: 'binding', operation: 'update', expectedVersion: 1, expectedHash: hash }, 'owner'))
+      .rejects.toThrow(/503/);
+    expect(rpc).toHaveBeenCalledWith('siem_fail_deployment', expect.objectContaining({ p_uncertain: true }));
   });
 
   // The legacy deploy handler has always refused a connection that is not `connected`. The native
