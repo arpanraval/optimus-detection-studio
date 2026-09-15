@@ -165,6 +165,7 @@ BEGIN
   END IF;
   PERFORM 1 FROM integrations WHERE id = p_integration FOR UPDATE;
 
+  -- Repeating a submitted request returns the same job.
   SELECT * INTO r FROM siem_sync_runs
     WHERE integration_id = p_integration AND idempotency_key = p_idempotency;
   IF FOUND THEN RETURN r; END IF;
@@ -251,8 +252,10 @@ BEGIN
   IF NOT FOUND OR r.kind <> 'import_selection' THEN RAISE EXCEPTION 'Import job not found'; END IF;
   IF NOT siem_can_import(p_actor, r.integration_id) THEN RAISE EXCEPTION 'Native import permission denied'; END IF;
 
-  -- changed_since_preview is deliberately NOT reset: it needs a fresh check and a new selection,
-  -- because silently re-adopting it would import content the user never reviewed.
+  -- A run that exhausted its transient retries is 'failed' with its unprocessed items still
+  -- 'pending'. Resetting only 'failed' items reported "No failed rules to retry" and stranded the
+  -- whole remaining selection. changed_since_preview stays out: it needs a fresh check and a new
+  -- selection, because silently re-adopting it would import content the user never reviewed.
   UPDATE siem_sync_items SET status = 'pending', error_message = NULL
    WHERE run_id = r.id AND status = 'failed';
   SELECT count(*) INTO resumable FROM siem_sync_items WHERE run_id = r.id AND status = 'pending';

@@ -4,11 +4,13 @@ The first adapter supports CrowdStrike Falcon **correlation rules**. Other provi
 
 ## Installation order
 
-1. Apply `supabase/migrations/20260914153559_native_siem_library.sql` to the intended environment. Fresh installations use the mirrored `supabase/schema.sql`.
+1. Apply every `supabase/migrations/*native_siem*.sql` in filename order. Fresh installations use the mirrored `supabase/schema.sql` instead — the two must agree, and `schema-check` CI now proves it by upgrading a pre-SIEM database with the migrations and diffing the resulting SIEM surface against a fresh install (`supabase/tests/siem-surface-fingerprint.sql`). A migration that forgets to mirror into `schema.sql` fails that job.
 2. Deploy the updated `integration-ops` Edge Function and its shared modules.
 3. Deploy the frontend. Both CrowdStrike integration views now read the same persisted inventory.
 
-The migration registers the `native-siem-sync` cron dispatcher when `pg_cron`, `pg_net`, and Vault are available. It uses the installation's existing Vault secrets `tr_supabase_url` and `tr_service_role_key` at execution time. No key is embedded in SQL or returned to the browser. Verify that those secrets exist and the cron job is active before rollout. A lost immediate worker hand-off is recovered on the next minute's scheduled run. Do not use a browser polling loop as the worker.
+Two scheduled jobs are registered when `pg_cron` is available: `native-siem-sync` (every minute, dispatches queued work) and `native-siem-retention` (03:17 daily, prunes superseded catalog observations). Both are guarded so a database without `pg_cron` still applies the files cleanly.
+
+The sync migration registers the `native-siem-sync` cron dispatcher when `pg_cron`, `pg_net`, and Vault are available. It uses the installation's existing Vault secrets `tr_supabase_url` and `tr_service_role_key` at execution time. No key is embedded in SQL or returned to the browser. Verify that those secrets exist and the cron job is active before rollout. A lost immediate worker hand-off is recovered on the next minute's scheduled run. Do not use a browser polling loop as the worker.
 
 `integrations:import` plus `detection:create` and ownership of the connection are required for native import. Owner/admin/lead defaults include native import; permission overrides can revoke it. Normalized detection content is shared through the existing Production Library policy. Bindings, raw payload snapshots, sync diagnostics, and local revision snapshots remain connection-owner scoped.
 
@@ -32,12 +34,73 @@ After validating the supported rule family in a sandbox, `NATIVE_SIEM_MUTATIONS=
 
 CrowdStrike does not provide an atomic conditional-write guarantee in this adapter. A change between the pre-write read and PATCH remains a race; readback detects divergence but cannot undo another actor's overwritten change. Keep writes gated if that limitation is unacceptable.
 
+## Feature support matrix
+
+| Capability | State | Gate |
+| --- | --- | --- |
+| Browse a connection's rules (inventory) | Supported | `integrations:import` + connection ownership |
+| Read-only preview of an unimported rule | Supported | as above |
+| Selective import, including all-filtered-matches | Supported | as above, plus `detection:create` |
+| Cancel / retry / resume an import | Supported | as above |
+| Match an existing library rule to a remote rule | Supported | plus `detection:edit` on the target |
+| Reconcile a link with no agreed baseline | Supported | as above |
+| Compare library vs production, edit the library copy | Supported | read-only; no vendor write |
+| Accept the production version into the library | Supported | local write only |
+| Update / enable / disable / delete **in CrowdStrike** | **Gated off** | `NATIVE_SIEM_MUTATIONS`, pending sandbox qualification |
+| Providers other than CrowdStrike | Not implemented | — |
+| Rule families other than correlation rules | Not implemented | — |
+
+## Retry, cancellation and recovery
+
+An import run is durable: closing the tab does not stop it, and reopening the connection recovers the run and its per-rule outcomes from `siem_sync_items` rather than resubmitting anything.
+
+- **Cancel** stops only unclaimed work. Rules already adopted stay in the library; that is deliberate and is stated in the results panel.
+- **Retry** resets every `failed` item to pending AND resumes items that were never attempted, which is what a run that exhausted its transient retries leaves behind. It refuses only when nothing is resumable.
+- **`changed_since_preview` is never retried.** That rule's content in production no longer matches what the user reviewed, so re-adopting it would import something nobody saw. It needs a fresh check and a new selection.
+- A chunk whose lease expires mid-flight is requeued by the worker's fenced catch; the replacement worker cannot have its state overwritten by the expired one. Detail reads stop at a 25-second budget inside the 45-second lease so a slow-but-successful vendor cannot starve the commit.
+
+## Operating the worker
+
+`public.siem_worker_health` is the operator view: it lists every run that is queued, running or failed, with a `diagnosis` naming the recovery. The product UI only ever shows the newest run for a connection, so a stalled older one is invisible there.
+
+```sql
+select connection_name, kind, status, attempts, pending_items, diagnosis
+  from siem_worker_health order by created_at;
+```
+
+- `lease expired` — the dispatcher reclaims it on the next minute. If it recurs, the vendor is slow or rate-limiting; check `error_message`.
+- `gave up after repeated failures` — retry the import; its pending rules resume.
+- `backing off before the next attempt` — nothing to do.
+
+## Retention
+
+`native-siem-retention` runs `siem_run_retention(5)` nightly, keeping the five most recent superseded observations per rule, per connection.
+
+**Protected from pruning, by construction:**
+
+- the snapshot each catalog row currently points at (`latest_snapshot_id`), by identity rather than recency;
+- every snapshot of a rule that has a pending import item;
+- **all** binding snapshots (`siem_rule_snapshots`) — baselines and deployment history reference them, and retention never touches that table;
+- sync runs, per-rule import results (`siem_sync_items`), and the audit trail (`siem_rule_events`), which are **not pruned at all**. They are the record of what was imported and by whom; if that changes, it should be a deliberate policy decision, not a side effect of snapshot cleanup.
+
+Each sweep writes one `siem_maintenance_runs` row: counts, timings and error text only. It carries no rule content or vendor payload, and is readable by `service_role` only — the rows span every connection, so there is no owner to scope them to.
+
+```sql
+select started_at, connections_processed, connections_failed, snapshots_removed, error_message
+  from siem_maintenance_runs order by started_at desc limit 10;
+```
+
+A non-zero `connections_failed` means retention skipped a connection and carried on; the run is still recorded rather than failing silently.
+
 ## Verification
 
 - `bun run type-check`, `bun run test`, `bun run build`.
 - `supabase/tests/native-siem.sql` runs inside a rollback-only transaction against an isolated database. Schema-check CI executes it after loading the full schema. It verifies identity, deduplication, local-edit preservation, lease rejection, atomic acceptance, operation serialization, tombstones, and private snapshot access.
 - Model/worker tests cover configuration fidelity, multi-query selection, drift states, partial provider responses, stale reviews, installation gating, and uncertain writes. Hook tests cover reload persistence and changing connections.
-- Before enabling writes, exercise query, schedule, severity, enable/disable, and delete round trips with disposable rules. Verify the remote ID and rule count, unchanged notification/suppression fields, permission-denied behavior, concurrent portal changes, and timeout reconciliation.
+- `supabase/tests/native-siem-inventory.sql` and `native-siem-import.sql` cover the catalog, the reviewed-selection freeze, retry/resume, retention and the worker-health diagnosis. All three suites run in schema-check CI.
+- `supabase/tests/siem-surface-fingerprint.sql` is the shared comparison used by the upgrade check; it is not a suite of its own.
+- Scale behaviour (2,000-rule freeze, chunked adoption, duplicate protection, concurrent-import refusal) is exercised against real Postgres semantics, outside CI because it costs minutes. The vendor half of a large import still needs a sandbox.
+- Before enabling writes, exercise query, schedule, severity, enable/disable, and delete round trips with disposable rules. Verify the remote ID and rule count, unchanged notification/suppression fields, permission-denied behavior, concurrent portal changes, and timeout reconciliation. Note that an edited rule comes back from `entities/rules/v1` with `id` set to the CURRENT VERSION and the stable identity in `rule_id`; every read path shares `matchesVendorRule()` for that reason, and sandbox qualification must confirm which identity each mutation endpoint expects.
 
 Current limits: legacy imports with ambiguous connection identity remain in the sync's attention list; they are never automatically merged by name. Provider expansion, an explicit missing-rule recreation flow, and general delegated connection permissions remain separate rollout work. Local archive retains bindings and prevents automatic reimport; remote deletion retains the library record and history.
 

@@ -19,7 +19,10 @@ SET search_path = public AS $$
           OR v.vendor_rule_id ILIKE '%' || p_search || '%')
    GROUP BY v.relationship
   UNION ALL
-  -- The same three conditions siem_start_import requires before it will freeze a row as 'pending'.
+  -- Not a relationship: the count the SELECTION BAR needs. The chips answer "what is this rule's
+  -- relationship to the library", so not_in_library is the wrong number there -- a rule the last
+  -- scan could not read, or one since deleted in CrowdStrike, is not_in_library but not
+  -- importable. These are the same three conditions siem_start_import requires to freeze a row.
   SELECT 'importable', count(*)
     FROM siem_inventory_rows v
    WHERE v.integration_id = p_integration

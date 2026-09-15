@@ -49,6 +49,9 @@ jobs:
       PGURL: postgres://postgres:postgres@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The upgrade check reads a historical supabase/schema.sql out of git.
+          fetch-depth: 0
 
       - name: Install psql client
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
@@ -190,6 +193,58 @@ jobs:
 
           [ "$fail" -eq 0 ] && echo "✅ supabase/schema.sql applies cleanly on an empty database"
           exit $fail
+
+      - name: Prove the SIEM migrations and schema.sql agree (upgrade == fresh install)
+        # This job applies schema.sql to an empty database, which proves a fresh install stands
+        # up. It never applied the migrations -- so the one mistake the schema.sql mirror exists
+        # to prevent, a migration whose text drifted from its mirrored copy, was exactly the case
+        # nothing ran. Both roads must lead to the same place:
+        #   fresh    = empty + supabase/schema.sql                    (already applied above)
+        #   upgraded = the schema deployed BEFORE the SIEM work + every native_siem migration
+        # Divergence here means an existing deployment ends up different from a new clone.
+        run: |
+          set -euo pipefail
+          BASE_SHA=$(git log --diff-filter=A --format=%H -1 \
+            -- supabase/migrations/20260914153559_native_siem_library.sql)
+          if [ -z "$BASE_SHA" ]; then
+            echo "::error::could not locate the commit that introduced the first native SIEM migration"
+            exit 1
+          fi
+          echo "pre-SIEM baseline: ${BASE_SHA}^"
+
+          psql "$PGURL" -v ON_ERROR_STOP=1 -tA -f supabase/tests/siem-surface-fingerprint.sql > /tmp/fresh.txt
+
+          psql "$PGURL" -v ON_ERROR_STOP=1 -c 'create database upgrade_check'
+          UPGURL="postgres://postgres:postgres@localhost:5432/upgrade_check"
+          # Roles are cluster-wide and already exist; only the per-database objects are recreated.
+          psql "$UPGURL" -v ON_ERROR_STOP=1 <<'SQL'
+          create schema if not exists auth;
+          create table if not exists auth.users (id uuid primary key default gen_random_uuid(), email text,
+            raw_user_meta_data jsonb default '{}', raw_app_meta_data jsonb default '{}');
+          create or replace function auth.uid() returns uuid language sql stable as $$
+            select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+          $$;
+          create or replace function auth.jwt()  returns jsonb language sql stable as $$ select null::jsonb $$;
+          create or replace function auth.role() returns text  language sql stable as $$ select null::text  $$;
+          grant usage on schema auth to authenticated, service_role;
+          create publication supabase_realtime;
+          SQL
+
+          git show "${BASE_SHA}^:supabase/schema.sql" | psql "$UPGURL" -v ON_ERROR_STOP=1
+          for f in supabase/migrations/*native_siem*.sql; do
+            echo "  applying $(basename "$f")"
+            psql "$UPGURL" -v ON_ERROR_STOP=1 -f "$f" > /dev/null
+          done
+          psql "$UPGURL" -v ON_ERROR_STOP=1 -tA -f supabase/tests/siem-surface-fingerprint.sql > /tmp/upgraded.txt
+
+          if diff -u /tmp/fresh.txt /tmp/upgraded.txt > /tmp/surface.diff; then
+            echo "✅ upgraded database matches a fresh install ($(wc -l < /tmp/fresh.txt) SIEM objects)"
+          else
+            echo "::error::the SIEM migrations and supabase/schema.sql disagree"
+            echo "  '-' lines are what a FRESH install has; '+' lines are what an UPGRADE produces."
+            cat /tmp/surface.diff
+            exit 1
+          fi
 
       - name: Verify native SIEM identity, transactions, and private snapshot access
         run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/tests/native-siem.sql

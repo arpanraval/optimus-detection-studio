@@ -992,5 +992,66 @@ BEGIN
   RAISE NOTICE 'retry-resumes-pending assertions passed';
 END $$;
 
+
+-- Milestone 4: the retention policy is scheduled work with a recorded outcome, and an operator can
+-- see a stalled job. siem_prune_remote_snapshots existed for a day with nothing calling it, which
+-- made the policy a function rather than a policy.
+DO $$
+DECLARE integration uuid := '1a000000-0000-0000-0000-000000000001';
+  actor uuid := '21000000-0000-0000-0000-000000000001';
+  run public.siem_maintenance_runs; stuck public.siem_sync_runs; health record;
+BEGIN
+  run := public.siem_run_retention(5);
+  PERFORM pg_temp.assert_true(run.task = 'snapshot_retention' AND run.finished_at IS NOT NULL,
+    'retention records a completed maintenance run rather than failing silently');
+  PERFORM pg_temp.assert_true(run.connections_processed >= 1 AND run.connections_failed = 0,
+    'every CrowdStrike connection is processed and none failed');
+  PERFORM pg_temp.assert_true(run.error_message IS NULL,
+    'a clean run records no error text');
+  -- Counts and error text only: the log must never carry rule content or vendor payloads.
+  PERFORM pg_temp.assert_true(
+    (SELECT count(*) FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'siem_maintenance_runs'
+        AND data_type IN ('jsonb', 'json')) = 0,
+    'the maintenance log has no payload column to leak into');
+
+  -- A job that gave up, and one whose lease expired while it was running: the two states that
+  -- need a human, and the two the product UI cannot show because it only renders the latest run.
+  INSERT INTO public.siem_sync_runs(integration_id, actor_id, provider_scope, kind, status, phase,
+    attempts, error_message)
+    VALUES(integration, actor, 'scope-reviewed-1', 'import_selection', 'failed', 'hydration', 5,
+           'Sync failed') RETURNING * INTO stuck;
+  SELECT * INTO health FROM public.siem_worker_health WHERE run_id = stuck.id;
+  PERFORM pg_temp.assert_true(health.diagnosis LIKE 'gave up after repeated failures%',
+    'a run that exhausted its attempts is diagnosed, with the recovery named');
+
+  UPDATE public.siem_sync_runs SET status = 'running', lease_token = gen_random_uuid(),
+    lease_expires_at = now() - interval '1 minute' WHERE id = stuck.id;
+  SELECT * INTO health FROM public.siem_worker_health WHERE run_id = stuck.id;
+  PERFORM pg_temp.assert_true(health.diagnosis LIKE 'lease expired%',
+    'a run holding an expired lease is diagnosed as reclaimable');
+
+  -- A completed run is not a problem and must not clutter the operator view.
+  UPDATE public.siem_sync_runs SET status = 'complete', completed_at = now(),
+    lease_token = NULL, lease_expires_at = NULL WHERE id = stuck.id;
+  PERFORM pg_temp.assert_true(
+    NOT EXISTS (SELECT 1 FROM public.siem_worker_health WHERE run_id = stuck.id),
+    'siem_worker_health lists only runs that are queued, running or failed');
+
+  RAISE NOTICE 'retention/health assertions passed';
+END $$;
+
+-- The maintenance log spans every connection in the installation, so there is no owner to scope it
+-- to and ordinary users must not read it at all.
+DO $$
+BEGIN
+  PERFORM pg_temp.assert_true(
+    NOT has_table_privilege('authenticated', 'public.siem_maintenance_runs', 'SELECT'),
+    'the maintenance log is not readable by authenticated users');
+  PERFORM pg_temp.assert_true(
+    has_table_privilege('service_role', 'public.siem_maintenance_runs', 'SELECT'),
+    'operators read the maintenance log as service_role');
+END $$;
+
 SET CONSTRAINTS ALL IMMEDIATE;
 ROLLBACK;
