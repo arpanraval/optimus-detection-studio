@@ -13,6 +13,7 @@ async function fixture(options: { phase?: string; enabled?: boolean; resource?: 
   noBaseline?: boolean; localQuery?: string; afterResource?: unknown;
   pendingOperation?: boolean; ruleFamily?: string; connectionStatus?: string;
   desiredEnabled?: boolean; statusRejection?: { status: number; message: string };
+  busyUntilAttempt?: number;
   writeRejection?: { status: number; message: string } } = {}) {
   const content = normalizeCrowdStrike(raw), hash = await contentHash(content);
   // This fixture exercises the legacy siem_commit_chunk path: kind 'refresh_tracked' is a real
@@ -48,10 +49,16 @@ async function fixture(options: { phase?: string; enabled?: boolean; resource?: 
   // A GET after the write must be able to differ from the GET before it -- that is the whole
   // shape of an update: read the current rule, PATCH, read back the changed one.
   let written = false;
+  let busyAttempts = 0;
   const fetch = vi.fn(async (_url: string, request: RequestInit) => {
     if (request.method === 'PATCH' || request.method === 'DELETE') {
       const body = typeof request.body === 'string' ? JSON.parse(request.body)[0] : {};
       const statusOnly = body && body.status !== undefined && body.search === undefined;
+      // CrowdStrike answers 409 while it is still applying an earlier change to the rule.
+      if (options.busyUntilAttempt && ++busyAttempts < options.busyUntilAttempt) {
+        return new Response(JSON.stringify({ errors: [{ message: 'rule is currently being updated: updating' }] }),
+          { status: 409 });
+      }
       const rejection = options.writeRejection ?? (statusOnly ? options.statusRejection : undefined);
       if (rejection) {
         return new Response(JSON.stringify({ errors: [{ message: rejection.message }] }),
@@ -66,7 +73,9 @@ async function fixture(options: { phase?: string; enabled?: boolean; resource?: 
     return new Response(JSON.stringify({ resources: options.resource ?? [options.stale ? { ...raw, name: 'Changed remotely' } : raw] }));
   });
   const deps = { db: { from, rpc } as never, credentials: vi.fn(async () => ({ clientId: 'client', clientSecret: 'secret' })),
-    token: vi.fn(async () => 'token'), fetch, writesEnabled: options.enabled ?? false };
+    token: vi.fn(async () => 'token'), fetch, writesEnabled: options.enabled ?? false,
+    // No test spends real seconds waiting for a settle that the stub controls.
+    wait: vi.fn(async () => {}) };
   return { deps, rpc, from, updates, hash, binding, detection };
 }
 
@@ -460,6 +469,32 @@ describe('applyNativeMutation as a shared entry point', () => {
       { bindingId: 'binding', operation: 'update', expectedVersion: 1, expectedHash: hash }, 'owner'))
       .rejects.toThrow(/not enabled for this installation/);
     expect(deps.fetch).not.toHaveBeenCalled();
+  });
+
+  // "failed to update rule: rule is currently being updated: updating" -- CrowdStrike applies a
+  // change asynchronously and refuses anything else meanwhile. The 409 wrote nothing, so waiting
+  // and asking again is the whole remedy; giving up left the rule half-updated and the operation
+  // recorded as uncertain.
+  it('waits for CrowdStrike to finish applying a change instead of racing it', async () => {
+    const { deps, rpc, hash } = await fixture({
+      enabled: true, localQuery: EDITED_QUERY, busyUntilAttempt: 3,
+      afterResource: [{ ...raw, search: { ...raw.search, filter: EDITED_QUERY } }],
+    });
+    const result = await applyNativeMutation(deps,
+      { bindingId: 'binding', operation: 'update', expectedVersion: 1, expectedHash: hash }, 'owner');
+    expect(result.success).toBe(true);
+    expect(deps.wait).toHaveBeenCalledTimes(2);
+    expect(rpc).toHaveBeenCalledWith('siem_finish_deployment', expect.anything());
+  });
+
+  it('gives up on a rule that never settles, rather than retrying forever', async () => {
+    const { deps, hash } = await fixture({
+      enabled: true, localQuery: EDITED_QUERY, busyUntilAttempt: 99,
+      afterResource: [{ ...raw, search: { ...raw.search, filter: EDITED_QUERY } }],
+    });
+    await expect(applyNativeMutation(deps,
+      { bindingId: 'binding', operation: 'update', expectedVersion: 1, expectedHash: hash }, 'owner'))
+      .rejects.toThrow(/currently being updated/);
   });
 
   // CrowdStrike: "can't be transitioned in state 'inactive' and also update attributes

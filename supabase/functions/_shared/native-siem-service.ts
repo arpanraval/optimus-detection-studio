@@ -8,10 +8,17 @@ type Dependencies = {
   token: (base: string, client: string, secret: string) => Promise<string>;
   fetch: (url: string, options: RequestInit, timeout?: number) => Promise<Response>;
   writesEnabled: boolean;
+  /** Injected so tests do not spend real seconds waiting for CrowdStrike to settle. */
+  wait?: (ms: number) => Promise<void>;
 };
+
+/** CrowdStrike applies a rule change asynchronously and refuses anything else meanwhile with 409
+ *  "rule is currently being updated". These are the waits between attempts, in milliseconds. */
+const SETTLE_BACKOFF_MS = [1000, 2000, 4000, 6000];
 export type NativeRequest = {
   action: string; integrationId?: string; bindingId?: string; expectedHash?: string; expectedVersion?: number;
-  localChanges?: { name: string; description: string; query: string; severity: string; schedule: string; lookback: string };
+  localChanges?: { name: string; description: string; query: string; severity: string; schedule: string;
+    lookback: string; outcome?: string; enabled?: boolean };
   revisionId?: string;
   ids?: string[];
   excludeIds?: string[];
@@ -478,16 +485,31 @@ export async function applyNativeMutation(
     // Serialize before marking the operation as attempted; unsupported payloads are safe failures.
     const payload = params.operation === 'delete' ? undefined : isToggle ?
       { id: binding.vendor_rule_id, status: desired.enabled ? 'active' : 'inactive' } : crowdStrikeUpdate(binding.vendor_rule_id, desired);
+    // A rule CrowdStrike is still applying an earlier change to answers 409 and changes nothing,
+    // so waiting and asking again is the whole remedy. Retrying is safe precisely because a 409
+    // wrote nothing.
+    const wait = deps.wait ?? ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)));
+    const sendWhileSettling = async (path: string, options: RequestInit) => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await request(path, options);
+        } catch (error) {
+          if (!(error instanceof VendorRequestError && error.status === 409) || attempt >= SETTLE_BACKOFF_MS.length) throw error;
+          await wait(SETTLE_BACKOFF_MS[attempt]);
+        }
+      }
+    };
     attempted = true;
-    await request(operation === 'delete' ? `entities/rules/v1?ids=${encodeURIComponent(binding.vendor_rule_id)}` : 'entities/rules/v1',
+    await sendWhileSettling(operation === 'delete' ? `entities/rules/v1?ids=${encodeURIComponent(binding.vendor_rule_id)}` : 'entities/rules/v1',
       { method: operation === 'delete' ? 'DELETE' : 'PATCH', ...(payload ? { body: JSON.stringify([payload]) } : {}) });
     applied = true;
     // CrowdStrike refuses a status change made in the same request as the schedule attributes:
     // "these operations should be performed one at a time". So an update never carries `status`,
     // and a rule that also has to start or stop running gets a second request for that alone --
-    // and only when it really changes, which keeps the ordinary update a single call.
+    // and only when it really changes, which keeps the ordinary update a single call. That second
+    // request arrives while the first is still being applied, which is what 409s.
     if (!isToggle && operation === 'update' && before.content.enabled !== desired.enabled) {
-      await request('entities/rules/v1', { method: 'PATCH', body: JSON.stringify([
+      await sendWhileSettling('entities/rules/v1', { method: 'PATCH', body: JSON.stringify([
         { id: binding.vendor_rule_id, status: desired.enabled ? 'active' : 'inactive' }]) });
     }
     let after: { raw: Record<string, Json>; content: RuleContent } | null = null;
@@ -497,8 +519,16 @@ export async function applyNativeMutation(
         throw new Error('Deletion could not be verified');
       }
     } else {
+      // The rule is read back until it settles on what was reviewed: a read taken while the change
+      // is still being applied shows the old value, and calling that a mismatch would report a
+      // successful write as a failed one.
+      const desiredHash = await contentHash(desired);
       after = await read();
-      if (await contentHash(after.content) !== await contentHash(desired)) throw new Error('Production readback differs from the reviewed change');
+      for (let attempt = 0; attempt < SETTLE_BACKOFF_MS.length && await contentHash(after.content) !== desiredHash; attempt++) {
+        await wait(SETTLE_BACKOFF_MS[attempt]);
+        after = await read();
+      }
+      if (await contentHash(after.content) !== desiredHash) throw new Error('Production readback differs from the reviewed change');
     }
     const raw = after ? sanitizeSnapshot(after.raw) : null;
     checked(await deps.db.rpc('siem_finish_deployment', { p_operation: operationId, p_actor: actor,
