@@ -122,7 +122,27 @@ describe('InventorySelectionBar', () => {
     expect(screen.getAllByText('Selection cleared because the filter changed.').length).toBeGreaterThan(0);
   });
 
-  it('disables the submit control with the deliberate not-wired-up reason', () => {
+  it('enables the submit control and invokes onSubmit when clicked', () => {
+    const onSubmit = vi.fn();
+    render(
+      <InventorySelectionBar
+        selectedCount={12}
+        eligibleTotal={500}
+        canSelectAllMatching={true}
+        discoveryComplete={true}
+        clearedByFilterChange={false}
+        onSelectAllMatching={noop}
+        onClear={noop}
+        onSubmit={onSubmit}
+      />,
+    );
+    const button = screen.getByText('Import selected (12)').closest('button');
+    expect(button?.disabled).toBe(false);
+    button?.click();
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables the submit control while a submission is in flight', () => {
     render(
       <InventorySelectionBar
         selectedCount={12}
@@ -133,10 +153,10 @@ describe('InventorySelectionBar', () => {
         onSelectAllMatching={noop}
         onClear={noop}
         onSubmit={vi.fn()}
+        submitting
       />,
     );
-    const button = screen.getByText('Import selected (12)').closest('button');
+    const button = screen.getByText('Starting import…').closest('button');
     expect(button?.disabled).toBe(true);
-    expect(button?.getAttribute('title')).toBe('Importing is not wired up yet');
   });
 });

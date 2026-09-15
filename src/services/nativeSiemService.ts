@@ -55,6 +55,13 @@ export interface NativeInventory {
   counts: Record<string, number>;
   issues: Array<{ vendor_rule_id: string; status: string; error_message: string }>;
 }
+export interface ImportResult {
+  vendor_rule_id: string;
+  status: string;
+  error_message: string | null;
+  detection_id: string | null;
+  binding_id: string | null;
+}
 export interface NativePreview {
   binding: NativeBinding;
   baseline: RuleContent;
@@ -283,6 +290,63 @@ export const nativeSiemService = {
   },
   startInventory: (integrationId: string) => invoke<NativeSyncRun>({ action: 'native_inventory_start', integrationId }),
   refreshTracked: (integrationId: string) => invoke<NativeSyncRun>({ action: 'native_refresh_tracked', integrationId }),
+  startImport: (args: {
+    integrationId: string;
+    sourceRunId: string;
+    ids?: string[];
+    excludeIds?: string[];
+    allMatching?: boolean;
+    idempotencyKey: string;
+  }) =>
+    invoke<NativeSyncRun>({
+      action: 'native_import_start',
+      integrationId: args.integrationId,
+      sourceRunId: args.sourceRunId,
+      ids: args.ids,
+      excludeIds: args.excludeIds,
+      allMatching: args.allMatching,
+      idempotencyKey: args.idempotencyKey,
+    }),
+  cancelImport: (runId: string) => invoke<{ success: true }>({ action: 'native_import_cancel', runId }),
+  retryImport: (runId: string) => invoke<NativeSyncRun>({ action: 'native_import_retry', runId }),
+  /** Display names for a specific set of vendor rule ids, looked up directly against the
+   *  catalog rather than the currently visible inventory page — import results routinely
+   *  include rules the user selected across pages, or that have since scrolled off the
+   *  active filter, so the visible page cannot be relied on to name them. */
+  async catalogDisplayNames(integrationId: string, vendorRuleIds: string[]): Promise<Record<string, string>> {
+    const names: Record<string, string> = {};
+    const ids = [...new Set(vendorRuleIds)];
+    for (let offset = 0; offset < ids.length; offset += 500) {
+      const batch = ids.slice(offset, offset + 500);
+      const { data, error } = await supabase
+        .from('siem_remote_rules')
+        .select('vendor_rule_id,display_name')
+        .eq('integration_id', integrationId)
+        .in('vendor_rule_id', batch);
+      if (error) throw new Error(error.message);
+      for (const row of data as Array<{ vendor_rule_id: string; display_name: string }>) {
+        names[row.vendor_rule_id] = row.display_name;
+      }
+    }
+    return names;
+  },
+  /** Per-rule outcomes of an import run, read over RLS-protected PostgREST (never the Edge
+   *  Function — integration-ops is rate limited and a polling results view would exhaust it). */
+  async importResults(runId: string): Promise<ImportResult[]> {
+    const results: ImportResult[] = [];
+    for (let offset = 0; ; offset += 500) {
+      const { data, error } = await supabase
+        .from('siem_sync_items')
+        .select('vendor_rule_id,status,error_message,detection_id,binding_id')
+        .eq('run_id', runId)
+        .order('vendor_rule_id')
+        .range(offset, offset + 499);
+      if (error) throw new Error(error.message);
+      results.push(...(data as ImportResult[]));
+      if (data.length < 500) break;
+    }
+    return results;
+  },
   /** Latest job of the given kinds for a connection, read over RLS-protected PostgREST.
    *  Status polling must never re-invoke a job starter: siem_start_inventory creates a new
    *  run when none is active, so polling it would start a fresh scan on every tick. */

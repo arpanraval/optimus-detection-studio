@@ -10,6 +10,7 @@ export interface InventorySelectionBarProps {
   onSelectAllMatching: () => void;
   onClear: () => void;
   onSubmit: () => void;
+  submitting?: boolean;
 }
 
 /** Sticky bar surfacing the current selection and the (stubbed) import action.
@@ -23,6 +24,7 @@ export function InventorySelectionBar({
   onSelectAllMatching,
   onClear,
   onSubmit,
+  submitting = false,
 }: InventorySelectionBarProps): React.JSX.Element | null {
   if (selectedCount === 0 && !clearedByFilterChange) return null;
 
@@ -58,15 +60,8 @@ export function InventorySelectionBar({
           <Button size="sm" variant="text" onClick={onClear}>
             Clear selection
           </Button>
-          {/* TODO(Task 9): wire this submit to the import worker. Disabled and named until then
-             *  so a reviewer sees the stub is deliberate, not forgotten. */}
-          <Button
-            size="sm"
-            onClick={onSubmit}
-            disabled
-            title="Importing is not wired up yet"
-          >
-            {`Import selected (${selectedCount})`}
+          <Button size="sm" onClick={onSubmit} disabled={submitting || selectedCount === 0}>
+            {submitting ? 'Starting import…' : `Import selected (${selectedCount})`}
           </Button>
         </div>
       </div>
