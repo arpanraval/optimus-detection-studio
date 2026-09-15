@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
-import { handleNativeRequest, processNativeSync, readRuleDetails } from '../native-siem-service';
+import { applyNativeMutation, handleNativeRequest, processNativeSync, readRuleDetails } from '../native-siem-service';
 import { contentHash, crowdStrikeScope, normalizeCrowdStrike } from '../native-siem-model';
 
 const config = { baseUrl: 'https://api.crowdstrike.com', customerId: 'a'.repeat(32) };
@@ -382,5 +382,29 @@ describe('rule detail reads', () => {
       throw new Error('CrowdStrike request failed (401); retry the sync after checking access');
     });
     await expect(readRuleDetails(thrown as never, ['a', 'b'])).rejects.toThrow(/401/);
+  });
+});
+
+describe('applyNativeMutation as a shared entry point', () => {
+  // The unified deploy route and the native_apply action must reach the same code, or the two
+  // will drift and only one of them will carry the safety checks.
+  it('performs the same write the native_apply action performs', async () => {
+    const { deps, hash, rpc } = await fixture({
+      enabled: true, localQuery: EDITED_QUERY,
+      afterResource: [{ ...raw, search: { ...raw.search, filter: EDITED_QUERY } }],
+    });
+    await applyNativeMutation(deps,
+      { bindingId: 'binding', operation: 'update', expectedVersion: 1, expectedHash: hash }, 'owner');
+    const writes = deps.fetch.mock.calls.filter(([, request]) => request.method === 'PATCH');
+    expect(writes).toHaveLength(1);
+    expect(rpc).toHaveBeenCalledWith('siem_finish_deployment', expect.anything());
+  });
+
+  it('refuses through the same capability gate', async () => {
+    const { deps, hash } = await fixture({ enabled: false });
+    await expect(applyNativeMutation(deps,
+      { bindingId: 'binding', operation: 'update', expectedVersion: 1, expectedHash: hash }, 'owner'))
+      .rejects.toThrow(/not enabled for this installation/);
+    expect(deps.fetch).not.toHaveBeenCalled();
   });
 });

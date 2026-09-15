@@ -356,12 +356,48 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
     return { success: true };
   }
   if (body.action !== 'native_apply') throw new Error('Unknown native SIEM action');
-  const operation = (body.operation || 'update') as NativeOperation;
+  return await applyNativeMutation(deps, {
+    bindingId: binding.id,
+    operation: (body.operation || 'update') as NativeOperation,
+    expectedVersion: body.expectedVersion as number,
+    expectedHash: body.expectedHash as string,
+  }, actor);
+}
+
+export interface NativeMutationParams {
+  bindingId: string;
+  operation: NativeOperation;
+  expectedVersion: number;
+  expectedHash: string;
+}
+
+/**
+ * The one production write path. Called by the unified deploy route and, until it is removed, by
+ * the `native_apply` action. Both must go through here: the pre-write read, the readback, the
+ * uncertain-outcome handling and the capability gate are the reason this path exists, and a second
+ * caller that skipped any of them would be the duplicate path this merge exists to delete.
+ */
+export async function applyNativeMutation(
+  deps: Dependencies,
+  params: NativeMutationParams,
+  actor: string,
+): Promise<{ success: true }> {
+  const { binding, detection, baseline, remote, local, integration, ruleFamily } =
+    await boundRule(deps, params.bindingId, actor);
+  if (!checked(await deps.db.rpc('siem_can_import', { p_actor: actor, p_integration: integration.id }))) {
+    throw new Error('Native import permission denied');
+  }
+  const drift = classifyDrift(baseline?.content ?? null, local, remote.content, binding.availability);
+  const operation = params.operation;
   // One predicate, used by the preview to explain and here to refuse. Previously these checks
   // lived only here, so the UI learned an action was impossible only after the user chose it.
-  const blocked = mutationBlockedReason(operation, mutationContext);
+  const blocked = mutationBlockedReason(operation, {
+    writesEnabled: deps.writesEnabled, provider: binding.provider as string, ruleFamily,
+    bindingStatus: binding.binding_status, availability: binding.availability, drift,
+    pendingOperation: binding.pending_operation_id != null,
+  });
   if (blocked) throw new Error(blocked);
-  if (body.expectedVersion !== detection.version || body.expectedHash !== remote.content_hash) throw new Error('Review is stale; refresh the diff');
+  if (params.expectedVersion !== detection.version || params.expectedHash !== remote.content_hash) throw new Error('Review is stale; refresh the diff');
   const isToggle = operation === 'enable' || operation === 'disable';
   const desired = isToggle ? { ...remote.content, enabled: operation === 'enable' } : local;
   // Permission, eligibility and operation lease are checked atomically before any vendor mutation.
@@ -377,9 +413,9 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
       return { raw, content: normalizeCrowdStrike(raw) };
     };
     const before = await read();
-    if (await contentHash(before.content) !== body.expectedHash) throw new Error('Production changed since review; sync and review again');
+    if (await contentHash(before.content) !== params.expectedHash) throw new Error('Production changed since review; sync and review again');
     // Serialize before marking the operation as attempted; unsupported payloads are safe failures.
-    const payload = body.operation === 'delete' ? undefined : isToggle ?
+    const payload = params.operation === 'delete' ? undefined : isToggle ?
       { id: binding.vendor_rule_id, status: desired.enabled ? 'active' : 'inactive' } : crowdStrikeUpdate(binding.vendor_rule_id, desired);
     attempted = true;
     await request(operation === 'delete' ? `entities/rules/v1?ids=${encodeURIComponent(binding.vendor_rule_id)}` : 'entities/rules/v1',
