@@ -3433,7 +3433,7 @@ serve(async (req: Request) => {
       if (!detectionId && !(integrationId && vendorRuleId)) {
         return corsErrorResponse('A detection or target rule is required', req, 400)
       }
-      const binding = await findDeployBinding(getServiceClient() as never, { detectionId, integrationId, vendorRuleId })
+      const binding = await findDeployBinding(getServiceClient(), { detectionId, integrationId, vendorRuleId })
       const decision = deployRouteDecision(binding, {
         expectedHash: body.expectedHash,
         expectedVersion: body.expectedVersion,
