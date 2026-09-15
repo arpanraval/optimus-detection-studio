@@ -2562,8 +2562,17 @@ export const integrationService = {
     queryLanguage: string;
     ruleConfig?: Partial<VendorRuleConfig> & { name?: string; description?: string; action?: string };
     vendorRuleId?: string;
+    // Present only for a rule already tracked in a SIEM: the revision the user reviewed
+    // in the Deploy modal's production comparison before confirming.
+    expectedHash?: string;
+    expectedVersion?: number;
   }): Promise<DeploymentRecord> {
-    await requireUnboundTarget(params.detectionId, params.integrationId, params.vendorRuleId);
+    // A reviewed write (expectedHash set) has already shown the user the production comparison;
+    // the server's deploy_rule route enforces the hash/version match itself. Only an unreviewed
+    // call needs to be blocked here and redirected to the Deployments tab.
+    if (params.expectedHash === undefined) {
+      await requireUnboundTarget(params.detectionId, params.integrationId, params.vendorRuleId);
+    }
     // Guard: only Production Library detections can be deployed
     const { data: detectionCheck } = await supabase
       .from('detections')
@@ -2727,6 +2736,9 @@ export const integrationService = {
         queryLanguage: params.queryLanguage,
         ruleConfig: params.ruleConfig,
         vendorRuleId: params.vendorRuleId,
+        // Present only for a rule already tracked in a SIEM: the revision the user reviewed.
+        expectedHash: params.expectedHash,
+        expectedVersion: params.expectedVersion,
       },
     });
 

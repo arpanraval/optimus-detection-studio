@@ -13,7 +13,7 @@ export async function withSiemLibraryState(detections: Detection[]): Promise<Det
   if (!ids.length) return detections;
   const { data, error } = await supabase
     .from('siem_rule_bindings')
-    .select('detection_id,binding_status,availability,observed_enabled,last_seen_at')
+    .select('id,integration_id,vendor_rule_id,detection_id,binding_status,availability,observed_enabled,last_seen_at')
     .in('detection_id', ids);
   if (error) return detections;
   return detections.map((detection) => ({

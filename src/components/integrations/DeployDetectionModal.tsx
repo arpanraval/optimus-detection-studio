@@ -23,6 +23,8 @@ import { getDefaultRuleConfig } from '../../lib/providerRuleConfigDefaults';
 import { ProviderRuleConfigForm } from './ProviderRuleConfigForm';
 import { SiemPreflightPanel } from './SiemPreflightPanel';
 import type { PreflightResult } from '../../types';
+import { nativeSiemService } from '../../services/nativeSiemService';
+import type { NativePreview } from '../../services/nativeSiemService';
 
 function getQueryLanguageForProvider(provider: IntegrationProvider): string {
   switch (provider) {
@@ -249,6 +251,10 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
   const [existingDeployment, setExistingDeployment] = useState<DeploymentRecord | null>(null);
   const [deployAction, setDeployAction] = useState<'create' | 'update'>('create');
   const [vendorIdCopied, setVendorIdCopied] = useState(false);
+  // A rule already tracked in this SIEM is an UPDATE of a rule that exists, not a create. Its
+  // identity and settings come from the binding, and the diff is the review that authorises it.
+  const [boundPreview, setBoundPreview] = useState<NativePreview | null>(null);
+  const [boundError, setBoundError] = useState<string | null>(null);
 
   // C2: Permission check
   const canDeploy = hasPermission(userRole, 'integrations:sync', permissionOverrides as any);
@@ -293,6 +299,16 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
         // Only pre-select when there are multiple — for single, user just clicks the one option
         setSelectedIntegration(defaultInt);
       }
+
+      // A rule already tracked in a SIEM has no ambiguity about where it's going — jump straight
+      // past the picker to the production comparison for that connection.
+      const activeBindings = detection.siem_observations || [];
+      const boundIntegration = connected.find((integration) => activeBindings.some(
+        (observation) => observation.binding_status === 'active' && observation.integration_id === integration.id,
+      ));
+      if (boundIntegration) {
+        await handleSelectIntegration(boundIntegration);
+      }
     } catch {
       // No integrations
     } finally {
@@ -307,6 +323,32 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
     const result = validateDetectionForDeploy(detection, integration.provider);
     setValidation(result);
     setPreflightResult(null);
+    setBoundPreview(null);
+    setBoundError(null);
+
+    // Scoped to the CONNECTION being deployed to: a detection can be bound to more than one, and
+    // only the binding for the selected connection describes this deploy.
+    const binding = (detection.siem_observations || []).find(
+      (observation) => observation.binding_status === 'active'
+        && observation.integration_id === integration.id,
+    );
+
+    if (binding?.id) {
+      // A tracked rule has nothing left to choose: its identity and settings come from the
+      // binding, and the production comparison IS the review. Skip straight past the
+      // create/update choice, pre-flight and provider config form to that comparison.
+      try {
+        const nativePreview = await nativeSiemService.preview(binding.id);
+        setBoundPreview(nativePreview);
+        setDeployAction('update');
+        setRuleConfig(getDefaultRuleConfig(integration.provider));
+        setStep('configure');
+      } catch (err) {
+        setBoundError(err instanceof Error ? err.message : 'Could not load the production comparison');
+        setStep('validate');
+      }
+      return;
+    }
 
     // E3: Check for existing deployment (duplicate check)
     try {
@@ -414,7 +456,9 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
           description: ruleDescription,
           action: deployAction,
         },
-        vendorRuleId: existingDeployment?.vendor_rule_id || undefined,
+        vendorRuleId: boundPreview?.binding.vendor_rule_id ?? existingDeployment?.vendor_rule_id ?? undefined,
+        // Only set for a tracked rule: the exact revision the diff above showed.
+        ...(boundPreview ? { expectedHash: boundPreview.remoteHash, expectedVersion: boundPreview.localVersion } : {}),
       });
 
       // Extract transient _autoRetried field
@@ -588,7 +632,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
               {step === 'validate' && selectedIntegration && validation && (
                 <div className="space-y-4">
                   <button
-                    onClick={() => { setStep('select'); setValidation(null); setExistingDeployment(null); setPreflightResult(null); }}
+                    onClick={() => { setStep('select'); setValidation(null); setExistingDeployment(null); setPreflightResult(null); setBoundPreview(null); setBoundError(null); }}
                     className="flex items-center gap-1.5 text-xs font-medium text-on-surface-variant transition-colors hover:text-on-surface"
                   >
                     <Icon name="arrow-left" className="h-3.5 w-3.5" />
@@ -678,6 +722,14 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                       )}
                     </div>
                   </div>
+
+                  {/* A tracked rule failed to load its production comparison */}
+                  {boundError && (
+                    <div className="flex items-start gap-2 rounded-xl border border-error/30 bg-error-container/40 px-3.5 py-2.5">
+                      <Icon name="x-circle" className="h-4 w-4 text-error mt-0.5 flex-shrink-0" />
+                      <p className="text-xs text-error">{boundError}</p>
+                    </div>
+                  )}
 
                   {/* E3: Duplicate deployment notice — radio buttons */}
                   {existingDeployment && (
@@ -832,7 +884,9 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                     </div>
                   )}
                   <button
-                    onClick={() => setStep(supportsPreflight(selectedIntegration.provider) ? 'preflight' : 'validate')}
+                    onClick={() => setStep(boundPreview
+                      ? 'select'
+                      : supportsPreflight(selectedIntegration.provider) ? 'preflight' : 'validate')}
                     className="flex items-center gap-1.5 text-xs font-medium text-on-surface-variant transition-colors hover:text-on-surface"
                   >
                     <Icon name="arrow-left" className="h-3.5 w-3.5" />
@@ -873,13 +927,46 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                     </pre>
                   </div>
 
-                  {/* Provider-specific config — shared with pack deploy */}
-                  <ProviderRuleConfigForm
-                    provider={selectedIntegration.provider}
-                    ruleConfig={ruleConfig}
-                    onChange={setRuleConfig}
-                    previewOnly={previewOnly}
-                  />
+                  {/* A rule already tracked in this SIEM: the production comparison IS the
+                      review, replacing the provider config form entirely — lookback/schedule
+                      come from the binding's stored configuration, and a form defaulting to
+                      e.g. 1h0m would invite silently overwriting a real value. */}
+                  {boundPreview ? (
+                    <div className="space-y-3">
+                      <p className="text-sm">
+                        This rule already exists in {selectedIntegration.name} and will be updated in place.
+                      </p>
+                      <p className="text-xs text-on-surface-variant break-all">
+                        {selectedIntegration.name} ID: <code>{boundPreview.binding.vendor_rule_id}</code>
+                      </p>
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                        <section className="min-w-0 p-3 rounded-xl bg-surface-container-high">
+                          <h4 className="text-sm font-semibold mb-2">In your library</h4>
+                          <pre className="text-xs whitespace-pre-wrap break-words max-h-48 overflow-auto font-mono">
+                            {boundPreview.local.query}
+                          </pre>
+                        </section>
+                        <section className="min-w-0 p-3 rounded-xl bg-surface-container-high">
+                          <h4 className="text-sm font-semibold mb-2">In {selectedIntegration.name} · last fetched</h4>
+                          <pre className="text-xs whitespace-pre-wrap break-words max-h-48 overflow-auto font-mono">
+                            {boundPreview.remote.query}
+                          </pre>
+                        </section>
+                      </div>
+                      {boundPreview.capabilities.update && (
+                        <p role="alert" className="text-sm text-on-surface-variant">
+                          {boundPreview.capabilities.update}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <ProviderRuleConfigForm
+                      provider={selectedIntegration.provider}
+                      ruleConfig={ruleConfig}
+                      onChange={setRuleConfig}
+                      previewOnly={previewOnly}
+                    />
+                  )}
 
                   {previewOnly ? (
                     <div className="space-y-4 mt-2">
@@ -899,13 +986,15 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                   ) : (
                     <Button
                       onClick={handleDeploy}
-                      disabled={!deployQuery}
+                      disabled={!deployQuery || (boundPreview ? !!boundPreview.capabilities.update : false)}
                       variant="filled"
                       color="primary"
                       fullWidth
                       leadingIcon="upload"
                     >
-                      {deployAction === 'update' ? 'Update' : 'Deploy'}
+                      {boundPreview
+                        ? `Update in ${selectedIntegration.name}`
+                        : deployAction === 'update' ? 'Update' : 'Deploy'}
                     </Button>
                   )}
                 </div>

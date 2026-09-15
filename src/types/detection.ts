@@ -106,7 +106,15 @@ export interface AuditLogEntry {
 // ============================================
 
 export interface Detection {
-  siem_observations?: Array<{ binding_status: string; availability: string; observed_enabled: boolean | null; last_seen_at: string }>;
+  siem_observations?: Array<{
+    id: string;
+    integration_id: string;
+    vendor_rule_id: string;
+    binding_status: string;
+    availability: string;
+    observed_enabled: boolean | null;
+    last_seen_at: string;
+  }>;
   native_provenance?: { kind: 'native_siem'; provider: string; connection_name: string; imported_at: string } | null;
   // === IDENTITY ===
   id: string;
