@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { RulePreviewDialog } from '../RulePreviewDialog';
 import { nativeSiemService } from '@/services/nativeSiemService';
@@ -24,17 +24,28 @@ describe('RulePreviewDialog', () => {
     vi.restoreAllMocks();
   });
 
-  it('shows the observed query and configuration without importing anything', async () => {
+  it('shows Overview, Query, Configuration and Dependencies tabs without importing anything', async () => {
     const read = vi.spyOn(nativeSiemService, 'remoteSnapshot').mockResolvedValue(content as never);
     render(<RulePreviewDialog row={row} onClose={() => {}} />);
 
-    expect(await screen.findByText('#event_simpleName=ProcessRollup2')).toBeTruthy();
-    expect(screen.getByText(/High/)).toBeTruthy();
+    // Overview is the default tab.
+    expect(await screen.findByText(/High/)).toBeTruthy();
     expect(screen.getByText('Watches for odd parents')).toBeTruthy();
-    // Reads the snapshot the scan already recorded, which is the revision an import would freeze.
-    expect(read).toHaveBeenCalledWith('snap-1');
     // Nothing here writes: previewing is a read, and the copy says so.
     expect(screen.getByText(/Nothing in the connected SIEM changes/)).toBeTruthy();
+    expect(screen.queryByText('#event_simpleName=ProcessRollup2')).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Query' }));
+    expect(screen.getByText('#event_simpleName=ProcessRollup2')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Configuration' }));
+    expect(screen.getByText('@every 1h')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Dependencies' }));
+    expect(screen.getByText('No dependencies referenced for this rule.')).toBeTruthy();
+
+    // Reads the snapshot the scan already recorded, which is the revision an import would freeze.
+    expect(read).toHaveBeenCalledWith('snap-1');
   });
 
   it('explains itself rather than showing an empty dialog when the rule was never read', async () => {
