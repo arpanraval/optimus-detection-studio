@@ -75,6 +75,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
     eligibleTotal,
     filterKey,
     discoveryComplete: run?.discovery_complete === true,
+    scopeRunId: inventoryRun?.id ?? null,
   });
   // InventoryTable takes a concrete Set, not a predicate: compute this page's checked
   // ids from either selection mode so an "all matching" selection still renders as checked.
@@ -182,28 +183,31 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
     setImportSubmitting(true);
     setImportError(null);
     try {
-      // The run the user was actually looking at, not whatever is newest at click time: the
-      // server freezes content from the snapshot THIS run observed, so substituting a scan that
-      // completed since the review would import a revision nobody saw.
+      // The run the selection was actually bound to when it was made, not whatever is newest at
+      // click time: the server freezes content from the snapshot THIS run observed, so
+      // substituting a scan that completed since the selection was built would import a
+      // revision nobody saw and reviewed against (G07). `boundRunId` is set once and only when
+      // the user actually selects something, so it cannot be undercut by a scan finishing in
+      // the background while the panel sits open.
       // Deliberately not filtered to completed runs: the server accepts explicit ids from a
       // partial (still-running) inventory run and only rejects `allMatching` against one, which
       // is what the selection bar's "You can import the rules found so far" copy promises.
-      const source = inventoryRun;
-      if (!source) throw new Error('Fetch rules from CrowdStrike before importing');
+      const sourceRunId = selection.boundRunId;
+      if (!sourceRunId) throw new Error('Fetch rules from CrowdStrike before importing');
       const selectionArgs = selection.selection.mode === 'all_matching'
         ? { allMatching: true, excludeIds: Array.from(selection.selection.excluded).sort() }
         : { ids: Array.from(selection.selection.ids).sort() };
       // "All matching" means all rules matching the filter the count was computed under, so the
       // filter is part of the request rather than something the client re-derives.
       const filterArgs = { selectionSearch: appliedSearch.trim(), selectionRelationship: relationship };
-      const descriptor = JSON.stringify({ sourceRunId: source.id, ...selectionArgs, ...filterArgs });
+      const descriptor = JSON.stringify({ sourceRunId, ...selectionArgs, ...filterArgs });
       const key = idempotencyKeyRef.current?.descriptor === descriptor
         ? idempotencyKeyRef.current.key
         : crypto.randomUUID();
       idempotencyKeyRef.current = { key, descriptor };
       const started = await nativeSiemService.startImport({
         integrationId: integration.id,
-        sourceRunId: source.id,
+        sourceRunId,
         idempotencyKey: key,
         ...selectionArgs,
         ...filterArgs,
