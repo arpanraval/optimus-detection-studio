@@ -5,6 +5,7 @@ import {
   DEFENDER_RULE_STATUS_ONLY, DEFENDER_RULE_DEPRECATED_ONLY, DEFENDER_RULE_AUTO_DISABLED,
   DEFENDER_RULE_UNKNOWN_FUTURE_VALUE, DEFENDER_RULE_CONTINUOUS, DEFENDER_RULE_NO_DESCRIPTION_UNKNOWN_FIELD,
   DEFENDER_RULE_TENANT_A, DEFENDER_RULE_TENANT_B, DEFENDER_PAGE_1, DEFENDER_PAGE_2,
+  DEFENDER_RULE_MITRE_TACTICS_ONLY, DEFENDER_RULE_MITRE_FIELD_ONLY, DEFENDER_RULE_MITRE_NONE,
 } from './fixtures/defender-xdr-list.ts';
 
 describe('Defender XDR custom-detection-rule reader', () => {
@@ -60,6 +61,31 @@ describe('Defender XDR custom-detection-rule reader', () => {
     const b = normalizeDefenderEntry(DEFENDER_RULE_TENANT_B);
     expect(a.displayName).toBe(b.displayName);
     expect(a.vendorRuleId).not.toBe(b.vendorRuleId);
+  });
+
+  it('reads MITRE techniques from the observed tenant field (alertTemplate.mitreTechniques)', () => {
+    const rule = normalizeDefenderEntry(DEFENDER_RULE_MITRE_FIELD_ONLY);
+    expect(rule.mitreTechniques).toEqual(['T1105', 'T1566']);
+    expect(rule.mitreTechniquesSource).toBe('mitreTechniques');
+  });
+
+  it('reads MITRE techniques from the documented tactics[].techniques[].technique shape', () => {
+    const rule = normalizeDefenderEntry(DEFENDER_RULE_MITRE_TACTICS_ONLY);
+    expect(rule.mitreTechniques).toEqual(['T1547.001', 'T1112', 'T1564']);
+    expect(rule.mitreTechniquesSource).toBe('tactics');
+  });
+
+  it('yields an absent MITRE mapping (never fabricated) when neither shape is present', () => {
+    const rule = normalizeDefenderEntry(DEFENDER_RULE_MITRE_NONE);
+    expect(rule.mitreTechniques).toBeNull();
+    expect(rule.mitreTechniquesSource).toBe('none');
+  });
+
+  it('merges both MITRE shapes when a rule carries both, deduped, without fabricating extras', () => {
+    // DEFENDER_RULE_STATUS_ONLY carries the same T1059.001 on both mitreTechniques and tactics.
+    const rule = normalizeDefenderEntry(DEFENDER_RULE_STATUS_ONLY);
+    expect(rule.mitreTechniques).toEqual(['T1059.001']);
+    expect(rule.mitreTechniquesSource).toBe('both');
   });
 
   it('never preserves a response action as anything but an inert reference', () => {

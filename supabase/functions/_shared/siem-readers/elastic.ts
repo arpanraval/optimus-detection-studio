@@ -121,6 +121,10 @@ export type ElasticUnsupportedRule = {
   type: ElasticRuleType;
   name: string;
   reason: string;
+  /** The whole entry as returned. An unsupported rule is still shown to the user, so its raw
+   *  payload has to survive for the detail view -- and it is the only record of a family we
+   *  cannot yet represent. */
+  raw: Record<string, Json>;
 };
 
 const MAPPED_KEYS = new Set([
@@ -156,12 +160,14 @@ export function normalizeElasticEntry(entry: ElasticRuleEntry): NormalizedElasti
   const vendorRuleId = typeof entry.rule_id === 'string' && entry.rule_id ? entry.rule_id : (objectId ?? '');
   const type: ElasticRuleType = typeof entry.type === 'string' ? entry.type : 'unknown';
   const name = typeof entry.name === 'string' ? entry.name : vendorRuleId;
+  const raw = entry as unknown as Record<string, Json>;
   if (!vendorRuleId) {
-    return { vendorRuleId: '', objectId, type, name, reason: 'Missing rule_id; cannot establish a stable identity' };
+    return { vendorRuleId: '', objectId, type, name, raw,
+      reason: 'Missing rule_id; cannot establish a stable identity' };
   }
   if (!IMPORTABLE_TYPES.has(type)) {
     return {
-      vendorRuleId, objectId, type, name,
+      vendorRuleId, objectId, type, name, raw,
       reason: UNSUPPORTED_REASONS[type] ?? `Elastic rule type "${type}" is not an importable detection family`,
     };
   }

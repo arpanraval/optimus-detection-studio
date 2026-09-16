@@ -91,6 +91,58 @@ function resolveStatus(status: DefenderStatus | undefined, isEnabled: boolean | 
   return { observedState: 'unknown', statusSource: 'none', autoDisabled: false };
 }
 
+/** MITRE technique mapping is a THIRD confirmed shape migration on this API (after
+ *  `isEnabled`->`status` and `schedule.period`->`schedule.frequency`): the observed tenant shape
+ *  is `alertTemplate.mitreTechniques: string[]` (a real tenant's `deployment_history.response`,
+ *  2026-02-12, alertTemplate keys included `mitreTechniques` with values like
+ *  `["T1204","T1105","T1566"]`); the currently-documented Graph shape is
+ *  `alertTemplate.tactics: [{ tactic, techniques: [{ technique }] }]`. Absence from the current
+ *  doc page is deprecation evidence, not non-existence -- so this is a DUAL READ, never an
+ *  either/or replacement: both shapes are read when present and normalized into one technique-ID
+ *  list, with neither field's absence fabricating a mapping. */
+function extractMitreTechniqueIds(mitreTechniques: Json | undefined): string[] {
+  if (!Array.isArray(mitreTechniques)) return [];
+  return mitreTechniques.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+}
+
+function extractMitreTechniqueIdsFromTactics(tactics: Json | undefined): string[] {
+  if (!Array.isArray(tactics)) return [];
+  const ids: string[] = [];
+  for (const tacticEntry of tactics) {
+    if (!tacticEntry || typeof tacticEntry !== 'object' || Array.isArray(tacticEntry)) continue;
+    const techniques = (tacticEntry as Record<string, Json>).techniques;
+    if (!Array.isArray(techniques)) continue;
+    for (const techniqueEntry of techniques) {
+      if (!techniqueEntry || typeof techniqueEntry !== 'object' || Array.isArray(techniqueEntry)) continue;
+      const technique = (techniqueEntry as Record<string, Json>).technique;
+      if (typeof technique === 'string' && technique) ids.push(technique);
+    }
+  }
+  return ids;
+}
+
+/** Reads both shapes and merges into one deduped, order-preserving list of technique IDs (observed
+ *  tenant field first, documented field second). Neither present -> `null`, never `[]` treated as
+ *  "confirmed no techniques" vs "field absent" -- both collapse to the same absent representation
+ *  here since Graph does not distinguish "no techniques" from "field omitted" in either shape. */
+function resolveMitreTechniques(alertTemplate: DefenderAlertTemplate | null | undefined):
+  { mitreTechniques: Json; mitreTechniquesSource: 'mitreTechniques' | 'tactics' | 'both' | 'none' } {
+  const fromField = extractMitreTechniqueIds(alertTemplate?.mitreTechniques);
+  const fromTactics = extractMitreTechniqueIdsFromTactics(alertTemplate?.tactics);
+  const source: 'mitreTechniques' | 'tactics' | 'both' | 'none' =
+    fromField.length > 0 && fromTactics.length > 0 ? 'both'
+      : fromField.length > 0 ? 'mitreTechniques'
+      : fromTactics.length > 0 ? 'tactics'
+      : 'none';
+  if (source === 'none') return { mitreTechniques: null, mitreTechniquesSource: source };
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const id of [...fromField, ...fromTactics]) {
+    if (!seen.has(id)) { seen.add(id); ids.push(id); }
+  }
+  return { mitreTechniques: ids, mitreTechniquesSource: source };
+}
+
 /** `schedule.frequency` (current, ISO-8601 Duration) first, `schedule.period` (deprecated
  *  `0|1H|3H|12H|24H`) fallback. `period === '0'` meant CONTINUOUS -- it must never be converted
  *  into a fake interval (e.g. "PT0S" or "0H"); it is preserved verbatim and flagged continuous. */
@@ -126,6 +178,9 @@ export interface NormalizedDefenderRule {
   scheduleSource: 'frequency' | 'period' | 'none';
   alertTemplate: DefenderAlertTemplate | null;
   mitreTechniques: Json;
+  /** Which shape(s) the technique IDs above were read from -- 'none' means neither field was
+   *  present, and `mitreTechniques` is `null` in that case, never a fabricated `[]`. */
+  mitreTechniquesSource: 'mitreTechniques' | 'tactics' | 'both' | 'none';
   /** Preserved as inert references only -- reading never triggers these. */
   automatedActions: Json;
   responseActions: Json;
@@ -152,6 +207,7 @@ export function normalizeDefenderEntry(entry: DefenderRuleEntry): NormalizedDefe
   const { observedState, statusSource, autoDisabled } = resolveStatus(entry.status, entry.isEnabled);
   const { frequency, scheduleSource, continuous } = resolveSchedule(entry.schedule);
   const alertTemplate = entry.detectionAction?.alertTemplate ?? null;
+  const { mitreTechniques, mitreTechniquesSource } = resolveMitreTechniques(alertTemplate);
   const unmappedFields = Object.keys(entry).filter(key => !MAPPED_KEYS.has(key));
   // organizationalScope: the brief asserts it appears in real tenant responses even though the
   // fetched doc page (recon section 4) does not document it. Read defensively -- present ->
@@ -171,7 +227,8 @@ export function normalizeDefenderEntry(entry: DefenderRuleEntry): NormalizedDefe
     continuous,
     scheduleSource,
     alertTemplate,
-    mitreTechniques: alertTemplate?.mitreTechniques ?? null,
+    mitreTechniques,
+    mitreTechniquesSource,
     automatedActions: entry.detectionAction?.automatedActions ?? null,
     responseActions: entry.detectionAction?.responseActions ?? null,
     detectorId: typeof entry.detectorId === 'string' ? entry.detectorId : null,

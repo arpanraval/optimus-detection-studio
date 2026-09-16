@@ -156,6 +156,44 @@ export const DEFENDER_RULE_TENANT_B: DefenderRuleEntry = {
   queryCondition: { queryText: 'DeviceProcessEvents | where ProcessCommandLine has "-encodedcommand"' },
 };
 
+/** MITRE mapping ONLY via the current documented shape (`tactics[].techniques[].technique`) --
+ *  no `mitreTechniques` field on this alertTemplate at all. */
+export const DEFENDER_RULE_MITRE_TACTICS_ONLY: DefenderRuleEntry = {
+  id: 'dr-0007', displayName: 'Documented Tactics Shape Rule', status: 'enabled', schedule: { frequency: 'PT3H' },
+  queryCondition: { queryText: 'DeviceRegistryEvents | where RegistryKey has "Run"' },
+  detectionAction: {
+    alertTemplate: {
+      title: 'Documented Tactics Shape Rule', severity: 'medium', category: 'Persistence',
+      tactics: [
+        { tactic: 'Persistence', techniques: [{ technique: 'T1547.001' }] },
+        { tactic: 'DefenseEvasion', techniques: [{ technique: 'T1112' }, { technique: 'T1564' }] },
+      ],
+    },
+  },
+};
+
+/** MITRE mapping ONLY via the observed tenant shape (`alertTemplate.mitreTechniques`) -- no
+ *  `tactics` field on this alertTemplate at all. */
+export const DEFENDER_RULE_MITRE_FIELD_ONLY: DefenderRuleEntry = {
+  id: 'dr-0008', displayName: 'Observed Tenant Shape Rule', status: 'enabled', schedule: { frequency: 'PT1H' },
+  queryCondition: { queryText: 'DeviceNetworkEvents | where RemotePort == 4444' },
+  detectionAction: {
+    alertTemplate: {
+      title: 'Observed Tenant Shape Rule', severity: 'high', category: 'CommandAndControl',
+      mitreTechniques: ['T1105', 'T1566'],
+    },
+  },
+};
+
+/** Neither MITRE shape present -- must yield an absent mapping, never a fabricated one. */
+export const DEFENDER_RULE_MITRE_NONE: DefenderRuleEntry = {
+  id: 'dr-0009', displayName: 'No MITRE Mapping Rule', status: 'enabled', schedule: { frequency: 'PT6H' },
+  queryCondition: { queryText: 'DeviceFileEvents | where FileName endswith ".dll"' },
+  detectionAction: {
+    alertTemplate: { title: 'No MITRE Mapping Rule', severity: 'low', category: 'Discovery' },
+  },
+};
+
 export const DEFENDER_PAGE_1 = {
   value: [DEFENDER_RULE_STATUS_ONLY, DEFENDER_RULE_DEPRECATED_ONLY],
   '@odata.nextLink': 'https://graph.microsoft.com/beta/security/rules/detectionRules?$skiptoken=page2',

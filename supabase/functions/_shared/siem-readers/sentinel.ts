@@ -61,6 +61,10 @@ export interface NormalizedSentinelRule {
    *  unsettled. */
   unmappedFields: string[];
   properties: Record<string, Json>;
+  /** The whole ARM entry as returned, not just `properties`. The durable importer snapshots
+   *  this so a field nobody mapped is still inspectable later; `properties` alone drops the
+   *  envelope (id, name, kind, etag, systemData) that identifies and versions the resource. */
+  raw: Record<string, Json>;
 }
 
 export type SentinelUnsupportedRule = {
@@ -69,6 +73,7 @@ export type SentinelUnsupportedRule = {
   kind: SentinelKind;
   displayName: string;
   reason: string;
+  raw: Record<string, Json>;
 };
 
 function parseEnabled(value: Json | undefined): boolean | 'unknown' {
@@ -101,12 +106,16 @@ export function normalizeSentinelEntry(entry: SentinelRuleEntry): NormalizedSent
   const vendorRuleId = typeof entry.name === 'string' && entry.name ? entry.name : (armId ?? '');
   const kind: SentinelKind = typeof entry.kind === 'string' ? entry.kind : 'Unknown';
   const props = entry.properties && typeof entry.properties === 'object' ? entry.properties : {};
+  // The whole entry, envelope included. Snapshotted verbatim so an unmapped field stays
+  // inspectable; secrets are stripped later by sanitizeSnapshot, not here.
+  const raw = entry as unknown as Record<string, Json>;
   const displayName = typeof props.displayName === 'string' ? props.displayName : vendorRuleId;
   if (!vendorRuleId) {
-    return { vendorRuleId: '', armId, kind, displayName, reason: 'Missing ARM resource name; cannot establish identity' };
+    return { vendorRuleId: '', armId, kind, displayName, raw,
+      reason: 'Missing ARM resource name; cannot establish identity' };
   }
   if (!IMPORTABLE_KINDS.has(kind)) {
-    return { vendorRuleId, armId, kind, displayName,
+    return { vendorRuleId, armId, kind, displayName, raw,
       reason: `Sentinel rule kind "${kind}" is not an importable analytics rule family` };
   }
   const query = typeof props.query === 'string' ? props.query : '';
@@ -140,6 +149,7 @@ export function normalizeSentinelEntry(entry: SentinelRuleEntry): NormalizedSent
     templateVersion: stringOrNull(props.templateVersion),
     unmappedFields,
     properties: props,
+    raw,
   };
 }
 

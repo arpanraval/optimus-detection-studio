@@ -573,6 +573,9 @@ async function splunkListRules(
     scopeLabel: rule.scopeLabel,
     content: rule.content,
     updated: rule.raw.updated,
+    // Full raw entry preserved, matching every other provider's reader -- previously only the
+    // `updated` field survived from `rule.raw`, dropping the rest of the vendor response.
+    raw: rule.raw,
   }))
 }
 
@@ -823,11 +826,15 @@ async function sentinelListRules(
     // carried on every row so the UI never has to re-derive it.
     workspace: workspaceName,
     properties: rule.properties,
+    // Full raw ARM entry preserved -- `properties` alone drops the envelope (id, name, kind,
+    // etag, systemData) that identifies and versions the resource.
+    raw: rule.raw,
   }))
   const unsupported = outcome.unsupported
     .map(rule => ({
       id: rule.vendorRuleId, armId: rule.armId, name: rule.displayName, kind: rule.kind,
       unsupported: true, unsupportedReason: rule.reason, workspace: workspaceName,
+      raw: rule.raw,
     }))
   return [...supported, ...unsupported]
 }
@@ -1068,14 +1075,19 @@ async function defenderXdrListRules(
     description: rule.description,
     alertTemplate: rule.alertTemplate,
     mitreTechniques: rule.mitreTechniques,
+    mitreTechniquesSource: rule.mitreTechniquesSource,
     automatedActions: rule.automatedActions,
     responseActions: rule.responseActions,
     detectorId: rule.detectorId,
     lastRunDetails: rule.lastRunDetails,
     unmappedFields: rule.unmappedFields,
+    // Full raw Graph entity preserved -- previously hand-picked fields only, dropping whatever
+    // Graph returned that this projection did not name (matches splunk/elastic/chronicle/crowdstrike).
+    raw: rule.raw,
   }))
   const unsupported = outcome.unsupported.map(entry => ({
     id: entry.raw.id, name: entry.raw.displayName, unsupported: true, unsupportedReason: entry.error,
+    raw: entry.raw,
   }))
   return [...supported, ...unsupported]
 }
@@ -1244,10 +1256,13 @@ async function elasticListRules(
     alertSuppression: rule.alertSuppression,
     immutable: rule.immutable,
     unmappedFields: rule.unmappedFields,
+    // Full raw rule object preserved -- previously hand-picked fields only, dropping whatever
+    // Elastic returned that this projection did not name (matches splunk/defender/chronicle/crowdstrike).
+    raw: rule.raw,
   }))
   const unsupported = outcome.unsupported.map(rule => ({
     id: rule.vendorRuleId, objectId: rule.objectId, name: rule.name, type: rule.type,
-    unsupported: true, unsupportedReason: rule.reason,
+    unsupported: true, unsupportedReason: rule.reason, raw: rule.raw,
   }))
   return [...supported, ...unsupported]
 }
@@ -1712,10 +1727,14 @@ async function chronicleListRules(
     compilationState: rule.compilationState,
     compilationError: rule.compilationError,
     unmappedFields: rule.unmappedFields,
+    // Full raw rule object preserved -- previously hand-picked fields only, dropping whatever
+    // Chronicle returned that this projection did not name (matches splunk/elastic/defender/crowdstrike).
+    raw: rule.raw,
   }))
   const unsupported = outcome.unsupported.map(entry => ({
     id: entry.raw.name?.split('/').pop() ?? entry.raw.ruleId,
     name: entry.raw.ruleName, unsupported: true, unsupportedReason: entry.error,
+    raw: entry.raw,
   }))
   return [...supported, ...unsupported]
 }
