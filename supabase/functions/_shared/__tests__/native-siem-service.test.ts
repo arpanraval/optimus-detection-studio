@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { applyNativeMutation, client, handleNativeRequest, processNativeSync, readRuleDetails,
   validateContinuationUrl } from '../native-siem-service';
 import { contentHash, crowdStrikeScope, normalizeCrowdStrike } from '../native-siem-model';
+import { providerScope } from '../siem-providers';
 
 const config = { baseUrl: 'https://api.crowdstrike.com', customerId: 'a'.repeat(32) };
 /** A library edit, so an update has something to send. */
@@ -715,5 +716,148 @@ describe('applyNativeMutation as a shared entry point', () => {
         .rejects.toThrow(new RegExp(`This connection is ${status}`));
       expect(deps.fetch).not.toHaveBeenCalled();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The registry-driven durable worker. The loop that drives all five non-CrowdStrike providers
+// shipped with no coverage of its own -- the existing suite above only proves CrowdStrike is
+// unaffected by it. These exercise the part that is genuinely new: that a provider's own reader
+// is what pages, that the cursor each provider actually uses survives a worker restart, that a
+// cursor which stops advancing ends the run instead of spinning it, and that a provider with no
+// reader is refused rather than reaching a vendor at all.
+// ---------------------------------------------------------------------------------------------
+
+const REGISTRY_CONFIG: Record<string, Record<string, unknown>> = {
+  sentinel: { tenantId: 'tenant', subscriptionId: 'sub', resourceGroup: 'rg', workspaceName: 'ws' },
+  chronicle: { region: 'us', customerId: 'customer', projectId: 'project', instanceId: 'instance' },
+  elastic: { host: 'kibana.example.test', port: 5601, spaceId: 'default' },
+};
+
+/** A discovery-phase run for one non-CrowdStrike provider, with the vendor's page under test. */
+async function registryFixture(provider: string, options: {
+  page: unknown; cursorOffset?: number; cursorToken?: string | null; reject?: boolean;
+  scope?: string } ) {
+  const config = REGISTRY_CONFIG[provider] ?? {};
+  const run = { id: 'run', kind: 'inventory', actor_id: 'owner', integration_id: 'connection',
+    provider_scope: options.scope ?? providerScope(provider as never, config),
+    phase: 'discovery', cursor_offset: options.cursorOffset ?? 0,
+    cursor_token: options.cursorToken ?? null, lease_token: 'lease', attempts: 0 };
+  const updates: unknown[] = [];
+  const from = vi.fn((table: string) => {
+    const data = table === 'integrations'
+      ? { id: 'connection', config, provider, status: 'connected' }
+      : table === 'siem_sync_items' ? [] : null;
+    const query: Record<string, unknown> = {};
+    for (const method of ['select', 'eq', 'in', 'like', 'order', 'limit', 'single']) query[method] = vi.fn(() => query);
+    query.update = vi.fn(value => { updates.push(value); return query; });
+    query.then = (resolve: (result: unknown) => void) => resolve({ data, error: null });
+    return query;
+  });
+  const rpc = vi.fn(async (name: string) => ({
+    data: name === 'siem_claim_sync' ? [run] : name === 'siem_can_import' ? true : null, error: null }));
+  const fetch = vi.fn(async () => options.reject
+    ? new Response('denied', { status: 403 })
+    : new Response(JSON.stringify(options.page)));
+  const token = Object.fromEntries(['splunk', 'sentinel', 'elastic', 'defender_xdr', 'chronicle', 'crowdstrike']
+    .map(name => [name, vi.fn(async () => ({ Authorization: 'Bearer token' }))]));
+  const deps = { db: { from, rpc } as never, credentials: vi.fn(async () => ({ clientId: 'c', clientSecret: 's' })),
+    token: token as never, fetch, writesEnabled: false, wait: vi.fn(async () => {}) };
+  return { deps, rpc, fetch, updates };
+}
+
+function commitArgs(rpc: ReturnType<typeof vi.fn>) {
+  const call = rpc.mock.calls.find(([name]) => name === 'siem_commit_inventory_chunk' || name === 'siem_commit_chunk');
+  return call?.[1] as Record<string, unknown> | undefined;
+}
+
+describe('registry-driven durable worker', () => {
+  // Sentinel pages by an opaque absolute nextLink, which cannot live in the integer cursor_offset
+  // column. If the token is not persisted, a resumed run silently restarts from page one and
+  // re-imports everything it already committed.
+  it('persists a Sentinel nextLink in cursor_token rather than the integer column', async () => {
+    const { deps, rpc, fetch } = await registryFixture('sentinel', {
+      page: { value: [{ id: '/subscriptions/s/rg/ws/alertRules/rule-1', name: 'rule-1', kind: 'Scheduled',
+        properties: { displayName: 'A', query: 'SecurityEvent', severity: 'High', enabled: true } }],
+        nextLink: 'https://management.azure.com/next-page' },
+    });
+    await processNativeSync(deps);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const args = commitArgs(rpc);
+    expect(args?.p_ids).toEqual(['rule-1']);
+    expect(args?.p_next_token).toBe('https://management.azure.com/next-page');
+    expect(args?.p_discovery_complete).toBe(false);
+  });
+
+  // Resuming: the persisted token is what the next request is built from, not a fresh first page.
+  it('resumes a Sentinel run from the persisted token', async () => {
+    const { deps, fetch } = await registryFixture('sentinel', {
+      cursorToken: 'https://management.azure.com/next-page',
+      page: { value: [], nextLink: null },
+    });
+    await processNativeSync(deps);
+    expect(fetch.mock.calls[0][0]).toContain('next-page');
+  });
+
+  // A provider echoing the cursor it was given back is the shape of an endless run (G11).
+  it('ends the run when a provider echoes the same cursor back', async () => {
+    const { deps, rpc } = await registryFixture('chronicle', {
+      cursorToken: 'same-token',
+      page: { rules: [], nextPageToken: 'same-token' },
+    });
+    await processNativeSync(deps);
+    const args = commitArgs(rpc);
+    expect(args?.p_discovery_complete).toBe(true);
+    expect(args?.p_next_token).toBeNull();
+  });
+
+  // Elastic pages by number. It must use the integer column and never write the token one, or a
+  // resumed run would carry a cursor its own reader does not read.
+  it('keeps an Elastic page cursor in cursor_offset and leaves cursor_token null', async () => {
+    const { deps, rpc } = await registryFixture('elastic', {
+      cursorOffset: 2,
+      page: { page: 2, perPage: 50, total: 500, data: Array.from({ length: 50 }, (_, i) => ({
+        id: `obj-${i}`, rule_id: `stable-${i}`, type: 'query', language: 'kuery', name: `R${i}`,
+        query: 'process.name: "cmd.exe"', enabled: true })) },
+    });
+    await processNativeSync(deps);
+    const args = commitArgs(rpc);
+    expect(args?.p_next).toBe(3);
+    expect(args?.p_next_token).toBeNull();
+    expect(args?.p_discovery_complete).toBe(false);
+  });
+
+  // A short page means the inventory is exhausted; the run must complete rather than ask again.
+  it('completes discovery when a provider returns a partial page', async () => {
+    const { deps, rpc } = await registryFixture('elastic', {
+      cursorOffset: 1,
+      page: { page: 1, perPage: 50, total: 1, data: [{ id: 'obj-1', rule_id: 'stable-1', type: 'query',
+        language: 'kuery', name: 'R', query: 'a: b', enabled: true }] },
+    });
+    await processNativeSync(deps);
+    expect(commitArgs(rpc)?.p_discovery_complete).toBe(true);
+  });
+
+  // An access failure must not be committed as a successful empty page -- that would mark every
+  // tracked rule missing and read as "the SIEM deleted them".
+  it('does not commit a chunk when the provider refuses the read', async () => {
+    const { deps, rpc, updates } = await registryFixture('sentinel', { page: {}, reject: true });
+    await processNativeSync(deps);
+    expect(rpc.mock.calls.some(([name]) => String(name).startsWith('siem_commit'))).toBe(false);
+    expect(updates).toContainEqual(expect.objectContaining({ status: 'queued' }));
+  });
+
+  // Every provider in the registry is reachable through the same loop. A provider that is
+  // registered as a connection type but has no reader must be refused with a message naming it,
+  // not crash somewhere downstream with an opaque error.
+  it('refuses a provider that has no registered reader instead of crashing', async () => {
+    const { deps, rpc, fetch, updates } = await registryFixture('qradar', { page: {}, scope: 'qradar:host/tenant' });
+    await processNativeSync(deps);
+    expect(fetch).not.toHaveBeenCalled();
+    // connection() deliberately collapses an unresolvable provider into a generic
+    // 'Connection unavailable' rather than echoing the provider string back, so the assertion is
+    // that the run FAILS CLOSED and is requeued -- not that the message names the provider.
+    expect(updates.some(update => (update as { error_message?: string }).error_message === 'Connection unavailable')).toBe(true);
+    expect(rpc.mock.calls.some(([name]) => String(name).startsWith('siem_commit'))).toBe(false);
   });
 });
