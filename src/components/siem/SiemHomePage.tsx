@@ -6,7 +6,7 @@ import { Breadcrumb } from '../ui';
 import { ROUTES } from '../../router/routes';
 import { IntegrationLogo } from '../integrations/IntegrationLogo';
 import { integrationService } from '../../lib/integrationService';
-import { getProviderMeta } from '../../lib/providerMeta';
+import { getProviderMeta, supportsNativeImport } from '../../lib/providerMeta';
 import { usePermissions } from '../../context/PermissionsContext';
 import { hasPermission } from '../../types';
 import { useToast } from '../../hooks/useToast';
@@ -415,7 +415,7 @@ export function SiemHomePage({ integrationId }: SiemHomePageProps) {
             onSwitchTab={(tab) => setActiveTab(tab)}
           />
         )}
-        {activeTab === 'rules' && (integration.provider === 'crowdstrike' ? <NativeRulesPanel key={integration.id} integration={integration} /> : <SiemHomeRulesTab integration={integration} />)}
+        {activeTab === 'rules' && (supportsNativeImport(integration.provider) ? <NativeRulesPanel key={integration.id} integration={integration} /> : <SiemHomeRulesTab integration={integration} />)}
         {activeTab === 'deploy' && (
           <SiemHomeDeployTab
             integration={integration}

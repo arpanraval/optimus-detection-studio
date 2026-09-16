@@ -6,7 +6,7 @@ import { NativeRulesPanel } from '../siem/NativeRulesPanel';
 import { DeploymentActivityTab } from './DeploymentActivityTab';
 import { SettingsTab } from './SettingsTab';
 import { integrationService } from '../../lib/integrationService';
-import { getProviderMeta, getDisplayStatus, STATUS_BADGE_CONFIG } from '../../lib/providerMeta';
+import { getProviderMeta, getDisplayStatus, STATUS_BADGE_CONFIG, supportsNativeImport } from '../../lib/providerMeta';
 import { IntegrationLogo } from './IntegrationLogo';
 import type { Integration, ConnectionTestResult } from '../../types';
 import { hasPermission } from '../../types';
@@ -270,7 +270,7 @@ export const IntegrationDetail: React.FC<IntegrationDetailProps> = ({
 
         {/* Tab Content */}
         {activeTab === 'detections' && (
-          integration.provider === 'crowdstrike' ? <NativeRulesPanel key={integration.id} integration={integration} /> : <DetectionManagementTab integration={integration} />
+          supportsNativeImport(integration.provider) ? <NativeRulesPanel key={integration.id} integration={integration} /> : <DetectionManagementTab integration={integration} />
         )}
 
         {activeTab === 'deployments' && (

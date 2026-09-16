@@ -60,6 +60,13 @@ export interface ProviderMeta {
   queryLanguages?: string[];
   logoPath: string;
   logoPathLight?: string;
+  /** Mirrors the server-owned import provider registry
+   *  (`supabase/functions/_shared/siem-providers.ts` — `IMPORT_PROVIDERS`). This flag is a
+   *  compiled reflection of what the durable import engine actually supports server-side; the
+   *  frontend only *renders* this capability (choosing which panel to show) and never grants
+   *  it — the backend independently enforces which providers it will import from regardless of
+   *  what this flag says. */
+  nativeImportSupported?: boolean;
 }
 
 export const PROVIDER_META: ProviderMeta[] = [
@@ -107,6 +114,7 @@ export const PROVIDER_META: ProviderMeta[] = [
     useDefaultColor: true,
     queryLanguages: ['SPL'],
     logoPath: '/logos/integrations/splunk.svg',
+    nativeImportSupported: true,
   },
   {
     id: 'sentinel',
@@ -117,6 +125,7 @@ export const PROVIDER_META: ProviderMeta[] = [
     brandColor: '#0078D4',
     queryLanguages: ['KQL'],
     logoPath: '/logos/integrations/sentinel.svg',
+    nativeImportSupported: true,
   },
   {
     id: 'defender_xdr',
@@ -127,6 +136,7 @@ export const PROVIDER_META: ProviderMeta[] = [
     brandColor: '#0078D4',
     queryLanguages: ['KQL'],
     logoPath: '/logos/integrations/defender-xdr.svg',
+    nativeImportSupported: true,
   },
   {
     id: 'elastic',
@@ -138,6 +148,7 @@ export const PROVIDER_META: ProviderMeta[] = [
     useDefaultColor: true,
     queryLanguages: ['Lucene', 'EQL', 'ES|QL'],
     logoPath: '/logos/integrations/elastic.svg',
+    nativeImportSupported: true,
   },
   {
     id: 'crowdstrike',
@@ -148,6 +159,7 @@ export const PROVIDER_META: ProviderMeta[] = [
     brandColor: '#FF0000',
     queryLanguages: ['CQL'],
     logoPath: '/logos/integrations/crowdstrike.svg',
+    nativeImportSupported: true,
   },
   {
     id: 'chronicle',
@@ -158,6 +170,7 @@ export const PROVIDER_META: ProviderMeta[] = [
     brandColor: '#4285F4',
     queryLanguages: ['YARA-L'],
     logoPath: '/logos/integrations/chronicle.svg',
+    nativeImportSupported: true,
   },
 
   // Automation & Response
@@ -189,6 +202,13 @@ export const PROVIDER_META: ProviderMeta[] = [
 
 export function getProviderMeta(id: IntegrationProvider): ProviderMeta | undefined {
   return PROVIDER_META.find(p => p.id === id);
+}
+
+/** Whether the native import panel (live inventory + import-into-library) is available for this
+ *  provider. This renders a server-owned capability — see `ProviderMeta.nativeImportSupported` —
+ *  it never grants one. A provider without this capability keeps its existing legacy tab. */
+export function supportsNativeImport(id: IntegrationProvider): boolean {
+  return getProviderMeta(id)?.nativeImportSupported === true;
 }
 
 export type DisplayStatus = 'connected' | 'configured' | 'error' | 'available' | 'coming-soon';
