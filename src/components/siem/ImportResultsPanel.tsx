@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/Icon';
 import { routeHelpers } from '@/router/routes';
-import { IMPORT_OUTCOME_LABELS } from '../../../supabase/functions/_shared/native-siem-model';
+import { importOutcomeLabel } from '../../../supabase/functions/_shared/native-siem-model';
 import type { NativeSyncRun, ImportResult } from '@/services/nativeSiemService';
 
 const SUCCESS_STATUSES = new Set(['imported', 'linked', 'unchanged', 'changed']);
@@ -15,6 +15,10 @@ export interface ImportResultsPanelProps {
   run: NativeSyncRun | null;
   results: ImportResult[];
   displayNames: Record<string, string>;
+  /** Which SIEM this run's rules came from, for the 'observed' outcome label. Defaults to
+   *  CrowdStrike wording (unchanged) when omitted, for callers that predate multi-provider
+   *  support. */
+  providerName?: string;
   onCancel: () => void;
   onRetry: () => void;
   onDismiss: () => void;
@@ -28,6 +32,7 @@ export function ImportResultsPanel({
   run,
   results,
   displayNames,
+  providerName,
   onCancel,
   onRetry,
   onDismiss,
@@ -165,7 +170,7 @@ export function ImportResultsPanel({
             <tbody>
               {pageRows.map((item) => {
                 const name = displayNames[item.vendor_rule_id] ?? item.vendor_rule_id;
-                const label = IMPORT_OUTCOME_LABELS[item.status] ?? item.status;
+                const label = importOutcomeLabel(item.status, providerName);
                 const iconName =
                   item.status === 'imported' || ALREADY_PRESENT_STATUSES.has(item.status)
                     ? 'check-circle'

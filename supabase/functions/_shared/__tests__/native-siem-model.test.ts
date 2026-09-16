@@ -144,6 +144,10 @@ describe('native SIEM content contracts', () => {
       .toBe('Already in library');
     expect(importBlockedReason({ ...readable, relationship: 'unsupported', normalization_error: 'No CQL query' }))
       .toBe('No CQL query');
+    expect(importBlockedReason({ ...readable, provider: 'chronicle', availability: 'missing' }))
+      .toBe('No longer in Chronicle');
+    expect(importBlockedReason({ ...readable, provider: 'chronicle', latest_snapshot_id: null }))
+      .toBe('Not read from Chronicle yet');
   });
 
   // Each of these was already enforced on the server, but only as a thrown error AFTER the user
@@ -225,6 +229,28 @@ describe('native SIEM content contracts', () => {
         .toMatch(/CrowdStrike changed since you last checked/);
       expect(mutationBlockedReason('enable', { ...open, drift: 'local_changed' })).toBeNull();
       expect(mutationBlockedReason('disable', { ...open, drift: 'in_sync' })).toBeNull();
+    });
+
+    // Read-only providers (Splunk et al.) never reach the writesEnabled/operations checks in
+    // practice, but the reason text itself must still name the actual vendor -- these strings
+    // used to hardcode 'CrowdStrike' regardless of context.provider.
+    it('names the actual provider in refusal text, not CrowdStrike', () => {
+      // The writesEnabled gate is the one check every provider reaches regardless of its
+      // capability table entry, so it is the only reachable way to exercise this string today --
+      // no provider besides CrowdStrike has any write operation registered (by design: this
+      // batch grants no new provider write/mutation capability). The other provider-named
+      // strings (in_sync / remote_changed / missing) share the same providerDisplayName() lookup
+      // and will render correctly the day a second provider gains write capability.
+      expect(mutationBlockedReason('update', { ...open, provider: 'splunk', writesEnabled: false }))
+        .toBe('Sending changes to Splunk is not enabled for this installation.');
+      expect(mutationBlockedReason('update', { ...open, provider: 'elastic', writesEnabled: false }))
+        .toBe('Sending changes to Elastic is not enabled for this installation.');
+      expect(mutationBlockedReason('update', { ...open, provider: 'sentinel', writesEnabled: false }))
+        .toBe('Sending changes to Sentinel is not enabled for this installation.');
+      expect(mutationBlockedReason('update', { ...open, provider: 'defender_xdr', writesEnabled: false }))
+        .toBe('Sending changes to Defender XDR is not enabled for this installation.');
+      expect(mutationBlockedReason('update', { ...open, provider: 'chronicle', writesEnabled: false }))
+        .toBe('Sending changes to Chronicle is not enabled for this installation.');
     });
   });
 

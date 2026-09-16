@@ -60,10 +60,14 @@ export function InventoryTable({
   onResolveMatch,
   onReview,
   onPreview,
-  providerName = 'the connected SIEM',
+  providerName,
 }: InventoryTableProps): React.JSX.Element {
   const showSelection = !!onTogglePage;
   const allEligibleSelected = showSelection && !!pageAllSelected;
+  // Two different defaults on purpose: the SIEM-state column has always said "the connected
+  // SIEM" when no provider is known, while importBlockedReason's own default (undefined here)
+  // renders 'CrowdStrike' -- unchanged from every caller written before multi-provider support.
+  const siemStateProviderName = providerName ?? 'the connected SIEM';
 
   if (loading) {
     return (
@@ -90,7 +94,7 @@ export function InventoryTable({
                 />
               </th>
             )}
-            {['Rule', 'In library', `In ${providerName}`, 'Import eligibility'].map((label) => (
+            {['Rule', 'In library', `In ${siemStateProviderName}`, 'Import eligibility'].map((label) => (
               <th key={label} scope="col" className="px-5 py-2.5 font-medium whitespace-nowrap">
                 {label}
               </th>
@@ -104,7 +108,7 @@ export function InventoryTable({
           {rows.map((row) => {
             // One predicate for the checkbox, the tooltip and the eligibility column, shared with
             // the server: the table must never offer an import that siem_start_import would skip.
-            const blocked = importBlockedReason(row);
+            const blocked = importBlockedReason({ ...row, provider: providerName });
             const eligible = blocked === null;
             const canOpenLibraryRule = row.detection_id != null;
             const canReviewChanges = row.binding_id != null;
@@ -146,7 +150,7 @@ export function InventoryTable({
                     title={`Last checked ${new Date(row.last_seen_at).toLocaleString()}`}
                     className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs bg-surface-container-high text-on-surface-variant"
                   >
-                    {siemStateLabel(row, providerName)}
+                    {siemStateLabel(row, siemStateProviderName)}
                   </span>
                 </td>
                 <td className="px-5 py-3.5 text-xs text-on-surface-variant">

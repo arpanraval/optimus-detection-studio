@@ -174,6 +174,28 @@ export function providerCapabilities(provider: string | null | undefined): Provi
 /** Kept as the CrowdStrike-specific name the rest of the adapter already used. */
 export const SUPPORTED_MUTATION_FAMILIES = PROVIDER_CAPABILITIES.crowdstrike.writeFamilies;
 
+/** Human-readable vendor names for the refusal strings below. Keyed the same as
+ *  PROVIDER_CAPABILITIES; an unknown provider falls back to 'CrowdStrike' so pre-multi-provider
+ *  callers (context.provider omitted) keep their exact original wording. */
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  crowdstrike: 'CrowdStrike',
+  splunk: 'Splunk',
+  sentinel: 'Sentinel',
+  elastic: 'Elastic',
+  defender_xdr: 'Defender XDR',
+  chronicle: 'Chronicle',
+};
+
+/** Resolves a provider slug (e.g. 'splunk') to its display name. A value that is not a known
+ *  slug -- e.g. a caller that already has a display string such as `integration.name` -- is
+ *  returned verbatim rather than mapped, so this also doubles as "already a label, pass through".
+ *  Omitted/empty defaults to 'CrowdStrike', unchanged from every caller written before
+ *  multi-provider support existed. */
+function providerDisplayName(provider: string | null | undefined): string {
+  if (!provider || !provider.trim()) return 'CrowdStrike';
+  return PROVIDER_DISPLAY_NAMES[provider] ?? provider;
+}
+
 export interface MutationContext {
   /** Installation-wide write gate (NATIVE_SIEM_MUTATIONS). */
   writesEnabled: boolean;
@@ -196,23 +218,24 @@ export interface MutationContext {
 export function mutationBlockedReason(operation: NativeOperation, context: MutationContext): string | null {
   const provider = context.provider ?? 'crowdstrike';
   const capabilities = providerCapabilities(provider);
+  const providerName = providerDisplayName(provider);
   if (!context.writesEnabled) {
-    return 'Sending changes to CrowdStrike is not enabled for this installation.';
+    return `Sending changes to ${providerName} is not enabled for this installation.`;
   }
   if (!capabilities.operations.includes(operation)) {
     return `Optimus cannot ${operation} rules in ${provider}.`;
   }
   if (context.ruleFamily && !capabilities.writeFamilies.includes(context.ruleFamily)) {
-    return `Optimus can read ${context.ruleFamily} rules but cannot change them in CrowdStrike.`;
+    return `Optimus can read ${context.ruleFamily} rules but cannot change them in ${providerName}.`;
   }
   if (context.bindingStatus !== 'active') {
-    return 'This rule is no longer tracked in CrowdStrike. Restore tracking before changing it.';
+    return `This rule is no longer tracked in ${providerName}. Restore tracking before changing it.`;
   }
   if (context.pendingOperation) {
     return 'An earlier change to this rule has not finished. Fetch rules again to see where it got to.';
   }
   if (context.availability === 'missing') {
-    return 'This rule is no longer in CrowdStrike.';
+    return `This rule is no longer in ${providerName}.`;
   }
   if (context.availability !== 'present') {
     return 'The last check could not read this rule. Fetch rules again before changing it.';
@@ -224,13 +247,13 @@ export function mutationBlockedReason(operation: NativeOperation, context: Mutat
     return 'This rule has never been reconciled. Choose which version is correct first.';
   }
   if (operation === 'update') {
-    if (context.drift === 'in_sync') return 'The library copy already matches CrowdStrike.';
+    if (context.drift === 'in_sync') return `The library copy already matches ${providerName}.`;
     return null;
   }
   // Enable/disable sends the CURRENT remote content with one field flipped. Doing that while
   // production has moved on would quietly revert whatever changed there.
   if (context.drift === 'remote_changed' || context.drift === 'conflict') {
-    return 'CrowdStrike changed since you last checked. Review the difference before enabling or disabling.';
+    return `${providerName} changed since you last checked. Review the difference before enabling or disabling.`;
   }
   return null;
 }
@@ -325,7 +348,11 @@ export const RELATIONSHIP_LABELS: Record<InventoryRelationship, string> = {
 };
 
 /** Per-rule outcome of one submitted import job. Deliberately disjoint from
- *  RELATIONSHIP_LABELS: membership and job result are different columns. */
+ *  RELATIONSHIP_LABELS: membership and job result are different columns.
+ *
+ *  Kept exactly as-is (including 'Seen in CrowdStrike') for callers that predate multi-provider
+ *  support and cannot supply a provider. New call sites should use `importOutcomeLabel` below,
+ *  which names the actual connection's provider instead of always saying CrowdStrike. */
 export const IMPORT_OUTCOME_LABELS: Record<string, string> = {
   pending: 'Waiting to import',
   imported: 'Newly imported',
@@ -341,6 +368,22 @@ export const IMPORT_OUTCOME_LABELS: Record<string, string> = {
   failed: 'Import failed',
   observed: 'Seen in CrowdStrike',
 };
+
+/** Same vocabulary as IMPORT_OUTCOME_LABELS, but the one entry that names a vendor ('observed')
+ *  is rendered with the actual connection's provider rather than a hardcoded 'CrowdStrike'. Task
+ *  15's "Import unavailable · {reason}" wrapper renders IMPORT_OUTCOME_LABELS verbatim for every
+ *  provider, so a Splunk or Elastic row previously said "Seen in CrowdStrike" regardless of which
+ *  SIEM it actually came from.
+ *
+ *  `providerDisplayNameOrLabel` accepts either a registry slug (e.g. 'splunk', looked up the same
+ *  way as mutationBlockedReason/importBlockedReason) or an already-resolved display string (e.g.
+ *  a connection's own `integration.name`); a slug hit in the lookup table wins, otherwise the
+ *  string is used verbatim so a caller that already computed a display name is not double-mapped.
+ *  Omitted/falsy defaults to 'CrowdStrike', unchanged from before this function existed. */
+export function importOutcomeLabel(status: string, providerDisplayNameOrLabel?: string | null): string {
+  if (status === 'observed') return `Seen in ${providerDisplayName(providerDisplayNameOrLabel)}`;
+  return IMPORT_OUTCOME_LABELS[status] ?? status;
+}
 
 export function isImportEligible(relationship: InventoryRelationship): boolean {
   return relationship === 'not_in_library';
@@ -359,6 +402,11 @@ export function importBlockedReason(row: {
   availability: 'present' | 'missing' | 'unknown';
   latest_snapshot_id: string | null;
   normalization_error: string | null;
+  /** Accepts either a registry slug (e.g. 'splunk') or an already-resolved display string
+   *  (e.g. a connection's own `integration.name`), same dual mode as importOutcomeLabel.
+   *  Omitted/falsy defaults to 'CrowdStrike', unchanged from every caller written before
+   *  multi-provider support existed. */
+  provider?: string | null;
 }): string | null {
   switch (row.relationship) {
     case 'already_in_library': return 'Already in library';
@@ -366,8 +414,9 @@ export function importBlockedReason(row: {
     case 'match_needed': return 'Needs matching to an existing library rule first';
     case 'unsupported': return row.normalization_error || 'Not supported';
   }
-  if (row.availability === 'missing') return 'No longer in CrowdStrike';
+  const providerName = providerDisplayName(row.provider);
+  if (row.availability === 'missing') return `No longer in ${providerName}`;
   if (row.availability !== 'present') return 'Could not be read in the last check';
-  if (!row.latest_snapshot_id) return 'Not read from CrowdStrike yet';
+  if (!row.latest_snapshot_id) return `Not read from ${providerName} yet`;
   return null;
 }

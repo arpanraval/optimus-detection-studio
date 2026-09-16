@@ -508,6 +508,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
         run={importRun}
         results={importResults}
         displayNames={importDisplayNames}
+        providerName={providerName}
         onCancel={() => void handleCancelImport()}
         onRetry={() => void handleRetryImport()}
         onDismiss={handleDismissImport}
