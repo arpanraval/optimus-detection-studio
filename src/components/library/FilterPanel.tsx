@@ -31,7 +31,7 @@ const REVIEW_STATUS_OPTIONS = ['none', 'requested', 'in_review', 'approved', 're
 const PROMOTION_STATUS_OPTIONS = ['none', 'pending', 'promoted', 'rejected'];
 const VALIDATED_OPTIONS = ['true', 'false'];
 const QUERY_LANGUAGE_OPTIONS = [...QUERY_LANGUAGES];
-const SOURCE_OPTIONS = ['custom', 'sigmahq', 'splunk_escu', 'elastic', 'microsoft_sentinel', 'crowdstrike', 'chronicle', 'community'];
+const SOURCE_OPTIONS = ['custom', 'sigmahq', 'splunk_escu', 'elastic', 'microsoft_sentinel', 'crowdstrike', 'chronicle', 'community', 'native_siem'];
 
 /** All filter fields with their static/dynamic options */
 interface FilterFieldDef {

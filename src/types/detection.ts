@@ -27,7 +27,11 @@ export type ReviewRequestStatus = 'pending' | 'in_progress' | 'approved' | 'reje
 // LIBRARY VIEW TYPES
 // ============================================
 
-export type DetectionSource = 'custom' | 'sigmahq' | 'splunk_escu' | 'elastic' | 'microsoft_sentinel' | 'crowdstrike' | 'chronicle' | 'community';
+// 'native_siem' is a rule imported through the durable multi-provider import engine (see
+// native_provenance.kind, which already carries this same string plus a free-form `provider`).
+// It is distinct from the legacy single-vendor sources above ('crowdstrike', 'elastic', etc.),
+// which predate that pipeline and do not carry a native_provenance record.
+export type DetectionSource = 'custom' | 'sigmahq' | 'splunk_escu' | 'elastic' | 'microsoft_sentinel' | 'crowdstrike' | 'chronicle' | 'community' | 'native_siem';
 
 // ============================================
 // MITRE-LINKED TYPES
@@ -114,6 +118,11 @@ export interface Detection {
     availability: string;
     observed_enabled: boolean | null;
     last_seen_at: string;
+    /** The provider this specific binding targets. Lives directly on siem_rule_bindings
+     *  (constrained to the six import providers) so a rule with multiple bindings can name each
+     *  target correctly rather than assuming they all share one provider. */
+    provider?: string | null;
+    integrations?: { name: string | null } | null;
   }>;
   native_provenance?: { kind: 'native_siem'; provider: string; connection_name: string; imported_at: string } | null;
   // === IDENTITY ===

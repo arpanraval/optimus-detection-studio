@@ -382,7 +382,7 @@ describe('SiemLibraryBadge', () => {
         }
       />,
     );
-    expect(screen.getByText('CrowdStrike · Unknown')).toBeTruthy();
+    expect(screen.getByText('CrowdStrike Falcon · State unavailable')).toBeTruthy();
   });
 
   // siem_link_existing deliberately preserves a GitHub or legacy rule's own provenance when it is
@@ -401,13 +401,14 @@ describe('SiemLibraryBadge', () => {
                 availability: 'present',
                 observed_enabled: true,
                 last_seen_at: '2026-09-15T00:00:00Z',
+                provider: 'crowdstrike',
               },
             ],
           } as unknown as Detection
         }
       />,
     );
-    expect(screen.getByText('CrowdStrike · Enabled')).toBeTruthy();
+    expect(screen.getByText('CrowdStrike Falcon · Enabled')).toBeTruthy();
   });
 
   it('shows nothing for a rule with neither provenance nor a binding', () => {
@@ -441,7 +442,30 @@ describe('SiemLibraryBadge', () => {
         }
       />,
     );
-    expect(screen.getByText('CrowdStrike · Enabled')).toBeTruthy();
+    expect(screen.getByText('CrowdStrike Falcon · Enabled')).toBeTruthy();
+  });
+
+  it('compresses multiple bindings into a "SIEM ×N" badge with an accessible popover, never a flattened Enabled claim', async () => {
+    render(
+      <SiemLibraryBadge
+        detection={
+          {
+            status: 'Production',
+            siem_observations: [
+              { id: 'b1', binding_status: 'active', availability: 'present', observed_enabled: true,
+                last_seen_at: '2026-09-15T00:00:00Z', provider: 'crowdstrike' },
+              { id: 'b2', binding_status: 'active', availability: 'present', observed_enabled: false,
+                last_seen_at: '2026-09-14T00:00:00Z', provider: 'splunk' },
+            ],
+          } as unknown as Detection
+        }
+      />,
+    );
+    const toggle = screen.getByRole('button', { name: 'SIEM ×2' });
+    expect(screen.queryByText(/^CrowdStrike Falcon · Enabled$/)).toBeNull();
+    fireEvent.click(toggle);
+    expect(await screen.findByText('CrowdStrike Falcon · Enabled')).toBeTruthy();
+    expect(screen.getByText('Splunk · Disabled')).toBeTruthy();
   });
 });
 

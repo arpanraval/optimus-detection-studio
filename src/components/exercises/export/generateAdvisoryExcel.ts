@@ -470,6 +470,7 @@ export async function generateAdvisoryExcel(report: StateSponsoredReport): Promi
     chronicle: 'Chronicle',
     community: 'Community',
     custom: 'Custom',
+    native_siem: 'SIEM Import',
   };
 
   const detectionsBySource = new Map<string, ReportDetection[]>();
