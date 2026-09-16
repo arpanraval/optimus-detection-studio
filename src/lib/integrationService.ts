@@ -1,5 +1,6 @@
 import { logger } from './logger';
 import { supabase } from './supabaseClient';
+import { supportsNativeImport } from './providerMeta';
 import type {
   Integration,
   IntegrationProvider,
@@ -2171,8 +2172,56 @@ async function devToggleElasticRule(
 }
 
 // =============================================================================
-// Dev-mode delete for Elastic (missing from existing code)
+// Dev-mode list for Elastic (was missing: the toggle/delete dev paths above already existed for
+// Elastic, but the list switch below did not have a case for it, so a dev-mode Elastic
+// connection fell into the `default` throw for `listVendorRules` alone).
 // =============================================================================
+
+async function devListElasticRules(
+  config: Record<string, unknown>,
+  credentials: Record<string, string>
+): Promise<unknown[]> {
+  const host = config.host as string;
+  const port = config.port as number || 9200;
+  const ssl = config.ssl !== false;
+  const protocol = ssl ? 'https' : 'http';
+  let baseUrl = `${protocol}://${host}:${port}`;
+  if (config.spaceId) baseUrl += `/s/${encodeURIComponent(String(config.spaceId))}`;
+
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    'kbn-xsrf': 'true',
+  };
+  if (credentials.apiKey) {
+    headers['Authorization'] = `ApiKey ${credentials.apiKey}`;
+  } else if (credentials.username && credentials.password) {
+    headers['Authorization'] = `Basic ${btoa(`${credentials.username}:${credentials.password}`)}`;
+  }
+
+  const res = await devProxy(
+    `${baseUrl}/api/detection_engine/rules/_find?per_page=200`,
+    'GET',
+    headers
+  );
+
+  if (!res.ok) {
+    throw new Error(`Elastic list rules failed (${res.status}): ${res.body.slice(0, 200)}`);
+  }
+
+  const data = JSON.parse(res.body);
+  // Same shape normalizeVendorRule's 'elastic' branch already reads (id/name/enabled/query/
+  // language/severity/type) -- matching the projection the production edge function's
+  // elasticListRules sends, so dev and prod agree on what a rule looks like.
+  return (data?.data || []).map((rule: any) => ({
+    id: rule.rule_id,
+    name: rule.name,
+    enabled: rule.enabled === true,
+    query: rule.query ?? null,
+    language: rule.language,
+    severity: rule.severity,
+    type: rule.type,
+  }));
+}
 
 async function devDeleteElasticRule(
   config: Record<string, unknown>,
@@ -2972,6 +3021,8 @@ export const integrationService = {
           return devListCrowdStrikeRules(config, credentials);
         case 'chronicle':
           return devListChronicleRules(config, credentials);
+        case 'elastic':
+          return devListElasticRules(config, credentials);
         default:
           throw new Error(`Dev mode list rules not implemented for ${integration.provider}`);
       }
@@ -3140,7 +3191,12 @@ export const integrationService = {
   },
 
   async importVendorRule(rule: VendorRule): Promise<string> {
-    if (rule.provider === 'crowdstrike') throw new Error('Use “Sync rules to Production Library” on the connection to import and link this rule.');
+    // Every provider whose durable import is enabled (supportsNativeImport) goes through
+    // "Sync rules to Production Library" on the connection instead -- this legacy path predates
+    // matching/linking, duplicate detection and event recording, none of which it has. CrowdStrike
+    // was blocked here first; this is the same guard applied to the other five now that their
+    // durable readers exist. A provider without the capability keeps this path exactly as before.
+    if (supportsNativeImport(rule.provider)) throw new Error('Use “Sync rules to Production Library” on the connection to import and link this rule.');
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
@@ -3160,11 +3216,23 @@ export const integrationService = {
     const normalizedLang = queryLanguageMap[rule.queryLanguage.toUpperCase()] || rule.queryLanguage;
 
     // Determine source based on provider
+    // This path is unreachable today for every provider supportsNativeImport() covers (blocked
+    // above); it only still runs for a provider that has NOT been given durable import, or if one
+    // is rolled back later. The map is still fixed here so it is correct the moment that happens.
+    //
+    // Defender XDR used to share 'microsoft_sentinel' with the actual Sentinel entry -- a
+    // confirmed defect, not a deliberate choice, so a Defender-imported row was mislabelled as
+    // Sentinel-sourced. There is no dedicated DetectionSource value for Defender XDR (see
+    // types/detection.ts), and the durable path's own rows use 'native_siem' (Task 17), so that is
+    // what a Defender import through this legacy path gets now instead of colliding with Sentinel.
+    // Existing rows already written with 'microsoft_sentinel' are NOT rewritten here -- there is
+    // no way to tell, after the fact, which of those rows actually came from Defender vs Sentinel
+    // without proven native provenance, and guessing would corrupt correct Sentinel rows.
     const sourceMap: Record<string, string> = {
       splunk: 'splunk_escu',
       sentinel: 'microsoft_sentinel',
       elastic: 'elastic',
-      defender_xdr: 'microsoft_sentinel',
+      defender_xdr: 'native_siem',
       crowdstrike: 'crowdstrike',
       chronicle: 'chronicle',
     };
