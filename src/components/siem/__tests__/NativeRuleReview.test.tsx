@@ -46,7 +46,7 @@ describe('NativeRuleReview production actions', () => {
     const toggle = vi.spyOn(integrationService, 'toggleVendorRule').mockResolvedValue(undefined as never);
     render(<NativeRuleReview bindingId="b1" />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Disable rule in CrowdStrike' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Disable rule in the connected SIEM' }));
     expect(screen.getByRole('alertdialog').textContent).toContain('rule-42');
     fireEvent.click(screen.getByRole('button', { name: /^Confirm$/ }));
 
@@ -58,8 +58,8 @@ describe('NativeRuleReview production actions', () => {
       .mockResolvedValue(previewFixture({ remote: { ...content, enabled: false } }) as never);
     render(<NativeRuleReview bindingId="b1" />);
 
-    expect(await screen.findByRole('button', { name: 'Enable rule in CrowdStrike' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Disable rule in CrowdStrike' })).toBeNull();
+    expect(await screen.findByRole('button', { name: 'Enable rule in the connected SIEM' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Disable rule in the connected SIEM' })).toBeNull();
   });
 
   // Deleting the rule in CrowdStrike is a different act from deleting the library copy, and the
@@ -69,7 +69,7 @@ describe('NativeRuleReview production actions', () => {
     const remove = vi.spyOn(integrationService, 'deleteVendorRule').mockResolvedValue(undefined as never);
     render(<NativeRuleReview bindingId="b1" />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Delete rule from CrowdStrike' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete rule from the connected SIEM' }));
     const dialog = screen.getByRole('alertdialog');
     expect(dialog.textContent).toContain('rule-42');
     expect(dialog.textContent).toContain('not Delete from library');
@@ -103,7 +103,7 @@ describe('NativeRuleReview production actions', () => {
     }) as never);
     render(<NativeRuleReview bindingId="b1" />);
 
-    const disable = await screen.findByRole('button', { name: 'Disable rule in CrowdStrike' });
+    const disable = await screen.findByRole('button', { name: 'Disable rule in the connected SIEM' });
     expect((disable as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(/Review the difference before enabling or disabling/)).toBeTruthy();
   });

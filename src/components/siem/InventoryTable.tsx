@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { routeHelpers } from '@/router/routes';
 import {
-  RELATIONSHIP_LABELS,
   importBlockedReason,
   type InventoryRow,
 } from '../../../supabase/functions/_shared/native-siem-model';
@@ -20,11 +19,34 @@ export interface InventoryTableProps {
   onReview?: (row: InventoryRow) => void;
   /** Opens the read-only look at a rule that is not in the library yet. */
   onPreview?: (row: InventoryRow) => void;
+  providerName?: string;
 }
 
-function siemStateLabel(row: InventoryRow): string {
-  if (row.availability === 'missing') return 'Not found';
-  if (row.availability !== 'present' || row.observed_enabled === null) return 'Unknown';
+// The vocabulary a user sees for library membership. Deliberately its own map rather than
+// reusing RELATIONSHIP_LABELS verbatim: that shared map is a server-side relationship id-to-word
+// mapping used by tests on both sides of the edge-function boundary, and this row is presentation
+// only, worded to the spec's row-state vocabulary (spec section 5).
+const LIBRARY_STATE_LABELS: Record<InventoryRow['relationship'], string> = {
+  not_in_library: 'Not in library',
+  already_in_library: 'In library',
+  archived_in_library: 'Archived in library',
+  match_needed: 'Possible library match',
+  unsupported: 'Import unavailable · Unsupported rule family',
+};
+
+/** Import eligibility, worded to the spec vocabulary. Unsupported is not a transient error, so
+ *  it is never phrased as one and never offers Retry — that stays the caller's job (no Retry
+ *  action is rendered from this label). */
+function importEligibilityLabel(row: InventoryRow, blocked: string | null): string {
+  if (blocked === null) return 'Ready to import';
+  if (row.relationship === 'unsupported') return `Import unavailable · ${blocked}`;
+  return `Import unavailable · ${blocked}`;
+}
+
+function siemStateLabel(row: InventoryRow, providerName: string): string {
+  if (row.availability === 'missing') return `Not found in ${providerName}`;
+  if (row.normalization_error) return `Could not read · ${row.normalization_error}`;
+  if (row.availability !== 'present' || row.observed_enabled === null) return 'State unavailable';
   return row.observed_enabled ? 'Enabled' : 'Disabled';
 }
 
@@ -38,6 +60,7 @@ export function InventoryTable({
   onResolveMatch,
   onReview,
   onPreview,
+  providerName = 'the connected SIEM',
 }: InventoryTableProps): React.JSX.Element {
   const showSelection = !!onTogglePage;
   const allEligibleSelected = showSelection && !!pageAllSelected;
@@ -67,7 +90,7 @@ export function InventoryTable({
                 />
               </th>
             )}
-            {['Rule', 'In library', 'In CrowdStrike', 'Import eligibility'].map((label) => (
+            {['Rule', 'In library', `In ${providerName}`, 'Import eligibility'].map((label) => (
               <th key={label} scope="col" className="px-5 py-2.5 font-medium whitespace-nowrap">
                 {label}
               </th>
@@ -117,17 +140,17 @@ export function InventoryTable({
                     <span>{row.rule_family}</span>
                   </div>
                 </td>
-                <td className="px-5 py-3.5 whitespace-nowrap">{RELATIONSHIP_LABELS[row.relationship]}</td>
+                <td className="px-5 py-3.5 whitespace-nowrap">{LIBRARY_STATE_LABELS[row.relationship]}</td>
                 <td className="px-5 py-3.5 whitespace-nowrap">
                   <span
                     title={`Last checked ${new Date(row.last_seen_at).toLocaleString()}`}
                     className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs bg-surface-container-high text-on-surface-variant"
                   >
-                    {siemStateLabel(row)}
+                    {siemStateLabel(row, providerName)}
                   </span>
                 </td>
                 <td className="px-5 py-3.5 text-xs text-on-surface-variant">
-                  {blocked ?? 'Ready to import'}
+                  {importEligibilityLabel(row, blocked)}
                 </td>
                 <td className="px-5 py-3.5 text-right">
                   <div className="flex flex-wrap items-center justify-end gap-1">

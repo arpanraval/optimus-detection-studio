@@ -34,7 +34,7 @@ describe('inventory table', () => {
         />
       </MemoryRouter>,
     );
-    expect(screen.getByText('Not read from CrowdStrike yet')).toBeTruthy();
+    expect(screen.getByText('Import unavailable · Not read from CrowdStrike yet')).toBeTruthy();
     expect(screen.queryByText('Ready to import')).toBeNull();
     expect((screen.getByRole('checkbox', { name: /Select Suspicious process/ }) as HTMLInputElement).disabled).toBe(true);
   });
@@ -51,7 +51,7 @@ describe('inventory table', () => {
         />
       </MemoryRouter>,
     );
-    expect(screen.getByText('No longer in CrowdStrike')).toBeTruthy();
+    expect(screen.getByText('Not found in the connected SIEM')).toBeTruthy();
     expect((screen.getByRole('checkbox', { name: /Select Suspicious process/ }) as HTMLInputElement).disabled).toBe(true);
   });
 
@@ -93,19 +93,19 @@ describe('inventory table', () => {
   it('links an imported rule to its detection', () => {
     draw([{ ...base, relationship: 'already_in_library', binding_status: 'active', detection_id: 'd1' }]);
     expect(screen.getByRole('link', { name: /Suspicious process/ }).getAttribute('href')).toContain('d1');
-    expect(screen.getAllByText('Already in library').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('In library').length).toBeGreaterThan(0);
   });
 
   it('never reports an unread rule as disabled', () => {
     draw([{ ...base, availability: 'unknown', observed_enabled: null }]);
-    expect(screen.getByText('Unknown')).toBeTruthy();
+    expect(screen.getByText('State unavailable')).toBeTruthy();
     expect(screen.queryByText('Disabled')).toBeNull();
   });
 
   it('explains why an unsupported rule cannot be imported', () => {
     draw([{ ...base, relationship: 'unsupported', normalization_error: 'Unsupported rule: no CQL query' }]);
-    expect(screen.getByText('Unsupported')).toBeTruthy();
-    expect(screen.getByText('Unsupported rule: no CQL query')).toBeTruthy();
+    expect(screen.getByText('Import unavailable · Unsupported rule family')).toBeTruthy();
+    expect(screen.getByText('Import unavailable · Unsupported rule: no CQL query')).toBeTruthy();
   });
 
   it('offers no per-row import action', () => {

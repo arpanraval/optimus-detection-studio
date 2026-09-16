@@ -70,10 +70,12 @@ export function BoundRuleConfig({
   draft,
   onChange,
   disabled,
+  providerName = 'the connected SIEM',
 }: {
   draft: BoundConfigDraft;
   onChange: (draft: BoundConfigDraft) => void;
   disabled?: boolean;
+  providerName?: string;
 }): React.JSX.Element {
   const set = <K extends keyof BoundConfigDraft>(key: K, value: BoundConfigDraft[K]) =>
     onChange({ ...draft, [key]: value });
@@ -127,7 +129,7 @@ export function BoundRuleConfig({
           <span className="block text-[11px] text-on-surface-variant mt-1">e.g. &quot;@every 1h0m&quot; (min &quot;@every 0h5m&quot;)</span>
         </label>
         <label className="block">
-          <span className="block text-xs font-medium text-on-surface-variant mb-1">Status in CrowdStrike</span>
+          <span className="block text-xs font-medium text-on-surface-variant mb-1">Status in {providerName}</span>
           <select
             value={draft.enabled ? 'active' : 'inactive'}
             onChange={(event) => set('enabled', event.target.value === 'active')}
@@ -141,7 +143,7 @@ export function BoundRuleConfig({
       </div>
       <p className="text-[11px] text-on-surface-variant">
         Changes here are saved to the library copy when you deploy. Every other setting — trigger
-        mode, suppression, notifications — is left exactly as CrowdStrike has it.
+        mode, suppression, notifications — is left exactly as {providerName} has it.
       </p>
     </section>
   );

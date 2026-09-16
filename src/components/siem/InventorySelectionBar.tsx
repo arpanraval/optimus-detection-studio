@@ -11,6 +11,7 @@ export interface InventorySelectionBarProps {
   onClear: () => void;
   onSubmit: () => void;
   submitting?: boolean;
+  providerName?: string;
 }
 
 /** Sticky bar surfacing the current selection and the (stubbed) import action.
@@ -25,6 +26,7 @@ export function InventorySelectionBar({
   onClear,
   onSubmit,
   submitting = false,
+  providerName = 'the connected SIEM',
 }: InventorySelectionBarProps): React.JSX.Element | null {
   if (selectedCount === 0 && !clearedByFilterChange) return null;
 
@@ -43,12 +45,12 @@ export function InventorySelectionBar({
       )}
       {!discoveryComplete && (
         <p className="mb-2 text-xs text-on-surface-variant">
-          Still checking CrowdStrike. You can import the rules found so far.
+          Still checking {providerName}. You can import the rules found so far.
         </p>
       )}
       {clearedByFilterChange && (
         <p role="status" className="mb-2 text-xs text-on-surface-variant">
-          Selection cleared because the filter changed.
+          Selection cleared because the connection, scan, or filter changed.
         </p>
       )}
       <div className="flex flex-wrap items-center justify-between gap-3">

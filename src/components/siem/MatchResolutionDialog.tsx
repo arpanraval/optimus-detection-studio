@@ -40,11 +40,12 @@ export interface MatchResolutionDialogProps {
   /** "Import as a separate rule" defers entirely to the normal import flow — this dialog
    *  never starts an import itself, it only hands control back. */
   onImportSeparate: () => void;
+  providerName?: string;
 }
 
 /**
  * Resolves a `match_needed` catalog row: show each candidate with the evidence that makes it
- * eligible, compare the chosen library query against the observed CrowdStrike query, then let
+ * eligible, compare the chosen library query against the observed remote query, then let
  * the user link the existing rule, import a separate copy, or skip.
  */
 export function MatchResolutionDialog({
@@ -53,6 +54,7 @@ export function MatchResolutionDialog({
   onClose,
   onLinked,
   onImportSeparate,
+  providerName = 'connected SIEM',
 }: MatchResolutionDialogProps): React.JSX.Element {
   const [candidates, setCandidates] = React.useState<MatchCandidate[] | null>(null);
   const [remote, setRemote] = React.useState<RuleContent | null>(null);
@@ -112,7 +114,7 @@ export function MatchResolutionDialog({
   return (
     <Modal
       title="Resolve match"
-      subject={{ label: 'CrowdStrike rule', value: row.display_name }}
+      subject={{ label: `${providerName} rule`, value: row.display_name }}
       size="xl"
       onClose={onClose}
       footer={
@@ -143,11 +145,11 @@ export function MatchResolutionDialog({
         {candidates === null && !loadError && <p className="text-sm text-on-surface-variant">Loading candidates…</p>}
         {candidates !== null && !row.latest_snapshot_id && (
           <p role="status" className="text-sm text-on-surface-variant">
-            This rule hasn't been read from CrowdStrike yet, so it can't be linked. Fetch rules again.
+            This rule hasn't been read from {providerName} yet, so it can't be linked. Fetch rules again.
           </p>
         )}
         {candidates !== null && groups.length === 0 && !loadError && (
-          <p className="text-sm text-on-surface-variant">No eligible library rule found for this CrowdStrike rule.</p>
+          <p className="text-sm text-on-surface-variant">No eligible library rule found for this {providerName} rule.</p>
         )}
         <div className="space-y-3">
           {groups.map((group) => (
@@ -203,7 +205,7 @@ export function MatchResolutionDialog({
                 </pre>
               </section>
               <section className="min-w-0 p-3 rounded-xl bg-surface-container-high">
-                <h4 className="text-sm font-semibold mb-2">In CrowdStrike · last fetched</h4>
+                <h4 className="text-sm font-semibold mb-2">In {providerName} · last fetched</h4>
                 <p className="text-sm mb-2">{row.display_name}</p>
                 <pre className="text-xs whitespace-pre-wrap break-words max-h-72 overflow-auto font-mono">
                   {remote?.query ?? ''}

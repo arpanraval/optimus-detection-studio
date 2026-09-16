@@ -65,10 +65,10 @@ describe('NativeRulesPanel', () => {
         <NativeRulesPanel integration={integrationFixture} />
       </MemoryRouter>,
     );
-    expect(await screen.findByText('Could not finish checking CrowdStrike')).toBeTruthy();
+    expect(await screen.findByText('Could not finish checking CrowdStrike Falcon')).toBeTruthy();
     // Shown once, by the run-status banner -- not repeated in the empty state.
     expect(screen.getAllByText('CrowdStrike request failed (429)')).toHaveLength(1);
-    expect(screen.queryByText('No rules in this CrowdStrike account')).toBeNull();
+    expect(screen.queryByText('No rules in this CrowdStrike Falcon account')).toBeNull();
   });
 
   it('does not call the account empty when discovery never completed', async () => {
@@ -86,7 +86,7 @@ describe('NativeRulesPanel', () => {
       </MemoryRouter>,
     );
     expect(await screen.findByText('The last check did not finish')).toBeTruthy();
-    expect(screen.queryByText('No rules in this CrowdStrike account')).toBeNull();
+    expect(screen.queryByText('No rules in this CrowdStrike Falcon account')).toBeNull();
   });
 
   it('calls the account empty only after a completed, fully discovered check', async () => {
@@ -103,7 +103,7 @@ describe('NativeRulesPanel', () => {
         <NativeRulesPanel integration={integrationFixture} />
       </MemoryRouter>,
     );
-    expect(await screen.findByText('No rules in this CrowdStrike account')).toBeTruthy();
+    expect(await screen.findByText('No rules in this CrowdStrike Falcon account')).toBeTruthy();
   });
 
   it('shows the fetch action and the never-fetched empty state', async () => {
@@ -112,7 +112,7 @@ describe('NativeRulesPanel', () => {
         <NativeRulesPanel integration={integrationFixture} />
       </MemoryRouter>,
     );
-    expect(await screen.findByRole('button', { name: 'Fetch rules from CrowdStrike' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Fetch rules from CrowdStrike Falcon' })).toBeTruthy();
     expect(await screen.findByText('No inventory yet')).toBeTruthy();
   });
 
@@ -173,7 +173,7 @@ describe('NativeRulesPanel', () => {
         <NativeRulesPanel integration={integrationFixture} />
       </MemoryRouter>,
     );
-    expect(await screen.findByText('No rules in this CrowdStrike account')).toBeTruthy();
+    expect(await screen.findByText('No rules in this CrowdStrike Falcon account')).toBeTruthy();
     expect(screen.queryByText('No inventory yet')).toBeNull();
   });
 
@@ -318,7 +318,7 @@ describe('NativeRulesPanel import submission', () => {
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Suspicious process 0' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Import selected (1)' }));
 
-    expect(await screen.findByText('Fetch rules from CrowdStrike before importing')).toBeTruthy();
+    expect(await screen.findByText('Fetch rules from CrowdStrike Falcon before importing')).toBeTruthy();
     expect(startImport).not.toHaveBeenCalled();
   });
 

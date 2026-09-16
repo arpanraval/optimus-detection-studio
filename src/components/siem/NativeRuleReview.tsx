@@ -6,17 +6,28 @@ import { NativeLocalEditor } from './NativeLocalEditor';
 import { integrationService } from '@/lib/integrationService';
 import { ruleSettingRows } from './ruleSettings';
 
+/** Worded generically because the drift label is shown before any provider name is known (it
+ *  can be rendered from a preview object alone). Call sites that know the provider append it
+ *  separately (see the "{providerName} last checked" caption). */
 export const NATIVE_DRIFT_LABELS: Record<NativeDrift, string> = {
-  in_sync: 'Matches CrowdStrike',
+  in_sync: 'Matches the connected SIEM',
   local_changed: 'Library changes not sent',
-  remote_changed: 'Changed in CrowdStrike',
+  remote_changed: 'Changed in the connected SIEM',
   conflict: 'Changed in both places',
-  missing: 'No longer in CrowdStrike',
+  missing: 'No longer in the connected SIEM',
   no_baseline: 'Linked, not yet reconciled',
   unknown: 'Comparison unavailable',
 };
 
-export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; onChanged?: () => void }) {
+export function NativeRuleReview({
+  bindingId,
+  onChanged,
+  providerName = 'the connected SIEM',
+}: {
+  bindingId: string;
+  onChanged?: () => void;
+  providerName?: string;
+}) {
   const [preview, setPreview] = useState<NativePreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -90,7 +101,7 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
           <div className="flex flex-wrap items-center gap-3">
             <strong>{NATIVE_DRIFT_LABELS[preview.drift]}</strong>
             <span className="text-xs text-on-surface-variant">
-              CrowdStrike last checked {new Date(preview.binding.last_seen_at).toLocaleString()}
+              {providerName} last checked {new Date(preview.binding.last_seen_at).toLocaleString()}
             </span>
             <Button size="sm" variant="text" onClick={load}>
               Refresh saved comparison
@@ -100,7 +111,7 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
             <div className="p-3 rounded-xl bg-surface-container-high border border-outline-variant">
               <p className="text-sm font-semibold">These two versions have never been reconciled</p>
               <p className="text-sm text-on-surface-variant mt-1">
-                This library rule was linked to a CrowdStrike rule whose query already differed, so there is no
+                This library rule was linked to a {providerName} rule whose query already differed, so there is no
                 agreed version to compare against. Until you decide, Optimus cannot tell which side changed.
               </p>
             </div>
@@ -123,7 +134,7 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
                     {
                       baseline: 'Previous matching version',
                       local: 'In your library',
-                      remote: 'In CrowdStrike · last fetched',
+                      remote: `In ${providerName} · last fetched`,
                     }[key]
                   }
                 </h4>
@@ -164,8 +175,8 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
             ))}
           </div>
           <p className="text-sm text-on-surface-variant">
-            Library edits stay in Optimus until you send them to CrowdStrike. Fetch rules again to check for newer
-            changes made in CrowdStrike.
+            Library edits stay in Optimus until you send them to {providerName}. Fetch rules again to check for newer
+            changes made in {providerName}.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="tonal" disabled={busy} onClick={() => setEditing(!editing)}>
@@ -177,7 +188,7 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
               disabled={busy || preview.binding.availability !== 'present' || preview.drift === 'in_sync'}
               onClick={() => setConfirm('accept')}
             >
-              Replace library copy with CrowdStrike version
+              Replace library copy with {providerName} version
             </Button>
             {preview.drift === 'no_baseline' && (
               <Button
@@ -191,14 +202,14 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
             )}
           </div>
           <p className="text-sm text-on-surface-variant">
-            To send these changes to CrowdStrike, use Deploy on the rule.
+            To send these changes to {providerName}, use Deploy on the rule.
           </p>
 
-          {/* What can be done to the rule IN CROWDSTRIKE. An imported rule has no deployment
+          {/* What can be done to the rule IN THE CONNECTED SIEM. An imported rule has no deployment
               history to act on, so without these there was no route to any of them. The reasons
               come from the server's own predicate, so nothing is offered that it would refuse. */}
           <section className="space-y-2">
-            <h4 className="text-sm font-semibold">In CrowdStrike</h4>
+            <h4 className="text-sm font-semibold">In {providerName}</h4>
             <div className="flex flex-wrap gap-2">
               {(preview.remote.enabled ? ['disable'] : ['enable']).map((operation) => (
                 <Button
@@ -208,7 +219,7 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
                   disabled={busy || !!preview.capabilities[operation as 'enable' | 'disable']}
                   onClick={() => setConfirm(operation as 'enable' | 'disable')}
                 >
-                  {operation === 'enable' ? 'Enable rule in CrowdStrike' : 'Disable rule in CrowdStrike'}
+                  {operation === 'enable' ? `Enable rule in ${providerName}` : `Disable rule in ${providerName}`}
                 </Button>
               ))}
               <Button
@@ -217,7 +228,7 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
                 disabled={busy || !!preview.capabilities.delete}
                 onClick={() => setConfirm('delete')}
               >
-                Delete rule from CrowdStrike
+                Delete rule from {providerName}
               </Button>
             </div>
             {[
@@ -273,18 +284,18 @@ export function NativeRuleReview({ bindingId, onChanged }: { bindingId: string; 
             >
               <p className="text-sm">
                 {confirm === 'enable' || confirm === 'disable'
-                  ? `${confirm === 'enable' ? 'Enable' : 'Disable'} rule ${preview.binding.vendor_rule_id} in CrowdStrike? The library copy is not changed.`
+                  ? `${confirm === 'enable' ? 'Enable' : 'Disable'} rule ${preview.binding.vendor_rule_id} in ${providerName}? The library copy is not changed.`
                   : confirm === 'delete'
-                  ? `Delete rule ${preview.binding.vendor_rule_id} from CrowdStrike? The rule stops running in production. The library copy stays in Optimus — this is not Delete from library.`
+                  ? `Delete rule ${preview.binding.vendor_rule_id} from ${providerName}? The rule stops running in production. The library copy stays in Optimus — this is not Delete from library.`
                   : confirm === 'restore'
                   ? 'Restore this historical query and configuration into a new local revision? Production will not change.'
                   : confirm === 'accept'
                     ? 'Replace the saved library query and supported configuration with the observed production version?'
-                    : 'Keep the library version as it is and record the current CrowdStrike version as the one it diverged from? Neither the library rule nor production changes.'}
+                    : `Keep the library version as it is and record the current ${providerName} version as the one it diverged from? Neither the library rule nor production changes.`}
               </p>
               <p className="text-xs text-on-surface-variant">
                 {confirm === 'enable' || confirm === 'disable' || confirm === 'delete'
-                  ? 'Optimus reads the rule in CrowdStrike first and refuses if it changed since this comparison.'
+                  ? `Optimus reads the rule in ${providerName} first and refuses if it changed since this comparison.`
                   : confirm === 'reconcile'
                   ? 'Future comparisons will show your library edits as unsent changes rather than an unresolved link.'
                   : 'The previous local revision is retained in history.'}

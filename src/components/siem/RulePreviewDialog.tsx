@@ -5,7 +5,7 @@ import { nativeSiemService, type RuleContent } from '@/services/nativeSiemServic
 import type { InventoryRow } from '../../../supabase/functions/_shared/native-siem-model';
 
 /**
- * Read-only look at a CrowdStrike rule that is not in the library yet.
+ * Read-only look at a remote SIEM rule that is not in the library yet.
  *
  * Selecting rules for import without being able to read them first meant choosing by name alone.
  * This shows the observation the last scan recorded — deliberately the stored snapshot, not a
@@ -15,9 +15,11 @@ import type { InventoryRow } from '../../../supabase/functions/_shared/native-si
 export function RulePreviewDialog({
   row,
   onClose,
+  providerName = 'the connected SIEM',
 }: {
   row: InventoryRow;
   onClose: () => void;
+  providerName?: string;
 }): React.JSX.Element {
   const [content, setContent] = React.useState<RuleContent | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -27,7 +29,7 @@ export function RulePreviewDialog({
     setContent(null);
     setError(null);
     if (!row.latest_snapshot_id) {
-      setError('This rule has not been read from CrowdStrike yet. Fetch rules to read it.');
+      setError(`This rule has not been read from ${providerName} yet. Fetch rules to read it.`);
       return;
     }
     void nativeSiemService
@@ -41,11 +43,11 @@ export function RulePreviewDialog({
     return () => {
       cancelled = true;
     };
-  }, [row.latest_snapshot_id]);
+  }, [row.latest_snapshot_id, providerName]);
 
   return (
     <Modal
-      title="Rule in CrowdStrike"
+      title={`Rule in ${providerName}`}
       subject={{ label: 'Rule', value: row.display_name }}
       size="lg"
       onClose={onClose}
@@ -59,7 +61,7 @@ export function RulePreviewDialog({
     >
       <div className="space-y-4">
         <p className="text-xs text-on-surface-variant break-all">
-          CrowdStrike ID: <span className="font-mono">{row.vendor_rule_id}</span> · {row.rule_family} · last checked{' '}
+          {providerName} ID: <span className="font-mono">{row.vendor_rule_id}</span> · {row.rule_family} · last checked{' '}
           {new Date(row.last_seen_at).toLocaleString()}
         </p>
         {error && (
@@ -97,9 +99,9 @@ export function RulePreviewDialog({
               </pre>
             </details>
             {/* Importing copies this revision into the library as a Draft. It is not a deployment,
-                and it does not change anything in CrowdStrike. */}
+                and it does not change anything in the connected SIEM. */}
             <p className="text-xs text-on-surface-variant">
-              Importing copies this version into your Production Library as a Draft. Nothing in CrowdStrike changes.
+              Importing copies this version into your Production Library as a Draft. Nothing in {providerName} changes.
             </p>
           </>
         )}

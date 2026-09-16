@@ -34,14 +34,14 @@ describe('RulePreviewDialog', () => {
     // Reads the snapshot the scan already recorded, which is the revision an import would freeze.
     expect(read).toHaveBeenCalledWith('snap-1');
     // Nothing here writes: previewing is a read, and the copy says so.
-    expect(screen.getByText(/Nothing in CrowdStrike changes/)).toBeTruthy();
+    expect(screen.getByText(/Nothing in the connected SIEM changes/)).toBeTruthy();
   });
 
   it('explains itself rather than showing an empty dialog when the rule was never read', async () => {
     const read = vi.spyOn(nativeSiemService, 'remoteSnapshot');
     render(<RulePreviewDialog row={{ ...row, latest_snapshot_id: null }} onClose={() => {}} />);
 
-    expect((await screen.findByRole('alert')).textContent).toMatch(/has not been read from CrowdStrike yet/);
+    expect((await screen.findByRole('alert')).textContent).toMatch(/has not been read from the connected SIEM yet/);
     expect(read).not.toHaveBeenCalled();
   });
 

@@ -15,6 +15,7 @@ import { RulePreviewDialog } from './RulePreviewDialog';
 import { InventorySelectionBar } from './InventorySelectionBar';
 import { ImportResultsPanel } from './ImportResultsPanel';
 import { nativeSiemService, type ImportResult, type NativeSyncRun } from '@/services/nativeSiemService';
+import { getProviderMeta } from '@/lib/providerMeta';
 import type { InventoryRelationship, InventoryRow } from '../../../supabase/functions/_shared/native-siem-model';
 import { RELATIONSHIP_LABELS } from '../../../supabase/functions/_shared/native-siem-model';
 
@@ -62,6 +63,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
   const totalCount = CHIPS.filter((chip) => chip.id !== 'all')
     .reduce((sum, chip) => sum + (counts[chip.id as InventoryRelationship] ?? 0), 0);
   const hasEverFetched = !!run;
+  const providerName = getProviderMeta(integration.provider)?.name ?? integration.name ?? 'the connected SIEM';
 
   // Connection is part of the selection's identity: without it a panel that switches
   // connection keeps a selection of ids belonging to the previous one.
@@ -193,7 +195,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
       // partial (still-running) inventory run and only rejects `allMatching` against one, which
       // is what the selection bar's "You can import the rules found so far" copy promises.
       const sourceRunId = selection.boundRunId;
-      if (!sourceRunId) throw new Error('Fetch rules from CrowdStrike before importing');
+      if (!sourceRunId) throw new Error(`Fetch rules from ${providerName} before importing`);
       const selectionArgs = selection.selection.mode === 'all_matching'
         ? { allMatching: true, excludeIds: Array.from(selection.selection.excluded).sort() }
         : { ids: Array.from(selection.selection.ids).sort() };
@@ -239,7 +241,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
     try {
       await nativeSiemService.dismissMatch(integration.id, row.id);
       const source = await nativeSiemService.latestRun(integration.id, ['inventory']);
-      if (!source) throw new Error('Fetch rules from CrowdStrike before importing');
+      if (!source) throw new Error(`Fetch rules from ${providerName} before importing`);
       const started = await nativeSiemService.startImport({
         integrationId: integration.id,
         sourceRunId: source.id,
@@ -294,25 +296,25 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
   if (!loading && rows.length === 0) {
     if (search.trim()) {
       emptyHeading = 'No matching rules';
-      emptyBody = 'Try another rule name or CrowdStrike ID.';
+      emptyBody = `Try another rule name or ${providerName} ID.`;
     } else if (relationship !== 'all') {
       emptyHeading = 'Nothing in this view';
       emptyBody = 'Choose All rules to return to the full inventory.';
     } else if (!hasEverFetched) {
       emptyHeading = 'No inventory yet';
       emptyBody =
-        'Fetch rules from CrowdStrike to see what exists in production. Nothing is added to your library until you choose it.';
+        `Fetch rules from ${providerName} to see what exists in production. Nothing is added to your library until you choose it.`;
     } else if (running) {
-      emptyHeading = 'Checking CrowdStrike';
+      emptyHeading = `Checking ${providerName}`;
       emptyBody = 'Rules appear here as they are found.';
     } else if (!inventoryRun) {
       // `run` also covers refresh_tracked, which re-reads rules already tracked and never
-      // enumerates the account. It cannot answer "what exists in CrowdStrike".
+      // enumerates the account. It cannot answer "what exists in the connected SIEM".
       emptyHeading = 'No inventory yet';
       emptyBody =
-        'Fetch rules from CrowdStrike to see what exists in production. Nothing is added to your library until you choose it.';
+        `Fetch rules from ${providerName} to see what exists in production. Nothing is added to your library until you choose it.`;
     } else if (inventoryRun.status === 'failed') {
-      emptyHeading = 'Could not finish checking CrowdStrike';
+      emptyHeading = `Could not finish checking ${providerName}`;
       // The raw vendor message is already shown once by the run-status banner above; repeating it
       // here says the same thing twice and buries the consequence.
       emptyBody =
@@ -324,7 +326,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
       emptyBody = 'Rules may be missing from this list. Fetch rules again to complete the check.';
     } else {
       // Only here has a scan actually enumerated the account and come back empty.
-      emptyHeading = 'No rules in this CrowdStrike account';
+      emptyHeading = `No rules in this ${providerName} account`;
       emptyBody = "This connection's scope contains no correlation rules.";
     }
   }
@@ -335,7 +337,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
         <div>
           <h2 className="text-lg font-semibold text-on-surface">Detection rules</h2>
           <p className="mt-1 text-sm text-on-surface-variant">
-            Source connection: {integration.name || 'CrowdStrike'}
+            Source connection: {integration.name || providerName}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -349,7 +351,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
             Check for SIEM changes
           </Button>
           <Button leadingIcon="download" disabled={running} onClick={() => void startInventory()}>
-            {running ? 'Checking CrowdStrike…' : 'Fetch rules from CrowdStrike'}
+            {running ? `Checking ${providerName}…` : `Fetch rules from ${providerName}`}
           </Button>
         </div>
       </div>
@@ -365,7 +367,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
         </div>
       )}
       <section
-        aria-label="CrowdStrike rule inventory"
+        aria-label={`${providerName} rule inventory`}
         className="overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface-container-low"
       >
         {run && (
@@ -378,7 +380,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
                 />
                 <span className="font-medium text-on-surface">
                   {running
-                    ? 'Checking CrowdStrike…'
+                    ? `Checking ${providerName}…`
                     : run.status === 'failed'
                       ? 'Check failed'
                       : run.status === 'cancelled'
@@ -401,7 +403,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
             {run.error_message && <p className="mt-2 text-xs text-error">{run.error_message}</p>}
             {running && !run.discovery_complete && (
               <p className="mt-2 text-xs text-on-surface-variant">
-                Still checking CrowdStrike. Showing the {totalCount} rules found so far.
+                Still checking {providerName}. Showing the {totalCount} rules found so far.
               </p>
             )}
           </div>
@@ -437,7 +439,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
               type="search"
               leadingIcon="search"
               aria-label="Search production rules"
-              placeholder="Search rules or CrowdStrike ID"
+              placeholder={`Search rules or ${providerName} ID`}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -466,6 +468,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
             pageAllSelected={selection.pageAllSelected}
             onToggle={selection.toggle}
             onTogglePage={selection.togglePage}
+            providerName={providerName}
           />
         )}
         {rows.length > 0 && (
@@ -493,6 +496,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
           onClear={selection.clear}
           onSubmit={() => void handleSubmitImport()}
           submitting={importSubmitting}
+          providerName={providerName}
         />
       </section>
       {importError && (
@@ -527,16 +531,17 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
             </div>
           }
         >
-          <p className="text-xs text-on-surface-variant break-all">CrowdStrike ID: {selected.vendor_rule_id}</p>
-          <NativeRuleReview key={selected.binding_id} bindingId={selected.binding_id} onChanged={() => void reload()} />
+          <p className="text-xs text-on-surface-variant break-all">{providerName} ID: {selected.vendor_rule_id}</p>
+          <NativeRuleReview key={selected.binding_id} bindingId={selected.binding_id} providerName={providerName} onChanged={() => void reload()} />
         </Modal>
       )}
-      {previewRow && <RulePreviewDialog row={previewRow} onClose={() => setPreviewRow(null)} />}
+      {previewRow && <RulePreviewDialog row={previewRow} providerName={providerName} onClose={() => setPreviewRow(null)} />}
       {resolvingRow && (
         <MatchResolutionDialog
           key={resolvingRow.vendor_rule_id}
           integrationId={integration.id}
           row={resolvingRow}
+          providerName={providerName}
           onClose={() => setResolvingRow(null)}
           onLinked={() => {
             setResolvingRow(null);

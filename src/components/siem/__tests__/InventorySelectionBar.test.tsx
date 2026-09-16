@@ -86,7 +86,7 @@ describe('InventorySelectionBar', () => {
     );
     expect(screen.queryByText(/Select all \d+ matching rules/)).toBeNull();
     expect(
-      screen.getAllByText('Still checking CrowdStrike. You can import the rules found so far.').length,
+      screen.getAllByText('Still checking the connected SIEM. You can import the rules found so far.').length,
     ).toBeGreaterThan(0);
   });
 
@@ -119,7 +119,7 @@ describe('InventorySelectionBar', () => {
         onSubmit={noop}
       />,
     );
-    expect(screen.getAllByText('Selection cleared because the filter changed.').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Selection cleared because the connection, scan, or filter changed.').length).toBeGreaterThan(0);
   });
 
   it('enables the submit control and invokes onSubmit when clicked', () => {

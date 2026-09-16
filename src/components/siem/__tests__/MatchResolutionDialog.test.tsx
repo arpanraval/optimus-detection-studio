@@ -133,7 +133,7 @@ describe('MatchResolutionDialog', () => {
   it('renders no candidate rows when a rule has none', async () => {
     draw([]);
     await waitFor(() =>
-      expect(screen.getByText('No eligible library rule found for this CrowdStrike rule.')).toBeTruthy(),
+      expect(screen.getByText('No eligible library rule found for this connected SIEM rule.')).toBeTruthy()
     );
   });
 });

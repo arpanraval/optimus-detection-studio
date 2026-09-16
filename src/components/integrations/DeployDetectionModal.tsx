@@ -1066,7 +1066,12 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                           settings, and a form full of defaults would invite overwriting them. It
                           still needs to SHOW them: the update writes these values. */}
                       {configDraft && (
-                        <BoundRuleConfig draft={configDraft} onChange={setConfigDraft} disabled={deploying} />
+                        <BoundRuleConfig
+                          draft={configDraft}
+                          onChange={setConfigDraft}
+                          disabled={deploying}
+                          providerName={selectedIntegration ? getProviderMeta(selectedIntegration.provider)?.name : undefined}
+                        />
                       )}
                       {/* The drift verdict first: whether anything differs at all is the question,
                           and reading 900 characters across two panes is not how to answer it. */}
