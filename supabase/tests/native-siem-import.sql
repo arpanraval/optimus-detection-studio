@@ -821,6 +821,62 @@ BEGIN
     PERFORM pg_temp.assert_true(count_scope2_after = 1,
       'dismissing one scope''s row leaves the OTHER scope''s row -- same integration, same vendor_rule_id -- untouched');
   END;
+
+  -- G28: the same query in two targets can be a deliberate, explicit choice -- linking
+  -- detection A's qa2 query on a SECOND, independent connection must keep each target's own
+  -- observation/config/baseline apart, and must not touch the first binding or duplicate the
+  -- detection itself.
+  DECLARE
+    rule_second uuid; snap_second uuid; binding_second public.siem_rule_bindings;
+    detection_rows integer; binding_count_a integer;
+  BEGIN
+    INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
+      observed_enabled,availability)
+      VALUES(other_integration,'crowdstrike','scope-link-other','link-rule-second','Match resolution rule A (other target)',
+        true,'present')
+      RETURNING id INTO rule_second;
+    INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+      VALUES(rule_second,'test-v1','hash-link-second','raw-link-second',
+        jsonb_build_object('name','Match resolution rule A (other target)','description','',
+          'query','#event_simpleName=NetworkConnectIP4','language','CQL','severity','High','enabled',true,
+          'config','{}'::jsonb),
+        '{}'::jsonb)
+      RETURNING id INTO snap_second;
+    UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_second WHERE id=rule_second;
+
+    -- Real evidence for the SECOND target, independent of detection A's legacy external_id
+    -- (which points at link-rule-1, not this rule): a successful deployment_history row is the
+    -- OTHER evidence path siem_link_existing accepts, and re-derives server-side rather than
+    -- trusting the caller.
+    INSERT INTO public.deployment_history(user_id,integration_id,detection_id,action,status,vendor_rule_id)
+      VALUES(actor,other_integration,'link-detection-a','create','success','link-rule-second');
+
+    SELECT * INTO binding_second FROM public.siem_link_existing(
+      actor, other_integration, 'link-rule-second', 'link-detection-a', 'qa2', 1, snap_second);
+
+    PERFORM pg_temp.assert_true(binding_second.detection_id = 'link-detection-a',
+      'the second target links to the SAME detection, not a copy');
+    PERFORM pg_temp.assert_true(binding_second.integration_id = other_integration,
+      'the second binding is scoped to the second connection');
+    PERFORM pg_temp.assert_true(binding_second.selected_query_id = 'qa2',
+      'the second binding is pinned to its own query id, independent of the first binding''s qa1');
+    PERFORM pg_temp.assert_true(binding_second.baseline_snapshot_id IS NOT NULL,
+      'the second target establishes its own baseline (query text matches its own remote snapshot)');
+
+    SELECT count(*) INTO detection_rows FROM public.detections WHERE id='link-detection-a';
+    PERFORM pg_temp.assert_true(detection_rows = 1,
+      'linking to a second target never duplicates the detection row');
+
+    SELECT count(*) INTO binding_count_a FROM public.siem_rule_bindings WHERE detection_id='link-detection-a';
+    PERFORM pg_temp.assert_true(binding_count_a = 2,
+      'the detection now carries two independent bindings, one per target');
+
+    -- The first binding (integration/qa1) is untouched by the second link.
+    PERFORM pg_temp.assert_true(
+      (SELECT selected_query_id FROM public.siem_rule_bindings
+        WHERE integration_id=integration AND vendor_rule_id='link-rule-1') = 'qa1',
+      'the first target''s binding keeps its own query id after a second target links the same detection');
+  END;
 END $$;
 
 -- Task 5: matching and linking are provider-neutral. A Splunk remote rule offers only a

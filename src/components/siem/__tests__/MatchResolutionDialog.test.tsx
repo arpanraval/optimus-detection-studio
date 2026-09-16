@@ -136,4 +136,27 @@ describe('MatchResolutionDialog', () => {
       expect(screen.getByText('No eligible library rule found for this connected SIEM rule.')).toBeTruthy()
     );
   });
+
+  it('labels the connection evidence as a Source, not just bare text', async () => {
+    draw(twoQueryCandidate);
+    await waitFor(() => expect(screen.getByText('Two-query rule')).toBeTruthy());
+    expect(screen.getByText('Source:')).toBeTruthy();
+    expect(screen.getAllByText('Legacy external ID matches').length).toBe(1);
+  });
+
+  it('states review status explicitly for both the reconciled and unreconciled case', async () => {
+    draw(twoQueryCandidate);
+    await waitFor(() => expect(screen.getByText('Two-query rule')).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /Two-query rule/ }));
+
+    // q-a matches the mocked remote query verbatim -- reconciled.
+    fireEvent.click(screen.getByRole('radio', { name: 'q-a' }));
+    await waitFor(() =>
+      expect(screen.getByText('Baseline established — library and remote agree.')).toBeTruthy(),
+    );
+
+    // q-b diverges from the mocked remote query -- not reconciled.
+    fireEvent.click(screen.getByRole('radio', { name: 'q-b' }));
+    await waitFor(() => expect(screen.getByText('Not yet reconciled.')).toBeTruthy());
+  });
 });

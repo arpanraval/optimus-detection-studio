@@ -167,7 +167,13 @@ export function MatchResolutionDialog({
                 />
                 <span>
                   <span className="block text-sm font-medium text-on-surface">{group.detection_name}</span>
-                  <span className="block text-xs text-on-surface-variant">{group.evidence}</span>
+                  {/* Connection evidence: siem_match_candidates only ever returns a candidate backed by
+                      deployment history or a legacy external-id match -- never by name alone (spec
+                      section 6 rule 4) -- so this line is always a real reason, not a guess. */}
+                  <span className="block text-xs text-on-surface-variant">
+                    <span className="font-medium">Source: </span>
+                    <span>{group.evidence}</span>
+                  </span>
                 </span>
               </label>
               {detectionId === group.detection_id && group.queries.length > 1 && (
@@ -190,6 +196,10 @@ export function MatchResolutionDialog({
         </div>
         {selectedQuery && (
           <>
+            <p className="text-sm text-on-surface-variant">
+              <span className="font-medium">Review status: </span>
+              {baselineEstablished ? 'Baseline established — library and remote agree.' : 'Not yet reconciled.'}
+            </p>
             {!baselineEstablished && (
               <p role="status" className="text-sm text-on-surface-variant">
                 Baseline not established. Linking will not change either copy. Review the difference before
