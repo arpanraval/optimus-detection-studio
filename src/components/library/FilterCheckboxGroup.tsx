@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { EMPTY_FILTER_LABEL, EMPTY_FILTER_VALUE } from '../../constants/filters';
 
 interface FilterCheckboxGroupProps {
   label: string;
@@ -7,6 +8,8 @@ interface FilterCheckboxGroupProps {
   selected: string[];
   onChange: (field: string, values: string[]) => void;
   searchThreshold?: number;
+  /** Offer a "(None)" row that matches rules with nothing in this field. */
+  showEmptyOption?: boolean;
 }
 
 export function FilterCheckboxGroup({
@@ -16,6 +19,7 @@ export function FilterCheckboxGroup({
   selected,
   onChange,
   searchThreshold = 10,
+  showEmptyOption = false,
 }: FilterCheckboxGroupProps) {
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState(false);
@@ -26,15 +30,30 @@ export function FilterCheckboxGroup({
     return options.filter(o => o.toLowerCase().includes(q));
   }, [options, search]);
 
+  const emptySelected = selected.includes(EMPTY_FILTER_VALUE);
+
+  /**
+   * "(None)" is exclusive within its group: asking for rules with nothing here and rules with a
+   * specific value here is not a question anyone asks, and keeping them apart means the server
+   * builder never has to mix an emptiness check with a value list.
+   */
   const toggleValue = (value: string) => {
-    const next = selected.includes(value)
-      ? selected.filter(v => v !== value)
-      : [...selected, value];
+    if (value === EMPTY_FILTER_VALUE) {
+      onChange(field, emptySelected ? [] : [EMPTY_FILTER_VALUE]);
+      return;
+    }
+    const withoutEmpty = selected.filter(v => v !== EMPTY_FILTER_VALUE);
+    const next = withoutEmpty.includes(value)
+      ? withoutEmpty.filter(v => v !== value)
+      : [...withoutEmpty, value];
     onChange(field, next);
   };
 
   const hasSelected = selected.length > 0;
   const showSearch = options.length > searchThreshold;
+  // Pinned above the values, and searchable by its own label rather than by an option name.
+  const showEmptyRow = showEmptyOption &&
+    (!search.trim() || EMPTY_FILTER_LABEL.toLowerCase().includes(search.trim().toLowerCase()));
 
   return (
     <div className="border-b border-outline-variant/10 last:border-b-0">
@@ -95,13 +114,42 @@ export function FilterCheckboxGroup({
           )}
 
           <div className="max-h-48 overflow-y-auto px-1">
+            {showEmptyRow && (
+              <button
+                onClick={() => toggleValue(EMPTY_FILTER_VALUE)}
+                title={`Rules with no ${label.toLowerCase()}`}
+                className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-xs rounded-lg
+                           transition-colors text-left
+                           ${emptySelected
+                             ? 'bg-white/[0.06] text-on-surface font-medium'
+                             : 'text-on-surface-variant hover:bg-white/[0.03]'
+                           }`}
+              >
+                <div
+                  className={`w-3.5 h-3.5 rounded flex-shrink-0 border flex items-center justify-center
+                             ${emptySelected
+                               ? 'bg-on-surface-variant border-on-surface-variant'
+                               : 'border-outline-variant/40'
+                             }`}
+                >
+                  {emptySelected && (
+                    <svg viewBox="0 0 12 12" className="w-2.5 h-2.5 text-surface" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M2 6l3 3 5-5" />
+                    </svg>
+                  )}
+                </div>
+                <span className="truncate italic">{EMPTY_FILTER_LABEL}</span>
+              </button>
+            )}
             {filteredOptions.length === 0 ? (
-              <div className="px-3 py-2 text-xs text-on-surface-variant/40 italic">
-                No matches
-              </div>
+              !showEmptyRow && (
+                <div className="px-3 py-2 text-xs text-on-surface-variant/40 italic">
+                  No matches
+                </div>
+              )
             ) : (
               filteredOptions.map(option => {
-                const isChecked = selected.includes(option);
+                const isChecked = selected.includes(option) && option !== EMPTY_FILTER_VALUE;
                 return (
                   <button
                     key={option}

@@ -15,7 +15,8 @@ import {
   exportDetections,
   ExportFormat
 } from './export-utils';
-import { batchResolveTechniques } from '../mitre';
+import { resolveSelectedMitreMappings, type MappingResult } from '../services/mitreMappingService';
+import { BulkMitreMappingDialog } from './library/BulkMitreMappingDialog';
 import { supabase } from '../lib/supabaseClient';
 import { useToast } from '../hooks/useToast';
 import { BulkActionBar } from './library/BulkActionBar';
@@ -30,6 +31,7 @@ import { useDetectionPatterns } from '../hooks/useDetectionPatterns';
 import { useClickOutside } from '../hooks/useClickOutside';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { getQualityGrade } from '../lib/utils/formatting';
+import { hydrateDetections } from '../lib/detectionHydration';
 import { ErrorBoundary, DefaultErrorFallback } from './ErrorBoundary';
 
 // ============================================================================
@@ -79,10 +81,6 @@ interface ViewPreset {
 
 const SEVERITY_ORDER: Record<string, number> = { Critical: 4, High: 3, Medium: 2, Low: 1, Informational: 0 };
 const STATUS_ORDER: Record<string, number> = { Production: 6, Testing: 5, Review: 4, Development: 3, Draft: 2, Backlog: 1, Deprecated: 0, Archived: -1 };
-
-// Special value for filtering empty/missing values
-const EMPTY_FILTER_VALUE = '__EMPTY__';
-const EMPTY_FILTER_LABEL = '(Empty)';
 
 const ALL_FILTER_FIELDS: FilterConfig[] = [
   { key: 'technology', label: 'Technology', type: 'string' },
@@ -150,6 +148,37 @@ const DEFAULT_PRESETS: ViewPreset[] = [
   { id: 'prod-high', name: 'Prod & High Sev', filters: { status: ['Production'], severity: ['Critical', 'High'] } },
   { id: 'quality-low', name: 'Low Quality', filters: { qualityGrade: ['D', 'F'] } },
 ];
+
+// Shown in place of the grid/list when nothing matches. Lives inside the content column so the
+// filter panel (or its collapsed rail) still has a full-height row to stretch against.
+export const EmptyLibraryState: React.FC<{
+  libraryType: LibraryType;
+  isFiltered: boolean;
+  canClearFilters: boolean;
+  onClearFilters: () => void;
+}> = ({ libraryType, isFiltered, canClearFilters, onClearFilters }) => (
+  <div className="flex flex-col items-center justify-center text-center py-16 min-h-[340px]">
+    <div className="w-12 h-12 bg-surface-container-highest rounded-xl flex items-center justify-center mb-3">
+      <Icon
+        name={isFiltered ? 'search' : libraryType === LIBRARY_DEVELOPMENT ? 'globe' : 'library'}
+        className="w-6 h-6 text-on-surface-variant"
+      />
+    </div>
+    <h3 className="font-semibold text-on-surface">{isFiltered ? 'No matching rules' : 'No rules yet'}</h3>
+    <p className="text-sm text-on-surface-variant mt-1">
+      {isFiltered ? 'No rules in this library match the current filters.' : 'Create your first detection.'}
+    </p>
+    {isFiltered && canClearFilters && (
+      <button
+        onClick={onClearFilters}
+        className="mt-3 text-sm font-medium hover:underline"
+        style={{ color: SOLID_BLUE }}
+      >
+        Clear filters
+      </button>
+    )}
+  </div>
+);
 
 // ============================================================================
 // DESIGN TOKENS - Consistent solid colors for both themes
@@ -608,6 +637,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
   initialSearch,
   createdBefore,
   missingField,
+  userRole: profileRole,
   onFiltersChange
 }) => {
   const [viewMode, setViewMode] = useLocalStorage<ViewMode>('lib-view', 'grid');
@@ -660,17 +690,26 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
     bulkDeleteByFilter,
     bulkUpdateStatusByFilter,
     bulkUpdateSeverityByFilter,
+    preflightDelete,
+    preflightDeleteByFilter,
     getFilteredCount,
+    getFilteredIds,
   } = useLibrary();
   const isAdmin = userRole === 'admin';
   const detections = currentLibrary === LIBRARY_DEVELOPMENT ? developmentDetections : productionDetections;
 
-  const { options: filterOpts, loading: filterOptsLoading } = useFilterOptions(
+  const { options: filterOpts, loading: filterOptsLoading, refresh: refreshFilterOptions } = useFilterOptions(
     currentLibrary
   );
   const { showToast } = useToast();
   const { extractAndStore, loading: extractingPatterns } = useDetectionPatterns();
   const [isResolvingMitre, setIsResolvingMitre] = useState(false);
+  const [mappingDialogOpen, setMappingDialogOpen] = useState(false);
+  const [mappingResults, setMappingResults] = useState<MappingResult[]>([]);
+  const [mappingTotal, setMappingTotal] = useState(0);
+  const [mappingError, setMappingError] = useState<string | null>(null);
+  const mappingController = useRef<AbortController | null>(null);
+  useEffect(() => () => mappingController.current?.abort(), []);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectAllMatchingMode, setSelectAllMatchingMode] = useState(false);
   const [showBulkPublishDialog, setShowBulkPublishDialog] = useState(false);
@@ -797,8 +836,9 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
     const pageCount = sortedDetections.length;
 
     if (totalCount <= pageCount) {
-      // All detections fit on current page — export directly
-      await exportDetections(sortedDetections, format, columns);
+      // All detections fit on the current page. Still hydrate: the list projection omits
+      // detectionQuery and most of the playbook fields the column picker can ask for.
+      await exportDetections(await hydrateDetections(sortedDetections), format, columns);
       return;
     }
 
@@ -843,81 +883,42 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
     }
   };
 
-  // Find detections that need MITRE resolution (have mitreAttackIds but missing tactics/techniques)
-  const detectionsNeedingMitreResolution = useMemo(() => {
-    return sortedDetections.filter(d =>
-      (d.mitreAttackIds?.length ?? 0) > 0 &&
-      ((d.mitreTactics?.length ?? 0) === 0 || (d.mitreTechniques?.length ?? 0) === 0)
-    );
-  }, [sortedDetections]);
-
-  // Bulk resolve MITRE data for all detections that need it
-  const handleBulkResolveMitre = async () => {
-    if (detectionsNeedingMitreResolution.length === 0) {
-      showToast('info', 'Nothing to Resolve', 'All detections already have MITRE data resolved.');
-      return;
-    }
-
+  const handleBulkResolveMitre = async (selectedIds: string[], allMatching: boolean) => {
+    if (mappingController.current) return;
+    const controller = new AbortController();
+    mappingController.current = controller;
     setIsResolvingMitre(true);
+    setMappingResults([]);
+    setMappingError(null);
+    setMappingTotal(allMatching ? currentPagination.totalCount : selectedIds.length);
+    setMappingDialogOpen(true);
     try {
-      // Collect all unique technique IDs
-      const allTechniqueIds = new Set<string>();
-      detectionsNeedingMitreResolution.forEach(d => {
-        d.mitreAttackIds?.forEach(id => allTechniqueIds.add(id));
-      });
-
-      // Batch resolve all techniques
-      const resolvedMap = await batchResolveTechniques(Array.from(allTechniqueIds));
-
-      // Process each detection
-      let successCount = 0;
-      for (const detection of detectionsNeedingMitreResolution) {
-        if (!detection.mitreAttackIds) continue;
-
-        const tactics = new Set<string>();
-        const techniques: string[] = [];
-
-        for (const id of detection.mitreAttackIds) {
-          const resolved = resolvedMap.get(id.toUpperCase());
-          if (resolved) {
-            if (resolved.tactic && resolved.tactic !== 'Unknown') {
-              tactics.add(resolved.tactic);
-            }
-            if (resolved.name && resolved.name !== 'Unknown Technique') {
-              techniques.push(resolved.name);
-            }
-          }
-        }
-
-        // Update in database
-        const { error } = await supabase
-          .from('detections')
-          .update({
-            mitreTactics: Array.from(tactics),
-            mitreTechniques: techniques
-          })
-          .eq('id', detection.id);
-
-        if (!error) successCount++;
+      const ids = allMatching ? await getFilteredIds() : [...selectedIds];
+      setMappingTotal(ids.length);
+      if (!controller.signal.aborted) {
+        await resolveSelectedMitreMappings(ids, setMappingResults, controller.signal);
       }
-
-      showToast('success', 'MITRE Data Resolved', `Updated ${successCount} of ${detectionsNeedingMitreResolution.length} detections.`);
-
-      // Refresh the library
-      if (currentLibrary === LIBRARY_DEVELOPMENT) {
-        await refreshDevelopmentLibrary();
-      } else {
-        await refreshProductionLibrary();
-      }
-    } catch (error: any) {
-      console.error('Bulk MITRE resolution error:', error);
-      showToast('error', 'Resolution Failed', error.message || 'Could not resolve MITRE data.');
+    } catch (error) {
+      setMappingError(error instanceof Error ? error.message : 'Could not resolve MITRE mappings.');
     } finally {
+      try {
+        if (currentLibrary === LIBRARY_DEVELOPMENT) await refreshDevelopmentLibrary();
+        else await refreshProductionLibrary();
+      } catch {
+        setMappingError('Refresh the library to see the saved mappings.');
+      }
+      clearSelection();
+      refreshFilterOptions();
+      setSelectAllMatchingMode(false);
       setIsResolvingMitre(false);
+      mappingController.current = null;
     }
   };
 
   const hasFilters = Object.values(filters).some(v => v.length > 0) || searchQuery;
+  // Everything that can narrow the list, including the URL-only constraints `clearAll` cannot
+  // clear. Used to tell "this library is empty" apart from "nothing matched".
+  const isFiltered = !!hasFilters || !!mitreFilter || !!createdBefore || !!missingField;
 
   // Toggle selection mode
   const toggleSelectionMode = () => {
@@ -967,9 +968,16 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
     }
   };
 
-  const handleBulkExport = (ids: string[]) => {
-    const selectedDets = sortedDetections.filter(d => ids.includes(d.id));
-    exportDetections(selectedDets, 'excel', DEFAULT_EXPORT_COLUMNS);
+  const handleBulkExport = async (ids: string[]) => {
+    // List rows carry a lightweight column set, so export straight from them writes an empty
+    // Detection Query column. Fetch the full rows for the selection first.
+    setBulkProcessing(`Preparing ${ids.length} detections for export...`);
+    try {
+      const selectedDets = await hydrateDetections(sortedDetections.filter(d => ids.includes(d.id)));
+      await exportDetections(selectedDets, 'excel', DEFAULT_EXPORT_COLUMNS);
+    } finally {
+      setBulkProcessing(null);
+    }
   };
 
   const handleBulkStatusChange = async (ids: string[], status: string) => {
@@ -1140,28 +1148,6 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
 
         <div className="w-px h-5 bg-outline-variant/30" />
 
-        {/* Resolve MITRE button */}
-        {detectionsNeedingMitreResolution.length > 0 && (
-          <button
-            onClick={handleBulkResolveMitre}
-            disabled={isResolvingMitre}
-            className="h-8 px-3 text-sm font-medium rounded-xl text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface transition-all inline-flex items-center gap-1.5 disabled:opacity-50"
-            title={`Resolve MITRE data for ${detectionsNeedingMitreResolution.length} detection${detectionsNeedingMitreResolution.length === 1 ? '' : 's'}`}
-          >
-            {isResolvingMitre ? (
-              <>
-                <Icon name="spinner" className="w-4 h-4 animate-spin" />
-                <span>Resolving...</span>
-              </>
-            ) : (
-              <>
-                <Icon name="refresh-cw" className="w-4 h-4" />
-                <span>Resolve MITRE ({detectionsNeedingMitreResolution.length})</span>
-              </>
-            )}
-          </button>
-        )}
-
         {currentLibrary === LIBRARY_PRODUCTION && (
           <button
             onClick={async () => {
@@ -1300,7 +1286,11 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
         />
 
         {/* Content */}
-        <div className="flex-1 min-w-0 overflow-hidden">
+        {/* No overflow clipping here: cards and list rows paint their hover scale and
+            selected ring outside their border box, and the grid sits flush against this
+            edge — clipping swallows the left/right highlight. Cards clip their own
+            content, so nothing else escapes. */}
+        <div className="flex-1 min-w-0">
       {isLoading ? (
         <div className="space-y-0" role="status" aria-label="Loading detections">
           {viewMode === 'grid' ? (
@@ -1329,6 +1319,13 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
             </div>
           )}
         </div>
+      ) : sortedDetections.length === 0 ? (
+        <EmptyLibraryState
+          libraryType={currentLibrary}
+          isFiltered={isFiltered}
+          canClearFilters={!!hasFilters}
+          onClearFilters={clearAll}
+        />
       ) : (
         <ErrorBoundary
           fallback={
@@ -1473,26 +1470,6 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
         />
       )}
 
-      {/* Empty State */}
-      {sortedDetections.length === 0 && !isLoading && (
-        <div className="flex flex-col items-center justify-center py-16">
-          <div className="w-12 h-12 bg-surface-container-highest rounded-xl flex items-center justify-center mb-3">
-            <Icon name={currentLibrary === LIBRARY_DEVELOPMENT ? 'globe' : 'library'} className="w-6 h-6 text-on-surface-variant" />
-          </div>
-          <h3 className="font-semibold text-on-surface">{detections.length === 0 ? 'No rules yet' : 'No results'}</h3>
-          <p className="text-sm text-on-surface-variant mt-1">{detections.length === 0 ? 'Create your first detection.' : 'Adjust filters.'}</p>
-          {hasFilters && (
-            <button 
-              onClick={clearAll} 
-              className="mt-3 text-sm font-medium hover:underline"
-              style={{ color: SOLID_BLUE }}
-            >
-              Clear filters
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Bulk Action Bar */}
       {(selectionMode || selectedDetectionIds.size > 0) && (
         <BulkActionBar
@@ -1509,19 +1486,35 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
           currentFilters={filters}
           externalSelectAllMatching={selectAllMatchingMode}
           onSelectAllMatchingChange={setSelectAllMatchingMode}
-          // Page-level actions (by ID)
-          onDelete={currentLibrary === LIBRARY_PRODUCTION ? handleBulkDelete : undefined}
+          // Page-level actions (by ID). Status, severity and delete are offered in both
+          // libraries; RLS decides which rows the user may actually change, and the delete
+          // preflight holds back anything the database will refuse to remove.
+          onDelete={handleBulkDelete}
+          onPreflightDelete={preflightDelete}
+          onPreflightDeleteByFilter={preflightDeleteByFilter}
           onExport={handleBulkExport}
-          onChangeStatus={currentLibrary === LIBRARY_PRODUCTION ? handleBulkStatusChange : undefined}
-          onChangeSeverity={currentLibrary === LIBRARY_PRODUCTION ? handleBulkSeverityChange : undefined}
+          onChangeStatus={handleBulkStatusChange}
+          onChangeSeverity={handleBulkSeverityChange}
           onCopyToLibrary={currentLibrary === LIBRARY_PRODUCTION ? handleBulkCopyToLibrary : undefined}
           onPublishToUniversal={currentLibrary === LIBRARY_DEVELOPMENT ? handleBulkPublish : undefined}
-          onDeploy={(ids) => { setBulkDeployIds(ids); setShowBulkDeploy(true); }}
+          onDeploy={currentLibrary === LIBRARY_PRODUCTION ? (ids) => { setBulkDeployIds(ids); setShowBulkDeploy(true); } : undefined}
           onAddToPack={(ids) => setAddToPackIds(ids)}
-          // Server-side bulk actions (by filter)
-          onDeleteByFilter={currentLibrary === LIBRARY_PRODUCTION ? bulkDeleteByFilter : undefined}
-          onChangeStatusByFilter={currentLibrary === LIBRARY_PRODUCTION ? bulkUpdateStatusByFilter : undefined}
-          onChangeSeverityByFilter={currentLibrary === LIBRARY_PRODUCTION ? bulkUpdateSeverityByFilter : undefined}
+          onResolveMitre={profileRole !== 'viewer' ? handleBulkResolveMitre : undefined}
+          // Server-side bulk actions — scoped to everything matching the current filters
+          onDeleteByFilter={bulkDeleteByFilter}
+          onChangeStatusByFilter={bulkUpdateStatusByFilter}
+          onChangeSeverityByFilter={bulkUpdateSeverityByFilter}
+        />
+      )}
+
+      {mappingDialogOpen && (
+        <BulkMitreMappingDialog
+          running={isResolvingMitre}
+          total={mappingTotal}
+          results={mappingResults}
+          error={mappingError}
+          onStop={() => mappingController.current?.abort()}
+          onClose={() => setMappingDialogOpen(false)}
         />
       )}
 

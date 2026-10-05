@@ -14,6 +14,9 @@ export interface FilterOptions {
   campaigns: string[];
   software: string[];
   cves: string[];
+  /** Query languages present in the data. Empty until the RPC ships the key; the filter
+   *  panel falls back to the curated list alone, so an older RPC degrades rather than breaks. */
+  query_languages: string[];
 }
 
 const EMPTY_OPTIONS: FilterOptions = {
@@ -28,6 +31,7 @@ const EMPTY_OPTIONS: FilterOptions = {
   campaigns: [],
   software: [],
   cves: [],
+  query_languages: [],
 };
 
 const optionsCache: Record<string, FilterOptions> = {};
@@ -76,6 +80,7 @@ export function useFilterOptions(libraryType: LibraryType) {
         campaigns: data?.campaigns || [],
         software: data?.software || [],
         cves: data?.cves || [],
+        query_languages: data?.query_languages || [],
       };
 
       optionsCache[libraryType] = parsed;

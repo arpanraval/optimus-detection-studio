@@ -3,6 +3,7 @@ import { FilterCheckboxGroup } from './FilterCheckboxGroup';
 import type { FilterOptions } from '../../hooks/useFilterOptions';
 import { Status, Severity, DetectionType } from '../../types';
 import { QUERY_LANGUAGES } from '../../constants';
+import { EMPTY_FILTER_LABEL, EMPTY_FILTER_VALUE, supportsEmptyFilter } from '../../constants/filters';
 
 export interface FilterPreset {
   id: string;
@@ -31,6 +32,19 @@ const REVIEW_STATUS_OPTIONS = ['none', 'requested', 'in_review', 'approved', 're
 const PROMOTION_STATUS_OPTIONS = ['none', 'pending', 'promoted', 'rejected'];
 const VALIDATED_OPTIONS = ['true', 'false'];
 const QUERY_LANGUAGE_OPTIONS = [...QUERY_LANGUAGES];
+
+/**
+ * Query Language was the only group with a hardcoded option list, and it drifted from the data:
+ * the panel offered nine languages no rule used while values importers had written
+ * ('Splunk (SPL)', 'crowdstrike', lowercase 'yara') had no option, so those rules could not be
+ * found at all. Show the curated list first for stable ordering, then anything else present.
+ * Writes are normalized now, so the tail should stay empty — when it does not, it is telling
+ * you a writer is still producing something off-vocabulary.
+ */
+const unionWithStored = (curated: string[], stored: string[]): string[] => {
+  const seen = new Set(curated);
+  return [...curated, ...stored.filter(value => value && !seen.has(value)).sort()];
+};
 const SOURCE_OPTIONS = ['custom', 'sigmahq', 'splunk_escu', 'elastic', 'microsoft_sentinel', 'crowdstrike', 'chronicle', 'community', 'native_siem'];
 
 /** All filter fields with their static/dynamic options */
@@ -52,7 +66,7 @@ const FILTER_FIELDS: FilterFieldDef[] = [
   { field: 'technology', label: 'Technology', options: 'dynamic', dynamicKey: 'technologies' },
   { field: 'logSource', label: 'Log Source', options: 'dynamic', dynamicKey: 'log_sources' },
   { field: 'platforms', label: 'Platforms', options: 'dynamic', dynamicKey: 'platforms' },
-  { field: 'queryLanguage', label: 'Query Language', options: QUERY_LANGUAGE_OPTIONS },
+  { field: 'queryLanguage', label: 'Query Language', options: QUERY_LANGUAGE_OPTIONS, dynamicKey: 'query_languages' },
   { field: 'threatActors', label: 'Threat Actors', options: 'dynamic', dynamicKey: 'threat_actors' },
   { field: 'campaigns', label: 'Campaigns', options: 'dynamic', dynamicKey: 'campaigns' },
   { field: 'software', label: 'Software', options: 'dynamic', dynamicKey: 'software' },
@@ -92,6 +106,11 @@ export function FilterPanel({
     if (def.options === 'dynamic' && def.dynamicKey) {
       return filterOptions[def.dynamicKey] || [];
     }
+    // A curated list that also names a dynamic key is a union: keep the curated order, then
+    // append whatever else the data actually holds.
+    if (def.dynamicKey) {
+      return unionWithStored(def.options as string[], filterOptions[def.dynamicKey] || []);
+    }
     return def.options as string[];
   };
 
@@ -107,10 +126,20 @@ export function FilterPanel({
     if (!q) return null;
 
     const matches: SearchMatch[] = [];
+    const EMPTY_ALIASES = ['none', 'empty', 'missing', 'blank'];
     for (const def of visibleFields) {
       const opts = getOptions(def);
       // Match field label itself
       const labelMatches = def.label.toLowerCase().includes(q);
+      // Surface the "(None)" row here too, so searching "missing log source" finds it.
+      if (supportsEmptyFilter(def.field) && (labelMatches || EMPTY_ALIASES.some(a => a.includes(q) || q.includes(a)))) {
+        matches.push({
+          field: def.field,
+          label: def.label,
+          value: EMPTY_FILTER_VALUE,
+          isSelected: (filters[def.field] || []).includes(EMPTY_FILTER_VALUE),
+        });
+      }
       for (const value of opts) {
         if (labelMatches || value.toLowerCase().includes(q)) {
           matches.push({
@@ -125,13 +154,17 @@ export function FilterPanel({
     return matches.slice(0, 50); // cap results
   }, [globalSearch, visibleFields, filters, filterOptions]);
 
-  // Toggle a search result
+  // Toggle a search result. Mirrors FilterCheckboxGroup: "(None)" is exclusive within its field.
   const toggleSearchResult = (field: string, value: string) => {
     const current = filters[field] || [];
-    const next = current.includes(value)
-      ? current.filter(v => v !== value)
-      : [...current, value];
-    onChange(field, next);
+    if (value === EMPTY_FILTER_VALUE) {
+      onChange(field, current.includes(EMPTY_FILTER_VALUE) ? [] : [EMPTY_FILTER_VALUE]);
+      return;
+    }
+    const withoutEmpty = current.filter(v => v !== EMPTY_FILTER_VALUE);
+    onChange(field, withoutEmpty.includes(value)
+      ? withoutEmpty.filter(v => v !== value)
+      : [...withoutEmpty, value]);
   };
 
   // Focus search on Ctrl+F when panel is open
@@ -155,7 +188,7 @@ export function FilterPanel({
     return (
       <button
         onClick={onToggle}
-        className="flex-shrink-0 w-10 flex flex-col items-center pt-4 gap-2
+        className="flex-shrink-0 w-10 min-h-[220px] flex flex-col items-center pt-4 gap-2
                    bg-surface-container-high rounded-xl
                    hover:bg-surface-container-highest transition-colors cursor-pointer"
         title="Show filters"
@@ -174,7 +207,7 @@ export function FilterPanel({
   const isSearching = globalSearch.trim().length > 0;
 
   return (
-    <div data-filter-panel role="region" aria-label="Filter detections" className="flex-shrink-0 w-[280px] bg-surface-container-high rounded-xl
+    <div data-filter-panel role="region" aria-label="Filter detections" className="flex-shrink-0 w-[280px] min-h-[220px] bg-surface-container-high rounded-xl
                     flex flex-col overflow-hidden">
       {/* Panel header — collapse chevron */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-outline-variant/10">
@@ -285,7 +318,9 @@ export function FilterPanel({
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <span className="truncate">{match.value}</span>
+                      <span className={`truncate ${match.value === EMPTY_FILTER_VALUE ? 'italic' : ''}`}>
+                        {match.value === EMPTY_FILTER_VALUE ? EMPTY_FILTER_LABEL : match.value}
+                      </span>
                     </div>
                     <span className="text-[10px] text-on-surface-variant/30 flex-shrink-0">{match.label}</span>
                   </button>
@@ -308,6 +343,7 @@ export function FilterPanel({
                 options={getOptions(def)}
                 selected={filters[def.field] || []}
                 onChange={onChange}
+                showEmptyOption={supportsEmptyFilter(def.field)}
               />
             ))}
           </>
