@@ -385,7 +385,7 @@ const BrandContent: React.FC<{ variant: 'light' | 'dark' }> = ({ variant }) => {
       </h2>
 
       <p className={`text-base leading-relaxed mb-5 max-w-lg ${descColor}`}>
-        The AI-powered, vendor-agnostic detection engineering suite. Build, validate, and operationalize detection content across 12 query languages and 14 SIEM platforms.
+        The AI-powered detection engineering suite. Build, validate, and operationalize detection content for your security environment.
       </p>
 
       <p className={`text-sm leading-relaxed max-w-md ${subDescColor}`}>
