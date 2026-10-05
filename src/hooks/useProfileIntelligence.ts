@@ -2,6 +2,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import type { MatchResult, MatchedDetection } from '../services/logSourceDiscovery';
+import { fetchDeployedCoverage } from '../services/actionPlanCoverageService';
+import { partitionActionPlan, type DeployedDetection } from '../lib/actionPlan/coverage';
 import {
   type PriorityBreakdown,
   computePriorityScore,
@@ -21,7 +23,7 @@ export interface ThreatGroupSummary {
   originCountryCode: string;
   activityType: string;
   techniqueCount: number;
-  /** Number of the group's techniques that have at least one matched detection */
+  /** Number of the group's techniques mapped by at least one observed enabled remote rule. */
   coveredTechniqueCount: number;
   detectionCount: number;
   sectors: string[];
@@ -70,6 +72,8 @@ export interface GapTechnique {
   threatGroupNames: string[];
   /** False for Reconnaissance (TA0043) and Resource Development (TA0042) techniques that occur on attacker infrastructure */
   siemDetectable: boolean;
+  /** Compatible local candidates; these do not close the deployed coverage gap. */
+  candidateDetectionIds?: string[];
 }
 
 export interface TacticThreatTechnique {
@@ -92,6 +96,7 @@ export interface TacticThreatCoverage {
 }
 
 export interface ProfileIntelligence {
+  deployedDetections: DeployedDetection[];
   threatGroups: ThreatGroupSummary[];
   recommendedDetections: RecommendedDetection[];
   gapTechniques: GapTechnique[];
@@ -154,7 +159,7 @@ async function fetchAllRows<T>(
       }
     }
     const { data, error } = await q;
-    if (error) { console.warn(`[ProfileIntel] fetch ${table}:`, error.message); break; }
+    if (error) throw new Error(`Could not load ${table}: ${error.message}`);
     if (!data || data.length === 0) { done = true; } else {
       all.push(...(data as T[]));
       if (data.length < pageSize) done = true; else from += pageSize;
@@ -235,11 +240,13 @@ export function useProfileIntelligence(
   matchResult: MatchResult | null,
   userCountry: string | null,
   threatOriginCountries: string[],
-  crownJewels: string[]
+  crownJewels: string[],
+  includeMyLab = true,
 ): ProfileIntelligence {
   const [refetchTick, setRefetchTick] = useState(0);
   const refetch = useCallback(() => setRefetchTick(t => t + 1), []);
   const [state, setState] = useState<Omit<ProfileIntelligence, 'refetch'>>({
+    deployedDetections: [],
     threatGroups: [], recommendedDetections: [], gapTechniques: [], gapTechniqueCount: 0,
     siemReadiness: [], totalRecommended: 0, groupTechniqueDetails: {}, tacticThreatCoverage: [], loading: false, error: null,
   });
@@ -248,13 +255,30 @@ export function useProfileIntelligence(
   const userQueryLanguages = siemPlatforms.flatMap(s => SIEM_TO_QUERY_LANGUAGES[s] || []);
 
   useEffect(() => {
-    if (sectors.length === 0 && !userCountry && threatOriginCountries.length === 0 && !matchResult) return;
+    window.addEventListener('native-siem-library-updated', refetch);
+    window.addEventListener('focus', refetch);
+    return () => {
+      window.removeEventListener('native-siem-library-updated', refetch);
+      window.removeEventListener('focus', refetch);
+    };
+  }, [refetch]);
 
+  useEffect(() => {
     const runId = ++abortRef.current;
 
     (async () => {
       setState(prev => ({ ...prev, loading: true, error: null }));
       try {
+        const deployedDetections = await fetchDeployedCoverage();
+        if (runId !== abortRef.current) return;
+        const coverage = partitionActionPlan(
+          deployedDetections,
+          (matchResult?.matchedDetections ?? []).filter(d =>
+            userQueryLanguages.some(language => language.toLowerCase() === d.queryLanguage.toLowerCase()) ||
+            d.queryLanguage.toLowerCase() === 'sigma',
+          ),
+          includeMyLab,
+        );
         // ── 1. Threat groups matching profile (sectors + country filters) ──
         let threatGroups: ThreatGroupSummary[] = [];
         const groupTechMap = new Map<string, Set<string>>(); // stixId → Set<mitre_id>
@@ -375,15 +399,14 @@ export function useProfileIntelligence(
         // ── 2. Recommended detections from MatchResult ──
         const allMatchingDetections: RecommendedDetection[] = [];
 
-        if (matchResult && matchResult.matchedDetections.length > 0) {
+        {
           // Build crown jewel patterns once for the entire scoring loop
           const crownJewelPatterns = buildCrownJewelPatterns(crownJewels);
 
-          const matchedTechIds = new Set<string>();
+          const matchedTechIds = coverage.coveredTechniqueIds;
 
-          for (const d of matchResult.matchedDetections) {
+          for (const d of coverage.candidates) {
             const ids = d.mitreAttackIds || [];
-            for (const id of ids) if (id) matchedTechIds.add(id);
 
             // Find which threat groups use this technique
             const matchedGroupNames: string[] = [];
@@ -437,7 +460,7 @@ export function useProfileIntelligence(
             if (!gTechs) continue;
             const coveredTechIds = new Set<string>();
             let detCount = 0;
-            for (const d of allMatchingDetections) {
+            for (const d of deployedDetections) {
               const hits = d.mitreAttackIds.filter(id => gTechs.has(id));
               if (hits.length > 0) {
                 detCount++;
@@ -476,6 +499,7 @@ export function useProfileIntelligence(
               threatGroupCount: tgNames.length,
               threatGroupNames: tgNames,
               siemDetectable: isSiemDetectable(id),
+              candidateDetectionIds: coverage.candidates.filter(d => d.mitreAttackIds.includes(id)).map(d => d.id),
             };
           }).sort((a, b) => b.threatGroupCount - a.threatGroupCount);
 
@@ -493,7 +517,7 @@ export function useProfileIntelligence(
           const groupTechniqueDetails: Record<string, GroupTechniqueDetail[]> = {};
           // Build a map of mitreId → first matching detection ID for "covered" link
           const techToDetectionId = new Map<string, string>();
-          for (const d of allMatchingDetections) {
+          for (const d of deployedDetections) {
             for (const id of d.mitreAttackIds) {
               if (id && !techToDetectionId.has(id)) techToDetectionId.set(id, d.id);
             }
@@ -515,41 +539,13 @@ export function useProfileIntelligence(
           );
 
           setState({
+            deployedDetections,
             threatGroups,
             recommendedDetections: allMatchingDetections,
             gapTechniques,
             gapTechniqueCount: gapTechniques.length,
             siemReadiness,
             totalRecommended: allMatchingDetections.length,
-            groupTechniqueDetails,
-            tacticThreatCoverage,
-            loading: false,
-            error: null,
-          });
-        } else {
-          // No match result — just show threat groups (still build details)
-          const groupTechniqueDetails: Record<string, GroupTechniqueDetail[]> = {};
-          for (const group of threatGroups) {
-            const gTechs = groupTechMap.get(group.stixId);
-            if (!gTechs) { groupTechniqueDetails[group.stixId] = []; continue; }
-            groupTechniqueDetails[group.stixId] = Array.from(gTechs).map(mid => ({
-              mitreId: mid,
-              name: mitreToName.get(mid) || mid,
-              covered: false,
-            }));
-          }
-          // Build tactic coverage even without match result (all techniques as uncovered)
-          const tacticThreatCoverage = buildTacticThreatCoverage(
-            groupTechniqueIds, new Set(), mitreToName, mitreIdToTactics, groupTechMap
-          );
-
-          setState({
-            threatGroups,
-            recommendedDetections: [],
-            gapTechniques: [],
-            gapTechniqueCount: 0,
-            siemReadiness: [],
-            totalRecommended: 0,
             groupTechniqueDetails,
             tacticThreatCoverage,
             loading: false,
@@ -565,11 +561,12 @@ export function useProfileIntelligence(
         }));
       }
     })();
+    return () => { abortRef.current += 1; };
   }, [
     JSON.stringify(sectors),
     JSON.stringify(siemPlatforms),
-    matchResult?.matchedDetections.length,
-    matchResult?.feasibleTechniqueIds.length,
+    matchResult,
+    includeMyLab,
     userCountry,
     JSON.stringify(threatOriginCountries),
     JSON.stringify(crownJewels),

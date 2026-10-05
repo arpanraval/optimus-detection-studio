@@ -122,7 +122,7 @@ export const CriticalGapsList: React.FC<CriticalGapsListProps> = ({
           <p className="text-[12px] text-on-surface-variant">
             {dismissedIds.size > 0
               ? `All gaps addressed or dismissed (${dismissedIds.size} dismissed).`
-              : 'Full coverage \u2014 all threat group techniques have matching detections.'}
+              : 'No uncovered techniques in the selected threat scope.'}
           </p>
         </div>
       </div>
@@ -222,6 +222,7 @@ interface GapRowProps {
     name: string;
     threatGroupCount: number;
     crownRelevant: boolean;
+    candidateDetectionIds?: string[];
   };
   isCovered: boolean;
   isDismissed: boolean;
@@ -273,6 +274,12 @@ function ActionableGapRow({ gap, isCovered, isDismissed, isSelected, onSelect, o
       </span>
 
       <span className="text-[11px] text-on-surface truncate flex-1 min-w-0">{gap.name}</span>
+
+      {(gap.candidateDetectionIds?.length ?? 0) > 0 && (
+        <span className="text-[10px] text-primary flex-shrink-0" title="Available candidates; this gap is not yet covered by an enabled rule">
+          {gap.candidateDetectionIds?.length} candidates
+        </span>
+      )}
 
       {/* Covered badge */}
       {isCovered && (

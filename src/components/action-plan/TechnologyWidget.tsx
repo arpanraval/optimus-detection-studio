@@ -24,6 +24,7 @@ interface Props {
   gaps: GapTechnique[];
   tacticCoverage: TacticThreatCoverage[];
   loading: boolean;
+  explainMetrics?: boolean;
 }
 
 function risk(p: number): { tx: string; bar: string } {
@@ -32,7 +33,7 @@ function risk(p: number): { tx: string; bar: string } {
   return { tx: 'text-ext-teal', bar: 'bg-ext-teal' };
 }
 
-export const TechnologyWidget: React.FC<Props> = ({ detections, gaps, tacticCoverage, loading }) => {
+export const TechnologyWidget: React.FC<Props> = ({ detections, gaps, tacticCoverage, loading, explainMetrics = false }) => {
   const navigate = useNavigate();
   const { buckets, loading: bucketsLoading } = useTechniqueBuckets();
 
@@ -114,7 +115,7 @@ export const TechnologyWidget: React.FC<Props> = ({ detections, gaps, tacticCove
                     )}
                   </div>
                   <div className="text-[10px] text-on-surface-variant mt-0.5 tabular-nums">
-                    {dCount.toLocaleString()} detection{dCount === 1 ? '' : 's'} · {covered}/{total} techniques covered
+                    {dCount.toLocaleString()} {explainMetrics ? 'rules to review' : `candidate${dCount === 1 ? '' : 's'}`} · {covered}/{total} techniques covered
                   </div>
                 </div>
                 <Icon name="arrow-right" className="w-3 h-3 text-outline opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
@@ -129,6 +130,7 @@ export const TechnologyWidget: React.FC<Props> = ({ detections, gaps, tacticCove
           );
         })}
       </div>
+      {explainMetrics && <details className="mt-3 text-[10px] text-outline"><summary className="cursor-pointer text-primary">How to read this · click an area to act</summary><p className="mt-2">The bar shows the share of relevant attacker techniques mapped by enabled rules. Gaps are techniques needing coverage; candidates are library rules to review. A rule may apply to several areas, so do not add these rows together.</p></details>}
     </div>
   );
 };

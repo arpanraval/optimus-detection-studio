@@ -102,6 +102,10 @@ export const ThreatSubPage: React.FC<Props> = ({ profile, slug }) => {
     </div>
   );
 
+  if (feasibility.error || intel.error) {
+    return <div role="alert" className="p-6 text-error">{feasibility.error || intel.error}</div>;
+  }
+
   if (!isLoading && matchedGroups.length === 0) {
     return (
       <div className="h-full overflow-y-auto bg-background scrollbar-page">
@@ -138,8 +142,8 @@ export const ThreatSubPage: React.FC<Props> = ({ profile, slug }) => {
             <div className="text-xl font-brand font-bold text-ext-teal leading-none tabular-nums">
               {scopedDetections.length.toLocaleString()}
             </div>
-            <div className="text-[9px] text-on-surface-variant uppercase tracking-wider mt-1">Matching Detections</div>
-            <div className="text-[8px] text-outline mt-0.5">covering this scope</div>
+            <div className="text-[9px] text-on-surface-variant uppercase tracking-wider mt-1">Available Candidates</div>
+            <div className="text-[8px] text-outline mt-0.5">could improve this scope</div>
           </div>
           <div>
             <div className="text-xl font-brand font-bold text-ext-coral leading-none tabular-nums">

@@ -10,6 +10,7 @@ export interface TechniqueBucketsState {
 }
 
 let cachePromise: Promise<Map<string, Set<TechBucket>>> | null = null;
+let cachedBuckets: Map<string, Set<TechBucket>> | null = null;
 
 async function fetchTechniqueBuckets(): Promise<Map<string, Set<TechBucket>>> {
   if (cachePromise) return cachePromise;
@@ -28,6 +29,7 @@ async function fetchTechniqueBuckets(): Promise<Map<string, Set<TechBucket>>> {
       const platforms = (row as { platforms?: string[] }).platforms ?? [];
       if (mitreId) map.set(mitreId, bucketsForPlatforms(platforms));
     }
+    cachedBuckets = map;
     return map;
   })();
   return cachePromise;
@@ -35,8 +37,8 @@ async function fetchTechniqueBuckets(): Promise<Map<string, Set<TechBucket>>> {
 
 export function useTechniqueBuckets(): TechniqueBucketsState {
   const [state, setState] = useState<TechniqueBucketsState>({
-    buckets: new Map(),
-    loading: true,
+    buckets: cachedBuckets ?? new Map(),
+    loading: cachedBuckets === null,
     error: null,
   });
 
@@ -64,4 +66,5 @@ export function useTechniqueBuckets(): TechniqueBucketsState {
 /** Test-only: reset module cache. */
 export function __resetTechniqueBucketsCache(): void {
   cachePromise = null;
+  cachedBuckets = null;
 }

@@ -12,6 +12,7 @@ interface Props {
   groups: ThreatGroupSummary[];
   sectorLabel: string | null;
   loading: boolean;
+  explainMetrics?: boolean;
 }
 
 function pct(group: ThreatGroupSummary): number {
@@ -25,7 +26,7 @@ function risk(p: number): { label: string; bg: string; tx: string; bar: string }
   return { label: 'COVERED', bg: 'bg-ext-teal/15', tx: 'text-ext-teal', bar: 'bg-ext-teal' };
 }
 
-export const ThreatLandscapeWidget: React.FC<Props> = ({ groups, sectorLabel, loading }) => {
+export const ThreatLandscapeWidget: React.FC<Props> = ({ groups, sectorLabel, loading, explainMetrics = false }) => {
   const navigate = useNavigate();
   const [showAll, setShowAll] = useState(false);
 
@@ -88,11 +89,11 @@ export const ThreatLandscapeWidget: React.FC<Props> = ({ groups, sectorLabel, lo
                   <div className="flex items-center gap-2">
                     <span className="text-[12px] font-medium text-on-surface truncate">{g.name}</span>
                     <span className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full flex-shrink-0 ${r.bg} ${r.tx}`}>
-                      {r.label}
+                      {explainMetrics ? (p < HIGH_RISK ? 'LOW COVERAGE' : p < MED_RISK ? 'PARTIAL COVERAGE' : 'HIGHER COVERAGE') : r.label}
                     </span>
                   </div>
                   <div className="text-[10px] text-on-surface-variant mt-0.5">
-                    {g.originCountry} · {g.activityType}
+                    {g.originCountry} · {explainMetrics ? `${g.coveredTechniqueCount} of ${g.techniqueCount} techniques covered` : g.activityType}
                   </div>
                 </div>
                 <Icon name="arrow-right" className="w-3 h-3 text-outline opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -108,6 +109,7 @@ export const ThreatLandscapeWidget: React.FC<Props> = ({ groups, sectorLabel, lo
         })}
       </div>
 
+      {explainMetrics && <details className="mt-3 text-[10px] text-outline"><summary className="cursor-pointer text-primary">How to read this · click a group to act</summary><p className="mt-2">Groups match your sector and country profile. The percentage is the share of that group's techniques mapped by enabled rules, not the probability of an attack. Open a group to review its gaps and candidate detections.</p></details>}
       {!showAll && remaining > 0 && (
         <button
           onClick={() => setShowAll(true)}
