@@ -39,6 +39,32 @@ describe('ImportPreCheck', () => {
       importNetNew: true,
       updateExisting: false,
       forceUnchanged: false,
+      embeddingStrategy: 'realtime',
     });
+  });
+
+  it('passes the chosen embedding strategy so batch imports finish without waiting on embeddings', () => {
+    const onConfirm = vi.fn();
+    const summary = {
+      netNew: [{ externalId: 'new-1', category: 'net_new', incomingRule }],
+      updatedUpstream: [],
+      unchanged: [],
+      hardRejects: [],
+      totalScanned: 1,
+    } as unknown as PreCheckSummary;
+
+    render(
+      <ImportPreCheck
+        summary={summary}
+        sourceName="Detection Sources"
+        destinationLabel="Development Library"
+        onConfirm={onConfirm}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('radio', { name: /batch/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import 1 rules' }));
+    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ embeddingStrategy: 'batch' }));
   });
 });

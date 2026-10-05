@@ -37,6 +37,29 @@ import type {
 export const ONBOARDING_TARGET_LIBRARY = LIBRARY_DEVELOPMENT;
 import { OFFICIAL_SOURCES } from './types';
 
+/**
+ * Visual pacing for the pipeline canvas. Each stage node stays lit for at least this long
+ * before it may turn green, so small imports still read as data moving through the pipeline.
+ * The real import is never delayed; only the picture lags, by at most one dwell per hop.
+ */
+const STAGE_DWELL_MS = 700;
+/** Hard cap on how long the UI waits for the visual queue before moving on regardless. */
+const VISUAL_SETTLE_CAP_MS = 4000;
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    : false;
+}
+
+/** Wait for the pipeline animation queue to drain, but never longer than the cap. */
+function settleVisual(pipeline: PipelineController): Promise<void> {
+  return Promise.race([
+    pipeline.whenIdle(),
+    new Promise<void>((resolve) => setTimeout(resolve, VISUAL_SETTLE_CAP_MS)),
+  ]);
+}
+
 // ============================================
 // REDUCER STATE
 // ============================================
@@ -465,22 +488,33 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   /** PipelineController drives inter-stage stream and stage animations */
   const pipelineRef = useRef<PipelineController>(
-    new PipelineController((animState) => {
-      // Sync pipeline animation state into reducer
-      for (const stage of animState.stages) {
-        dispatch({
-          type: 'UPDATE_STAGE',
-          stage: stage.stage,
-          status: stage.status,
-          counter: stage.counter,
-          secondaryCounter: stage.secondaryCounter,
-        });
-      }
-      for (const stream of animState.streams) {
-        dispatch({ type: 'UPDATE_STREAM', stream });
-      }
-    }),
+    new PipelineController(
+      (animState) => {
+        // Sync pipeline animation state into reducer
+        for (const stage of animState.stages) {
+          dispatch({
+            type: 'UPDATE_STAGE',
+            stage: stage.stage,
+            status: stage.status,
+            counter: stage.counter,
+            secondaryCounter: stage.secondaryCounter,
+          });
+        }
+        for (const stream of animState.streams) {
+          dispatch({ type: 'UPDATE_STREAM', stream });
+        }
+      },
+      { minStageDwellMs: prefersReducedMotion() ? 0 : STAGE_DWELL_MS },
+    ),
   );
+
+  /**
+   * Bumped by abort/reset so an initialize run that is only waiting on the visual queue
+   * does not push the UI into 'confirming' after the user has already backed out.
+   */
+  const runGenerationRef = useRef(0);
+  /** Guards completeImportPipeline against re-entry while the visual queue drains. */
+  const completingRef = useRef(false);
 
   // ------------------------------------------
   // Helper: log to console
@@ -886,6 +920,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // ------------------------------------------
   const initializeOnboarding = useCallback(async () => {
     dispatch({ type: 'SET_PHASE', phase: 'processing' });
+    const generation = runGenerationRef.current;
 
     const selectedSources = state.sources.filter((s) => s.selected && s.folders.some((f) => f.selected));
 
@@ -928,6 +963,10 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // Signal pipeline controller that processing (fetch/parse/validate) is done
     // but insert hasn't started — don't mark normalize/store as complete
     pipelineRef.current.onProcessingComplete();
+
+    // Let the canvas finish showing fetch -> parse -> validate before the pre-check appears.
+    await settleVisual(pipelineRef.current);
+    if (runGenerationRef.current !== generation) return; // aborted while settling
 
     dispatch({ type: 'SET_PHASE', phase: 'confirming' });
   }, [state.sources, processSource, logConsole, aggregateLiveStats, getParsedRulesForImport]);
@@ -987,8 +1026,16 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, []);
 
-  const completeImportPipeline = useCallback(() => {
+  const completeImportPipeline = useCallback(async () => {
+    if (completingRef.current) return;
+    completingRef.current = true;
+    const generation = runGenerationRef.current;
+
     pipelineRef.current.onAllComplete();
+    // Let the store node finish its dwell before the completion report covers the canvas.
+    await settleVisual(pipelineRef.current);
+    if (runGenerationRef.current !== generation) return; // reset while settling
+
     dispatch({ type: 'SET_PHASE', phase: 'complete' });
   }, []);
 
@@ -999,6 +1046,8 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     dispatch({ type: 'SET_PHASE', phase });
     // FIX: When going back to selection, reset the pipeline visualization
     if (phase === 'selection') {
+      runGenerationRef.current += 1;
+      completingRef.current = false;
       pipelineRef.current.reset();
     }
   }, []);
@@ -1069,6 +1118,8 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     }
 
+    runGenerationRef.current += 1;
+    completingRef.current = false;
     pipelineRef.current.reset();
     dispatch({ type: 'RESET_AFTER_ABORT' });
   }, [findSource, logConsole]);

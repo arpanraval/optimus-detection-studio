@@ -24,10 +24,11 @@ import { SourceSummaryList } from './completion/SourceSummaryList';
 import { CompletionCTAs } from './completion/CompletionCTAs';
 import { useGlobalImport } from '../../context/GlobalImportContext';
 import { ImportPreCheck } from './ImportPreCheck';
+import type { ImportPreCheckConfig } from './ImportPreCheck';
 import { ImportReport } from './ImportReport';
 import { Button } from '../ui/Button';
 import { supabase } from '../../lib/supabaseClient';
-import type { ImportProgress, PreCheckSummary } from '../../services/bulk-import/types';
+import type { EmbeddingStrategy, ImportProgress, PreCheckSummary } from '../../services/bulk-import/types';
 import { useLibrary } from '../../context/LibraryContext';
 
 // ---------------------------------------------------------------------------
@@ -95,8 +96,17 @@ function InitializeButton({ onInitialize }: InitializeButtonProps) {
   );
 }
 
-function ImportProgressCard({ progress, onStop }: { progress: ImportProgress; onStop: () => void }) {
+function ImportProgressCard({
+  progress,
+  embeddingStrategy,
+  onStop,
+}: {
+  progress: ImportProgress;
+  embeddingStrategy: EmbeddingStrategy;
+  onStop: () => void;
+}) {
   const isEmbedding = progress.phase === 'embedding';
+  const isBatchSubmit = isEmbedding && embeddingStrategy === 'batch';
   const current = isEmbedding ? progress.embeddingGenerated || 0 : progress.insertedRules;
   const total = isEmbedding ? progress.embeddingTotal || 0 : progress.totalRules;
   const percentage = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
@@ -110,18 +120,30 @@ function ImportProgressCard({ progress, onStop }: { progress: ImportProgress; on
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <p className="text-[13px] font-medium text-on-surface">
-            {isEmbedding ? 'Generating search embeddings' : 'Storing detections'}
+            {isBatchSubmit
+              ? 'Submitting batch embedding job'
+              : isEmbedding
+                ? 'Generating search embeddings'
+                : 'Storing detections'}
           </p>
           <p className="mt-1 truncate text-[11px] text-on-surface-variant">
-            {current.toLocaleString()} of {total.toLocaleString()} {isEmbedding ? 'embeddings' : 'rules'}
+            {isBatchSubmit
+              ? `${progress.insertedRules.toLocaleString()} rules stored. Queuing one job to Gemini Batch...`
+              : `${current.toLocaleString()} of ${total.toLocaleString()} ${isEmbedding ? 'embeddings' : 'rules'}`}
           </p>
         </div>
-        <span className="shrink-0 text-sm font-semibold tabular-nums text-primary">{percentage}%</span>
+        {!isBatchSubmit && (
+          <span className="shrink-0 text-sm font-semibold tabular-nums text-primary">{percentage}%</span>
+        )}
       </div>
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-container-highest">
         <div
-          className="h-full origin-left rounded-full bg-primary transition-transform duration-300"
-          style={{ transform: `scaleX(${percentage / 100})` }}
+          className={
+            isBatchSubmit
+              ? 'h-full w-1/3 rounded-full bg-primary/70 animate-pulse'
+              : 'h-full origin-left rounded-full bg-primary transition-transform duration-300'
+          }
+          style={isBatchSubmit ? undefined : { transform: `scaleX(${percentage / 100})` }}
         />
       </div>
       <div className="mt-3 flex items-center justify-between gap-3">
@@ -169,6 +191,7 @@ function OnboardingContent() {
     unchangedSkipped: 0,
     changedUpstreamSkipped: 0,
   });
+  const [embeddingStrategy, setEmbeddingStrategy] = useState<EmbeddingStrategy>('realtime');
 
   // FIX: Store pre-check results locally so we don't depend on context state
   // for the render condition. This ensures showPreCheck and localPreCheckResults
@@ -190,7 +213,7 @@ function OnboardingContent() {
     if (globalImport.status === 'importing' && globalImport.progress) {
       syncImportProgress(globalImport.progress);
     } else if (globalImport.status === 'complete') {
-      completeImportPipeline();
+      void completeImportPipeline();
     }
   }, [globalImport.status, globalImport.progress, syncImportProgress, completeImportPipeline]);
 
@@ -280,11 +303,13 @@ function OnboardingContent() {
   // FIX: Removed globalImport from deps — now uses ref instead
 
   const handlePreCheckConfirm = useCallback(
-    async (config: { importNetNew: boolean; updateExisting: boolean; forceUnchanged: boolean }) => {
+    async (config: ImportPreCheckConfig) => {
       setShowPreCheck(false);
       setImportError(null);
+      setEmbeddingStrategy(config.embeddingStrategy);
       // FIX: Use ref for getValidatedRulesForImport to get latest version
       const { rules, jobConfig } = getValidatedRulesRef.current();
+      jobConfig.embeddingStrategy = config.embeddingStrategy;
 
       // FIX: Use local pre-check results (guaranteed to be available)
       const preCheckResults = localPreCheckResults;
@@ -407,6 +432,7 @@ function OnboardingContent() {
         {globalImport.status === 'importing' && globalImport.progress && (
           <ImportProgressCard
             progress={globalImport.progress}
+            embeddingStrategy={embeddingStrategy}
             onStop={() => {
               globalImport.abortImport();
               resetPhase('selection');
@@ -529,8 +555,8 @@ function OnboardingContent() {
           </div>
         )}
 
-        {/* ImportReport — shown when global import completes */}
-        {globalImport.status === 'complete' && globalImport.importResult && (
+        {/* ImportReport — shown when global import completes AND the canvas has finished its last hop */}
+        {globalImport.status === 'complete' && globalImport.importResult && phase === 'complete' && (
           <div className="absolute z-[100] inset-0 flex items-center justify-center bg-surface-container-lowest/85 pointer-events-auto">
             <div className="rounded-2xl bg-surface-container border border-outline-variant/20 backdrop-blur-xl">
               <ImportReport
@@ -540,6 +566,12 @@ function OnboardingContent() {
                 selection={importSelection}
                 destinationLabel="Development Library"
                 jobId={globalImport.activeJob?.id ?? ''}
+                embeddingStrategy={embeddingStrategy}
+                embeddingNotice={
+                  (globalImport.activeJob?.errors as Array<{ phase?: string; message?: string }> | undefined)?.find(
+                    (e) => e.phase === 'embedding',
+                  )?.message
+                }
                 onRollback={async () => {
                   if (globalImport.activeJob?.id) {
                     const rollback = await globalImport.rollbackImport(globalImport.activeJob.id);

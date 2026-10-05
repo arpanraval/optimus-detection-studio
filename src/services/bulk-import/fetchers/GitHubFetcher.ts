@@ -28,6 +28,9 @@ export interface GitHubFetchOptions {
   excludePatterns?: RegExp[];
   /** If set, only download files whose path is in this list (subset of the matching tree). */
   onlyPaths?: string[];
+  /** If set, only download files under these folder prefixes (e.g. ['rules/community/okta']).
+   *  Applied to the tree BEFORE any raw download so unselected folders cost nothing. */
+  includePaths?: string[];
   /** AbortSignal — cancels every in-flight fetch when triggered (raw downloads, tree API,
    *  repo info). Without this, calling `abort()` only stops queueing new batches; the
    *  currently in-flight requests keep downloading and consume the IP rate limit. */
@@ -64,6 +67,15 @@ const DEFAULT_OPTIONS: GitHubFetchOptions = {
   extensions: SUPPORTED_EXTENSIONS,
   excludePatterns: DIRECTORY_EXCLUDE_PATTERNS,
 };
+
+/**
+ * True when `filePath` is inside one of the selected folders (or is exactly one of them).
+ * Shared with BulkImportJobManager.parseFiles so tree-level and post-download filtering agree.
+ */
+export function isUnderIncludePaths(filePath: string, includePaths: string[] | undefined): boolean {
+  if (!includePaths || includePaths.length === 0) return true;
+  return includePaths.some((prefix) => filePath.startsWith(prefix + '/') || filePath === prefix);
+}
 
 /** Concurrency limit for raw file downloads */
 const DOWNLOAD_CONCURRENCY = 10;
@@ -308,6 +320,9 @@ export class GitHubFetcher {
 
         // Must be in the target path
         if (pathPrefix && !filePath.startsWith(pathPrefix)) return false;
+
+        // Must be inside a selected folder (onboarding folder selection)
+        if (!isUnderIncludePaths(filePath, options.includePaths)) return false;
 
         // Must have supported extension
         const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase();

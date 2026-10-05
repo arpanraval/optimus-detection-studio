@@ -245,5 +245,6 @@ export interface OnboardingContextValue {
   getValidatedRulesForImport: () => { rules: ValidatedRule[]; jobConfig: ImportJobConfig };
   resetPhase: (phase: OnboardingPhase) => void;
   syncImportProgress: (progress: ImportProgress) => void;
-  completeImportPipeline: () => void;
+  /** Marks the pipeline complete once the visual queue has drained (capped), then enters the complete phase. */
+  completeImportPipeline: () => Promise<void>;
 }
