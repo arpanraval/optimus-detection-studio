@@ -2685,6 +2685,18 @@ AS $function$
         SELECT array_agg(DISTINCT val ORDER BY val)
         FROM detections, unnest("associatedCVEs") val
         WHERE library_type = p_library_type AND val IS NOT NULL AND val != ''
+      ), '{}'),
+
+    -- Query languages actually present in this library. The filter panel unions these with the
+    -- curated QUERY_LANGUAGES list so a value written by an importer or an older client is
+    -- still findable, instead of the panel offering options that match nothing while the real
+    -- rules are unreachable.
+    'query_languages',
+      COALESCE((
+        SELECT array_agg(DISTINCT "queryLanguage" ORDER BY "queryLanguage")
+        FROM detections
+        WHERE library_type = p_library_type
+          AND "queryLanguage" IS NOT NULL AND "queryLanguage" != ''
       ), '{}')
   );
 $function$;
