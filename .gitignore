@@ -89,3 +89,12 @@ scripts/test-api-keys.ts
 /current_git_landing.tsx
 /initial_auth.tsx
 /enterprise-attack-data.json
+
+# Local tool output and generated artifacts (never commit).
+# - brag-output/: launch-video renders (~1.3 GB); output/: ad-hoc deploy bundles and playwright captures
+# - .playwright-cli/: Playwright CLI console/page logs; .agents/ + skills-lock.json: skill installer state
+/brag-output/
+/output/
+/.playwright-cli/
+/.agents/
+/skills-lock.json
