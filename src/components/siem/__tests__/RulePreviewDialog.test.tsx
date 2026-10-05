@@ -42,7 +42,7 @@ describe('RulePreviewDialog', () => {
     expect(screen.getByText('@every 1h')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('tab', { name: 'Dependencies' }));
-    expect(screen.getByText('No dependencies referenced for this rule.')).toBeTruthy();
+    expect(screen.getByText(/Dependencies have not been validated/)).toBeTruthy();
 
     // Reads the snapshot the scan already recorded, which is the revision an import would freeze.
     expect(read).toHaveBeenCalledWith('snap-1');
@@ -60,5 +60,20 @@ describe('RulePreviewDialog', () => {
     vi.spyOn(nativeSiemService, 'remoteSnapshot').mockRejectedValue(new Error('permission denied'));
     render(<RulePreviewDialog row={row} onClose={() => {}} />);
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('permission denied'));
+  });
+
+  it('loads the recorded source envelope only when its disclosure is opened', async () => {
+    vi.spyOn(nativeSiemService, 'remoteSnapshot').mockResolvedValue(content as never);
+    const readRaw = vi.spyOn(nativeSiemService, 'remoteSnapshotPayload')
+      .mockResolvedValue({ name: 'remote-id', properties: { query: 'SecurityEvent' }, etag: 'stored-revision' });
+    render(<RulePreviewDialog row={row} onClose={() => {}} connectionName="Sentinel production" />);
+    expect(await screen.findByText('Sentinel production')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: 'Configuration' }));
+    expect(readRaw).not.toHaveBeenCalled();
+    const details = screen.getByText('Source payload').closest('details')!;
+    details.open = true;
+    fireEvent(details, new Event('toggle'));
+    expect(await screen.findByText(/stored-revision/)).toBeTruthy();
+    expect(readRaw).toHaveBeenCalledWith('snap-1');
   });
 });

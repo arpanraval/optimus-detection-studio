@@ -2,9 +2,16 @@
 // integration-ops — kept as a separate copy (this repo's pattern for shared edge
 // logic is duplicate-don't-refactor; integration-ops is left untouched).
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
-type SupabaseClient = ReturnType<typeof createClient>;
+// Accept the small query surface we use, across the pinned clients used by Edge Functions.
+interface PermissionDatabase {
+  from(table: string): {
+    select(columns: string): {
+      eq(column: string, value: string): {
+        single(): PromiseLike<{ data: { role?: string; permission_overrides?: unknown } | null }>;
+      };
+    };
+  };
+}
 
 const ROLE_DEFAULT_PERMISSIONS: Record<string, string[]> = {
   owner:   ['integrations:view', 'integrations:configure', 'integrations:sync'],
@@ -28,7 +35,7 @@ function computeEffectivePermissions(
 
 /** Returns whether `userId` holds `requiredPermission`, given their role + overrides. */
 export async function checkPermission(
-  admin: SupabaseClient, userId: string, requiredPermission: string,
+  admin: PermissionDatabase, userId: string, requiredPermission: string,
 ): Promise<{ allowed: boolean; role: string }> {
   const { data: profile } = await admin
     .from('profiles')

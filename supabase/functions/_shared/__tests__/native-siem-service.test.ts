@@ -25,7 +25,7 @@ async function fixture(options: { phase?: string; enabled?: boolean; resource?: 
   const run = { id: 'run', kind: 'refresh_tracked', actor_id: 'owner', integration_id: 'connection', provider_scope: crowdStrikeScope(config),
     phase: options.phase || 'discovery', cursor_offset: 0, lease_token: 'lease', attempts: 0 };
   const binding = { id: 'binding', detection_id: 'detection', integration_id: 'connection', provider_scope: crowdStrikeScope(config),
-    selected_query_id: 'query-id',
+    selected_query_id: 'query-id', provider: 'crowdstrike', query_language: 'CQL',
     desired_content: options.desiredEnabled === undefined ? content : { ...content, enabled: options.desiredEnabled },
     baseline_snapshot_id: options.noBaseline ? null : 'snap', latest_remote_snapshot_id: 'snap',
     binding_status: 'active', availability: 'present', vendor_rule_id: raw.id,
@@ -38,7 +38,7 @@ async function fixture(options: { phase?: string; enabled?: boolean; resource?: 
   const updates: unknown[] = [];
   const from = vi.fn((table: string) => {
     const data = table === 'integrations' ? { id: 'connection', config, provider: 'crowdstrike', status: options.connectionStatus ?? 'connected' } :
-      table === 'siem_sync_items' ? [{ vendor_rule_id: raw.id }] : table === 'siem_rule_bindings' ? binding :
+      table === 'siem_sync_items' ? (options.phase === 'hydration' ? [{ vendor_rule_id: raw.id }] : []) : table === 'siem_rule_bindings' ? binding :
       table === 'siem_remote_rules' ? [{ rule_family: options.ruleFamily ?? 'correlation' }] :
       table === 'detections' ? detection : table === 'siem_rule_snapshots' ? [{ id: 'snap', content, content_hash: hash }] :
       // The ATT&CK catalog: Optimus stores names, CrowdStrike takes ids.
@@ -729,6 +729,7 @@ describe('applyNativeMutation as a shared entry point', () => {
 // ---------------------------------------------------------------------------------------------
 
 const REGISTRY_CONFIG: Record<string, Record<string, unknown>> = {
+  defender_xdr: { tenantId: 'tenant' },
   sentinel: { tenantId: 'tenant', subscriptionId: 'sub', resourceGroup: 'rg', workspaceName: 'ws' },
   chronicle: { region: 'us', customerId: 'customer', projectId: 'project', instanceId: 'instance' },
   elastic: { host: 'kibana.example.test', port: 5601, spaceId: 'default' },
@@ -737,19 +738,19 @@ const REGISTRY_CONFIG: Record<string, Record<string, unknown>> = {
 /** A discovery-phase run for one non-CrowdStrike provider, with the vendor's page under test. */
 async function registryFixture(provider: string, options: {
   page: unknown; cursorOffset?: number; cursorToken?: string | null; reject?: boolean;
-  scope?: string } ) {
+  scope?: string; phase?: string; items?: string[] } ) {
   const config = REGISTRY_CONFIG[provider] ?? {};
   const run = { id: 'run', kind: 'inventory', actor_id: 'owner', integration_id: 'connection',
     provider_scope: options.scope ?? providerScope(provider as never, config),
-    phase: 'discovery', cursor_offset: options.cursorOffset ?? 0,
+    phase: options.phase ?? 'discovery', cursor_offset: options.cursorOffset ?? 0,
     cursor_token: options.cursorToken ?? null, lease_token: 'lease', attempts: 0 };
   const updates: unknown[] = [];
   const from = vi.fn((table: string) => {
     const data = table === 'integrations'
       ? { id: 'connection', config, provider, status: 'connected' }
-      : table === 'siem_sync_items' ? [] : null;
+      : table === 'siem_sync_items' ? (options.items ?? []).map(vendor_rule_id => ({ vendor_rule_id })) : null;
     const query: Record<string, unknown> = {};
-    for (const method of ['select', 'eq', 'in', 'like', 'order', 'limit', 'single']) query[method] = vi.fn(() => query);
+    for (const method of ['select', 'eq', 'in', 'is', 'like', 'order', 'limit', 'single']) query[method] = vi.fn(() => query);
     query.update = vi.fn(value => { updates.push(value); return query; });
     query.then = (resolve: (result: unknown) => void) => resolve({ data, error: null });
     return query;
@@ -772,6 +773,45 @@ function commitArgs(rpc: ReturnType<typeof vi.fn>) {
 }
 
 describe('registry-driven durable worker', () => {
+  it('detects a page seen by an earlier invocation without declaring absent rules missing', async () => {
+    const { deps, rpc, updates } = await registryFixture('defender_xdr', {
+      cursorToken: 'https://graph.microsoft.com/beta/security/next', items: ['r1'],
+      page: { value: [{ id: 'r1' }] },
+    });
+    await processNativeSync(deps);
+    expect(commitArgs(rpc)).toBeUndefined();
+    expect(updates).toContainEqual(expect.objectContaining({ error_message: expect.stringContaining('repeated a page') }));
+  });
+
+  it('commits successful reads and leaves throttled items pending for fenced retry', async () => {
+    const { deps, rpc, fetch, updates } = await registryFixture('defender_xdr', {
+      phase: 'hydration', items: ['r1', 'r2'], page: {},
+    });
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ id: 'r1', displayName: 'A',
+      queryCondition: { queryText: 'DeviceEvents' }, schedule: { frequency: 'PT1H' }, status: 'enabled' })))
+      .mockResolvedValueOnce(new Response('throttled', { status: 429 }));
+    await processNativeSync(deps);
+    expect(commitArgs(rpc)?.p_results).toEqual([expect.objectContaining({ id: 'r1', content: expect.any(Object) })]);
+    expect(updates).toContainEqual(expect.objectContaining({ status: 'queued', attempts: 1 }));
+  });
+
+  it('checkpoints slow hydration before the 45 second lease expires', async () => {
+    const { deps, rpc, fetch } = await registryFixture('defender_xdr', {
+      phase: 'hydration', items: ['r1', 'r2', 'r3', 'r4', 'r5'], page: {},
+    });
+    let elapsed = 0;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => elapsed);
+    fetch.mockImplementation(async () => {
+      elapsed += 10000;
+      return new Response(JSON.stringify({ id: 'r' + elapsed / 10000, displayName: 'A',
+        queryCondition: { queryText: 'DeviceEvents' }, schedule: { frequency: 'PT1H' }, status: 'enabled' }));
+    });
+    try {
+      await processNativeSync(deps);
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(commitArgs(rpc)?.p_results).toHaveLength(3);
+    } finally { clock.mockRestore(); }
+  });
   // Sentinel pages by an opaque absolute nextLink, which cannot live in the integer cursor_offset
   // column. If the token is not persisted, a resumed run silently restarts from page one and
   // re-imports everything it already committed.
@@ -800,15 +840,14 @@ describe('registry-driven durable worker', () => {
   });
 
   // A provider echoing the cursor it was given back is the shape of an endless run (G11).
-  it('ends the run when a provider echoes the same cursor back', async () => {
-    const { deps, rpc } = await registryFixture('chronicle', {
+  it('does not declare discovery complete when a provider echoes the same cursor back', async () => {
+    const { deps, rpc, updates } = await registryFixture('chronicle', {
       cursorToken: 'same-token',
       page: { rules: [], nextPageToken: 'same-token' },
     });
     await processNativeSync(deps);
-    const args = commitArgs(rpc);
-    expect(args?.p_discovery_complete).toBe(true);
-    expect(args?.p_next_token).toBeNull();
+    expect(commitArgs(rpc)).toBeUndefined();
+    expect(updates).toContainEqual(expect.objectContaining({ status: 'queued', attempts: 1 }));
   });
 
   // Elastic pages by number. It must use the integer column and never write the token one, or a

@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import type { Detection } from '@/types';
 import { getProviderMeta } from '@/lib/providerMeta';
 import type { IntegrationProvider } from '@/types';
@@ -47,6 +48,8 @@ function SingleBadge({
 function MultiBadge({ observations }: { observations: NonNullable<Detection['siem_observations']> }) {
   const [open, setOpen] = React.useState(false);
   const buttonRef = React.useRef<HTMLButtonElement>(null);
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const [position, setPosition] = React.useState({ top: 0, left: 0 });
   const panelId = React.useId();
 
   React.useEffect(() => {
@@ -58,7 +61,22 @@ function MultiBadge({ observations }: { observations: NonNullable<Detection['sie
       }
     };
     document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
+    const onOutside = (event: PointerEvent) => {
+      if (!panelRef.current?.contains(event.target as Node) && !buttonRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onScroll = (event: Event) => {
+      if (event.target instanceof Node && panelRef.current?.contains(event.target)) return;
+      setOpen(false);
+    };
+    document.addEventListener('pointerdown', onOutside);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('pointerdown', onOutside);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+    };
   }, [open]);
 
   return (
@@ -68,18 +86,28 @@ function MultiBadge({ observations }: { observations: NonNullable<Detection['sie
         type="button"
         aria-expanded={open}
         aria-controls={panelId}
-        onClick={() => setOpen((value) => !value)}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const rect = event.currentTarget.getBoundingClientRect();
+          setPosition({ top: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 180)),
+            left: Math.max(8, Math.min(rect.left, window.innerWidth - 360)) });
+          setOpen((value) => !value);
+        }}
         className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary whitespace-nowrap h-5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       >
         <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
         {`SIEM ×${observations.length}`}
       </button>
-      {open && (
+      {open && createPortal(
         <div
+          ref={panelRef}
           id={panelId}
           role="dialog"
           aria-label="SIEM bindings"
-          className="absolute z-20 mt-1 min-w-56 rounded-lg border border-outline-variant/30 bg-surface-container-low p-2 shadow-lg text-xs"
+          style={position}
+          onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}
+          className="fixed z-[150] w-[min(352px,calc(100vw-16px))] max-h-40 overflow-auto rounded-lg border border-outline-variant/30 bg-surface-container-low p-2 shadow-lg text-xs"
         >
           <ul className="space-y-1.5">
             {observations.map((observation) => (
@@ -93,7 +121,7 @@ function MultiBadge({ observations }: { observations: NonNullable<Detection['sie
               </li>
             ))}
           </ul>
-        </div>
+        </div>, document.body,
       )}
     </span>
   );

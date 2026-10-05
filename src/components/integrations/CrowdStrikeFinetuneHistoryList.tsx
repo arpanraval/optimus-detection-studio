@@ -36,9 +36,9 @@ export const CrowdStrikeFinetuneHistoryList: React.FC<CrowdStrikeFinetuneHistory
   const navigate = useNavigate();
   const { entries, loading, error } = useCrowdStrikeFinetuneHistory(detectionId);
 
-  const applyRefinement = (refinement: CrowdStrikeFinetuneRefinement) => {
+  const applyRefinement = (refinement: CrowdStrikeFinetuneRefinement, originalQuery: string) => {
     navigate(routeHelpers.detectionEdit(detectionId), {
-      state: { refinedCql: refinement.cql },
+      state: { refinedCql: refinement.cql, refinementOriginalQuery: originalQuery },
     });
   };
 
@@ -131,7 +131,7 @@ export const CrowdStrikeFinetuneHistoryList: React.FC<CrowdStrikeFinetuneHistory
                           key={refinement.level}
                           refinement={refinement}
                           baselineHitCount={entry.result?.baseline_hit_count || baseline || 0}
-                          onApply={applyRefinement}
+                          onApply={(refinement) => applyRefinement(refinement, entry.original_query)}
                         />
                       ))}
                   </div>

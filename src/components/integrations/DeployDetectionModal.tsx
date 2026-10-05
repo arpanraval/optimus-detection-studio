@@ -44,7 +44,7 @@ function getQueryLanguageForProvider(provider: IntegrationProvider): string {
 }
 
 function supportsPreflight(provider: IntegrationProvider | undefined): boolean {
-  return provider === 'defender_xdr' || provider === 'crowdstrike';
+  return provider === 'defender_xdr' || provider === 'crowdstrike' || provider === 'sentinel';
 }
 
 // Auto-suggest security domain from log sources
@@ -400,7 +400,13 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
         integrationId: integration.id,
       });
       if (!current()) return;
-      const existing = history.find(d => d.action === 'create' && d.status === 'success');
+      const existing = history.find(d => d.action !== 'delete' && d.vendor_rule_id && (
+        (d.action === 'create' && d.status === 'success') ||
+        (integration.provider === 'defender_xdr' && (
+          d.status === 'success' ||
+          (d.response?.optimusVerification as { status?: string } | undefined)?.status === 'unverified'
+        ))
+      ));
       if (existing) {
         setExistingDeployment(existing);
         setDeployAction('update');
@@ -478,6 +484,9 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
       config.enableNotable = DEPLOYABLE_STATUSES.includes(detection.status as Status);
     }
 
+    if (selectedIntegration.provider === 'defender_xdr' && deployAction === 'update' && existingDeployment) {
+      Object.assign(config, existingDeployment.rule_config ?? {});
+    }
     setRuleConfig(config);
     setStep('configure');
   };
@@ -517,7 +526,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
           schedule: configDraft.schedule,
           lookback: configDraft.lookback,
           outcome: configDraft.outcome,
-          enabled: configDraft.enabled,
+          ...(configDraft.enabled === null ? {} : { enabled: configDraft.enabled }),
         });
         const fresh = await nativeSiemService.preview(review.binding.id);
         setBoundPreview(fresh);
@@ -543,7 +552,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
           description: review ? review.local.description : ruleDescription,
           action: deployAction,
         },
-        vendorRuleId: review?.binding.vendor_rule_id ?? existingDeployment?.vendor_rule_id ?? undefined,
+        vendorRuleId: review?.binding.vendor_rule_id ?? (deployAction === 'update' ? existingDeployment?.vendor_rule_id ?? undefined : undefined),
         // Only set for a tracked rule: the exact revision the diff above showed.
         ...(review ? { expectedHash: review.remoteHash, expectedVersion: review.localVersion } : {}),
       });
@@ -592,7 +601,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
     setDeployResult(null);
     // A tracked rule's failure is often "production moved" or "the review is stale". Returning to
     // the same preview would resubmit the revision that was just refused, so reload it instead.
-    if (selectedIntegration && boundBinding) {
+    if (selectedIntegration && (boundBinding || selectedIntegration.provider === 'defender_xdr')) {
       void handleSelectIntegration(selectedIntegration);
       return;
     }
@@ -613,6 +622,9 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
   };
 
   const { query: deployQuery, language: deployLanguage } = getDeployQuery();
+  const verification = deployResult?.record?.response?.optimusVerification as
+    { status?: string; message?: string } | undefined;
+  const verificationPending = verification?.status === 'pending';
   // The review below the form describes the content as EDITED, so what the user reads is what the
   // update would write.
   const editedLocal = boundPreview && configDraft
@@ -622,7 +634,8 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
   // A rule that matches production cannot be updated -- unless the user has just changed a
   // setting, which is precisely what makes it no longer match.
   const updateBlocked = boundPreview
-    ? (boundPreview.drift === 'in_sync' && configDirty ? null : boundPreview.capabilities.update)
+    ? (boundPreview.drift === 'in_sync' && configDirty && boundPreview.updateAfterEditBlocked !== undefined
+      ? boundPreview.updateAfterEditBlocked : boundPreview.capabilities.update)
     : null;
 
   // Non-connected integrations for display
@@ -878,7 +891,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                               <span className="ml-1.5 text-[10px] font-normal text-on-surface-variant">(recommended)</span>
                             </span>
                             <p className="text-[11px] text-on-surface-variant/70 mt-0.5">
-                              Overwrites the current rule in Splunk with the latest query and configuration.
+                              Updates the selected rule in {selectedIntegration.name} with the latest query and configuration.
                             </p>
                           </div>
                         </label>
@@ -894,7 +907,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                           <div>
                             <span className="text-xs font-medium text-on-surface">Create new rule</span>
                             <p className="text-[11px] text-on-surface-variant/70 mt-0.5">
-                              Creates a second rule in Splunk. The original rule will remain unchanged.
+                              Creates a separate rule in {selectedIntegration.name}. The original rule will remain unchanged.
                             </p>
                           </div>
                         </label>
@@ -1070,6 +1083,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                           draft={configDraft}
                           onChange={setConfigDraft}
                           disabled={deploying}
+                          provider={selectedIntegration?.provider}
                           providerName={selectedIntegration ? getProviderMeta(selectedIntegration.provider)?.name : undefined}
                         />
                       )}
@@ -1159,11 +1173,14 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                 <div className="space-y-4">
                   {/* Success */}
                   {deployResult.success && (
-                    <div className="rounded-xl border border-ext-green/30 bg-ext-green-container/40 px-3.5 py-3">
+                    <div className={`rounded-xl border px-3.5 py-3 ${verificationPending
+                      ? 'border-outline-variant bg-surface-container-high'
+                      : 'border-ext-green/30 bg-ext-green-container/40'}`}>
                       <div className="flex items-center gap-2 mb-3">
-                        <Icon name="check-circle" className="h-4 w-4 text-ext-green mt-0.5 flex-shrink-0" />
+                        <Icon name={verificationPending ? 'clock' : 'check-circle'} className="h-4 w-4 mt-0.5 flex-shrink-0" />
                         <span className="text-sm font-medium text-on-surface">
-                          {deployResult.autoUpgraded || deployResult.autoRetried === '409_to_update'
+                          {verificationPending ? 'Accepted — verification pending'
+                            : deployResult.autoUpgraded || deployResult.autoRetried === '409_to_update'
                             ? 'Rule Updated Successfully'
                             : deployResult.autoRetried === '404_to_create'
                             ? 'Deployed Successfully'
@@ -1173,12 +1190,18 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                         </span>
                       </div>
 
+                      {verificationPending && (
+                        <p className="text-xs text-on-surface-variant ml-6 mb-3">
+                          {verification?.message || 'Microsoft accepted the rule. Refresh the Defender rule list later to confirm visibility.'}
+                        </p>
+                      )}
+
                       {/* Auto-retry notice */}
                       {deployResult.autoRetried === '409_to_update' && (
                         <div className="flex items-start gap-2 rounded-xl border border-outline-variant bg-surface-container-high/50 px-3.5 py-2.5 mb-3 ml-6">
                           <Icon name="info" className="h-3.5 w-3.5 text-on-surface-variant mt-0.5 flex-shrink-0" />
                           <p className="text-[11px] leading-relaxed text-on-surface-variant">
-                            A rule with this name already existed in Splunk — it was updated instead of creating a duplicate.
+                            A rule with this name already existed in {selectedIntegration?.name} — it was updated instead of creating a duplicate.
                           </p>
                         </div>
                       )}
@@ -1186,7 +1209,7 @@ export const DeployDetectionModal: React.FC<DeployDetectionModalProps> = ({
                         <div className="flex items-start gap-2 rounded-xl border border-outline-variant bg-surface-container-high/50 px-3.5 py-2.5 mb-3 ml-6">
                           <Icon name="info" className="h-3.5 w-3.5 text-on-surface-variant mt-0.5 flex-shrink-0" />
                           <p className="text-[11px] leading-relaxed text-on-surface-variant">
-                            The existing rule was not found in Splunk — a new rule was created.
+                            The existing rule was not found in {selectedIntegration?.name} — a new rule was created.
                           </p>
                         </div>
                       )}

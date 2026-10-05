@@ -1,4 +1,5 @@
 import { Status } from './enums';
+import { DEPLOYABLE_STATUS_NAMES, SIEM_QUERY_LANGUAGES } from '../../supabase/functions/_shared/pack-deploy-policy';
 
 // ============================================
 // INTEGRATION TYPES
@@ -205,21 +206,10 @@ export interface DeployValidation {
 }
 
 /** Statuses that allow deployment */
-export const DEPLOYABLE_STATUSES: Status[] = [
-  Status.Production,
-  Status.Testing,
-  Status.Review,
-];
+export const DEPLOYABLE_STATUSES = DEPLOYABLE_STATUS_NAMES as Status[];
 
 /** Map SIEM provider to accepted query languages */
-export const PROVIDER_QUERY_LANGUAGES: Record<string, string[]> = {
-  splunk: ['SPL'],
-  sentinel: ['KQL'],
-  defender_xdr: ['KQL'],
-  elastic: ['Lucene', 'EQL', 'ES|QL', 'Elasticsearch DSL'],
-  crowdstrike: ['CQL'],
-  chronicle: ['YARA-L'],
-};
+export const PROVIDER_QUERY_LANGUAGES = SIEM_QUERY_LANGUAGES;
 
 // -- Vendor-specific rule configuration --
 

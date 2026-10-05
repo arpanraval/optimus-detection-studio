@@ -63,6 +63,21 @@ export function endpointScope(config: Record<string, unknown>, providerLabel: st
   return `${scheme}://${host}:${port}`;
 }
 
+/** Shared by legacy and durable Elastic routes, including existing cloud connections. */
+export function elasticEndpoint(config: Record<string, unknown>): string {
+  let base: string;
+  if (config.cloudId) {
+    const encoded = String(config.cloudId).split(':').pop()!;
+    const [domain, , kibana] = atob(encoded).split('$');
+    if (!domain) throw new Error('Invalid Elastic Cloud ID');
+    base = `https://${kibana ? `${kibana}.` : ''}${domain}`;
+  } else {
+    base = endpointScope({ ...config, port: config.port || 9200 }, 'Elastic');
+  }
+  const space = typeof config.spaceId === 'string' && config.spaceId.trim() ? config.spaceId : 'default';
+  return space === 'default' ? base : `${base}/s/${encodeURIComponent(space)}`;
+}
+
 /** Derives the stable `provider_scope` identity string for a provider's connection config.
  *  Must THROW when the config lacks what it needs -- never return a placeholder, an empty
  *  string, or a partially-derived scope, since a wrong scope silently merges or splits rule
@@ -83,23 +98,22 @@ export function providerScope(provider: ImportProvider, config: Record<string, u
     }
 
     case 'elastic': {
-      const base = endpointScope(config, 'Elastic');
-      const spaceId = requireString(config.spaceId, 'Elastic requires a space ID to derive a scope');
-      return `${base}/${spaceId}`;
+      const space = typeof config.spaceId === 'string' && config.spaceId.trim() ? config.spaceId : 'default';
+      return `${elasticEndpoint({ ...config, spaceId: 'default' })}/${space}`;
     }
 
     case 'chronicle': {
       const region = requireString(config.region, 'Chronicle requires a region to derive a scope');
       const customerId = requireString(config.customerId, 'Chronicle requires a customer ID to derive a scope');
-      const projectOrInstance = config.projectId ?? config.instanceId;
-      const suffix = requireString(projectOrInstance, 'Chronicle requires a project or instance ID to derive a scope');
-      return `chronicle:${region}/${customerId}/${suffix}`;
+      const project = typeof config.projectId === 'string' && config.projectId.trim() ? `/${config.projectId}` : '';
+      return `chronicle:${region}/${customerId}${project}`;
     }
 
     case 'splunk': {
       const base = endpointScope(config, 'Splunk');
       const app = requireString(config.app, 'Splunk requires an app to derive a scope');
-      return `${base}/${app}`;
+      const owner = typeof config.owner === 'string' && config.owner.trim() ? config.owner : '-';
+      return `${base}/${encodeURIComponent(app)}/${encodeURIComponent(owner)}`;
     }
 
     case 'defender_xdr': {
@@ -176,9 +190,7 @@ export function providerEndpoint(provider: ImportProvider, config: Record<string
       return { baseUrl: 'https://graph.microsoft.com/beta', pathPrefix: 'security/' };
 
     case 'elastic': {
-      const base = endpointScope(config, 'Elastic');
-      const spaceId = requireString(config.spaceId, 'Elastic requires a space ID to connect');
-      return { baseUrl: `${base}/s/${spaceId}`, pathPrefix: 'api/' };
+      return { baseUrl: elasticEndpoint(config), pathPrefix: 'api/' };
     }
 
     case 'chronicle': {

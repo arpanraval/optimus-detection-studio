@@ -6,13 +6,16 @@
  * docs/plans/2026-05-22-ai-finetuning-helper-design.md.
  */
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getCorsHeaders, handleCorsPreflight } from '../_shared/cors.ts';
 import { decryptCredentials, getGraphToken, runHuntingQuery } from '../_shared/defender-hunting.ts';
 import { createSession, sendEvents, listEvents, userMessage, customToolResult, interrupt } from '../_shared/managed-agents.ts';
 import { buildKickoffMessage, capHuntingResult, mapHuntingError, validateLadder, normalizeEvents } from '../_shared/finetune-logic.ts';
 import { checkPermission } from '../_shared/permissions.ts';
 import { checkRateLimit } from '../_shared/rate-limiter.ts';
+import { selectSiemQuery } from '../_shared/siem-query-selection.ts';
+import { sentinelToken, runSentinelQuery } from '../_shared/sentinel-query.ts';
+import { FINETUNE_SYSTEM_PROMPT, FINETUNE_TOOLS } from '../_shared/finetune-agent.ts';
 
 declare const Deno: {
   env: { get(key: string): string | undefined };
@@ -22,8 +25,6 @@ declare const Deno: {
 const QUERY_BUDGET = 12;
 const WINDOW_MAX = 30;
 const RUN_TIMEOUT_MS = 6 * 60 * 1000;
-
-type SupabaseClient = ReturnType<typeof createClient>;
 
 interface ReqBody {
   action: 'start' | 'poll' | 'tool' | 'cancel';
@@ -42,31 +43,18 @@ function json(data: unknown, req: Request, status = 200): Response {
   });
 }
 
-/** Picks the first KQL query from a detection row (mirrors integration-ops pickKqlQuery). */
-function pickKqlQuery(d: {
-  queries?: { language?: string; query?: string }[];
-  queryLanguage?: string;
-  detectionQuery?: string;
-}): string | null {
-  const fromArray = (d.queries || []).find(
-    (q) => q.language && q.language.toUpperCase() === 'KQL' && q.query && q.query.trim() !== '',
-  );
-  if (fromArray?.query) return fromArray.query;
-  if (d.detectionQuery && d.detectionQuery.trim() !== '' &&
-      d.queryLanguage && d.queryLanguage.toUpperCase() === 'KQL') {
-    return d.detectionQuery;
-  }
-  return null;
-}
-
-/** Loads + decrypts the Defender credentials for an integration; returns a Graph token. */
-async function defenderToken(admin: SupabaseClient, integrationId: string): Promise<string> {
+/** Credentials stay server-side; the executor is bound to the caller's selected integration. */
+async function queryExecutor(admin: SupabaseClient, integrationId: string, userId: string) {
   const { data: integration, error: iErr } = await admin
     .from('integrations')
     .select('id, provider, status, config, user_id')
     .eq('id', integrationId)
     .single();
   if (iErr || !integration) throw new Error('Integration not found.');
+  if (integration.user_id !== userId || !['defender_xdr', 'sentinel'].includes(integration.provider)) {
+    throw new Error('Invalid KQL integration.');
+  }
+  if (integration.status !== 'connected') throw new Error('Integration is not connected.');
   const { data: credRow, error: cErr } = await admin
     .from('integration_credentials')
     .select('encrypted_data')
@@ -78,7 +66,12 @@ async function defenderToken(admin: SupabaseClient, integrationId: string): Prom
   if (!tenantId || !creds.clientId || !creds.clientSecret) {
     throw new Error('Integration is missing tenantId / clientId / clientSecret.');
   }
-  return getGraphToken(tenantId, creds.clientId, creds.clientSecret);
+  const config = integration.config as Record<string, unknown>;
+  const token = integration.provider === 'sentinel' ? await sentinelToken(config, creds) :
+    await getGraphToken(tenantId, creds.clientId, creds.clientSecret);
+  return (query: string, days: number, timeout: number) => integration.provider === 'sentinel'
+    ? runSentinelQuery(token, config, query, days, timeout)
+    : runHuntingQuery(token, query, days, timeout);
 }
 
 async function handleStart(body: ReqBody, userId: string, admin: SupabaseClient, req: Request): Promise<Response> {
@@ -110,7 +103,16 @@ async function handleStart(body: ReqBody, userId: string, admin: SupabaseClient,
     return json({ error: 'You can only finetune your own detections.' }, req, 403);
   }
 
-  const kql = pickKqlQuery(detection);
+  const { data: bindings, error: bindingError } = await admin.from('siem_rule_bindings')
+    .select('selected_query_id').eq('detection_id', body.detectionId)
+    .eq('integration_id', body.integrationId).eq('binding_status', 'active');
+  if (bindingError) return json({ error: 'Could not resolve the tracked query.' }, req, 500);
+  let kql: string | null;
+  try {
+    kql = selectSiemQuery(detection, 'KQL', (bindings ?? []).map(b => b.selected_query_id));
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : 'Invalid tracked query.' }, req, 400);
+  }
   if (!kql) return json({ error: 'This detection has no KQL query to finetune.' }, req, 400);
 
   // Integration ownership.
@@ -120,19 +122,22 @@ async function handleStart(body: ReqBody, userId: string, admin: SupabaseClient,
     .eq('id', body.integrationId)
     .single();
   if (iErr || !integration) return json({ error: 'Integration not found.' }, req, 404);
-  if (integration.user_id !== userId || integration.provider !== 'defender_xdr') {
-    return json({ error: 'Invalid Defender XDR integration.' }, req, 403);
+  if (integration.user_id !== userId || !['defender_xdr', 'sentinel'].includes(integration.provider)) {
+    return json({ error: 'Invalid KQL integration.' }, req, 403);
   }
   if (integration.status !== 'connected') {
     return json({ error: 'Integration is not connected.' }, req, 400);
   }
 
-  const windowDays = Math.min(Math.max(Math.round(body.windowDays ?? 14), 1), WINDOW_MAX);
+  const windowDays = body.windowDays ?? 14;
+  if (!Number.isInteger(windowDays) || windowDays < 1 || windowDays > WINDOW_MAX) {
+    return json({ error: 'Fine-tuning requires a backtest window between 1 and 30 days.' }, req, 400);
+  }
 
   // Resume guard: return any in-progress run for this detection+user.
   const { data: existing } = await admin
     .from('detection_finetune_runs')
-    .select('id, anthropic_session_id')
+    .select('id, anthropic_session_id, integration_id')
     .eq('detection_id', body.detectionId)
     .eq('user_id', userId)
     .eq('status', 'running')
@@ -140,21 +145,25 @@ async function handleStart(body: ReqBody, userId: string, admin: SupabaseClient,
     .limit(1)
     .maybeSingle();
   if (existing) {
+    if (existing.integration_id !== body.integrationId) {
+      return json({ error: 'A fine-tuning run for this detection is active on another integration. Finish or cancel it first.' }, req, 409);
+    }
     return json({ runId: existing.id, sessionId: existing.anthropic_session_id, resumed: true }, req);
   }
 
   // Connectivity probe — fail fast on auth errors before spending a session.
-  let token: string;
   try {
-    token = await defenderToken(admin, body.integrationId);
-    const probe = await runHuntingQuery(token, 'DeviceInfo | take 1', 1, 30000);
+    const execute = await queryExecutor(admin, body.integrationId, userId);
+    const probe = await execute(`${kql.trim().replace(/;+$/, '')}\n| take 1`, 1, 30000);
     if (!probe.ok && probe.kind === 'http' && (probe.httpStatus === 401 || probe.httpStatus === 403)) {
       return json({
-        error: 'Defender authentication failed. Check the integration permissions (ThreatHunting.Read.All, Application).',
+        error: integration.provider === 'sentinel'
+          ? 'Sentinel workspace query access was denied. Check the application workspace permissions.'
+          : 'Defender authentication failed. Check the integration permissions (ThreatHunting.Read.All, Application).',
       }, req, 403);
     }
   } catch (e) {
-    return json({ error: `Could not reach Defender: ${e instanceof Error ? e.message : e}` }, req, 502);
+    return json({ error: `Could not reach the selected SIEM: ${e instanceof Error ? e.message : e}` }, req, 502);
   }
 
   // Baseline from the seeding pre-flight run (if any).
@@ -166,6 +175,12 @@ async function handleStart(body: ReqBody, userId: string, admin: SupabaseClient,
       .select('hit_count, breakdown')
       .eq('id', body.preflightRunId)
       .eq('user_id', userId)
+      .eq('integration_id', body.integrationId)
+      .eq('detection_id', body.detectionId)
+      .eq('query_text', kql)
+      .eq('window_days', windowDays)
+      .eq('status', 'success')
+      .eq('validation_passed', true)
       .maybeSingle();
     if (pf) { baseline = pf.hit_count as number | null; breakdown = pf.breakdown; }
   }
@@ -176,9 +191,11 @@ async function handleStart(body: ReqBody, userId: string, admin: SupabaseClient,
   if (!agentId || !environmentId) {
     return json({ error: 'Finetuning agent is not provisioned (missing FINETUNE_AGENT_ID / FINETUNE_ENVIRONMENT_ID).' }, req, 500);
   }
-  const sessionId = await createSession(agentId, environmentId, `Finetune: ${detection.name}`);
+  const sessionId = await createSession(agentId, environmentId, `Finetune: ${detection.name}`,
+    integration.provider === 'sentinel' ? { system: FINETUNE_SYSTEM_PROMPT, tools: FINETUNE_TOOLS } : undefined);
   await sendEvents(sessionId, [userMessage(buildKickoffMessage({
     detectionName: detection.name as string,
+    provider: integration.provider,
     windowDays,
     baselineHitCount: baseline,
     originalQuery: kql,
@@ -191,6 +208,7 @@ async function handleStart(body: ReqBody, userId: string, admin: SupabaseClient,
       user_id: userId,
       detection_id: body.detectionId,
       integration_id: body.integrationId,
+      provider: integration.provider,
       preflight_run_id: body.preflightRunId ?? null,
       anthropic_session_id: sessionId,
       status: 'running',
@@ -205,12 +223,15 @@ async function handleStart(body: ReqBody, userId: string, admin: SupabaseClient,
     if ((insErr as { code?: string }).code === '23505') {
       const { data: dup } = await admin
         .from('detection_finetune_runs')
-        .select('id, anthropic_session_id')
+        .select('id, anthropic_session_id, integration_id')
         .eq('detection_id', body.detectionId)
         .eq('user_id', userId)
         .eq('status', 'running')
         .maybeSingle();
-      if (dup) return json({ runId: dup.id, sessionId: dup.anthropic_session_id, resumed: true }, req);
+      if (dup && dup.integration_id === body.integrationId) {
+        try { await sendEvents(sessionId, [interrupt()]); } catch { /* best effort */ }
+        return json({ runId: dup.id, sessionId: dup.anthropic_session_id, resumed: true }, req);
+      }
     }
     // The session was created but no run row owns it — interrupt it (best effort)
     // so the orphaned agent stops burning tokens.
@@ -230,7 +251,7 @@ async function handleTool(body: ReqBody, userId: string, admin: SupabaseClient, 
   }
   const { data: run, error } = await admin
     .from('detection_finetune_runs')
-    .select('id, user_id, status, anthropic_session_id, integration_id, window_days')
+    .select('id, user_id, status, anthropic_session_id, integration_id, window_days, provider')
     .eq('id', body.runId)
     .single();
   if (error || !run) return json({ error: 'Run not found.' }, req, 404);
@@ -300,8 +321,8 @@ async function handleTool(body: ReqBody, userId: string, admin: SupabaseClient, 
     let payload: string;
     let isError = false;
     try {
-      const token = await defenderToken(admin, run.integration_id as string);
-      const result = await runHuntingQuery(token, query, run.window_days as number, QUERY_ABORT_MS);
+      const execute = await queryExecutor(admin, run.integration_id as string, userId);
+      const result = await execute(query, run.window_days as number, QUERY_ABORT_MS);
       if (result.ok) {
         const capped = capHuntingResult(result.schema, result.results);
         capped.window_days = run.window_days as number;
@@ -315,7 +336,10 @@ async function handleTool(body: ReqBody, userId: string, admin: SupabaseClient, 
           guidance: 'The query exceeded 60s. Narrow it with a tighter filter or summarize.' });
         isError = true;
       } else {
-        payload = JSON.stringify(mapHuntingError(result.httpStatus, result.body));
+        payload = JSON.stringify(run.provider === 'sentinel' ? {
+          error: 'sentinel_query_error', http_status: result.httpStatus, message: result.body.slice(0, 2000),
+          guidance: 'Use this Sentinel workspace\'s tables and columns. If access is denied, report the workspace permission error.',
+        } : mapHuntingError(result.httpStatus, result.body));
         isError = true;
       }
     } catch (e) {

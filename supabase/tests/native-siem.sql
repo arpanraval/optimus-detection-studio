@@ -33,8 +33,8 @@ BEGIN
   did:=b.detection_id;
   PERFORM set_config('test.siem_detection',did,true);
   PERFORM pg_temp.assert_true((SELECT count(*)=1 FROM public.siem_rule_bindings WHERE integration_id=integration),'one binding');
-  PERFORM pg_temp.assert_true((SELECT library_type='production' AND status='Draft' AND review_status='none' AND NOT "testedAndValidated"
-    AND native_provenance->>'kind'='native_siem' FROM public.detections WHERE id=did),'safe import defaults');
+  PERFORM pg_temp.assert_true((SELECT library_type='production' AND status='Production' AND review_status='none' AND NOT "testedAndValidated"
+    AND native_provenance->>'kind'='native_siem' FROM public.detections WHERE id=did),'enabled import preserves production state without claiming validation');
   PERFORM pg_temp.assert_true((SELECT status='complete' FROM public.siem_sync_runs WHERE id=r.id),'complete run');
   PERFORM pg_temp.assert_true((SELECT count(*)=0 FROM public.deployment_history WHERE detection_id=did),'import is not a deployment');
 
@@ -49,12 +49,13 @@ BEGIN
   failed:=false;
   BEGIN UPDATE public.detections SET queries='[]' WHERE id=did; EXCEPTION WHEN OTHERS THEN failed:=true; END;
   PERFORM pg_temp.assert_true(failed,'bound query removal is rejected');
-  UPDATE public.detections SET queries=jsonb_set(queries,'{0,query}','"local edit"'),version=version+1 WHERE id=did;
+  UPDATE public.detections SET queries=jsonb_set(queries,'{0,query}','"local edit"'),status='Review',version=version+1 WHERE id=did;
   PERFORM pg_temp.assert_true((SELECT count(*)=2 FROM public.siem_local_revisions WHERE detection_id=did),'local edit creates immutable revision');
   r:=public.siem_start_sync(actor,integration,'scope-a'); SELECT * INTO r FROM public.siem_claim_sync();
   PERFORM public.siem_commit_chunk(r.id,r.lease_token,ARRAY['rule-1'],1,true,'[]'); SELECT * INTO r FROM public.siem_claim_sync();
   PERFORM public.siem_commit_chunk(r.id,r.lease_token,'{}',1,true,result);
   PERFORM pg_temp.assert_true((SELECT queries->0->>'query'='local edit' FROM public.detections WHERE id=did),'sync preserves local edit');
+  PERFORM pg_temp.assert_true((SELECT status='Review' FROM public.detections WHERE id=did),'sync preserves local workflow status');
   failed:=false;
   BEGIN PERFORM public.siem_accept_remote(actor,b.id,b.latest_remote_snapshot_id,1,'h1'); EXCEPTION WHEN OTHERS THEN failed:=true; END;
   PERFORM pg_temp.assert_true(failed,'stale accept rejected');

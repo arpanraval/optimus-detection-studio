@@ -40,7 +40,7 @@ export interface PreflightRun {
   user_id: string;
   integration_id: string;
   detection_id: string;
-  provider: 'defender_xdr' | 'crowdstrike';
+  provider: 'defender_xdr' | 'crowdstrike' | 'sentinel';
   window_days: PreflightWindowDays;
   status: PreflightStatus;
   validation_passed: boolean;

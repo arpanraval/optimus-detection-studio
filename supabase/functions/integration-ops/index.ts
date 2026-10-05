@@ -1,10 +1,20 @@
+import { sentinelPackPresence, type PackPresenceChecker } from '../_shared/pack-deploy-presence.ts';
+import { sentinelAttackMapping, SENTINEL_API_VERSION } from '../_shared/sentinel-mitre.ts';
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import { getCorsHeaders, handleCorsPreflight, corsErrorResponse } from '../_shared/cors.ts'
 import { validateUrl } from '../_shared/url-validator.ts'
+import { executePackWrite } from '../_shared/pack-deploy-runtime.ts'
+import { DEPLOYABLE_STATUS_NAMES, SIEM_QUERY_LANGUAGES } from '../_shared/pack-deploy-policy.ts'
 import { checkRateLimit } from '../_shared/rate-limiter.ts'
-import { handleNativeRequest, processNativeSync, applyNativeMutation, validateContinuationUrl } from '../_shared/native-siem-service.ts'
+import { handleNativeRequest, processNativeSync, applyNativeMutation, validateContinuationUrl, client as nativeClient } from '../_shared/native-siem-service.ts'
 import { resolveDeployTarget, deployRouteDecision, nativeOperationFor } from '../_shared/siem-deploy-target.ts'
+import { defenderCreateSchedule } from '../_shared/siem-microsoft-writes.ts'
+import { verifyDefenderInventory } from '../_shared/defender-verification.ts'
+import { deploymentIntent } from '../_shared/deployment-intent.ts'
+import { elasticEndpoint } from '../_shared/siem-providers.ts'
+import { selectSiemQuery } from '../_shared/siem-query-selection.ts'
+import { runSentinelQuery, sentinelToken } from '../_shared/sentinel-query.ts'
 import { readSplunkCorrelationSearches, type SplunkEntry } from '../_shared/siem-readers/splunk.ts'
 import { readSentinelAlertRules, type SentinelRuleEntry } from '../_shared/siem-readers/sentinel.ts'
 import { readElasticRules, type ElasticRuleEntry } from '../_shared/siem-readers/elastic.ts'
@@ -24,6 +34,8 @@ import {
 // =============================================================================
 
 type Action =
+  | 'pack_deploy_item'
+  | 'pack_deploy_presence'
   | 'save_credentials'
   | 'test_connection'
   | 'deploy_rule'
@@ -66,6 +78,11 @@ type Provider =
 
 interface IntegrationRequest {
   action: Action
+  actorId?: string
+  vendorRuleIds?: string[]
+  jobId?: string
+  itemId?: string
+  lease?: string
   integrationId?: string
   provider?: Provider
   name?: string
@@ -152,6 +169,8 @@ const ROLE_DEFAULT_PERMISSIONS: Record<string, GranularPermission[]> = {
 }
 
 const ACTION_PERMISSIONS: Record<Action, GranularPermission> = {
+  pack_deploy_item: 'internal:worker',
+  pack_deploy_presence: 'internal:worker',
   native_sync_start: 'integrations:import',
   native_inventory_start: 'integrations:import',
   native_refresh_tracked: 'integrations:import',
@@ -213,16 +232,8 @@ async function checkPermission(
 
 // -- Deployment eligibility --
 
-const DEPLOYABLE_STATUSES = ['Production', 'Testing', 'Review']
-
-const PROVIDER_QUERY_LANGUAGES: Record<string, string[]> = {
-  splunk: ['SPL'],
-  sentinel: ['KQL'],
-  defender_xdr: ['KQL'],
-  elastic: ['Lucene', 'EQL', 'ES|QL', 'Elasticsearch DSL'],
-  crowdstrike: ['CQL'],
-  chronicle: ['YARA-L'],
-}
+const DEPLOYABLE_STATUSES = DEPLOYABLE_STATUS_NAMES
+const PROVIDER_QUERY_LANGUAGES = SIEM_QUERY_LANGUAGES
 
 async function validateDeploymentEligibility(
   userId: string,
@@ -286,13 +297,13 @@ async function validateDeploymentEligibility(
     // Check queries array first
     if (hasQueries) {
       hasMatchingLang = detection.queries.some(
-        (q: { language?: string }) => q.language && acceptedLangs.some(l => l.toUpperCase() === q.language!.toUpperCase())
+        (q: { language?: string }) => q.language && acceptedLangs.some(l => l.toUpperCase() === q.language!.toUpperCase().replace('ES|QL', 'ESQL'))
       )
     }
 
     // Fall back to primary query language
     if (!hasMatchingLang && detection.queryLanguage) {
-      hasMatchingLang = acceptedLangs.some(l => l.toUpperCase() === detection.queryLanguage.toUpperCase())
+      hasMatchingLang = acceptedLangs.some(l => l.toUpperCase() === detection.queryLanguage.toUpperCase().replace('ES|QL', 'ESQL'))
     }
 
     if (!hasMatchingLang && (hasQuery || hasQueries)) {
@@ -407,6 +418,7 @@ async function withRetry<T>(
       return await fn()
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
+      if (lastError.name === 'UncertainVendorWrite') throw lastError
       if (attempt < maxAttempts) {
         // Exponential backoff with jitter
         const delay = baseDelayMs * Math.pow(2, attempt - 1) + Math.random() * 500
@@ -433,6 +445,13 @@ async function vendorFetch(
   try {
     const response = await fetch(validation.sanitizedUrl!, { ...options, signal: controller.signal })
     return response
+  } catch (error) {
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes((options.method || 'GET').toUpperCase())) {
+      const uncertain = new Error(`Vendor write outcome unknown: ${error instanceof Error ? error.message : String(error)}`)
+      uncertain.name = 'UncertainVendorWrite'
+      throw uncertain
+    }
+    throw error
   } finally {
     clearTimeout(timeoutId)
   }
@@ -559,7 +578,8 @@ async function splunkListRules(
   // provider_scope only carries the endpoint+app half of the boundary. The full acl and content
   // object are preserved rather than projected down to a handful of keys.
   return outcome.rules.map(rule => ({
-    id: rule.vendorRuleId,
+    id: rule.name,
+    scopedId: rule.vendorRuleId,
     name: rule.name,
     owner: rule.identity.owner,
     app: rule.identity.app,
@@ -760,7 +780,7 @@ async function sentinelTestConnection(
   const baseUrl = `https://management.azure.com/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.OperationalInsights/workspaces/${workspaceName}/providers/Microsoft.SecurityInsights/alertRules`
 
   const response = await withRetry(() =>
-    vendorFetch(`${baseUrl}?api-version=2025-06-01&$top=1`, {
+    vendorFetch(`${baseUrl}?api-version=${SENTINEL_API_VERSION}&$top=1`, {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
     })
@@ -795,7 +815,7 @@ async function sentinelListRules(
     if (!response.ok) throw new Error(`Sentinel list rules failed: ${response.status}`)
     const data = await response.json()
     return { value: (data.value ?? []) as SentinelRuleEntry[], nextLink: data.nextLink ?? null }
-  }, `${baseUrl}?api-version=2025-06-01`)
+  }, `${baseUrl}?api-version=${SENTINEL_API_VERSION}`)
 
   const supported = outcome.rules.map(rule => ({
     id: rule.vendorRuleId,
@@ -839,7 +859,7 @@ async function sentinelListRules(
   return [...supported, ...unsupported]
 }
 
-async function sentinelDeployRule(
+export async function sentinelDeployRule(
   config: Record<string, unknown>,
   credentials: Record<string, string>,
   query: string,
@@ -855,7 +875,7 @@ async function sentinelDeployRule(
 
   if (action === 'delete' && vendorRuleId) {
     const response = await withRetry(() =>
-      vendorFetch(`${baseUrl}/${vendorRuleId}?api-version=2025-06-01`, { method: 'DELETE', headers })
+      vendorFetch(`${baseUrl}/${vendorRuleId}?api-version=${SENTINEL_API_VERSION}`, { method: 'DELETE', headers })
     )
     if (!response.ok) throw new Error(`Sentinel delete failed: ${response.status}`)
     return { vendorRuleId, response: { deleted: true } }
@@ -882,7 +902,7 @@ async function sentinelDeployRule(
     suppressionDuration: (ruleConfig.suppressionDuration as string) || 'PT1H',
     suppressionEnabled: (ruleConfig.suppressionEnabled as boolean) ?? false,
     tactics,
-    techniques: (ruleConfig.techniques as string[]) || [],
+    ...sentinelAttackMapping((ruleConfig.techniques as string[]) || []),
     eventGroupingSettings: {
       aggregationKind: (ruleConfig.eventGrouping as string) || 'AlertPerResult',
     },
@@ -916,7 +936,7 @@ async function sentinelDeployRule(
   }
 
   const response = await withRetry(() =>
-    vendorFetch(`${baseUrl}/${ruleId}?api-version=2025-06-01`, {
+    vendorFetch(`${baseUrl}/${ruleId}?api-version=${SENTINEL_API_VERSION}`, {
       method: 'PUT', headers, body: JSON.stringify(body),
     })
   )
@@ -973,9 +993,9 @@ function defenderXdrRuleBody(query: string, ruleConfig: Record<string, unknown>)
 
   return JSON.stringify({
     displayName,
-    isEnabled: true,
+    status: ruleConfig.enabled === false ? 'disabled' : 'enabled',
     queryCondition: { queryText: query },
-    schedule: { period },
+    schedule: defenderCreateSchedule(period),
     detectionAction: {
       alertTemplate: {
         title: displayName,
@@ -1092,14 +1112,15 @@ async function defenderXdrListRules(
   return [...supported, ...unsupported]
 }
 
-async function defenderXdrDeployRule(
+export async function defenderXdrDeployRule(
   config: Record<string, unknown>,
   credentials: Record<string, string>,
   query: string,
   ruleConfig: Record<string, unknown>,
   action: string,
-  vendorRuleId?: string
-): Promise<{ vendorRuleId: string; response: Record<string, unknown> }> {
+  vendorRuleId?: string,
+  createId?: string,
+): Promise<{ vendorRuleId: string; response: Record<string, unknown>; verificationError?: string }> {
   const tenantId = config.tenantId as string
   const token = await microsoftGetToken(tenantId, credentials.clientId, credentials.clientSecret, GRAPH_DEFENDER_SCOPE)
 
@@ -1121,32 +1142,98 @@ async function defenderXdrDeployRule(
   }
 
   const body = defenderXdrRuleBody(query, ruleConfig)
+  const read = async (path: string): Promise<Record<string, unknown>> => {
+    const response = await vendorFetch(`https://graph.microsoft.com/beta/security/${path}`, { method: 'GET', headers })
+    if (!response.ok) throw new Error(`Defender verification failed: HTTP ${response.status}`)
+    return response.json()
+  }
+  // Observed 2026-09-18 (docs/2026-09-18-defender-xdr-ghost-rules.md): Graph accepts a create with 201
+  // but never schedules or lists the rule. A PATCH after creation is what gets it scheduled, at
+  // Microsoft's next sweep (roughly hourly). So every create is followed by one PATCH of the same
+  // body, and a rule that reads back correctly but is not listed yet is reported as pending, not failed.
+  const verifiedResult = async (data: Record<string, unknown>, fallbackId?: string) => {
+    const id = typeof data.id === 'string' && data.id ? data.id : fallbackId || createId || ''
+    try {
+      if (!data.id && !fallbackId) throw new Error('Defender create response did not include a rule ID')
+      const observed = await read(`rules/detectionRules/${encodeURIComponent(id)}`)
+      const expected = JSON.parse(body)
+      if (observed.displayName !== expected.displayName ||
+          (observed.queryCondition as { queryText?: string })?.queryText !== query ||
+          (observed.status ?? (observed.isEnabled === true ? 'enabled' : observed.isEnabled === false ? 'disabled' : undefined)) !== expected.status) {
+        throw new Error(`Defender rule ${id} readback differs from the requested name, query or enabled state`)
+      }
+      let listed = false
+      let inventoryUnavailable = false
+      try {
+        await verifyDefenderInventory(read, id)
+        listed = true
+      } catch (error) {
+        if (error instanceof Error && error.name === 'DefenderInventoryPending') {
+          listed = false
+        } else if (error instanceof Error && error.message === 'Defender verification failed: HTTP 429') {
+          inventoryUnavailable = true
+        } else {
+          throw error
+        }
+      }
+      const checkedAt = new Date().toISOString()
+      const optimusVerification = listed
+        ? { status: 'verified', checkedAt }
+        : { status: 'pending', checkedAt, message: inventoryUnavailable
+          ? 'Microsoft accepted the rule and its scheduling update, but throttled the inventory check. Visibility is not yet verified. Refresh the rule list later.'
+          : 'Microsoft accepted the rule and its scheduling update. Inventory visibility is pending; this tenant has previously taken about an hour to list rules. Refresh the rule list to confirm.' }
+      return { vendorRuleId: id, response: { ...data, optimusVerification } }
+    } catch (error) {
+      const verificationError = `Microsoft accepted the write, but deployment verification failed: ${error instanceof Error ? error.message : String(error)}`
+      return { vendorRuleId: id, response: { ...data, optimusVerification: { status: 'unverified', message: verificationError } }, verificationError }
+    }
+  }
+  const patchRule = (id: string) => withRetry(() =>
+    vendorFetch(`${GRAPH_DEFENDER_BASE}/${encodeURIComponent(id)}`, { method: 'PATCH', headers, body })
+  )
 
-  // Update an existing rule. A 404 means it was deleted in the portal — fall through to create.
+  // Update. The PATCH is also what schedules a rule Graph created but never listed, so it is not
+  // gated on the rule being listed; a 404 means it is truly gone.
   if (vendorRuleId) {
-    const updateRes = await withRetry(() =>
-      vendorFetch(`${GRAPH_DEFENDER_BASE}/${vendorRuleId}`, { method: 'PATCH', headers, body })
-    )
+    const updateRes = await patchRule(vendorRuleId)
     if (updateRes.status !== 404) {
       if (!updateRes.ok) {
         const text = await updateRes.text()
         throw new Error(`Defender XDR update failed: ${updateRes.status} - ${text.slice(0, 300)}`)
       }
       const data = await updateRes.json()
-      return { vendorRuleId: data.id || vendorRuleId, response: data }
+      return verifiedResult(data, vendorRuleId)
     }
+    throw new Error(`Defender rule ${vendorRuleId} disappeared during update; reconcile before recreating it`)
   }
 
-  // Create
+  // Current Graph creation requires a client-provided identity. Keep it stable across attempts.
+  if (!createId) throw new Error('A stable Defender creation ID is required')
   const response = await withRetry(() =>
-    vendorFetch(GRAPH_DEFENDER_BASE, { method: 'POST', headers, body })
+    vendorFetch(GRAPH_DEFENDER_BASE, { method: 'POST', headers, body: JSON.stringify({ ...JSON.parse(body), id: createId }) })
   )
   if (!response.ok) {
     const text = await response.text()
     throw new Error(`Defender XDR create failed: ${response.status} - ${text.slice(0, 300)}`)
   }
   const data = await response.json()
-  return { vendorRuleId: data.id, response: data }
+  const createdId = typeof data.id === 'string' && data.id ? data.id : createId
+  // Create, then PATCH the same body so Microsoft schedules the rule (see note above). The created
+  // identity is kept whatever happens to the PATCH, so a retry becomes an update instead of a 409.
+  const unscheduled = (detail: string) => {
+    const verificationError = `Microsoft created rule ${createdId} but the scheduling update failed: ${detail}. Redeploy to retry the update.`
+    return { vendorRuleId: createdId, response: { ...data, optimusVerification: { status: 'unverified', message: verificationError } }, verificationError }
+  }
+  let scheduleRes: Response
+  try {
+    scheduleRes = await patchRule(createdId)
+  } catch (error) {
+    return unscheduled(error instanceof Error ? error.message : String(error))
+  }
+  if (!scheduleRes.ok) return unscheduled(`${scheduleRes.status} - ${(await scheduleRes.text()).slice(0, 300)}`)
+  // A successful PATCH with an unreadable response must not lose the already-created ID.
+  // The independent GET below is authoritative for the requested content.
+  return verifiedResult(await scheduleRes.json().catch(() => ({})), createdId)
 }
 
 // -- Elastic Security --
@@ -1154,23 +1241,7 @@ async function elasticGetAuth(
   config: Record<string, unknown>,
   credentials: Record<string, string>
 ): Promise<{ baseUrl: string; headers: Record<string, string> }> {
-  let baseUrl: string
-  if (config.cloudId) {
-    // Decode cloud ID: base64(host:port)
-    const decoded = atob(String(config.cloudId).split(':')[1] || '')
-    const [esHost] = decoded.split('$')
-    baseUrl = `https://${esHost}`
-  } else {
-    const host = config.host as string
-    const port = config.port as number || 9200
-    const ssl = config.ssl !== false
-    const protocol = ssl ? 'https' : 'http'
-    baseUrl = `${protocol}://${host}:${port}`
-  }
-
-  if (config.spaceId) {
-    baseUrl += `/s/${config.spaceId}`
-  }
+  const baseUrl = elasticEndpoint(config)
 
   const headers: Record<string, string> = {
     'Accept': 'application/json',
@@ -1234,7 +1305,8 @@ async function elasticListRules(
   // siem-readers/elastic.ts header). Space is already carried on provider_scope, so the same
   // rule_id installed in two spaces produces two independent rows, not a collision.
   const supported = outcome.rules.map(rule => ({
-    id: rule.vendorRuleId,
+    id: rule.objectId,
+    ruleId: rule.vendorRuleId,
     objectId: rule.objectId,
     name: rule.name,
     type: rule.type,
@@ -1261,7 +1333,7 @@ async function elasticListRules(
     raw: rule.raw,
   }))
   const unsupported = outcome.unsupported.map(rule => ({
-    id: rule.vendorRuleId, objectId: rule.objectId, name: rule.name, type: rule.type,
+    id: rule.objectId, ruleId: rule.vendorRuleId, objectId: rule.objectId, name: rule.name, type: rule.type,
     unsupported: true, unsupportedReason: rule.reason, raw: rule.raw,
   }))
   return [...supported, ...unsupported]
@@ -2064,7 +2136,8 @@ async function handleTestConnection(
 async function handleDeployRule(
   body: IntegrationRequest,
   userId: string,
-  corsHeaders: Record<string, string>
+  corsHeaders: Record<string, string>,
+  packItemId?: string,
 ): Promise<Response> {
   if (!body.integrationId || !body.detectionId || !body.query) {
     return new Response(
@@ -2123,32 +2196,29 @@ async function handleDeployRule(
 
   const credentials = await getDecryptedCredentials(body.integrationId)
 
-  let action = body.ruleConfig?.action as string || 'create'
+  let intent: ReturnType<typeof deploymentIntent>
+  try {
+    intent = deploymentIntent(body.ruleConfig?.action, body.vendorRuleId)
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : 'Invalid deployment action' }),
+      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+  }
+  const { action, vendorRuleId: vendorRuleIdToUse } = intent
   const ruleConfig = body.ruleConfig || {}
   const startedAt = new Date().toISOString()
 
-  // E2: Duplicate detection — check for existing active deployment
-  let existingVendorRuleId: string | null = null
-  if (action === 'create') {
-    const { data: existingDeploy } = await serviceClient
-      .from('deployment_history')
-      .select('vendor_rule_id')
-      .eq('detection_id', body.detectionId)
-      .eq('integration_id', body.integrationId)
-      .eq('action', 'create')
-      .eq('status', 'success')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    if (existingDeploy?.vendor_rule_id) {
-      // Auto-upgrade to update
-      action = 'update'
-      existingVendorRuleId = existingDeploy.vendor_rule_id
+  if (integration.provider === 'defender_xdr' && action === 'create' && !packItemId) {
+    // Preserve accepted-but-unverified identities: a manual retry must never create a duplicate.
+    const unresolved = await serviceClient.from('deployment_history').select('vendor_rule_id')
+      .eq('detection_id', body.detectionId).eq('integration_id', body.integrationId)
+      .eq('response->optimusVerification->>status', 'unverified')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle()
+    if (unresolved.error) throw new Error('Could not check earlier Defender deployment verification')
+    if (unresolved.data?.vendor_rule_id) {
+      return new Response(JSON.stringify({ error: `An earlier Defender write (${unresolved.data.vendor_rule_id}) is unverified. Reconcile it before creating another rule.` }),
+        { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
   }
-
-  const vendorRuleIdToUse = body.vendorRuleId || existingVendorRuleId
 
   // Compute detection hash for version tracking
   const encoder = new TextEncoder()
@@ -2179,19 +2249,22 @@ async function handleDeployRule(
       started_at: startedAt,
       detection_version: detRecord?.version || null,
       detection_hash: detectionHash,
+      ...(packItemId ? { pack_item_id: packItemId } : {}),
     })
     .select()
     .single()
 
   if (depError) {
     return new Response(
-      JSON.stringify({ error: 'Failed to create deployment record' }),
+      JSON.stringify({ error: 'Failed to create deployment record', retryable: true, uncertain: false }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
 
+  let vendorSucceeded = false
+  let vendorResult: { vendorRuleId: string; response: Record<string, unknown> } | undefined
   try {
-    let result: { vendorRuleId: string; response: Record<string, unknown> }
+    let result: { vendorRuleId: string; response: Record<string, unknown>; verificationError?: string }
 
     switch (integration.provider) {
       case 'splunk':
@@ -2201,7 +2274,7 @@ async function handleDeployRule(
         result = await sentinelDeployRule(integration.config, credentials, body.query, ruleConfig, action, vendorRuleIdToUse || undefined)
         break
       case 'defender_xdr':
-        result = await defenderXdrDeployRule(integration.config, credentials, body.query, ruleConfig, action, vendorRuleIdToUse || undefined)
+        result = await defenderXdrDeployRule(integration.config, credentials, body.query, ruleConfig, action, vendorRuleIdToUse || undefined, `optimus-${packItemId || deployment.id}`)
         break
       case 'elastic':
         result = await elasticDeployRule(integration.config, credentials, body.query, ruleConfig, action, vendorRuleIdToUse || undefined)
@@ -2219,8 +2292,11 @@ async function handleDeployRule(
     const completedAt = new Date().toISOString()
     const durationMs = new Date(completedAt).getTime() - new Date(startedAt).getTime()
 
-    // Update deployment record
-    await serviceClient
+    vendorSucceeded = true
+    vendorResult = result
+    if (result.verificationError) throw new Error(result.verificationError)
+    // Do not report success unless its vendor identity is durably recorded.
+    const { error: historyError } = await serviceClient
       .from('deployment_history')
       .update({
         status: 'success',
@@ -2230,6 +2306,7 @@ async function handleDeployRule(
         duration_ms: durationMs,
       })
       .eq('id', deployment.id)
+    if (historyError) throw new Error(`Vendor write succeeded but recording it failed: ${historyError.message}`)
 
     // Update last synced
     await serviceClient
@@ -2244,10 +2321,10 @@ async function handleDeployRule(
           status: 'success',
           vendor_rule_id: result.vendorRuleId,
           response: result.response,
-          action, // may differ from original if auto-upgraded from create→update
+          action,
         },
         validation, // include warnings for the client
-        autoUpgraded: existingVendorRuleId !== null,
+        autoUpgraded: false,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
@@ -2261,13 +2338,19 @@ async function handleDeployRule(
       .update({
         status: 'failed',
         error_message: err instanceof Error ? err.message : 'Deployment failed',
+        ...(vendorResult ? { vendor_rule_id: vendorResult.vendorRuleId, response: vendorResult.response } : {}),
         completed_at: completedAt,
         duration_ms: durationMs,
       })
       .eq('id', deployment.id)
 
     return new Response(
-      JSON.stringify({ error: 'Deployment failed', deployment: { ...deployment, status: 'failed' } }),
+      JSON.stringify({
+        error: err instanceof Error ? err.message : 'Deployment failed',
+        deployment: { ...deployment, status: 'failed', ...(vendorResult ? { vendor_rule_id: vendorResult.vendorRuleId } : {}), error_message: err instanceof Error ? err.message : 'Deployment failed' },
+        retryable: !vendorSucceeded && /(?:failed:|API error[: ]+)\s*429\b/i.test(String(err)),
+        uncertain: vendorSucceeded || !/(?:failed:|API error[: ]+)\s*4\d\d\b/i.test(String(err)),
+      }),
       { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
@@ -2484,14 +2567,14 @@ async function handleToggleRule(
 
         // GET current, toggle enabled, PUT back
         const getRes = await withRetry(() =>
-          vendorFetch(`${baseUrl}/${body.vendorRuleId}?api-version=2025-06-01`, { method: 'GET', headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' } })
+          vendorFetch(`${baseUrl}/${body.vendorRuleId}?api-version=${SENTINEL_API_VERSION}`, { method: 'GET', headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' } })
         )
         if (!getRes.ok) throw new Error(`Sentinel GET failed: ${getRes.status}`)
         const ruleData = await getRes.json()
         if (ruleData.properties) ruleData.properties.enabled = enabled
 
         const putRes = await withRetry(() =>
-          vendorFetch(`${baseUrl}/${body.vendorRuleId}?api-version=2025-06-01`, { method: 'PUT', headers: authHeaders, body: JSON.stringify(ruleData) })
+          vendorFetch(`${baseUrl}/${body.vendorRuleId}?api-version=${SENTINEL_API_VERSION}`, { method: 'PUT', headers: authHeaders, body: JSON.stringify(ruleData) })
         )
         if (!putRes.ok) throw new Error(`Sentinel toggle failed: ${putRes.status}`)
         break
@@ -2503,7 +2586,7 @@ async function handleToggleRule(
           vendorFetch(`${GRAPH_DEFENDER_BASE}/${body.vendorRuleId}`, {
             method: 'PATCH',
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ isEnabled: enabled }),
+            body: JSON.stringify({ status: enabled ? 'enabled' : 'disabled' }),
           })
         )
         if (!response.ok) throw new Error(`Defender XDR toggle failed: ${response.status}`)
@@ -2662,8 +2745,8 @@ function pfNormalizeQuery(query: string): string {
 function pfAppendOperator(baseQuery: string, operator: string): string {
   return `${pfNormalizeQuery(baseQuery)}\n${operator}`
 }
-function pfBuildWindowClause(windowDays: number, hasTimestamp: boolean): string {
-  return hasTimestamp ? `| where Timestamp > ago(${windowDays}d)` : ''
+function pfBuildWindowClause(windowDays: number, hasTimestamp: boolean, timestampColumn = 'Timestamp'): string {
+  return hasTimestamp ? `| where ${timestampColumn} > ago(${windowDays}d)` : ''
 }
 function pfExtractColumns(schema: { name: string }[] | undefined): string[] {
   return (schema || []).map((s) => s.name)
@@ -2677,16 +2760,17 @@ function pfDetectEntityColumn(columns: string[]): string | null {
   return null
 }
 function pfBuildDerivedQueries(opts: {
-  baseQuery: string; windowDays: number; hasTimestamp: boolean; entityColumn: string | null
+  baseQuery: string; windowDays: number; hasTimestamp: boolean; entityColumn: string | null; timestampColumn?: string
 }): { count: string; sample: string; timeBreakdown: string | null; entityBreakdown: string | null } {
   const base = pfNormalizeQuery(opts.baseQuery)
-  const win = pfBuildWindowClause(opts.windowDays, opts.hasTimestamp)
+  const timestampColumn = opts.timestampColumn || 'Timestamp'
+  const win = pfBuildWindowClause(opts.windowDays, opts.hasTimestamp, timestampColumn)
   const withWin = win ? `${base}\n${win}` : base
   return {
     count: `${withWin}\n| count`,
     sample: `${withWin}\n| take 25`,
     timeBreakdown: opts.hasTimestamp
-      ? `${withWin}\n| summarize Hits = count() by bin(Timestamp, 1d)\n| order by Timestamp asc`
+      ? `${withWin}\n| summarize Hits = count() by bin(${timestampColumn}, 1d)\n| order by ${timestampColumn} asc`
       : null,
     entityBreakdown: opts.entityColumn
       ? `${withWin}\n| summarize Hits = count() by ${opts.entityColumn}\n| top 10 by Hits`
@@ -2708,8 +2792,8 @@ function pfParseCount(results: Record<string, unknown>[]): number {
   const n = Number(raw)
   return Number.isFinite(n) ? n : 0
 }
-function pfParseTime(results: Record<string, unknown>[]): { date: string; hits: number }[] {
-  return (results || []).map((r) => ({ date: String(r.Timestamp ?? ''), hits: Number(r.Hits ?? 0) || 0 })).filter((b) => b.date)
+function pfParseTime(results: Record<string, unknown>[], timestampColumn = 'Timestamp'): { date: string; hits: number }[] {
+  return (results || []).map((r) => ({ date: String(r[timestampColumn] ?? ''), hits: Number(r.Hits ?? 0) || 0 })).filter((b) => b.date)
 }
 function pfParseEntity(results: Record<string, unknown>[], col: string): { name: string; hits: number }[] {
   return (results || []).map((r) => ({ name: String(r[col] ?? '(unknown)'), hits: Number(r.Hits ?? 0) || 0 }))
@@ -3317,8 +3401,8 @@ async function handleRunPreflight(
     .eq('user_id', userId)
     .single()
   if (intError || !integration) return json({ error: 'Integration not found' }, 404)
-  if (integration.provider !== 'defender_xdr' && integration.provider !== 'crowdstrike') {
-    return json({ error: 'Pre-flight supports Microsoft Defender XDR and CrowdStrike integrations' }, 400)
+  if (!['defender_xdr', 'crowdstrike', 'sentinel'].includes(integration.provider)) {
+    return json({ error: 'Pre-flight supports Microsoft Defender XDR, Sentinel and CrowdStrike integrations' }, 400)
   }
   if (integration.status !== 'connected') {
     return json({ error: 'Integration is not connected', code: 'INTEGRATION_NOT_CONNECTED' }, 400)
@@ -3332,6 +3416,22 @@ async function handleRunPreflight(
     .single()
   if (detError || !detection) return json({ error: 'Detection not found' }, 404)
   if (detection.user_id !== userId) return json({ error: 'You do not own this detection' }, 403)
+
+  const { data: queryBindings, error: bindingError } = await serviceClient.from('siem_rule_bindings')
+    .select('selected_query_id').eq('detection_id', detection.id).eq('integration_id', integration.id)
+    .eq('binding_status', 'active')
+  if (bindingError) return json({ error: 'Could not resolve the tracked query' }, 500)
+  const queryLanguage = integration.provider === 'crowdstrike' ? 'CQL' : 'KQL'
+  let targetQuery: string | null
+  try {
+    targetQuery = selectSiemQuery(detection, queryLanguage, (queryBindings || []).map(b => b.selected_query_id))
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : 'Could not resolve the tracked query' }, 400)
+  }
+  // The downstream provider executors receive only the server-selected query.
+  detection.queries = targetQuery ? [{ language: queryLanguage, query: targetQuery }] : []
+  detection.detectionQuery = targetQuery
+  detection.queryLanguage = queryLanguage
 
   if (integration.provider === 'crowdstrike') {
     return startCrowdStrikePreflight(
@@ -3355,6 +3455,20 @@ async function handleRunPreflight(
     return json({ error: 'Integration is missing tenantId — re-save its credentials in integration settings.', code: 'MISSING_TENANT_ID' }, 400)
   }
   const startedAt = Date.now()
+  const isSentinel = integration.provider === 'sentinel'
+  const mapQueryError = (httpStatus: number, responseBody: string) => {
+    if (!isSentinel) return pfMapError(httpStatus, responseBody)
+    if (httpStatus === 401 || httpStatus === 403) return {
+      status: 'permission_denied', message: 'Sentinel workspace query access was denied',
+      guidance: 'Grant the integration application query access to this Log Analytics workspace, then test again.',
+    }
+    return {
+      status: httpStatus === 429 || httpStatus >= 500 || httpStatus === 0 ? 'connection_error' : 'query_error',
+      message: httpStatus === 429 ? 'Sentinel query rate limit reached' : 'Sentinel query failed',
+      guidance: httpStatus === 429 || httpStatus >= 500 ? 'Try again shortly.' :
+        'Check the query in this Sentinel workspace and verify that its tables are available.',
+    }
+  }
 
   let status = 'success'
   let validationPassed = false
@@ -3374,14 +3488,22 @@ async function handleRunPreflight(
     // 85s wall-clock cap across the whole probe -> count -> sample -> breakdown sequence;
     // each runHuntingQuery additionally has its own 60s vendorFetch timeout.
     await withTimeout((async () => {
-      const token = await microsoftGetToken(
+      const token = isSentinel ? await sentinelToken(config, credentials) : await microsoftGetToken(
         config.tenantId as string, credentials.clientId, credentials.clientSecret, GRAPH_DEFAULT_SCOPE,
       )
+      const executeQuery = async (query: string): Promise<HuntingResponse> => {
+        if (!isSentinel) return runHuntingQuery(token, query)
+        const result = await runSentinelQuery(token, config, query, windowDays)
+        if (result.ok) return { ...result, httpStatus: 200, body: '' }
+        if (result.kind === 'timeout') throw new Error('PREFLIGHT_TIMEOUT')
+        return { ok: false, httpStatus: result.kind === 'http' ? result.httpStatus : 413,
+          body: result.kind === 'http' ? result.body : 'Query result is too large' }
+      }
 
       // 1. Probe — validates the query and reveals its result schema.
-      const probe = await runHuntingQuery(token, pfAppendOperator(kqlQuery, '| take 1'))
+      const probe = await executeQuery(pfAppendOperator(kqlQuery, '| take 1'))
       if (!probe.ok) {
-        const mapped = pfMapError(probe.httpStatus, probe.body)
+        const mapped = mapQueryError(probe.httpStatus, probe.body)
         status = mapped.status
         errorMessage = mapped.message
         errorGuidance = mapped.guidance
@@ -3389,18 +3511,19 @@ async function handleRunPreflight(
       }
       validationPassed = true
       const columns = pfExtractColumns(probe.schema)
-      const hasTimestamp = pfHasTimestamp(columns)
+      const timestampColumn = isSentinel ? 'TimeGenerated' : 'Timestamp'
+      const hasTimestamp = columns.includes(timestampColumn)
       const entityColumn = pfDetectEntityColumn(columns)
-      schemaWarnings = pfLintSchema(columns)
-      windowApplied = hasTimestamp
+      schemaWarnings = isSentinel ? [] : pfLintSchema(columns)
+      windowApplied = isSentinel || hasTimestamp
       breakdown.entityColumn = entityColumn
 
-      const derived = pfBuildDerivedQueries({ baseQuery: kqlQuery, windowDays, hasTimestamp, entityColumn })
+      const derived = pfBuildDerivedQueries({ baseQuery: kqlQuery, windowDays, hasTimestamp, entityColumn, timestampColumn })
 
       // 2. Count.
-      const countRes = await runHuntingQuery(token, derived.count)
+      const countRes = await executeQuery(derived.count)
       if (!countRes.ok) {
-        const mapped = pfMapError(countRes.httpStatus, countRes.body)
+        const mapped = mapQueryError(countRes.httpStatus, countRes.body)
         status = mapped.status
         errorMessage = mapped.message
         errorGuidance = mapped.guidance
@@ -3409,17 +3532,17 @@ async function handleRunPreflight(
       hitCount = pfParseCount(countRes.results || [])
 
       // 3. Sample (best-effort).
-      const sampleRes = await runHuntingQuery(token, derived.sample)
+      const sampleRes = await executeQuery(derived.sample)
       if (sampleRes.ok) sample = (sampleRes.results || []).slice(0, 25)
 
       // 4. Time breakdown (best-effort).
       if (derived.timeBreakdown) {
-        const tRes = await runHuntingQuery(token, derived.timeBreakdown)
-        if (tRes.ok) breakdown.overTime = pfParseTime(tRes.results || [])
+        const tRes = await executeQuery(derived.timeBreakdown)
+        if (tRes.ok) breakdown.overTime = pfParseTime(tRes.results || [], timestampColumn)
       }
       // 5. Entity breakdown (best-effort).
       if (derived.entityBreakdown && entityColumn) {
-        const eRes = await runHuntingQuery(token, derived.entityBreakdown)
+        const eRes = await executeQuery(derived.entityBreakdown)
         if (eRes.ok) breakdown.byEntity = pfParseEntity(eRes.results || [], entityColumn)
       }
     })(), 85000)
@@ -3431,7 +3554,7 @@ async function handleRunPreflight(
     } else {
       status = 'connection_error'
       errorMessage = err instanceof Error ? err.message : 'Pre-flight failed'
-      errorGuidance = 'Could not reach Microsoft Graph. Check the integration and try again.'
+      errorGuidance = `Could not reach ${isSentinel ? 'Sentinel Log Analytics' : 'Microsoft Graph'}. Check the integration and try again.`
     }
   }
 
@@ -3443,7 +3566,7 @@ async function handleRunPreflight(
       user_id: userId,
       integration_id: body.integrationId,
       detection_id: body.detectionId,
-      provider: 'defender_xdr',
+      provider: integration.provider,
       window_days: windowDays,
       status,
       validation_passed: validationPassed,
@@ -3490,6 +3613,12 @@ serve(async (req: Request) => {
 
     const token = authHeader.replace('Bearer ', '')
     const body: IntegrationRequest = await req.json()
+    // Only the internal worker may bypass the interactive per-user quota. Its payload and
+    // actor come from the leased queue row, never from caller-supplied rule content.
+    if (body.action === 'pack_deploy_item' || body.action === 'pack_deploy_presence') {
+      const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+      if (!serviceKey || token !== serviceKey) return corsErrorResponse('Worker authorization required', req, 403)
+    }
     const nativeDependencies = {
       db: getServiceClient(), credentials: getDecryptedCredentials,
       // One entry per ImportProvider (native-siem-service.ts's Dependencies.token). CrowdStrike,
@@ -3522,6 +3651,64 @@ serve(async (req: Request) => {
               { Authorization: `Basic ${btoa(`${credentials.username}:${credentials.password}`)}` } : {},
       },
       fetch: vendorFetch, writesEnabled: Deno.env.get('NATIVE_SIEM_MUTATIONS') === 'true',
+    }
+    const checkPackPresence: PackPresenceChecker = async (integration, ids, uncertain) => {
+      if (integration.provider !== 'sentinel') throw new Error('Remote deletion verification is not available for this provider')
+      return sentinelPackPresence(await nativeClient(nativeDependencies, integration), ids, uncertain)
+    }
+    if (body.action === 'pack_deploy_presence') {
+      if (!body.actorId || !body.integrationId || !Array.isArray(body.vendorRuleIds) ||
+          body.vendorRuleIds.length > 1000 || !body.vendorRuleIds.every(id => typeof id === 'string' && id.length > 0)) {
+        return corsErrorResponse('Invalid remote rule check', req, 400)
+      }
+      if (!(await checkPermission(body.actorId, 'integrations:sync')).allowed) {
+        return corsErrorResponse('Deployment permission required', req, 403)
+      }
+      const result = await getServiceClient().from('integrations').select('id,provider,config,status')
+        .eq('id', body.integrationId).eq('user_id', body.actorId).single()
+      if (result.error || !result.data || result.data.status !== 'connected') return corsErrorResponse('Connected integration not found', req, 404)
+      if (result.data.provider === 'defender_xdr') {
+        // Read-only verification of recorded Graph identities, using the same tenant as creation.
+        const rules = await defenderXdrListRules(result.data.config, await getDecryptedCredentials(result.data.id)) as Record<string, unknown>[]
+        const found = new Map(rules.map(rule => [String(rule.id), rule]))
+        const request = body.vendorRuleIds.length <= 3 ? await nativeClient(nativeDependencies, result.data) : null
+        const unpaged = request && !body.vendorRuleIds.length ? await request('rules/detectionRules') : null
+        const direct = request ? await Promise.all(body.vendorRuleIds.map(async id => {
+          try {
+            const rule = await request(`rules/detectionRules/${encodeURIComponent(id)}`)
+            const inventoryVerification = await verifyDefenderInventory(request, id)
+              .then(() => ({ verified: true }), error => ({ verified: false, error: error instanceof Error ? error.message : String(error) }))
+            return { requestedId: id, id: rule.id, name: rule.displayName, enabled: rule.isEnabled, status: rule.status, lastRunDetails: rule.lastRunDetails, inventoryVerification }
+          } catch (error) {
+            return { requestedId: id, httpStatus: (error as { status?: number }).status, error: error instanceof Error ? error.message : String(error) }
+          }
+        })) : undefined
+        return new Response(JSON.stringify({
+          tenantId: result.data.config.tenantId,
+          listedCount: rules.length,
+          listedIds: rules.map(rule => rule.id),
+          unpaged: unpaged ? { ids: (unpaged.value as Array<{ id?: string }> ?? []).map(rule => rule.id), nextLink: unpaged['@odata.nextLink'] ?? null } : undefined,
+          direct,
+          // List omission is not deletion: Graph can return a rule by ID while omitting it here.
+          presence: Object.fromEntries(body.vendorRuleIds.map(id => [id, found.has(id) || direct?.some(rule => 'id' in rule && rule.id === id) ? 'present' : 'not_listed'])),
+          rules: body.vendorRuleIds.filter(id => found.has(id)).map(id => {
+            const rule = found.get(id)!
+            return { id, name: rule.name, enabled: rule.enabled, status: rule.status, schedule: rule.schedule, lastRunDetails: rule.lastRunDetails }
+          }),
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      }
+      const reconcileIds = (body as IntegrationRequest & { reconcileDetectionIds?: string[] }).reconcileDetectionIds
+      if (reconcileIds && (!Array.isArray(reconcileIds) || reconcileIds.length > 1000 || !reconcileIds.every(id => typeof id === 'string'))) return corsErrorResponse('Invalid reconciliation selection', req, 400)
+      const uncertain = reconcileIds?.length ? await getServiceClient().from('pack_deploy_job_items')
+        .select('id,detection_id,vendor_rule_id,payload,error_message,pack_deploy_jobs!inner(integration_id,status)')
+        .eq('pack_deploy_jobs.integration_id', body.integrationId).eq('needs_reconciliation', true).in('detection_id', reconcileIds) : null
+      if (uncertain?.error) throw new Error(uncertain.error.message)
+      const presence = await checkPackPresence(result.data, body.vendorRuleIds, uncertain?.data ?? [])
+      return new Response(JSON.stringify({ presence: Object.fromEntries(presence) }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
+    if (body.action === 'pack_deploy_item') {
+      return await executePackWrite(getServiceClient(), body,
+        (payload, actor, itemId) => handleDeployRule(payload as unknown as IntegrationRequest, actor, corsHeaders, itemId), checkPackPresence)
     }
     if (body.action === 'native_sync_tick') {
       if (!Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || token !== Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')) {
@@ -3609,6 +3796,7 @@ serve(async (req: Request) => {
         expectedHash: body.expectedHash,
         expectedVersion: body.expectedVersion,
         operation: nativeOperationFor(body.action, body.enabled),
+        requestedAction: body.action === 'deploy_rule' ? body.ruleConfig?.action as string : undefined,
       })
       if (decision.route === 'refuse') return corsErrorResponse(decision.message, req, 409)
       if (decision.route === 'native') {

@@ -22,12 +22,13 @@ describe('boundConfigFrom', () => {
   it('starts from what the rule has now, never from a default', () => {
     expect(boundConfigFrom(content)).toEqual({
       severity: 'High', outcome: 'detection', lookback: '1h0m', schedule: '@every 1h0m', enabled: true,
+      scheduleEditable: true, lookbackEditable: true, outcomeEditable: true,
     });
   });
 
   // Defaulting an unknown state to false would have the update disable a running rule.
   it('does not read an unknown production state as off', () => {
-    expect(boundConfigFrom({ ...content, enabled: null }).enabled).toBe(true);
+    expect(boundConfigFrom({ ...content, enabled: null }).enabled).toBeNull();
   });
 });
 

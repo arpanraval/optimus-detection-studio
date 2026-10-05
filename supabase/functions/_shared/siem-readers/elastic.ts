@@ -172,6 +172,7 @@ export function normalizeElasticEntry(entry: ElasticRuleEntry): NormalizedElasti
     };
   }
   const query = typeof entry.query === 'string' ? entry.query : '';
+  if (!query.trim()) return { vendorRuleId, objectId, type, name, raw, reason: 'Rule source query is unavailable' };
   const unmappedFields = Object.keys(entry).filter(key => !MAPPED_KEYS.has(key));
   return {
     vendorRuleId, objectId, type, name,

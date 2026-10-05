@@ -19,6 +19,7 @@ export function useRemoteInventory(integrationId: string) {
   const [counts, setCounts] = useState<InventoryCounts>(ZERO_COUNTS);
   const [run, setRun] = useState<NativeSyncRun | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingRun, setLoadingRun] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [relationship, setRelationshipState] = useState<InventoryRelationship | 'all'>('all');
@@ -99,6 +100,8 @@ export function useRemoteInventory(integrationId: string) {
       }
     } catch {
       /* run status is supplementary; a failure here does not block the page from rendering */
+    } finally {
+      if (generation.current === current) setLoadingRun(false);
     }
   }, [integrationId]);
 
@@ -108,6 +111,7 @@ export function useRemoteInventory(integrationId: string) {
     setPage(null);
     setRun(null);
     setInventoryRun(null);
+    setLoadingRun(true);
     setCounts(ZERO_COUNTS);
     setPageIndexState(0);
     setLoading(true);
@@ -197,7 +201,7 @@ export function useRemoteInventory(integrationId: string) {
     counts,
     run,
     inventoryRun,
-    loading,
+    loading: loading || loadingRun,
     error,
     running,
     relationship,

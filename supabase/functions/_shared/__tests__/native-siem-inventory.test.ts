@@ -46,7 +46,7 @@ function inventoryFixture(options: { phase?: string; resource?: unknown } = {}) 
     phase: options.phase || 'discovery', cursor_offset: 0, lease_token: 'lease', attempts: 0 };
   const from = vi.fn((table: string) => {
     const data = table === 'integrations' ? { id: 'connection', config, provider: 'crowdstrike' }
-      : table === 'siem_sync_items' ? [{ vendor_rule_id: 'remote-1' }] : null;
+      : table === 'siem_sync_items' ? (options.phase === 'hydration' ? [{ vendor_rule_id: 'remote-1' }] : []) : null;
     const query: Record<string, unknown> = {};
     for (const method of ['select', 'eq', 'in', 'order', 'limit', 'single', 'update'])
       query[method] = vi.fn(() => query);

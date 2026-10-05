@@ -25,8 +25,8 @@ export function capHuntingResult(
   const total = results.length;
   let rows = results.slice(0, MAX_ROWS);
   // Secondary cap: keep the serialized rows under ~12KB.
-  while (rows.length > 1 && JSON.stringify(rows).length > MAX_ROWS_JSON_BYTES) {
-    rows = rows.slice(0, Math.ceil(rows.length / 2));
+  while (rows.length > 0 && new TextEncoder().encode(JSON.stringify(rows)).byteLength > MAX_ROWS_JSON_BYTES) {
+    rows = rows.slice(0, Math.floor(rows.length / 2));
   }
   const truncated = rows.length < total;
   return {
@@ -133,9 +133,9 @@ export function validateLadder(input: unknown): LadderValidation {
       return { ok: false, reason: `${where}: title is required.` };
     if (typeof r.kql !== 'string' || !r.kql.trim())
       return { ok: false, reason: `${where}: kql is required.` };
-    if (!Number.isFinite(r.measured_hit_count))
+    if (typeof r.measured_hit_count !== 'number' || !Number.isFinite(r.measured_hit_count))
       return { ok: false, reason: `${where}: measured_hit_count must be a number you measured.` };
-    if (!Number.isFinite(r.noise_reduction_pct))
+    if (typeof r.noise_reduction_pct !== 'number' || !Number.isFinite(r.noise_reduction_pct))
       return { ok: false, reason: `${where}: noise_reduction_pct must be a number.` };
     if (r.noise_reduction_pct < 0 || r.noise_reduction_pct > 100)
       return { ok: false, reason: `${where}: noise_reduction_pct must be between 0 and 100.` };
@@ -223,7 +223,7 @@ export function normalizeEvents(events: AnyEvent[]): NormalizedEvents {
         toolIndex.set(id, timeline.length);
         timeline.push({
           kind: 'query', id, toolUseId: id,
-          purpose: String(input.purpose ?? 'Querying Defender'),
+          purpose: String(input.purpose ?? 'Querying the selected SIEM'),
           kql: String(input.query ?? ''),
           status: 'pending', rowCount: null, isError: false,
         });
@@ -277,6 +277,7 @@ export function normalizeEvents(events: AnyEvent[]): NormalizedEvents {
 
 export function buildKickoffMessage(args: {
   detectionName: string;
+  provider?: 'defender_xdr' | 'sentinel';
   windowDays: number;
   baselineHitCount: number | null;
   originalQuery: string;
@@ -289,7 +290,10 @@ export function buildKickoffMessage(args: {
     ? `\n\nBacktest breakdown from the pre-flight run:\n${JSON.stringify(args.breakdown)}`
     : '';
   return [
-    'A Microsoft Defender XDR detection produced too many matches in a backtest. Finetune it.',
+    `A Microsoft ${args.provider === 'sentinel' ? 'Sentinel' : 'Defender XDR'} detection produced too many matches in a backtest. Finetune it.`,
+    args.provider === 'sentinel'
+      ? 'run_hunting_query executes in the selected Sentinel Log Analytics workspace. Use its tables and TimeGenerated where present; do not require Defender DeviceId, ReportId or Timestamp columns.'
+      : 'run_hunting_query executes in the selected Defender Advanced Hunting tenant. Preserve the columns required by the original custom detection.',
     '',
     `Detection: ${args.detectionName}`,
     `Backtest window: ${args.windowDays} days`,

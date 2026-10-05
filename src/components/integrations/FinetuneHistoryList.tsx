@@ -44,11 +44,11 @@ export const FinetuneHistoryList: React.FC<FinetuneHistoryListProps> = ({ detect
   const navigate = useNavigate();
   const { entries, loading, error } = useFinetuneHistory(detectionId);
 
-  const applyRefinement = (refinement: FinetuneRefinement) => {
+  const applyRefinement = (refinement: FinetuneRefinement, originalQuery: string) => {
     // Same hand-off as the live modal — load the refined KQL into the edit form
     // and let the user save it from there.
     navigate(routeHelpers.detectionEdit(detectionId), {
-      state: { refinedKql: refinement.kql },
+      state: { refinedKql: refinement.kql, refinementOriginalQuery: originalQuery },
     });
   };
 
@@ -152,7 +152,7 @@ export const FinetuneHistoryList: React.FC<FinetuneHistoryListProps> = ({ detect
                           key={r.level}
                           refinement={r}
                           baselineHitCount={entry.result?.baseline_hit_count || baseline || 0}
-                          onApply={applyRefinement}
+                          onApply={(refinement) => applyRefinement(refinement, entry.original_query)}
                         />
                       ))}
                   </div>

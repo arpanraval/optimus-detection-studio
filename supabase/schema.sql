@@ -1142,12 +1142,12 @@ ALTER TABLE public.detection_embeddings ADD CONSTRAINT detection_embeddings_pkey
 ALTER TABLE public.detection_finetune_runs ADD CONSTRAINT detection_finetune_runs_pkey PRIMARY KEY (id);
 ALTER TABLE public.detection_finetune_runs ADD CONSTRAINT detection_finetune_runs_window_days_check CHECK (((window_days >= 1) AND (window_days <= 30)));
 ALTER TABLE public.detection_finetune_runs ADD CONSTRAINT detection_finetune_runs_status_check CHECK ((status = ANY (ARRAY['running'::text, 'completed'::text, 'failed'::text, 'cancelled'::text])));
-ALTER TABLE public.detection_finetune_runs ADD CONSTRAINT detection_finetune_runs_provider_check CHECK ((provider = 'defender_xdr'::text));
+ALTER TABLE public.detection_finetune_runs ADD CONSTRAINT detection_finetune_runs_provider_check CHECK ((provider = ANY (ARRAY['defender_xdr'::text, 'sentinel'::text])));
 ALTER TABLE public.detection_packs ADD CONSTRAINT detection_packs_pack_type_check CHECK ((pack_type = ANY (ARRAY['tactic'::text, 'technology'::text, 'threat_actor'::text, 'campaign'::text, 'ransomware'::text, 'custom'::text, 'siem_ready'::text, 'use_case'::text])));
 ALTER TABLE public.detection_packs ADD CONSTRAINT detection_packs_pkey PRIMARY KEY (id);
 ALTER TABLE public.detection_patterns ADD CONSTRAINT detection_patterns_pkey PRIMARY KEY (id);
 ALTER TABLE public.detection_patterns ADD CONSTRAINT detection_patterns_unique UNIQUE (user_id, detection_id);
-ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_provider_check CHECK ((provider = ANY (ARRAY['defender_xdr'::text, 'crowdstrike'::text])));
+ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_provider_check CHECK ((provider = ANY (ARRAY['defender_xdr'::text, 'crowdstrike'::text, 'sentinel'::text])));
 ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_pkey PRIMARY KEY (id);
 ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'success'::text, 'query_error'::text, 'connection_error'::text, 'timeout'::text, 'permission_denied'::text, 'cancelled'::text])));
 ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_window_days_check CHECK (((window_days >= 1) AND (window_days <= 90)));
@@ -10077,7 +10077,7 @@ $$;
 -- the library without being told a language by the caller. Provider identity always comes from
 -- the connection (integrations.provider), never from a vendor payload.
 CREATE OR REPLACE FUNCTION public.siem_provider_query_language(p_provider text)
-RETURNS text LANGUAGE sql IMMUTABLE AS $$
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path=public AS $$
   SELECT CASE p_provider
     WHEN 'crowdstrike' THEN 'CQL'
     WHEN 'splunk' THEN 'SPL'
@@ -10099,7 +10099,7 @@ $$;
 -- every lowercase vendor value through to the provider default, which is the very bug this fix
 -- exists to remove. A value that matches nothing still falls back to the provider default.
 CREATE OR REPLACE FUNCTION public.siem_rule_query_language(p_provider text, p_content jsonb)
-RETURNS text LANGUAGE sql IMMUTABLE AS $$
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path=public AS $$
   SELECT coalesce(
     (SELECT canonical
        FROM unnest(ARRAY['SPL','KQL','Kuery','Sigma','EQL','ESQL','CQL','SQL',
@@ -10109,11 +10109,39 @@ RETURNS text LANGUAGE sql IMMUTABLE AS $$
     siem_provider_query_language(p_provider));
 $$;
 
+-- Native ATT&CK IDs are evidence from provider configuration, never inferred from query text.
+CREATE OR REPLACE FUNCTION public.siem_native_attack_metadata(p_content jsonb)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY INVOKER SET search_path=public AS $$
+  WITH ids AS (
+    SELECT DISTINCT match[1] AS id FROM regexp_matches(
+      jsonb_build_array(p_content#>'{config,technique}', p_content#>'{config,techniques}',
+        p_content#>'{config,mitreTechniques}', p_content#>'{config,threat}',
+        p_content#>'{config,action.correlationsearch.annotations}', p_content#>'{config,fields,mitre_attack}')::text,
+      '(T[0-9]{4}(?:\.[0-9]{3})?)', 'g') AS match
+  ), techniques AS (
+    SELECT o.stix_id,o.name FROM mitre_objects o JOIN ids ON ids.id=o.mitre_id
+      WHERE o.type='attack-pattern'
+  ), tactics AS (
+    SELECT DISTINCT o.name FROM mitre_objects o
+      WHERE o.type='x-mitre-tactic' AND (
+        o.stix_id IN (SELECT mt.tactic_stix_id FROM mitre_technique_tactics mt JOIN techniques t ON t.stix_id=mt.technique_stix_id)
+        OR o.mitre_id=p_content#>>'{config,tactic}'
+        OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(
+            CASE WHEN jsonb_typeof(p_content#>'{config,tactics}')='array' THEN p_content#>'{config,tactics}' ELSE '[]'::jsonb END) AS x
+          WHERE regexp_replace(lower(o.name),'[^a-z]','','g')=regexp_replace(lower(x),'[^a-z]','','g')))
+  )
+  SELECT jsonb_build_object('ids',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM ids),'[]'::jsonb),
+    'techniques',coalesce((SELECT jsonb_agg(name ORDER BY name) FROM techniques),'[]'::jsonb),
+    'tactics',coalesce((SELECT jsonb_agg(name ORDER BY name) FROM tactics),'[]'::jsonb));
+$$;
+REVOKE ALL ON FUNCTION public.siem_native_attack_metadata(jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_native_attack_metadata(jsonb) TO service_role;
+
 CREATE OR REPLACE FUNCTION public.siem_commit_chunk(p_run uuid, p_lease uuid, p_ids text[], p_next integer,
   p_discovery_complete boolean, p_results jsonb, p_next_token text DEFAULT NULL)
 RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
 DECLARE r siem_sync_runs; item jsonb; b siem_rule_bindings; snap uuid; d detections;
-  qid text; did text; candidates text[]; c jsonb; outcome text; old_hash text; prov text; qlang text;
+  qid text; did text; candidates text[]; c jsonb; outcome text; old_hash text; prov text; qlang text; attack jsonb;
 BEGIN
   SELECT * INTO r FROM siem_sync_runs WHERE id=p_run FOR UPDATE;
   IF NOT FOUND OR r.status <> 'running' OR r.lease_token IS DISTINCT FROM p_lease OR r.lease_expires_at <= now() THEN
@@ -10146,6 +10174,7 @@ BEGIN
       -- Per-rule language first (e.g. an Elastic rule's own 'kuery'/'lucene'/'eql'/'esql'),
       -- falling back to the provider default only when the payload has none or an invalid one.
       qlang := siem_rule_query_language(prov, c);
+    attack := siem_native_attack_metadata(c);
       SELECT * INTO b FROM siem_rule_bindings WHERE integration_id=r.integration_id AND provider_scope=r.provider_scope AND vendor_rule_id=item->>'id' FOR UPDATE;
       outcome := 'unchanged';
       IF FOUND AND b.binding_status <> 'active' THEN
@@ -10179,12 +10208,13 @@ BEGIN
           did := gen_random_uuid()::text; qid := gen_random_uuid()::text;
           INSERT INTO detections(id,user_id,version,name,description,status,"detectionType",severity,"logSource",technology,
             "testedAndValidated","queryLanguage","detectionQuery","updatedDate",queries,library_type,promotion_status,review_status,
-            source,external_id,tags,native_provenance)
-          VALUES(did,r.actor_id,1,c->>'name',c->>'description','Draft','Detection',c->>'severity','','',false,qlang,c->>'query',now(),
+            source,external_id,tags,native_provenance,"mitreAttackIds","mitreTechniques","mitreTactics")
+          VALUES(did,r.actor_id,1,c->>'name',c->>'description',CASE WHEN c->>'enabled'='true' THEN 'Production' ELSE 'Draft' END,'Detection',c->>'severity','','',false,qlang,c->>'query',now(),
             jsonb_build_array(jsonb_build_object('id',qid,'language',qlang,'query',c->>'query','isPrimary',true,'createdDate',now(),'updatedDate',now())),
-            'production','none','none',prov,item->>'id',ARRAY['native-siem',prov],
+            'production','none','none','native_siem',item->>'id',ARRAY['native-siem',prov],
             jsonb_build_object('kind','native_siem','provider',prov,'connection_name',
-              (SELECT name FROM integrations WHERE id=r.integration_id),'imported_at',now()));
+              (SELECT name FROM integrations WHERE id=r.integration_id),'imported_at',now()), ARRAY(SELECT jsonb_array_elements_text(attack->'ids')),
+      ARRAY(SELECT jsonb_array_elements_text(attack->'techniques')), ARRAY(SELECT jsonb_array_elements_text(attack->'tactics')));
           SELECT * INTO d FROM detections WHERE id=did;
           outcome := 'imported';
         END IF;
@@ -10311,10 +10341,10 @@ BEGIN
   IF d.library_type<>'production' OR d.status NOT IN ('Review','Testing','Production') THEN RAISE EXCEPTION 'Review this detection before deploying'; END IF;
   IF b.pending_operation_id IS NOT NULL OR EXISTS(SELECT 1 FROM siem_sync_runs WHERE integration_id=b.integration_id AND status IN ('queued','running')) THEN RAISE EXCEPTION 'Sync or production operation in progress'; END IF;
   IF d.version IS DISTINCT FROM p_version OR NOT EXISTS(SELECT 1 FROM siem_rule_snapshots WHERE id=b.latest_remote_snapshot_id AND content_hash=p_hash)
-    OR (p_action='update' AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(d.queries) q WHERE q->>'id'=b.selected_query_id AND q->>'query'=p_content->>'query' AND q->>'language'='CQL')) THEN RAISE EXCEPTION 'Review is stale'; END IF;
+    OR (p_action='update' AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(d.queries) q WHERE q->>'id'=b.selected_query_id AND q->>'query'=p_content->>'query' AND q->>'language'=b.query_language)) THEN RAISE EXCEPTION 'Review is stale'; END IF;
   IF p_action NOT IN ('update','enable','disable','delete') THEN RAISE EXCEPTION 'Unsupported operation'; END IF;
   INSERT INTO deployment_history(user_id,integration_id,detection_id,native_binding_id,action,status,vendor_rule_id,query_language,deployed_query,rule_config,detection_version,started_at,response)
-    VALUES(p_actor,b.integration_id,d.id,b.id,p_action,'in_progress',b.vendor_rule_id,'CQL',p_content->>'query',p_content,p_version,now(),jsonb_build_object('verification','pending')) RETURNING id INTO op;
+    VALUES(p_actor,b.integration_id,d.id,b.id,p_action,'in_progress',b.vendor_rule_id,b.query_language,p_content->>'query',p_content,p_version,now(),jsonb_build_object('verification','pending')) RETURNING id INTO op;
   UPDATE siem_rule_bindings SET pending_operation_id=op WHERE id=b.id;
   RETURN op;
 END $$;
@@ -10328,7 +10358,7 @@ BEGIN
   SELECT * INTO d FROM detections WHERE id=b.detection_id FOR UPDATE;
   IF d.user_id IS DISTINCT FROM p_actor OR NOT siem_can_edit(p_actor) OR d.version IS DISTINCT FROM p_version OR b.pending_operation_id IS NOT NULL THEN RAISE EXCEPTION 'Local revision changed or access denied'; END IF;
   IF p_content->>'language' <> b.query_language OR length(trim(p_content->>'query'))=0 OR length(trim(p_content->>'name'))=0
-    OR p_content->>'severity' NOT IN ('Critical','High','Medium','Low','Informational') THEN RAISE EXCEPTION 'Invalid local rule'; END IF;
+    OR p_content->>'severity' NOT IN ('Critical','High','Medium','Low','Informational','Unknown') THEN RAISE EXCEPTION 'Invalid local rule'; END IF;
   UPDATE siem_rule_bindings SET desired_content=p_content WHERE id=b.id;
   UPDATE detections SET name=p_content->>'name',description=p_content->>'description',severity=p_content->>'severity',
     version=version+1,"updatedDate"=now(),
@@ -10647,28 +10677,39 @@ CREATE POLICY siem_remote_snapshots_read ON public.siem_remote_rule_snapshots FO
 -- One row per (candidate detection, compatible CQL query). Evidence is restricted to a current
 -- successful deployment against this exact vendor rule, or a legacy external_id match on a
 -- non-native detection — a matching display name alone is never evidence.
+-- Legacy projections used Splunk saved-search names and Elastic saved-object IDs.
+-- These aliases are candidate evidence only: linking still requires explicit selection,
+-- detection ownership, a compatible selected query and the reviewed catalog snapshot.
+CREATE OR REPLACE FUNCTION public.siem_legacy_rule_id(p_provider text,p_raw jsonb)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path=public AS $$
+  SELECT CASE p_provider WHEN 'splunk' THEN p_raw->>'name' WHEN 'elastic' THEN p_raw->>'id' ELSE NULL END;
+$$;
+REVOKE ALL ON FUNCTION public.siem_legacy_rule_id(text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_legacy_rule_id(text,jsonb) TO service_role;
+
 CREATE OR REPLACE FUNCTION public.siem_match_candidates(p_actor uuid, p_integration uuid, p_vendor_rule_id text)
 RETURNS TABLE(detection_id text, detection_name text, evidence text, query_id text, query_language text,
   query_text text, detection_version integer)
 LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = public AS $$
-DECLARE prov text; qlang text; rule_content jsonb;
+DECLARE prov text; qlang text; rule_content jsonb; rule_raw jsonb; legacy_id text;
 BEGIN
   IF NOT (siem_can_import(p_actor, p_integration) AND siem_can_edit(p_actor)) THEN
     RETURN;
   END IF;
   SELECT provider INTO prov FROM integrations WHERE id = p_integration;
-  SELECT s.content INTO rule_content
+  SELECT s.content,s.raw_payload INTO rule_content,rule_raw
     FROM siem_remote_rules rr
     JOIN siem_remote_rule_snapshots s ON s.id = rr.latest_snapshot_id
    WHERE rr.integration_id = p_integration AND rr.vendor_rule_id = p_vendor_rule_id
    ORDER BY rr.last_seen_at DESC LIMIT 1;
   qlang := siem_rule_query_language(prov, coalesce(rule_content, '{}'::jsonb));
+  legacy_id := siem_legacy_rule_id(prov,rule_raw);
   RETURN QUERY
   WITH deployed AS (
     SELECT DISTINCT h.detection_id
       FROM deployment_history h
       JOIN detections x ON x.id = h.detection_id
-     WHERE h.integration_id = p_integration AND h.vendor_rule_id = p_vendor_rule_id
+     WHERE h.integration_id = p_integration AND h.vendor_rule_id IN (p_vendor_rule_id,legacy_id)
        AND h.status = 'success' AND h.action <> 'delete' AND x.user_id = p_actor
        AND NOT EXISTS (
          SELECT 1 FROM deployment_history later
@@ -10678,11 +10719,11 @@ BEGIN
   legacy AS (
     SELECT d.id AS detection_id
       FROM detections d
-     WHERE d.user_id = p_actor AND d.external_id = p_vendor_rule_id AND d.native_provenance IS NULL
+     WHERE d.user_id = p_actor AND (d.external_id = p_vendor_rule_id OR (d.external_id=legacy_id AND d.source=prov)) AND d.native_provenance IS NULL
        AND d.id NOT IN (SELECT deployed.detection_id FROM deployed)
   ),
   evidenced AS (
-    SELECT deployed.detection_id, 'Deployed to this connection as this rule'::text AS evidence FROM deployed
+    SELECT deployed.detection_id, 'Deployment history matches this connection; verify the remote scope'::text AS evidence FROM deployed
     UNION ALL
     SELECT legacy.detection_id, 'Legacy external ID matches'::text FROM legacy
   )
@@ -10755,7 +10796,7 @@ BEGIN
   -- trusting that the caller only offers detections siem_match_candidates actually returned.
   IF EXISTS (
     SELECT 1 FROM deployment_history h
-     WHERE h.integration_id = p_integration AND h.vendor_rule_id = p_vendor_rule_id
+     WHERE h.integration_id = p_integration AND h.vendor_rule_id IN (p_vendor_rule_id,siem_legacy_rule_id(prov,rrs.raw_payload))
        AND h.detection_id = p_detection AND h.status = 'success' AND h.action <> 'delete'
        AND NOT EXISTS (
          SELECT 1 FROM deployment_history later
@@ -10763,7 +10804,7 @@ BEGIN
             AND later.status = 'success' AND later.action = 'delete' AND later.created_at > h.created_at)
   ) THEN
     evidence := 'Deployed to this connection as this rule';
-  ELSIF d.external_id = p_vendor_rule_id AND d.native_provenance IS NULL THEN
+  ELSIF (d.external_id = p_vendor_rule_id OR (d.external_id=siem_legacy_rule_id(prov,rrs.raw_payload) AND d.source=prov)) AND d.native_provenance IS NULL THEN
     evidence := 'Legacy external ID matches';
   END IF;
   IF evidence IS NULL THEN
@@ -10960,7 +11001,7 @@ BEGIN
       -- Candidate evidence is computed once here, not per page render.
       SELECT count(DISTINCT h.detection_id) INTO cand FROM deployment_history h
         JOIN detections x ON x.id = h.detection_id
-       WHERE h.integration_id = r.integration_id AND h.vendor_rule_id = item->>'id'
+       WHERE h.integration_id = r.integration_id AND h.vendor_rule_id IN (item->>'id',siem_legacy_rule_id(prov,item->'raw'))
          AND h.status = 'success' AND h.action <> 'delete' AND x.user_id = r.actor_id
          AND NOT EXISTS (SELECT 1 FROM deployment_history later
                           WHERE later.integration_id = h.integration_id
@@ -10968,7 +11009,7 @@ BEGIN
                             AND later.status = 'success' AND later.action = 'delete'
                             AND later.created_at > h.created_at);
       IF cand = 0 AND EXISTS (SELECT 1 FROM detections
-                               WHERE user_id = r.actor_id AND external_id = item->>'id'
+                               WHERE user_id = r.actor_id AND (external_id = item->>'id' OR (external_id=siem_legacy_rule_id(prov,item->'raw') AND source=prov))
                                  AND native_provenance IS NULL) THEN
         cand := 1;
       END IF;
@@ -11198,7 +11239,7 @@ GRANT EXECUTE ON FUNCTION public.siem_start_import(uuid,uuid,uuid,text[],text[],
 CREATE OR REPLACE FUNCTION public.siem_commit_import_chunk(p_run uuid, p_lease uuid, p_results jsonb)
 RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
 DECLARE r siem_sync_runs; item jsonb; b siem_rule_bindings; d detections; snap uuid;
-  did text; qid text; c jsonb; frozen_hash text; prov text; qlang text;
+  did text; qid text; c jsonb; frozen_hash text; prov text; qlang text; attack jsonb;
 BEGIN
   SELECT * INTO r FROM siem_sync_runs WHERE id = p_run FOR UPDATE;
   IF NOT FOUND OR r.status <> 'running' OR r.kind <> 'import_selection'
@@ -11233,6 +11274,7 @@ BEGIN
     -- Per-rule language first, falling back to the provider default only when the payload has
     -- none or an invalid one -- see siem_rule_query_language.
     qlang := siem_rule_query_language(prov, c);
+    attack := siem_native_attack_metadata(c);
 
     -- A binding for this identity may have appeared since submission (another run, another
     -- actor). Adopting again would duplicate the detection.
@@ -11245,18 +11287,18 @@ BEGIN
       CONTINUE;
     END IF;
 
-    -- Adoption block copied verbatim from siem_commit_chunk (20260914153559, lines 233-247).
-    -- Every literal here -- lifecycle defaults, the tags, the provenance shape -- is
-    -- asserted by supabase/tests/native-siem.sql and read by SiemLibraryBadge / DetectionDetailPage.
+    -- Set initial lifecycle from the observed vendor state; unknown/disabled stays Draft.
+    -- Subsequent refreshes update the binding, not local workflow status or pending edits.
     did := gen_random_uuid()::text; qid := gen_random_uuid()::text;
     INSERT INTO detections(id,user_id,version,name,description,status,"detectionType",severity,"logSource",technology,
       "testedAndValidated","queryLanguage","detectionQuery","updatedDate",queries,library_type,promotion_status,review_status,
-      source,external_id,tags,native_provenance)
-    VALUES(did,r.actor_id,1,c->>'name',c->>'description','Draft','Detection',c->>'severity','','',false,qlang,c->>'query',now(),
+      source,external_id,tags,native_provenance,"mitreAttackIds","mitreTechniques","mitreTactics")
+    VALUES(did,r.actor_id,1,c->>'name',c->>'description',CASE WHEN c->>'enabled'='true' THEN 'Production' ELSE 'Draft' END,'Detection',c->>'severity','','',false,qlang,c->>'query',now(),
       jsonb_build_array(jsonb_build_object('id',qid,'language',qlang,'query',c->>'query','isPrimary',true,'createdDate',now(),'updatedDate',now())),
-      'production','none','none',prov,item->>'id',ARRAY['native-siem',prov],
+      'production','none','none','native_siem',item->>'id',ARRAY['native-siem',prov],
       jsonb_build_object('kind','native_siem','provider',prov,'connection_name',
-        (SELECT name FROM integrations WHERE id=r.integration_id),'imported_at',now()));
+        (SELECT name FROM integrations WHERE id=r.integration_id),'imported_at',now()), ARRAY(SELECT jsonb_array_elements_text(attack->'ids')),
+      ARRAY(SELECT jsonb_array_elements_text(attack->'techniques')), ARRAY(SELECT jsonb_array_elements_text(attack->'tactics')));
     SELECT * INTO d FROM detections WHERE id=did;
     INSERT INTO siem_rule_bindings(detection_id,integration_id,provider,provider_scope,vendor_rule_id,selected_query_id,query_language,desired_content)
       VALUES(did,r.integration_id,prov,r.provider_scope,item->>'id',qid,qlang,c) RETURNING * INTO b;
@@ -11368,3 +11410,4 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.siem_prune_remote_snapshots(uuid,integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.siem_prune_remote_snapshots(uuid,integer) TO service_role;
+

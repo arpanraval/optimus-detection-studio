@@ -1,4 +1,5 @@
 import type { RuleContent } from '@/services/nativeSiemService';
+import { schedulingFields } from '../../../supabase/functions/_shared/siem-rule-editing';
 
 /**
  * A rule's settings as labelled rows, for comparing two sides of it.
@@ -28,6 +29,7 @@ function text(value: unknown): string {
 
 export function ruleSettingRows(content: RuleContent): SettingRow[] {
   const config = (content.config ?? {}) as Record<string, unknown>;
+  const fields = schedulingFields(content);
   return [
     // An unknown state is not "off", and saying so matters: this is the field that decides whether
     // the rule is running in production at all.
@@ -37,10 +39,10 @@ export function ruleSettingRows(content: RuleContent): SettingRow[] {
         ? 'Unknown' : content.enabled ? 'Active' : 'Inactive',
     },
     { label: 'Severity', value: text(content.severity) },
-    { label: 'Outcome', value: text(nested(config, 'search', 'outcome')) },
-    { label: 'Search window', value: text(nested(config, 'search', 'lookback')) },
-    { label: 'Schedule', value: text(nested(config, 'operation', 'schedule', 'definition')) },
-    { label: 'ATT&CK tactic', value: text(config.tactic) },
-    { label: 'ATT&CK technique', value: text(config.technique) },
+    ...(fields.outcomeEditable ? [{ label: 'Outcome', value: text(fields.outcome) }] : []),
+    ...(fields.lookbackEditable ? [{ label: 'Search window', value: text(fields.lookback) }] : []),
+    { label: 'Schedule', value: config.continuous === true ? 'Continuous' : text(fields.schedule || config.interval || config.cron_schedule) },
+    { label: 'ATT&CK tactic', value: text(config.tactic ?? config.tactics ?? nested(config, 'alertTemplate', 'category')) },
+    { label: 'ATT&CK technique', value: text(config.technique ?? config.techniques ?? config.mitreTechniques) },
   ];
 }

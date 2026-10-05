@@ -104,7 +104,13 @@ export function useFinetuneRun() {
     setState((s) => ({ ...s, status: 'cancelled' }));
   }, []);
 
-  useEffect(() => () => { stoppedRef.current = true; }, []);
+  // Re-arm on (re)mount: React StrictMode runs this cleanup once during the dev
+  // mount cycle, before an in-flight start() resolves. Without re-arming, the
+  // poll loop sees stoppedRef === true on entry and never issues a single poll.
+  useEffect(() => {
+    stoppedRef.current = false;
+    return () => { stoppedRef.current = true; };
+  }, []);
 
   return { ...state, start, cancel };
 }

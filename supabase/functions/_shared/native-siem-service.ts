@@ -1,9 +1,13 @@
+import { SENTINEL_API_VERSION } from './sentinel-mitre.ts';
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { ADAPTER_VERSION, canonicalJson, contentHash, crowdStrikeScope, normalizeCrowdStrike, sanitizeSnapshot,
   classifyDrift, localContent, crowdStrikeUpdate, mutationBlockedReason,  NATIVE_OPERATIONS, type Json, type NativeOperation, type RuleContent } from './native-siem-model.ts';
 import { resolveProvider, providerEndpoint, providerScope, adapterVersion, type ImportProvider } from './siem-providers.ts';
 import { fetchCrowdStrikeDiscoveryPage, crowdStrikeDetailPath } from './siem-readers/crowdstrike.ts';
 import { IMPORT_READERS, type ReaderCursor } from './siem-readers/import-readers.ts';
+import { applySchedule, schedulingFields } from './siem-rule-editing.ts';
+import { defenderUpdate, sentinelUpdate, semanticContent } from './siem-microsoft-writes.ts';
+import { verifyDefenderInventory } from './defender-verification.ts';
 
 type Dependencies = {
   db: SupabaseClient;
@@ -90,8 +94,8 @@ export function validateContinuationUrl(url: string, authorizedBase: string): st
  */
 export class VendorRequestError extends Error {
   readonly status: number;
-  constructor(status: number, detail: string) {
-    super(`CrowdStrike refused the request (${status})${detail ? `: ${detail}` : ''}; ` +
+  constructor(status: number, detail: string, provider = 'CrowdStrike') {
+    super(`${provider} refused the request (${status})${detail ? `: ${detail}` : ''}; ` +
       'fetch rules again if this persists');
     this.status = status;
   }
@@ -112,6 +116,8 @@ async function vendorDetail(response: Response): Promise<string> {
     const messages = (Array.isArray(body?.errors) ? body.errors : [])
       .map((entry: { message?: string }) => entry?.message).filter(Boolean);
     if (messages.length) return messages.join('; ').slice(0, 400);
+    if (typeof body?.error?.message === 'string') return body.error.message.slice(0, 400);
+    if (typeof body?.message === 'string') return body.message.slice(0, 400);
   } catch {
     /* the body may not be JSON */
   }
@@ -132,11 +138,12 @@ export async function client(deps: Dependencies, integration: { id: string; prov
     // any credential is attached to it.
     const url = /^https?:\/\//i.test(path) ? validateContinuationUrl(path, baseUrl) : `${baseUrl}/${pathPrefix}${path}`;
     const response = await deps.fetch(url, {
-      ...options, headers: { ...headers, 'Content-Type': 'application/json' },
+      ...options, headers: { ...headers, 'Content-Type': 'application/json', ...options.headers },
     }, 10000);
-    if (!response.ok) throw new VendorRequestError(response.status, await vendorDetail(response));
+    if (!response.ok) throw new VendorRequestError(response.status, await vendorDetail(response), provider);
+    if (response.status === 204) return {};
     const result = await response.json();
-    if (Array.isArray(result.errors) && result.errors.length) throw new Error('CrowdStrike returned an incomplete result');
+    if (Array.isArray(result.errors) && result.errors.length) throw new Error(`${provider} returned an incomplete result`);
     return result;
   };
 }
@@ -210,6 +217,8 @@ export async function processNativeSync(deps: Dependencies): Promise<{ processed
   const runs = checked(await deps.db.rpc('siem_claim_sync'));
   const run = runs?.[0];
   if (!run) return { processed: false };
+  const chunkStartedAt = Date.now();
+  let retryError: Error | null = null;
   try {
     const kind: string = run.kind ?? 'legacy_import';
     if (kind === 'legacy_import') {
@@ -252,6 +261,15 @@ export async function processNativeSync(deps: Dependencies): Promise<{ processed
         next = page.cursor.offset;
         nextToken = page.cursor.token;
         done = page.done;
+      }
+      // Repeated pages/cursor cycles are incomplete scans, never evidence of deletion.
+      // The durable item ledger survives invocations and detects A -> B -> A as well as echoes.
+      if (ids.length) {
+        const seen = checked(await deps.db.from('siem_sync_items').select('vendor_rule_id')
+          .eq('run_id', run.id).in('vendor_rule_id', ids)) ?? [];
+        if (seen.length === new Set(ids).size) throw new Error('Discovery repeated a page; fetch is incomplete');
+      } else if (!done) {
+        throw new Error('Discovery returned an empty page with a continuation; fetch is incomplete');
       }
     } else if (provider === 'crowdstrike') {
       const items = checked(await deps.db.from('siem_sync_items').select('vendor_rule_id')
@@ -300,6 +318,7 @@ export async function processNativeSync(deps: Dependencies): Promise<{ processed
         .eq('run_id', run.id).eq('status', 'pending').order('vendor_rule_id').limit(10)) ?? [];
       const requested = items.map(item => item.vendor_rule_id as string);
       for (const id of requested) {
+        if (Date.now() - chunkStartedAt >= 25000) break;
         const outcome = await reader.readRule(request, integration.config, id);
         if (outcome.status === 'ok') {
           const sanitized = sanitizeSnapshot(outcome.raw) as Record<string, Json>;
@@ -312,6 +331,9 @@ export async function processNativeSync(deps: Dependencies): Promise<{ processed
               adapter: adapterVersion(provider), hash: await contentHash(outcome.content as unknown as Json),
               raw_hash: await contentHash(sanitized) });
           }
+        } else if (outcome.status === 'temporary_failure' || outcome.status === 'access_denied') {
+          retryError = new Error(outcome.error);
+          break;
         } else if (outcome.status === 'unsupported') {
           results.push({ id, status: 'unsupported', error: outcome.error,
             ...(kind === 'inventory' ? { name: id, family: 'unknown' } : {}) });
@@ -333,6 +355,16 @@ export async function processNativeSync(deps: Dependencies): Promise<{ processed
     } else {
       checked(await deps.db.rpc('siem_commit_chunk', { p_run: run.id, p_lease: run.lease_token,
         p_ids: ids, p_next: next, p_discovery_complete: done, p_results: results, p_next_token: nextToken }));
+    }
+    // Commit successful reads first. SQL releases the lease; defer only an unclaimed run so
+    // another worker's new lease can never be overwritten by this invocation.
+    if (retryError) {
+      checked(await deps.db.from('siem_sync_runs').update({
+        status: run.attempts >= 4 ? 'failed' : 'queued', attempts: run.attempts + 1,
+        error_message: retryError.message,
+        completed_at: run.attempts >= 4 ? new Date().toISOString() : null,
+        next_attempt_at: new Date(Date.now() + Math.min(300000, 15000 * 2 ** run.attempts)).toISOString(),
+      }).eq('id', run.id).is('lease_token', null).is('completed_at', null));
     }
   } catch (error) {
     // Fenced failure: an expired worker cannot change a replacement worker's state.
@@ -461,11 +493,13 @@ async function boundRule(deps: Dependencies, bindingId: string, actor: string) {
   const baseline = snapshots.find(s => s.id === binding.baseline_snapshot_id) ?? null;
   const remote = snapshots.find(s => s.id === binding.latest_remote_snapshot_id);
   if (!remote) throw new Error('Sync this rule before reviewing changes');
-  const base = localContent(detection, binding.selected_query_id, binding.desired_content);
+  if (baseline) baseline.content = semanticContent(binding.provider, baseline.content);
+  remote.content = semanticContent(binding.provider, remote.content);
+  const base = semanticContent(binding.provider, localContent(detection, binding.selected_query_id, binding.desired_content));
   // The library's ATT&CK mapping is part of the content it would write. Leaving it out meant a
   // detection mapped to a tactic and technique still updated the rule with the empty values the
   // import had observed.
-  const attack = await attackIds(deps, detection);
+  const attack = binding.provider === 'crowdstrike' ? await attackIds(deps, detection) : {};
   const local: RuleContent = attack.tactic
     ? { ...base, config: { ...base.config, tactic: attack.tactic, technique: attack.technique ?? '' } }
     : base;
@@ -510,7 +544,7 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
   }
   if (body.action === 'native_match_candidates') {
     const integration = await connection(deps, body.integrationId || '', actor);
-    if (!body.vendorRuleId) throw new Error('A CrowdStrike rule id is required');
+    if (!body.vendorRuleId) throw new Error('A SIEM rule id is required');
     return checked(await deps.db.rpc('siem_match_candidates', {
       p_actor: actor, p_integration: integration.id, p_vendor_rule_id: body.vendorRuleId,
     }));
@@ -545,6 +579,9 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
   if (body.action === 'native_preview') return {
     binding, baseline: baseline?.content ?? null, remote: remote.content, local, drift,
     remoteHash: remote.content_hash, localVersion: detection.version, writesEnabled: deps.writesEnabled,
+    updateAfterEditBlocked: mutationBlockedReason('update', {
+      ...mutationContext, drift: drift === 'in_sync' ? 'local_changed' : drift,
+    }),
     // Every reason the UI needs to explain a disabled action, computed by the same predicate the
     // server refuses with — so a button is never offered for an operation that cannot run.
     capabilities: Object.fromEntries(
@@ -582,18 +619,18 @@ export async function handleNativeRequest(deps: Dependencies, body: NativeReques
       const changes = (body.localChanges ?? {}) as Record<string, unknown>;
       const TEXT_FIELDS = ['name', 'description', 'query', 'severity', 'schedule', 'lookback', 'outcome'];
       const text = (key: string) => String(changes[key] ?? '');
+      const fields = schedulingFields(local);
       if (Object.keys(changes).some(key => !TEXT_FIELDS.includes(key) && key !== 'enabled') ||
           TEXT_FIELDS.some(key => changes[key] !== undefined && typeof changes[key] !== 'string') ||
           (changes.enabled !== undefined && typeof changes.enabled !== 'boolean') ||
-          !text('name').trim() || !text('query').trim() || !text('schedule').trim() || !text('lookback').trim() ||
-          !['Critical','High','Medium','Low','Informational'].includes(text('severity'))) throw new Error('Invalid rule changes');
+          !text('name').trim() || !text('query').trim() ||
+          (fields.scheduleEditable && changes.schedule !== undefined && !text('schedule').trim()) ||
+          (fields.lookbackEditable && changes.lookback !== undefined && !text('lookback').trim()) ||
+          !['Critical','High','Medium','Low','Informational','Unknown'].includes(text('severity'))) throw new Error('Invalid rule changes');
       desired = { ...local, name: text('name'), description: text('description'), query: text('query'),
         severity: text('severity'),
         ...(changes.enabled === undefined ? {} : { enabled: changes.enabled as boolean }),
-        config: { ...local.config,
-          search: { ...(local.config.search as Record<string, Json>), lookback: text('lookback'),
-            ...(changes.outcome === undefined ? {} : { outcome: text('outcome') }) },
-          operation: { ...(local.config.operation as Record<string, Json>), schedule: { definition: text('schedule') } } } };
+        config: applySchedule(local, changes as { schedule?: string; lookback?: string; outcome?: string }) };
     }
     checked(await deps.db.rpc('siem_save_local', { p_actor: actor, p_binding: binding.id,
       p_version: body.expectedVersion, p_content: desired }));
@@ -665,6 +702,45 @@ export async function applyNativeMutation(
   let applied = false;
   try {
     const request = await client(deps, integration);
+    const provider = resolveProvider(integration);
+    if (provider === 'defender_xdr' || provider === 'sentinel') {
+      if (operation !== 'update') throw new Error('Only reviewed updates are supported for this provider');
+      const reader = IMPORT_READERS[provider]!;
+      const read = async () => {
+        const result = await reader.readRule(request, integration.config, binding.vendor_rule_id);
+        if (result.status !== 'ok') throw new Error(result.error);
+        return result;
+      };
+      const before = await read();
+      if (provider === 'defender_xdr') await verifyDefenderInventory(request, binding.vendor_rule_id);
+      if (await contentHash(before.content) !== await contentHash(remote.content)) {
+        throw new Error('Production changed since review; fetch and review again');
+      }
+      const path = provider === 'defender_xdr'
+        ? `rules/detectionRules/${encodeURIComponent(binding.vendor_rule_id)}`
+        : `alertRules/${encodeURIComponent(binding.vendor_rule_id)}?api-version=${SENTINEL_API_VERSION}`;
+      const payload = provider === 'defender_xdr'
+        ? defenderUpdate(before.raw, desired) : sentinelUpdate(before.raw, desired);
+      attempted = true;
+      await request(path, { method: provider === 'sentinel' ? 'PUT' : 'PATCH', body: JSON.stringify(payload),
+        ...(provider === 'sentinel' && before.raw.etag ? { headers: { 'If-Match': String(before.raw.etag) } } : {}) });
+      applied = true;
+      let after = await read();
+      const expected = semanticContent(provider, desired);
+      const holds = () => canonicalJson(after.content) === canonicalJson(expected);
+      for (const ms of SETTLE_BACKOFF_MS) {
+        if (holds()) break;
+        await (deps.wait ?? ((delay: number) => new Promise(r => setTimeout(r, delay))))(ms);
+        after = await read();
+      }
+      if (!holds()) throw new Error('Production readback differs from the reviewed change; fetch and reconcile');
+      if (provider === 'defender_xdr') await verifyDefenderInventory(request, binding.vendor_rule_id);
+      const raw = sanitizeSnapshot(after.raw);
+      checked(await deps.db.rpc('siem_finish_deployment', { p_operation: operationId, p_actor: actor,
+        p_content: after.content, p_raw: raw, p_hash: await contentHash(after.content),
+        p_raw_hash: await contentHash(raw), p_adapter: adapterVersion(provider) }));
+      return { success: true, deploymentId: operationId as string };
+    }
     const read = async () => {
       const response = await request(`entities/rules/v1?ids=${encodeURIComponent(binding.vendor_rule_id)}`);
       const raw = (response.resources as Record<string, Json>[])?.find(row => matchesVendorRule(row, binding.vendor_rule_id));

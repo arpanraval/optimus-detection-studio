@@ -315,3 +315,62 @@ describe('DeployDetectionModal for a detection with no SIEM binding', () => {
     expect(call.vendorRuleId).toBe('splunk-rule-1');
   });
 });
+
+describe('Defender single-rule deployment intent', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(integrationService, 'listIntegrations').mockResolvedValue([
+      { ...SPLUNK_INTEGRATION, provider: 'defender_xdr', name: 'Defender Production' },
+    ] as never);
+    vi.spyOn(integrationService, 'getDeploymentHistory').mockResolvedValue([
+      { id: 'old', action: 'create', status: 'success', vendor_rule_id: '458', created_at: '2026-09-18T00:00:00Z' },
+    ] as never);
+  });
+
+  it('recovers an accepted but unverified rule by its existing ID and shows pending verification', async () => {
+    vi.spyOn(integrationService, 'getDeploymentHistory').mockResolvedValue([{
+      id: 'failed-create', action: 'create', status: 'failed', vendor_rule_id: 'optimus-existing',
+      response: { optimusVerification: { status: 'unverified' } },
+      rule_config: { frequency: '3H', enabled: false },
+    }] as never);
+    const deploy = vi.spyOn(integrationService, 'deployDetection').mockResolvedValue({
+      action: 'update', status: 'success', vendor_rule_id: 'optimus-existing',
+      response: { optimusVerification: { status: 'pending', message: 'Waiting for the Defender inventory.' } },
+    } as never);
+    const props = unboundProps();
+    props.detection.queryLanguage = 'KQL';
+    props.detection.detectionQuery = 'DeviceEvents';
+    renderModal(props);
+    fireEvent.click(await screen.findByRole('button', { name: /Defender Production/ }));
+    const update = await screen.findByRole('radio', { name: /Update existing rule/i });
+    expect((update as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /^Continue$/ }));
+    await proceedThroughPreflight();
+    fireEvent.click(await screen.findByRole('button', { name: /^Update$/ }));
+    await screen.findByText('Accepted — verification pending');
+    expect(screen.getByText('Waiting for the Defender inventory.')).toBeTruthy();
+    expect(screen.queryByText('Rule Updated Successfully')).toBeNull();
+    expect(deploy.mock.calls[0][0]).toMatchObject({
+      vendorRuleId: 'optimus-existing', ruleConfig: { action: 'update', frequency: '3H', enabled: false },
+    });
+  });
+
+  it.each(['create', 'update'])('uses Defender labels and submits only the selected %s operation', async action => {
+    const deploy = vi.spyOn(integrationService, 'deployDetection').mockResolvedValue({ action, status: 'success' } as never);
+    const props = unboundProps();
+    props.detection.queryLanguage = 'KQL';
+    props.detection.detectionQuery = 'DeviceEvents';
+    renderModal(props);
+    fireEvent.click(await screen.findByRole('button', { name: /Defender Production/ }));
+    await screen.findByRole('radio', { name: /Create new rule/i });
+    expect(screen.queryByText(/Splunk/)).toBeNull();
+    expect(screen.getByText(/Creates a separate rule in Defender Production/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: action === 'create' ? /Create new rule/i : /Update existing rule/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Continue$/ }));
+    await proceedThroughPreflight();
+    fireEvent.click(await screen.findByRole('button', { name: action === 'create' ? /^Deploy$/ : /^Update$/ }));
+    await waitFor(() => expect(deploy).toHaveBeenCalledTimes(1));
+    expect(deploy.mock.calls[0][0]).toMatchObject({ ruleConfig: { action } });
+    expect(deploy.mock.calls[0][0].vendorRuleId).toBe(action === 'update' ? '458' : undefined);
+  });
+});

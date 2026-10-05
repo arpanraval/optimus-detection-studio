@@ -26,14 +26,37 @@ export function RulePreviewDialog({
   row,
   onClose,
   providerName = 'the connected SIEM',
+  connectionName,
 }: {
   row: InventoryRow;
   onClose: () => void;
   providerName?: string;
+  connectionName?: string;
 }): React.JSX.Element {
   const [content, setContent] = React.useState<RuleContent | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [tab, setTab] = React.useState<Tab>('overview');
+  const [showRaw, setShowRaw] = React.useState(false);
+  const [rawPayload, setRawPayload] = React.useState<string | null>(null);
+  const [rawError, setRawError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    setShowRaw(false);
+    setRawPayload(null);
+    setRawError(null);
+  }, [row.latest_snapshot_id]);
+
+  React.useEffect(() => {
+    if (!showRaw || !row.latest_snapshot_id) return;
+    let cancelled = false;
+    setRawError(null);
+    void nativeSiemService.remoteSnapshotPayload(row.latest_snapshot_id).then((payload) => {
+      if (!cancelled) setRawPayload(JSON.stringify(payload, null, 2));
+    }).catch((err: unknown) => {
+      if (!cancelled) setRawError(err instanceof Error ? err.message : 'Could not load the source payload');
+    });
+    return () => { cancelled = true; };
+  }, [showRaw, row.latest_snapshot_id]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -120,9 +143,13 @@ export function RulePreviewDialog({
                 )}
                 <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
                   <dt className="text-on-surface-variant">Source connection</dt>
-                  <dd className="text-on-surface">{providerName}</dd>
-                  <dt className="text-on-surface-variant">Scope</dt>
+                  <dd className="text-on-surface">{connectionName ?? providerName}</dd>
+                  <dt className="text-on-surface-variant">Rule family</dt>
                   <dd className="text-on-surface">{row.rule_family}</dd>
+                  {row.provider_scope && <>
+                    <dt className="text-on-surface-variant">Scope</dt>
+                    <dd className="text-on-surface break-all">{row.provider_scope}</dd>
+                  </>}
                   <dt className="text-on-surface-variant">Observed</dt>
                   <dd className="text-on-surface">
                     <time dateTime={row.last_seen_at}>{new Date(row.last_seen_at).toLocaleString()}</time>
@@ -160,26 +187,28 @@ export function RulePreviewDialog({
                   ))}
                 </dl>
                 <details className="text-xs">
-                  <summary className="cursor-pointer">Full configuration (raw)</summary>
+                  <summary className="cursor-pointer">Normalized configuration</summary>
                   <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-surface-container-high p-3">
                     {JSON.stringify(content.config, null, 2)}
                   </pre>
+                </details>
+                <details className="text-xs" open={showRaw} onToggle={(event) => setShowRaw(event.currentTarget.open)}>
+                  <summary className="cursor-pointer">Source payload</summary>
+                  <p className="mt-2 text-on-surface-variant">Stored provider response, with sensitive fields removed.</p>
+                  {rawError ? <p role="alert" className="text-error">{rawError}</p> :
+                    rawPayload === null ? <p role="status">Loading source payload</p> :
+                      <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-surface-container-high p-3">
+                        {rawPayload}
+                      </pre>}
                 </details>
               </div>
             )}
 
             {tab === 'dependencies' && (
               <div role="tabpanel" className="space-y-2 text-sm">
-                {row.match_candidate_count > 0 ? (
-                  <p>
-                    {row.match_candidate_count} possible library match{row.match_candidate_count === 1 ? '' : 'es'} referenced,
-                    not yet resolved. Resolve the match to link or import separately.
-                  </p>
-                ) : (
-                  <p className="text-on-surface-variant">
-                    No dependencies referenced for this rule.
-                  </p>
-                )}
+                <p className="text-on-surface-variant">
+                  Dependencies have not been validated. Review referenced tables, lists, functions, and actions in {providerName} before deployment.
+                </p>
               </div>
             )}
           </>

@@ -33,9 +33,11 @@ async function call(method: string, path: string, body?: unknown): Promise<unkno
 /** Creates a session for a pre-created agent + environment. Returns the session id. */
 export async function createSession(
   agentId: string, environmentId: string, title: string,
+  overrides?: { system: string; tools: unknown[] },
 ): Promise<string> {
   const out = await call('POST', '/v1/sessions', {
-    agent: agentId,
+    // Session overrides leave the provisioned agent and other sessions unchanged.
+    agent: overrides ? { type: 'agent_with_overrides', id: agentId, ...overrides } : agentId,
     environment_id: environmentId,
     title,
   }) as { id?: string };

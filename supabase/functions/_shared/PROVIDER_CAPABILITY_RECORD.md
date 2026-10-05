@@ -1,6 +1,53 @@
 # SIEM provider capability record
 
-Status: current as of 2026-09-16 (batch 7 of the multi-provider durable import execution).
+## Current repair status — 2026-09-16
+
+Hosted `integration-ops` v48, `detection-finetune` v11 and `crowdstrike-detection-finetune` v8
+contain the workflow repairs. Migration `20260916110000_siem_workflow_repairs_complete` is applied.
+Deployed sources match all local files; JWT verification remains enabled. Localhost defaults to hosted credential
+operations; the optional direct vendor proxy requires `VITE_SIEM_DEV_PROXY=true`.
+
+| Provider | Current evidence | Bound writes in repair code | Query execution |
+| --- | --- | --- | --- |
+| CrowdStrike | Existing live path; user confirms fetch/import | Existing operations retained with explicit approval | Existing pre-flight and fine-tuning |
+| Defender XDR | Stored credentials; user confirms fetch/import | Update implemented and fixture-tested; not live-verified | Existing pre-flight/fine-tuning; hosted localhost routing repaired |
+| Sentinel | Stored credentials; connected test at 2026-09-16 07:36 UTC; five catalog rules | Scheduled/NRT update implemented and fixture-tested; not live-verified | Pre-flight and fine-tuning deployed; user approved use of existing Anthropic service |
+| Splunk | No stored credentials | No new bound writes | No new query executor |
+| Elastic | No configured connection | No new bound writes | No new query executor |
+| Chronicle | No configured connection | No new bound writes | No new query executor |
+
+New authored-rule deployment remains a separate existing path for all six providers. Microsoft
+bound writers preserve remote settings, compare a fresh read before updating, and verify the
+result by readback. Enabling the inventory panel does not certify these operations.
+
+All six inventory flags remain enabled as authorized for initial UI testing. These flags select
+the durable inventory UI; they are not certification flags. Backend capability checks independently
+gate bound operations. Frontend changes remain local; no Git push was performed.
+
+Remaining verification: live rule deployment and readback, live pre-flight/fine-tuning,
+and browser visual checks. Browser automation currently
+exposes no browser. No new live rule mutations were performed during these repairs.
+
+Fresh-schema and candidate-upgrade validation pass all four SQL suites. The three affected
+Edge Functions pass Deno type-check. Sentinel sessions reuse the existing agent/model/environment
+with session-specific KQL provider instructions and tools, without changing the provisioned agent.
+Existing Defender/CrowdStrike fine-tuning
+now resolves the bound query, rejects cross-connection resumption, and carries the original query
+into the edit form so applying a refinement cannot replace another query or a later edit.
+
+User screenshots exposed the missing Defender pre-flight option: its stored status was still
+`testing`. Compatible connections now remain visible and a bound connection is preferred;
+pre-flight explains when Test Connection is required. The app never rewrites status to connected
+without a successful connection test. Pre-flight errors now show the backend response message.
+
+Defender scheduled writes use `schedule.frequency` and `status`. Existing continuous creation
+still uses the documented `period: "0"`; imported continuous updates preserve their schedule.
+The replacement continuous frequency needs verification before Graph removes `period` on
+2026-10-01 ([Microsoft schedule reference](https://learn.microsoft.com/en-us/graph/api/resources/security-ruleschedule?view=graph-rest-beta)).
+
+## Prior batch-7 record (historical; superseded by the status above)
+
+The following records the evidence available before the workflow repairs and credential setup.
 
 This records what each of the six registered import providers
 (`supabase/functions/_shared/siem-providers.ts:IMPORT_PROVIDERS`) actually supports today, and

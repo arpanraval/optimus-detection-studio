@@ -10,6 +10,7 @@ export interface CrowdStrikeFinetuneHistoryEntry {
   id: string;
   detection_id: string;
   integration_id: string;
+  original_query: string;
   status: CrowdStrikeFinetuneStatus;
   repository: string;
   window_days: number;
@@ -43,7 +44,7 @@ export function useCrowdStrikeFinetuneHistory(detectionId: string, limit = 20): 
     supabase
       .from('crowdstrike_finetune_runs')
       .select(
-        'id, detection_id, integration_id, status, repository, window_days, baseline_hit_count, query_count, result, error_message, usage, created_at, completed_at',
+        'id, detection_id, integration_id, original_query, status, repository, window_days, baseline_hit_count, query_count, result, error_message, usage, created_at, completed_at',
       )
       .eq('detection_id', detectionId)
       .order('created_at', { ascending: false })

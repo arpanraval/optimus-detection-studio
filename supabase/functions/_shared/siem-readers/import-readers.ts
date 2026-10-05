@@ -1,9 +1,10 @@
+import { SENTINEL_API_VERSION } from '../sentinel-mitre.ts';
 /** Registry-driven dispatch for the durable SIEM import worker (Task 12, part 2).
  *
  *  `processNativeSync` (native-siem-service.ts) used to speak CrowdStrike directly: its discovery
  *  request was `queries/rules/v1?limit=&offset=` and nothing else was reachable. This file is the
  *  seam that lets the SAME lease/checkpoint/commit machinery drive Splunk, Sentinel, Elastic,
- *  Defender XDR and Chronicle too, each through its own already-qualified reader
+ *  Defender XDR and Chronicle too, each through its own provider reader
  *  (splunk.ts/sentinel.ts/elastic.ts/defender-xdr.ts/chronicle.ts).
  *
  *  Cursor persistence: `cursor_offset` (an integer column) is kept for providers that page by a
@@ -16,9 +17,8 @@
  *  every other offset-paged provider never write it, so their behaviour is byte-for-byte
  *  unchanged (verified by the existing native-siem-service.test.ts, run unmodified).
  *
- *  Termination: every `discover()` below returns `done: true` the moment its own cursor stops
- *  advancing (an empty page, or a repeated/echoed cursor) -- the run then completes discovery
- *  rather than being re-claimed forever against a cursor that never moves (G11).
+ *  Repeated cursors and malformed pages fail the scan. Only a complete discovery may mark
+ *  previously observed rules missing; an incomplete response is never evidence of deletion.
  *
  *  Per-rule outcomes: `readRule()` distinguishes ok / not_found / access_denied /
  *  temporary_failure / unsupported. A thrown network/auth error is never turned into an empty
@@ -26,6 +26,7 @@
  *  CrowdStrike's own readRuleDetails already behaves (see native-siem-service.ts). Only a
  *  provider that explicitly answers "not found" is reported as such. */
 import type { Json, RuleContent } from '../native-siem-model.ts';
+import { semanticContent } from '../siem-microsoft-writes.ts';
 import { providerEndpoint, type ImportProvider } from '../siem-providers.ts';
 import { normalizeSplunkEntry, splunkVendorRuleId, type NormalizedSplunkRule, type SplunkEntry, type SplunkPage } from './splunk.ts';
 import { normalizeSentinelEntry, isUnsupportedSentinelRule, type NormalizedSentinelRule, type SentinelPage } from './sentinel.ts';
@@ -62,6 +63,16 @@ function accessDenied(status: number): boolean {
   return status === 401 || status === 403;
 }
 
+export function canonicalSeverity(value: unknown): string {
+  const key = String(value ?? '').toLowerCase();
+  return ({ informational: 'Informational', information: 'Informational', low: 'Low', medium: 'Medium',
+    high: 'High', critical: 'Critical' } as Record<string, string>)[key] ?? 'Unknown';
+}
+
+function semanticFields(value: Record<string, Json>, excluded: string[]): Record<string, Json> {
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !excluded.includes(key)));
+}
+
 /** A vendor error carries a status when it came from a non-OK HTTP response (see `client()`'s
  *  VendorRequestError-shaped throws in native-siem-service.ts and the ad-hoc errors thrown below);
  *  anything else (network failure, JSON parse) is a temporary failure, never a silent drop. */
@@ -78,11 +89,13 @@ function classifyThrown(error: unknown): { status: 'access_denied' | 'temporary_
 const splunkReader: ImportReader = {
   async discover(request, cursor) {
     const pageSize = 100;
-    const page = await request(`saved/searches?output_mode=json&count=${pageSize}&offset=${cursor.offset}`) as SplunkPage;
+    const page = await request(`saved/searches?output_mode=json&search=action.correlationsearch.enabled%3D1&count=${pageSize}&offset=${cursor.offset}`) as SplunkPage;
+    if (!Array.isArray(page.entry)) throw new Error('Invalid Splunk discovery response');
     const entries = Array.isArray(page.entry) ? page.entry : [];
     const ids: string[] = [];
     for (const raw of entries) {
-      try { ids.push(splunkVendorRuleId(normalizeSplunkEntry(raw).identity)); } catch { /* unsupported entries are simply not importable ids */ }
+      if (!raw.name) throw new Error('Splunk discovery returned a rule without an identity');
+      ids.push(splunkVendorRuleId({ owner: raw.acl?.owner || '-', app: raw.acl?.app || '-', name: raw.name }));
     }
     const done = entries.length === 0 || entries.length < pageSize;
     return { ids, cursor: { offset: cursor.offset + entries.length, token: null }, done };
@@ -99,7 +112,7 @@ const splunkReader: ImportReader = {
       const raw = (page.entry ?? [])[0] as SplunkEntry | undefined;
       if (!raw) return { status: 'not_found', error: 'Splunk did not return this saved search' };
       const normalized = normalizeSplunkEntry(raw);
-      return { status: 'ok', content: splunkContent(normalized.content, normalized), raw: raw as unknown as Record<string, Json>,
+      return { status: 'ok', content: semanticContent('splunk', splunkContent(normalized.content, normalized)), raw: raw as unknown as Record<string, Json>,
         name: normalized.name, family: 'correlation_search' };
     } catch (error) {
       if (error instanceof Error && /Unsupported rule/.test(error.message)) return { status: 'unsupported', error: error.message };
@@ -112,8 +125,9 @@ const splunkReader: ImportReader = {
 function splunkContent(content: Record<string, Json>, rule: NormalizedSplunkRule): RuleContent {
   return {
     name: rule.name, description: rule.description, query: rule.query, language: 'SPL',
-    severity: 'unknown', enabled: rule.observedState === 'unknown' ? null : rule.observedState === 'enabled',
-    config: { ...content, acl: rule.acl as unknown as Json, stateSignals: rule.stateSignals as unknown as Json },
+    severity: canonicalSeverity(content['action.notable.param.severity']), enabled: rule.observedState === 'unknown' ? null : rule.observedState === 'enabled',
+    config: semanticFields(content, ['next_scheduled_time', 'qualifiedSearch', 'dispatchState', 'triggered_alert_count',
+      'is_visible', 'disabled', 'search', 'description']),
   };
 }
 
@@ -121,20 +135,23 @@ function splunkContent(content: Record<string, Json>, rule: NormalizedSplunkRule
 // Sentinel -- ARM nextLink paging (cursor.token), single rule GET (recon section 2: "Single rule
 // GET: same path + /{ruleId}?api-version=2025-06-01").
 // ---------------------------------------------------------------------------------------------
-const SENTINEL_API_VERSION = '2025-06-01';
+
 const sentinelReader: ImportReader = {
   async discover(request, cursor) {
     const path = cursor.token ?? `alertRules?api-version=${SENTINEL_API_VERSION}`;
     const page = await request(path) as SentinelPage;
+    if (!Array.isArray(page.value)) throw new Error('Invalid Sentinel discovery response');
     const entries = Array.isArray(page.value) ? page.value : [];
     const ids: string[] = [];
     for (const raw of entries) {
       const id = normalizeSentinelEntry(raw).vendorRuleId;
-      if (id) ids.push(id);
+      if (!id) throw new Error('Sentinel discovery returned a rule without an identity');
+      ids.push(id);
     }
     const next = typeof page.nextLink === 'string' && page.nextLink ? page.nextLink : null;
     // A provider echoing the same nextLink back must not spin the run forever (G11).
-    const done = !next || next === cursor.token;
+    if (next && next === cursor.token) throw new Error('Sentinel discovery cursor repeated; scan is incomplete');
+    const done = !next;
     return { ids, cursor: { offset: 0, token: done ? null : next }, done };
   },
   async readRule(request, _config, vendorRuleId) {
@@ -142,7 +159,7 @@ const sentinelReader: ImportReader = {
       const raw = await request(`alertRules/${encodeURIComponent(vendorRuleId)}?api-version=${SENTINEL_API_VERSION}`);
       const normalized = normalizeSentinelEntry(raw as never);
       if (isUnsupportedSentinelRule(normalized)) return { status: 'unsupported', error: normalized.reason };
-      return { status: 'ok', content: sentinelContent(normalized), raw: raw as Record<string, Json>,
+      return { status: 'ok', content: semanticContent('sentinel', sentinelContent(normalized)), raw: raw as Record<string, Json>,
         name: normalized.displayName, family: normalized.kind.toLowerCase() };
     } catch (error) {
       const { status, error: message } = classifyThrown(error);
@@ -155,8 +172,8 @@ const sentinelReader: ImportReader = {
 function sentinelContent(rule: NormalizedSentinelRule): RuleContent {
   return {
     name: rule.displayName, description: rule.description, query: rule.query, language: 'KQL',
-    severity: rule.severity, enabled: rule.enabled === 'unknown' ? null : rule.enabled,
-    config: { ...rule.properties, armId: rule.armId, kind: rule.kind, unmappedFields: rule.unmappedFields as unknown as Json },
+    severity: canonicalSeverity(rule.severity), enabled: rule.enabled === 'unknown' ? null : rule.enabled,
+    config: { ...semanticFields(rule.properties, ['lastModifiedUtc', 'displayName', 'description', 'query', 'enabled', 'severity']), kind: rule.kind },
   };
 }
 
@@ -169,11 +186,13 @@ const elasticReader: ImportReader = {
     const page = Math.max(1, cursor.offset);
     const perPage = 50;
     const result = await request(`detection_engine/rules/_find?per_page=${perPage}&page=${page}`) as ElasticPage;
+    if (!Array.isArray(result.data)) throw new Error('Invalid Elastic discovery response');
     const data = Array.isArray(result.data) ? result.data : [];
     const ids: string[] = [];
     for (const raw of data) {
       const normalized = normalizeElasticEntry(raw);
-      if (normalized.vendorRuleId) ids.push(normalized.vendorRuleId);
+      if (!normalized.vendorRuleId) throw new Error('Elastic discovery returned a rule without an identity');
+      ids.push(normalized.vendorRuleId);
     }
     const done = data.length === 0 || data.length < perPage;
     return { ids, cursor: { offset: done ? page : page + 1, token: null }, done };
@@ -183,7 +202,7 @@ const elasticReader: ImportReader = {
       const raw = await request(`detection_engine/rules?rule_id=${encodeURIComponent(vendorRuleId)}`);
       const normalized = normalizeElasticEntry(raw as never);
       if (isUnsupportedElasticRule(normalized)) return { status: 'unsupported', error: normalized.reason };
-      return { status: 'ok', content: elasticContent(normalized), raw: raw as Record<string, Json>,
+      return { status: 'ok', content: semanticContent('elastic', elasticContent(normalized)), raw: raw as Record<string, Json>,
         name: normalized.name, family: normalized.type };
     } catch (error) {
       const { status, error: message } = classifyThrown(error);
@@ -195,11 +214,11 @@ const elasticReader: ImportReader = {
 
 function elasticContent(rule: NormalizedElasticRule): RuleContent {
   return {
-    name: rule.name, description: '', query: rule.query, language: rule.language,
-    severity: rule.severity, enabled: rule.enabled === 'unknown' ? null : rule.enabled,
-    config: { objectId: rule.objectId, type: rule.type, index: rule.index as unknown as Json,
+    name: rule.name, description: String(rule.raw.description ?? ''), query: rule.query, language: rule.language,
+    severity: canonicalSeverity(rule.severity), enabled: rule.enabled === 'unknown' ? null : rule.enabled,
+    config: { type: rule.type, index: rule.index as unknown as Json,
       filters: rule.filters, threshold: rule.threshold as unknown as Json, riskScore: rule.riskScore,
-      interval: rule.interval, from: rule.from, revision: rule.revision, version: rule.version,
+      interval: rule.interval, from: rule.from, threat: rule.raw.threat ?? null,
       exceptionsList: rule.exceptionsList, actions: rule.actions, alertSuppression: rule.alertSuppression,
       immutable: rule.immutable === 'unknown' ? null : rule.immutable, unmappedFields: rule.unmappedFields as unknown as Json },
   };
@@ -213,20 +232,23 @@ const defenderReader: ImportReader = {
   async discover(request, cursor) {
     const path = cursor.token ?? 'rules/detectionRules?$top=50';
     const page = await request(path) as DefenderPage;
+    if (!Array.isArray(page.value)) throw new Error('Invalid Defender discovery response');
     const entries = Array.isArray(page.value) ? page.value : [];
     const ids: string[] = [];
     for (const raw of entries) {
-      try { ids.push(normalizeDefenderEntry(raw).vendorRuleId); } catch { /* missing id: not importable */ }
+      if (!raw.id) throw new Error('Defender discovery returned a rule without an identity');
+      ids.push(raw.id);
     }
     const next = typeof page['@odata.nextLink'] === 'string' && page['@odata.nextLink'] ? page['@odata.nextLink'] : null;
-    const done = !next || next === cursor.token;
+    if (next && next === cursor.token) throw new Error('Defender discovery cursor repeated; scan is incomplete');
+    const done = !next;
     return { ids, cursor: { offset: 0, token: done ? null : next }, done };
   },
   async readRule(request, _config, vendorRuleId) {
     try {
       const raw = await request(`rules/detectionRules/${encodeURIComponent(vendorRuleId)}`);
       const normalized = normalizeDefenderEntry(raw as never);
-      return { status: 'ok', content: defenderContent(normalized), raw: raw as Record<string, Json>,
+      return { status: 'ok', content: semanticContent('defender_xdr', defenderContent(normalized)), raw: raw as Record<string, Json>,
         name: normalized.displayName, family: 'detection' };
     } catch (error) {
       if (error instanceof UnsupportedDefenderRule) return { status: 'unsupported', error: error.message };
@@ -240,14 +262,13 @@ const defenderReader: ImportReader = {
 function defenderContent(rule: NormalizedDefenderRule): RuleContent {
   return {
     name: rule.displayName, description: rule.description, query: rule.query, language: 'KQL',
-    severity: rule.alertTemplate?.severity ?? 'unknown',
+    severity: canonicalSeverity(rule.alertTemplate?.severity),
     enabled: rule.observedState === 'unknown' ? null : rule.observedState === 'enabled',
-    config: { status: rule.status, statusSource: rule.statusSource, autoDisabled: rule.autoDisabled,
-      frequency: rule.frequency, continuous: rule.continuous, scheduleSource: rule.scheduleSource,
+    config: { frequency: rule.frequency, continuous: rule.continuous,
       alertTemplate: rule.alertTemplate as unknown as Json, mitreTechniques: rule.mitreTechniques,
       automatedActions: rule.automatedActions, responseActions: rule.responseActions,
-      detectorId: rule.detectorId, lastRunDetails: rule.lastRunDetails,
-      unmappedFields: rule.unmappedFields as unknown as Json },
+      detectorId: rule.detectorId,
+      ...(rule.raw.organizationalScope === undefined ? {} : { organizationalScope: rule.raw.organizationalScope }) },
   };
 }
 
@@ -262,26 +283,26 @@ function defenderContent(rule: NormalizedDefenderRule): RuleContent {
 // ---------------------------------------------------------------------------------------------
 const chronicleReader: ImportReader = {
   async discover(request, cursor) {
-    const path = cursor.token ? `?pageSize=100&pageToken=${encodeURIComponent(cursor.token)}` : '?pageSize=100';
+    const path = cursor.token ? `rules?pageSize=100&pageToken=${encodeURIComponent(cursor.token)}` : 'rules?pageSize=100';
     const page = await request(path) as ChroniclePage;
+    if (!Array.isArray(page.rules)) throw new Error('Invalid Chronicle discovery response');
     const entries = Array.isArray(page.rules) ? page.rules : [];
     const ids: string[] = [];
     for (const raw of entries) {
-      try { ids.push(normalizeChronicleEntry(raw).vendorRuleId); } catch {
-        // A rule whose text is unavailable at list time is not importable from this page alone;
-        // it is simply not surfaced as a discoverable id (matching the one-shot importer's
-        // handling of the same condition in integration-ops/index.ts chronicleListRules).
-      }
+      const id = typeof raw.name === 'string' ? raw.name.split('/').filter(Boolean).pop() : raw.ruleId;
+      if (typeof id !== 'string' || !id) throw new Error('Chronicle discovery returned a rule without an identity');
+      ids.push(id);
     }
     const next = typeof page.nextPageToken === 'string' && page.nextPageToken ? page.nextPageToken : null;
-    const done = !next || next === cursor.token;
+    if (next && next === cursor.token) throw new Error('Chronicle discovery cursor repeated; scan is incomplete');
+    const done = !next;
     return { ids, cursor: { offset: 0, token: done ? null : next }, done };
   },
   async readRule(request, _config, vendorRuleId) {
     try {
-      const raw = await request(`${encodeURIComponent(vendorRuleId)}`);
+      const raw = await request(`rules/${encodeURIComponent(vendorRuleId)}`);
       const normalized = normalizeChronicleEntry(raw as never);
-      return { status: 'ok', content: chronicleContent(normalized), raw: raw as Record<string, Json>,
+      return { status: 'ok', content: semanticContent('chronicle', chronicleContent(normalized)), raw: raw as Record<string, Json>,
         name: normalized.name, family: 'yara_l' };
     } catch (error) {
       if (error instanceof UnsupportedChronicleRule) return { status: 'unsupported', error: error.message };
@@ -295,7 +316,7 @@ const chronicleReader: ImportReader = {
 function chronicleContent(rule: NormalizedChronicleRule): RuleContent {
   return {
     name: rule.name, description: rule.description, query: rule.query, language: 'YARA-L',
-    severity: rule.severity, enabled: rule.liveExecution === 'unknown' ? null : rule.liveExecution === 'true',
+    severity: canonicalSeverity(rule.severity), enabled: rule.liveExecution === 'unknown' ? null : rule.liveExecution === 'true',
     config: { resourceName: rule.resourceName, revisionId: rule.revisionId, revisionCreateTime: rule.revisionCreateTime,
       compilationState: rule.compilationState, compilationError: rule.compilationError,
       alerting: rule.alerting, archived: rule.archived, unmappedFields: rule.unmappedFields as unknown as Json },

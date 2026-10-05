@@ -1,7 +1,7 @@
 -- A stable, order-independent description of the native-SIEM database surface.
 --
 -- Used to prove that two ways of arriving at the schema agree: a FRESH INSTALL (supabase/schema.sql
--- on an empty database) and an UPGRADE (the previously deployed schema plus every native_siem
+-- on an empty database) and an UPGRADE (the previously deployed schema plus subsequent SIEM
 -- migration in order). CI already proves the fresh install stands up, but it never applies the
 -- migrations — so the one mistake the schema.sql mirror exists to prevent, a migration whose text
 -- drifted from its mirrored copy, was exactly the case nothing ran.

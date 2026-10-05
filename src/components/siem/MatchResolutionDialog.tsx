@@ -198,7 +198,7 @@ export function MatchResolutionDialog({
           <>
             <p className="text-sm text-on-surface-variant">
               <span className="font-medium">Review status: </span>
-              {baselineEstablished ? 'Baseline established — library and remote agree.' : 'Not yet reconciled.'}
+              {baselineEstablished ? 'Queries agree. Linking will establish a baseline.' : 'Not yet reconciled.'}
             </p>
             {!baselineEstablished && (
               <p role="status" className="text-sm text-on-surface-variant">

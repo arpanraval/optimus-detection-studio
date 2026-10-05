@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { providerScope, adapterVersion, resolveProvider, IMPORT_PROVIDERS } from '../siem-providers';
+import { providerScope, adapterVersion, resolveProvider, IMPORT_PROVIDERS, elasticEndpoint } from '../siem-providers';
 import { providerCapabilities } from '../native-siem-model';
 
 describe('provider registry', () => {
@@ -37,11 +37,11 @@ describe('provider registry', () => {
     expect(() => resolveProvider({ provider: 'jira' })).toThrow();
   });
 
-  // P5 is out of scope: no new provider may claim a write operation.
-  it('grants no write operations to any provider but CrowdStrike', () => {
-    for (const p of IMPORT_PROVIDERS.filter(p => p !== 'crowdstrike')) {
+  it('limits the new Microsoft native writers to reviewed updates', () => {
+    for (const p of ['splunk', 'elastic', 'chronicle']) {
       expect(providerCapabilities(p).operations).toEqual([]);
     }
+    for (const p of ['sentinel', 'defender_xdr']) expect(providerCapabilities(p).operations).toEqual(['update']);
     expect(providerCapabilities('crowdstrike').operations).toContain('update');
   });
 
@@ -56,14 +56,27 @@ describe('provider registry', () => {
       .toBe('https://es.example.com:9243/default');
   });
 
-  it('derives a Chronicle scope from region, customer and project', () => {
+  it('derives a Chronicle v2 scope without requiring the unused project field', () => {
     expect(providerScope('chronicle', { region: 'us', customerId: 'cust-1', projectId: 'proj-1' }))
       .toBe('chronicle:us/cust-1/proj-1');
+    expect(providerScope('chronicle', { region: 'us', customerId: 'cust-1' })).toBe('chronicle:us/cust-1');
   });
 
   it('derives a Splunk scope from host/port and app', () => {
     expect(providerScope('splunk', { host: 'splunk.example.com', port: 8089, ssl: true, app: 'search' }))
-      .toBe('https://splunk.example.com:8089/search');
+      .toBe('https://splunk.example.com:8089/search/-');
+  });
+
+  it('isolates Splunk owner scopes and encodes each namespace segment', () => {
+    expect(providerScope('splunk', { host: 'splunk.example.com', port: 8089, app: 'a/b', owner: 'alice' }))
+      .toBe('https://splunk.example.com:8089/a%2Fb/alice');
+  });
+
+  it('resolves Elastic Cloud to Kibana and accepts an omitted default space', () => {
+    const cloudId = 'label:' + btoa('example.com$es-id$kibana-id');
+    expect(elasticEndpoint({ cloudId })).toBe('https://kibana-id.example.com');
+    expect(elasticEndpoint({ cloudId, spaceId: 'team a' })).toBe('https://kibana-id.example.com/s/team%20a');
+    expect(elasticEndpoint({ host: 'localhost', port: 5601, ssl: false })).toBe('http://localhost:5601');
   });
 
   it('rejects an unknown provider', () => {

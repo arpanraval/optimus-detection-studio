@@ -1,6 +1,7 @@
 import { logger } from './logger';
 import { supabase } from './supabaseClient';
 import { supportsNativeImport } from './providerMeta';
+import { elasticEndpoint } from '../../supabase/functions/_shared/siem-providers';
 import type {
   Integration,
   IntegrationProvider,
@@ -32,9 +33,10 @@ import {
 // =============================================================================
 // Direct Supabase reads for non-sensitive data.
 // Edge function calls for anything involving credentials.
-// In dev mode, bypasses edge functions and uses a local Vite proxy for vendor calls.
+// Localhost uses the same credential-bearing backend as production. The direct vendor proxy
+// is an explicit opt-in for developers connecting to private/local vendor installations.
 
-const IS_DEV = import.meta.env.DEV;
+const IS_DEV = import.meta.env.DEV && import.meta.env.VITE_SIEM_DEV_PROXY === 'true';
 
 // The dev proxy calls the vendor directly from the browser -- no server route, no
 // NATIVE_SIEM_MUTATIONS gate, no drift check, no readback. It cannot perform the safety checks
@@ -2181,12 +2183,7 @@ async function devListElasticRules(
   config: Record<string, unknown>,
   credentials: Record<string, string>
 ): Promise<unknown[]> {
-  const host = config.host as string;
-  const port = config.port as number || 9200;
-  const ssl = config.ssl !== false;
-  const protocol = ssl ? 'https' : 'http';
-  let baseUrl = `${protocol}://${host}:${port}`;
-  if (config.spaceId) baseUrl += `/s/${encodeURIComponent(String(config.spaceId))}`;
+  const baseUrl = elasticEndpoint(config);
 
   const headers: Record<string, string> = {
     'Accept': 'application/json',
@@ -2198,22 +2195,29 @@ async function devListElasticRules(
     headers['Authorization'] = `Basic ${btoa(`${credentials.username}:${credentials.password}`)}`;
   }
 
-  const res = await devProxy(
-    `${baseUrl}/api/detection_engine/rules/_find?per_page=200`,
-    'GET',
-    headers
-  );
-
-  if (!res.ok) {
-    throw new Error(`Elastic list rules failed (${res.status}): ${res.body.slice(0, 200)}`);
+  const rules: Array<Record<string, any>> = [];
+  const seen = new Set<string>();
+  for (let page = 1; page <= 500; page++) {
+    const res = await devProxy(`${baseUrl}/api/detection_engine/rules/_find?per_page=200&page=${page}`, 'GET', headers);
+    if (!res.ok) throw new Error(`Elastic list rules failed (${res.status}): ${res.body.slice(0, 200)}`);
+    const data = JSON.parse(res.body);
+    if (!Array.isArray(data.data)) throw new Error('Elastic returned an invalid rule page');
+    if (data.data.length && data.data.every((rule: Record<string, unknown>) => seen.has(String(rule.id)))) {
+      throw new Error('Elastic returned a repeated page; the rule list is incomplete');
+    }
+    for (const rule of data.data) {
+      if (!rule.id) throw new Error('Elastic returned a rule without an object ID');
+      if (!seen.has(rule.id)) { seen.add(rule.id); rules.push(rule); }
+    }
+    if (data.data.length < 200) break;
+    if (page === 500) throw new Error('Elastic pagination limit reached; the rule list is incomplete');
   }
-
-  const data = JSON.parse(res.body);
   // Same shape normalizeVendorRule's 'elastic' branch already reads (id/name/enabled/query/
   // language/severity/type) -- matching the projection the production edge function's
   // elasticListRules sends, so dev and prod agree on what a rule looks like.
-  return (data?.data || []).map((rule: any) => ({
-    id: rule.rule_id,
+  return rules.map((rule) => ({
+    id: rule.id,
+    ruleId: rule.rule_id,
     name: rule.name,
     enabled: rule.enabled === true,
     query: rule.query ?? null,
@@ -2722,14 +2726,14 @@ export const integrationService = {
 
       if (error || !integration) throw new Error('Integration not found');
 
+      const config = (integration.config || {}) as Record<string, unknown>;
+      const credentials = await migrateDevCredentials(integrationId, config);
+      if (!credentials) throw new Error('Dev credentials not found — please re-enter credentials in integration settings.');
+
       await supabase
         .from('integrations')
         .update({ status: 'testing' })
         .eq('id', integrationId);
-
-      const config = (integration.config || {}) as Record<string, unknown>;
-      const credentials = await migrateDevCredentials(integrationId, config);
-      if (!credentials) throw new Error('Dev credentials not found — please re-enter credentials in integration settings.');
 
       let result: ConnectionTestResult;
       try {
@@ -2797,9 +2801,11 @@ export const integrationService = {
     // ... and the proxy is only usable at all when this browser holds credentials for the
     // connection. Without them the deploy belongs to the server route, which has the encrypted
     // ones -- the same path the deployed app always takes.
-    const devTarget = IS_DEV && !(await hasActiveBinding(params.integrationId, { detectionId: params.detectionId }))
+    let devTarget = IS_DEV && !(await hasActiveBinding(params.integrationId, { detectionId: params.detectionId }))
       ? await devProxyTarget(params.integrationId)
       : null;
+    // Defender always uses the server's inventory verification, even with the dev proxy enabled.
+    if (devTarget?.integration.provider === 'defender_xdr') devTarget = null;
     if (devTarget) {
       await requireUnboundTarget(params.detectionId, params.integrationId, params.vendorRuleId);
 
@@ -2808,25 +2814,8 @@ export const integrationService = {
 
       const { integration, config, credentials } = devTarget;
 
-      // Check for existing deployment (auto-upgrade create → update)
-      let action = params.vendorRuleId ? 'update' : 'create';
-      let existingVendorRuleId = params.vendorRuleId;
-      if (action === 'create') {
-        const { data: existing } = await supabase
-          .from('deployment_history')
-          .select('vendor_rule_id')
-          .eq('detection_id', params.detectionId)
-          .eq('integration_id', params.integrationId)
-          .eq('action', 'create')
-          .eq('status', 'success')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (existing?.vendor_rule_id) {
-          action = 'update';
-          existingVendorRuleId = existing.vendor_rule_id;
-        }
-      }
+      const action = params.ruleConfig?.action || (params.vendorRuleId ? 'update' : 'create');
+      const existingVendorRuleId = action === 'update' ? params.vendorRuleId : undefined;
 
       const startedAt = new Date().toISOString();
 
@@ -2939,7 +2928,7 @@ export const integrationService = {
         query: params.query,
         queryLanguage: params.queryLanguage,
         ruleConfig: params.ruleConfig,
-        vendorRuleId: params.vendorRuleId,
+        vendorRuleId: params.ruleConfig?.action === 'create' ? undefined : params.vendorRuleId,
         // Present only for a rule already tracked in a SIEM: the revision the user reviewed.
         expectedHash: params.expectedHash,
         expectedVersion: params.expectedVersion,
@@ -2957,7 +2946,7 @@ export const integrationService = {
     windowDays: number;
     provider: IntegrationProvider;
   }, options: RunPreflightOptions = {}): Promise<PreflightResult> {
-    if (IS_DEV && params.provider !== 'crowdstrike') {
+    if (IS_DEV && params.provider === 'defender_xdr') {
       return devRunPreflightDefenderXdr(params);
     }
     const { data, error } = await supabase.functions.invoke('integration-ops', {
@@ -2968,7 +2957,7 @@ export const integrationService = {
         windowDays: params.windowDays,
       },
     });
-    if (error) throw new Error(`Pre-flight failed: ${error.message}`);
+    if (error) throw new Error(`Pre-flight failed: ${await edgeFunctionMessage(error, 'Request failed')}`);
     if (data?.error) throw new Error(data.error);
     let run = data as PreflightResult;
     if (run.status !== 'running') return run;
@@ -3209,8 +3198,8 @@ export const integrationService = {
       'KQL': 'KQL',
       'LUCENE': 'Lucene',
       'EQL': 'EQL',
-      'ES|QL': 'ES|QL',
-      'ESQL': 'ES|QL',
+      'ES|QL': 'ESQL',
+      'ESQL': 'ESQL',
       'YARA-L': 'YARA-L',
     };
     const normalizedLang = queryLanguageMap[rule.queryLanguage.toUpperCase()] || rule.queryLanguage;

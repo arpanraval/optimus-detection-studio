@@ -114,6 +114,7 @@ export interface Detection {
     id: string;
     integration_id: string;
     vendor_rule_id: string;
+    selected_query_id?: string;
     binding_status: string;
     availability: string;
     observed_enabled: boolean | null;

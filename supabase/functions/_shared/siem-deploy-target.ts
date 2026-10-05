@@ -121,10 +121,13 @@ export type DeployRoute =
  */
 export function deployRouteDecision(
   resolution: TargetResolution,
-  body: { expectedHash?: string; expectedVersion?: number; operation?: string },
+  body: { expectedHash?: string; expectedVersion?: number; operation?: string; requestedAction?: string },
 ): DeployRoute {
   if (resolution.state === 'refuse') return { route: 'refuse', message: resolution.message };
   if (resolution.state === 'unbound') return { route: 'legacy' };
+  if (body.requestedAction === 'create') return {
+    route: 'refuse', message: 'This detection is tracked on this connection. Choose Update existing and review the change.',
+  };
   const operation = (body.operation as NativeOperation) || 'update';
   // Only an update carries library content into production, so only an update needs the user to
   // have seen a diff. applyNativeMutation still reads production first for every operation and

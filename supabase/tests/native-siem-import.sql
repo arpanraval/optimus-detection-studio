@@ -210,12 +210,13 @@ BEGIN
   FOR i IN 1..17 LOOP
     INSERT INTO public.siem_remote_rules(integration_id,provider,provider_scope,vendor_rule_id,display_name,
       observed_enabled,availability)
-      VALUES(integration,'crowdstrike',scope,'adopt-rule-'||i,'Adopt rule '||i,true,'present')
+      VALUES(integration,'crowdstrike',scope,'adopt-rule-'||i,'Adopt rule '||i,
+        CASE WHEN i=2 THEN false WHEN i=3 THEN NULL ELSE true END,'present')
       RETURNING id INTO rule_id;
     INSERT INTO public.siem_remote_rule_snapshots(remote_rule_id,adapter_version,content_hash,raw_hash,content,raw_payload)
       VALUES(rule_id,'test-v1','adopt-hash-'||i,'adopt-raw-'||i,
         jsonb_build_object('name','Adopt rule '||i,'description','d','severity','High',
-          'query','#event_simpleName=X'||i,'enabled',true),
+          'query','#event_simpleName=X'||i,'enabled',CASE WHEN i=2 THEN false WHEN i=3 THEN NULL ELSE true END),
         '{}'::jsonb) RETURNING id INTO snap_id;
     UPDATE public.siem_remote_rules SET latest_snapshot_id=snap_id WHERE id=rule_id;
   END LOOP;
@@ -270,11 +271,16 @@ BEGIN
     WHERE detection_id IN (SELECT detection_id FROM public.siem_sync_items WHERE run_id=import_run.id AND status='imported');
   PERFORM pg_temp.assert_true(item_count = 0, 'an import is an observation, not a deployment: zero deployment_history rows');
 
-  PERFORM pg_temp.assert_true((SELECT d.status='Draft' AND d.review_status='none' AND d."testedAndValidated"=false
+  PERFORM pg_temp.assert_true((SELECT d.status='Production' AND d.review_status='none' AND d."testedAndValidated"=false
       AND d.library_type='production' AND d."queryLanguage"='CQL'
       FROM public.detections d JOIN public.siem_sync_items i ON i.detection_id=d.id
       WHERE i.run_id=import_run.id AND i.vendor_rule_id='adopt-rule-1'),
-    'adopted detections carry the lifecycle defaults');
+    'enabled adopted detections start in Production without claiming review or validation');
+
+  PERFORM pg_temp.assert_true((SELECT bool_and(d.status='Draft' AND d.library_type='production')
+      FROM public.detections d JOIN public.siem_sync_items i ON i.detection_id=d.id
+      WHERE i.run_id=import_run.id AND i.vendor_rule_id IN ('adopt-rule-2','adopt-rule-3')),
+    'disabled and unknown-state imports remain Draft in the Production library');
 
   PERFORM pg_temp.assert_true(
     (SELECT status='changed_since_preview' AND detection_id IS NULL AND binding_id IS NULL
@@ -1172,7 +1178,7 @@ BEGIN
 
   PERFORM pg_temp.assert_true(
     (SELECT d.tags @> ARRAY['native-siem','splunk'] AND NOT (d.tags @> ARRAY['crowdstrike'])
-       AND d."queryLanguage"='SPL' AND d.source='splunk'
+       AND d."queryLanguage"='SPL' AND d.source='native_siem'
        FROM public.detections d JOIN public.siem_sync_items i ON i.detection_id=d.id
       WHERE i.run_id=import_run.id AND i.vendor_rule_id='splunk-rule-1'),
     'a Splunk import chunk adopts a detection tagged native-siem/splunk with an SPL query, never crowdstrike');

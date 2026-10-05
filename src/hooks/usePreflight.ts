@@ -29,6 +29,9 @@ export function usePreflight() {
 
   const reset = useCallback(() => {
     abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    activeRunIdRef.current = null;
+    setLoading(false);
     setResult(null);
     setError(null);
   }, []);
@@ -38,7 +41,9 @@ export function usePreflight() {
   }, []);
 
   const run = useCallback(async (args: RunPreflightArgs): Promise<PreflightResult | null> => {
+    abortControllerRef.current?.abort();
     setLoading(true);
+    setResult(null);
     setError(null);
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -51,9 +56,10 @@ export function usePreflight() {
       }, {
         signal: controller.signal,
         onStarted: (started) => {
-          activeRunIdRef.current = started.id;
+          if (abortControllerRef.current === controller) activeRunIdRef.current = started.id;
         },
       });
+      if (abortControllerRef.current !== controller) return null;
       setResult(res);
       activeRunIdRef.current = null;
       logAuditEvent({
@@ -73,13 +79,17 @@ export function usePreflight() {
       });
       return res;
     } catch (err) {
+      if (abortControllerRef.current !== controller) return null;
       const message = err instanceof Error ? err.message : 'Pre-flight failed';
       setError(message);
       logger.error('[preflight] run failed:', message);
       return null;
     } finally {
-      if (abortControllerRef.current === controller) abortControllerRef.current = null;
-      setLoading(false);
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+        activeRunIdRef.current = null;
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -87,6 +97,7 @@ export function usePreflight() {
     () => () => {
       const activeRunId = activeRunIdRef.current;
       abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
       if (activeRunId) {
         void integrationService.cancelPreflight(activeRunId).catch((cancelError) => {
           logger.warn('[preflight] failed to cancel active run during cleanup:', cancelError);

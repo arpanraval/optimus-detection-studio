@@ -120,8 +120,7 @@ export const PROVIDER_CAPABILITIES: Record<string, ProviderCapabilities> = {
     writeFamilies: ['correlation'],
     operations: ['update', 'enable', 'disable', 'delete'],
   },
-  // The five providers below are read/import-only: P5 (production writes) is out of scope for
-  // this entire project, so every one of them declares no writeFamilies and no operations.
+  // Microsoft providers also support reviewed updates. The other readers remain import-only.
   splunk: {
     // Real family qualified by the Splunk reader (siem-readers/splunk.ts): ES correlation
     // searches, identified by `action.correlationsearch.enabled`. Plain saved searches without
@@ -137,8 +136,8 @@ export const PROVIDER_CAPABILITIES: Record<string, ProviderCapabilities> = {
     // MicrosoftSecurityIncidentCreation, ThreatIntelligence, ...) stays outside readFamilies and
     // is surfaced with an unsupported-family reason instead.
     readFamilies: ['scheduled', 'nrt'],
-    writeFamilies: [],
-    operations: [],
+    writeFamilies: ['scheduled', 'nrt'],
+    operations: ['update'],
   },
   elastic: {
     // Real families qualified by the Elastic reader (siem-readers/elastic.ts): query (kuery or
@@ -154,8 +153,8 @@ export const PROVIDER_CAPABILITIES: Record<string, ProviderCapabilities> = {
     // detection rules read via the beta-only Graph API, shipped behind an explicit Preview
     // capability (DEFENDER_XDR_PREVIEW).
     readFamilies: ['detection'],
-    writeFamilies: [],
-    operations: [],
+    writeFamilies: ['detection'],
+    operations: ['update'],
   },
   chronicle: {
     // Real family qualified by the Chronicle reader (siem-readers/chronicle.ts): readable
@@ -321,6 +320,7 @@ export type InventoryRelationship =
   | 'unsupported';
 
 export type InventoryRow = {
+  provider_scope?: string;
   id: string;
   integration_id: string;
   vendor_rule_id: string;

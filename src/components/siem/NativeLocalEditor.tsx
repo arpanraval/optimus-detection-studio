@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { nativeSiemService, type NativePreview } from '@/services/nativeSiemService';
+import { schedulingFields } from '../../../supabase/functions/_shared/siem-rule-editing';
 
 export function NativeLocalEditor({
   preview,
@@ -12,15 +13,14 @@ export function NativeLocalEditor({
   onSaved: () => void;
   onCancel: () => void;
 }) {
-  const operation = preview.local.config.operation as { schedule?: { definition?: string } };
-  const search = preview.local.config.search as { lookback?: string };
+  const fields = schedulingFields(preview.local);
   const [form, setForm] = useState({
     name: preview.local.name,
     description: preview.local.description,
     query: preview.local.query,
     severity: preview.local.severity,
-    schedule: operation?.schedule?.definition || '',
-    lookback: search?.lookback || '',
+    schedule: fields.schedule,
+    lookback: fields.lookback,
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +60,7 @@ export function NativeLocalEditor({
         />
       </label>
       <label className="block text-sm">
-        CQL query
+        {preview.local.language} query
         <textarea
           required
           rows={8}
@@ -70,18 +70,18 @@ export function NativeLocalEditor({
         />
       </label>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Input
+        {fields.scheduleEditable && <Input
           label="Schedule"
           required
           value={form.schedule}
           onChange={(e) => setForm({ ...form, schedule: e.target.value })}
-        />
-        <Input
+        />}
+        {fields.lookbackEditable && <Input
           label="Lookback"
           required
           value={form.lookback}
           onChange={(e) => setForm({ ...form, lookback: e.target.value })}
-        />
+        />}
         <label className="block text-sm">
           Severity
           <select
@@ -89,7 +89,9 @@ export function NativeLocalEditor({
             value={form.severity}
             onChange={(e) => setForm({ ...form, severity: e.target.value })}
           >
-            {['Informational', 'Low', 'Medium', 'High', 'Critical'].map((value) => (
+            {['Unknown', 'Informational', 'Low', 'Medium', 'High', 'Critical']
+              .filter(value => value !== 'Critical' || !['sentinel', 'defender_xdr'].includes(preview.binding.provider))
+              .map((value) => (
               <option key={value}>{value}</option>
             ))}
           </select>

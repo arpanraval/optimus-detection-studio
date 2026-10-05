@@ -10,7 +10,7 @@ const PROVIDER_LANGUAGES: Record<string, string[]> = {
   splunk: ['SPL'],
   sentinel: ['KQL'],
   defender_xdr: ['KQL'],
-  elastic: ['Lucene', 'EQL', 'ES|QL', 'Elasticsearch DSL'],
+  elastic: ['Lucene', 'EQL', 'ESQL', 'Elasticsearch DSL'],
   crowdstrike: ['CQL'],
   chronicle: ['YARA-L'],
 };

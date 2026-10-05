@@ -8,6 +8,12 @@ import {
 } from '../finetune-logic';
 
 describe('capHuntingResult', () => {
+  it('enforces the byte cap even for one oversized Unicode row', () => {
+    const out = capHuntingResult([{ name: 'Value', type: 'String' }], [{ Value: '界'.repeat(5000) }]);
+    expect(new TextEncoder().encode(JSON.stringify(out.rows)).byteLength).toBeLessThanOrEqual(12_000);
+    expect(out.truncated).toBe(true);
+    expect(out.row_count).toBe(1);
+  });
   it('returns all rows when under the cap', () => {
     const schema = [{ name: 'A', type: 'String' }];
     const rows = [{ A: '1' }, { A: '2' }];

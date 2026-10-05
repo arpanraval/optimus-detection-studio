@@ -10,6 +10,7 @@ export interface FinetuneHistoryEntry {
   id: string;
   detection_id: string;
   integration_id: string;
+  original_query: string;
   provider: string;
   status: FinetuneStatus;
   window_days: number;
@@ -47,7 +48,7 @@ export function useFinetuneHistory(detectionId: string, limit = 20): UseFinetune
     supabase
       .from('detection_finetune_runs')
       .select(
-        'id, detection_id, integration_id, provider, status, window_days, baseline_hit_count, query_count, result, error_message, usage, created_at, completed_at',
+        'id, detection_id, integration_id, original_query, provider, status, window_days, baseline_hit_count, query_count, result, error_message, usage, created_at, completed_at',
       )
       .eq('detection_id', detectionId)
       .order('created_at', { ascending: false })

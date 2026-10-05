@@ -152,7 +152,7 @@ describe('MatchResolutionDialog', () => {
     // q-a matches the mocked remote query verbatim -- reconciled.
     fireEvent.click(screen.getByRole('radio', { name: 'q-a' }));
     await waitFor(() =>
-      expect(screen.getByText('Baseline established — library and remote agree.')).toBeTruthy(),
+      expect(screen.getByText('Queries agree. Linking will establish a baseline.')).toBeTruthy(),
     );
 
     // q-b diverges from the mocked remote query -- not reconciled.

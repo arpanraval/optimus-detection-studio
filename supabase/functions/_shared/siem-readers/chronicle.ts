@@ -32,7 +32,7 @@ export type ChronicleRuleEntry = {
   revisionCreateTime?: string;
   compilationState?: string;
   compilationError?: string;
-  metadata?: { description?: string; severity?: string; [key: string]: Json | undefined };
+  metadata?: { [key: string]: Json };
   ruleType?: string;
   // Legacy execution-state fields this codebase has historically read directly off the rule list
   // entry. Per the brief, these must be modeled as SEPARATE OBSERVATIONS, not folded into a single

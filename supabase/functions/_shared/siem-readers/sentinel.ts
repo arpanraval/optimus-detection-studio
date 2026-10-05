@@ -103,7 +103,8 @@ const SCHEDULED_ONLY_KEYS = new Set(['queryFrequency', 'queryPeriod', 'triggerOp
 
 export function normalizeSentinelEntry(entry: SentinelRuleEntry): NormalizedSentinelRule | SentinelUnsupportedRule {
   const armId = typeof entry.id === 'string' ? entry.id : null;
-  const vendorRuleId = typeof entry.name === 'string' && entry.name ? entry.name : (armId ?? '');
+  const vendorRuleId = typeof entry.name === 'string' && entry.name
+    ? entry.name : (armId?.match(/\/alertRules\/([^/]+)$/i)?.[1] ?? '');
   const kind: SentinelKind = typeof entry.kind === 'string' ? entry.kind : 'Unknown';
   const props = entry.properties && typeof entry.properties === 'object' ? entry.properties : {};
   // The whole entry, envelope included. Snapshotted verbatim so an unmapped field stays
@@ -119,6 +120,7 @@ export function normalizeSentinelEntry(entry: SentinelRuleEntry): NormalizedSent
       reason: `Sentinel rule kind "${kind}" is not an importable analytics rule family` };
   }
   const query = typeof props.query === 'string' ? props.query : '';
+  if (!query.trim()) return { vendorRuleId, armId, kind, displayName, raw, reason: 'Rule source query is unavailable' };
   const isScheduled = kind === 'Scheduled';
   // NRT: Scheduled's cadence defaults must NEVER be injected here. Presence is read defensively --
   // if a future/undocumented NRT payload does carry these fields they are still surfaced, but

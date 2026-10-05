@@ -111,13 +111,13 @@ export function normalizeSplunkEntry(entry: SplunkEntry): NormalizedSplunkRule {
   if (!search.trim()) throw new UnsupportedSplunkRule('Unsupported rule: no SPL query');
   const disabled = parseStrictBoolean01(content.disabled);
   const correlationSearchEnabled = parseCorrelationSearchEnabled(content['action.correlationsearch.enabled']);
+  if (correlationSearchEnabled === null) throw new UnsupportedSplunkRule('Unsupported rule: not a correlation search');
   const identity: SplunkIdentity = { owner, app, name: entry.name };
   return {
     vendorRuleId: splunkVendorRuleId(identity),
     identity,
     name: entry.name,
-    description: typeof content['action.notable.param.security_domain'] === 'string'
-      ? String(content['action.notable.param.security_domain']) : '',
+    description: typeof content.description === 'string' ? content.description : '',
     query: search,
     language: 'SPL',
     disabled,

@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabaseClient';
+import { semanticContent } from '../../supabase/functions/_shared/siem-microsoft-writes';
 import {
   classifyDrift,
   localContent,
@@ -11,6 +12,7 @@ import {
 export type { RuleContent, NativeDrift, NativeOperation };
 
 export interface NativeBinding {
+  provider: string;
   id: string;
   detection_id: string;
   integration_id: string;
@@ -92,6 +94,7 @@ export interface NativePreview {
    *  same predicate that refuses the mutation, so a button is never offered for something the
    *  server would reject. */
   capabilities: Record<NativeOperation, string | null>;
+  updateAfterEditBlocked?: string | null;
 }
 
 async function invoke<T>(body: Record<string, unknown>): Promise<T> {
@@ -113,7 +116,7 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
 }
 
 const INVENTORY_COLUMNS =
-  'id,integration_id,vendor_rule_id,rule_family,display_name,observed_enabled,availability,' +
+  'id,integration_id,provider_scope,vendor_rule_id,rule_family,display_name,observed_enabled,availability,' +
   'normalization_error,match_candidate_count,relationship,binding_id,binding_status,detection_id,last_seen_at,' +
   'latest_snapshot_id';
 
@@ -160,11 +163,11 @@ export const nativeSiemService = {
           const remote = snapshots.find((s) => s.id === binding.latest_remote_snapshot_id)?.content as RuleContent;
           let drift: NativeDrift = 'unknown';
           try {
-            if (base && remote)
+            if (remote)
               drift = classifyDrift(
-                base,
-                localContent(binding.detection, binding.selected_query_id, binding.desired_content),
-                remote,
+                base ? semanticContent(binding.provider, base) : null,
+                semanticContent(binding.provider, localContent(binding.detection, binding.selected_query_id, binding.desired_content)),
+                semanticContent(binding.provider, remote),
                 binding.availability,
               );
           } catch {
@@ -389,6 +392,15 @@ export const nativeSiemService = {
       .single();
     if (error) throw new Error(error.message);
     return data.content as RuleContent;
+  },
+  async remoteSnapshotPayload(snapshotId: string): Promise<unknown> {
+    const { data, error } = await supabase
+      .from('siem_remote_rule_snapshots')
+      .select('raw_payload')
+      .eq('id', snapshotId)
+      .single();
+    if (error) throw new Error(error.message);
+    return data.raw_payload;
   },
   /** remoteRuleId is the catalog row's own primary key (InventoryRow.id), not its
    *  vendor_rule_id — the catalog's real uniqueness is (integration_id, provider_scope,

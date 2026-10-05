@@ -536,7 +536,7 @@ export function NativeRulesPanel({ integration }: { integration: Integration }) 
           <NativeRuleReview key={selected.binding_id} bindingId={selected.binding_id} providerName={providerName} onChanged={() => void reload()} />
         </Modal>
       )}
-      {previewRow && <RulePreviewDialog row={previewRow} providerName={providerName} onClose={() => setPreviewRow(null)} />}
+      {previewRow && <RulePreviewDialog row={previewRow} providerName={providerName} connectionName={integration.name} onClose={() => setPreviewRow(null)} />}
       {resolvingRow && (
         <MatchResolutionDialog
           key={resolvingRow.vendor_rule_id}

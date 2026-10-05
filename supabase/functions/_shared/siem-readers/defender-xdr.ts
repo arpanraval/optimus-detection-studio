@@ -204,6 +204,7 @@ export function normalizeDefenderEntry(entry: DefenderRuleEntry): NormalizedDefe
   }
   const displayName = typeof entry.displayName === 'string' ? entry.displayName : entry.id;
   const query = typeof entry.queryCondition?.queryText === 'string' ? entry.queryCondition.queryText : '';
+  if (!query.trim()) throw new UnsupportedDefenderRule('Unsupported rule: source query is unavailable');
   const { observedState, statusSource, autoDisabled } = resolveStatus(entry.status, entry.isEnabled);
   const { frequency, scheduleSource, continuous } = resolveSchedule(entry.schedule);
   const alertTemplate = entry.detectionAction?.alertTemplate ?? null;
