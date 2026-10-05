@@ -9,6 +9,7 @@ import { IntegrationLogo } from './IntegrationLogo';
 import { getProviderMeta } from '../../lib/providerMeta';
 import { supabase } from '../../lib/supabaseClient';
 import { bulkDeploy, BulkDeployResult } from '../../services/bulkDeployService';
+import { hydrateDetections } from '../../lib/detectionHydration';
 import type { Detection, Integration } from '../../types';
 import { PROVIDER_QUERY_LANGUAGES } from '../../types';
 
@@ -114,6 +115,12 @@ export const BulkDeployModal: React.FC<BulkDeployModalProps> = ({
   // Step state
   const [step, setStep] = useState<Step>('select');
 
+  // Detections arrive from the library list, which fetches a lightweight column set without
+  // detectionQuery/queries. Validation and deploy both read those, so hydrate the selection
+  // once when the modal opens rather than judging every rule to be query-less.
+  const [rows, setRows] = useState<Detection[]>(detections);
+  const [isHydrating, setIsHydrating] = useState(true);
+
   // Step 1: Select integration
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [loadingIntegrations, setLoadingIntegrations] = useState(true);
@@ -131,6 +138,21 @@ export const BulkDeployModal: React.FC<BulkDeployModalProps> = ({
 
   // Step 4: Results
   const [result, setResult] = useState<BulkDeployResult | null>(null);
+
+  // ---------------------------------------------------------------------------
+  // Hydrate the selected detections with their query content
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    let cancelled = false;
+    setIsHydrating(true);
+    (async () => {
+      const hydrated = await hydrateDetections(detections);
+      if (cancelled) return;
+      setRows(hydrated);
+      setIsHydrating(false);
+    })();
+    return () => { cancelled = true; };
+  }, [detections]);
 
   // ---------------------------------------------------------------------------
   // Load connected integrations
@@ -160,11 +182,11 @@ export const BulkDeployModal: React.FC<BulkDeployModalProps> = ({
   // ---------------------------------------------------------------------------
   const handleSelectIntegration = useCallback((integration: Integration) => {
     setSelectedIntegration(integration);
-    const { compatible: compat, incompatible: incompat } = getCompatibleDetections(detections, integration.provider);
+    const { compatible: compat, incompatible: incompat } = getCompatibleDetections(rows, integration.provider);
     setCompatible(compat);
     setIncompatible(incompat);
     setStep('validate');
-  }, [detections]);
+  }, [rows]);
 
   const handleStartDeploy = useCallback(async () => {
     if (!selectedIntegration || compatible.length === 0 || deployingRef.current) return;
@@ -211,12 +233,12 @@ export const BulkDeployModal: React.FC<BulkDeployModalProps> = ({
   const handleRetryFailed = useCallback(() => {
     if (!result || !selectedIntegration) return;
     const failedIds = new Set(result.failed.map(f => f.id));
-    const failedDetections = detections.filter(d => failedIds.has(d.id));
+    const failedDetections = rows.filter(d => failedIds.has(d.id));
     setCompatible(failedDetections);
     setIncompatible([]);
     setResult(null);
     setStep('validate');
-  }, [result, selectedIntegration, detections]);
+  }, [result, selectedIntegration, rows]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -260,13 +282,13 @@ export const BulkDeployModal: React.FC<BulkDeployModalProps> = ({
                 Choose the target SIEM / integration:
               </p>
 
-              {loadingIntegrations && (
+              {(loadingIntegrations || isHydrating) && (
                 <div className="flex items-center justify-center py-12">
                   <Icon name="spinner" className="w-5 h-5 animate-spin text-on-surface-variant" />
                 </div>
               )}
 
-              {!loadingIntegrations && integrations.length === 0 && (
+              {!loadingIntegrations && !isHydrating && integrations.length === 0 && (
                 <div className="text-center py-12">
                   <Icon name="unlink" className="w-8 h-8 text-on-surface-variant/40 mx-auto mb-2" />
                   <p className="text-sm text-on-surface-variant">No connected integrations found.</p>
@@ -274,7 +296,9 @@ export const BulkDeployModal: React.FC<BulkDeployModalProps> = ({
                 </div>
               )}
 
-              {!loadingIntegrations && integrations.map(integration => {
+              {/* Held back until hydration finishes: picking a target before the rules carry
+                  their queries would validate every one of them as incompatible. */}
+              {!loadingIntegrations && !isHydrating && integrations.map(integration => {
                 const meta = getProviderMeta(integration.provider);
                 return (
                   <button

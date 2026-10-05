@@ -1,0 +1,821 @@
+import { SENTINEL_API_VERSION } from './sentinel-mitre.ts';
+import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { ADAPTER_VERSION, canonicalJson, contentHash, crowdStrikeScope, normalizeCrowdStrike, sanitizeSnapshot,
+  classifyDrift, localContent, crowdStrikeUpdate, mutationBlockedReason,  NATIVE_OPERATIONS, type Json, type NativeOperation, type RuleContent } from './native-siem-model.ts';
+import { resolveProvider, providerEndpoint, providerScope, adapterVersion, type ImportProvider } from './siem-providers.ts';
+import { fetchCrowdStrikeDiscoveryPage, crowdStrikeDetailPath } from './siem-readers/crowdstrike.ts';
+import { IMPORT_READERS, type ReaderCursor } from './siem-readers/import-readers.ts';
+import { applySchedule, schedulingFields } from './siem-rule-editing.ts';
+import { defenderUpdate, sentinelUpdate, semanticContent } from './siem-microsoft-writes.ts';
+import { verifyDefenderInventory } from './defender-verification.ts';
+
+type Dependencies = {
+  db: SupabaseClient;
+  credentials: (id: string) => Promise<Record<string, string>>;
+  /** Per-provider auth lookup, keyed by ImportProvider. CrowdStrike, Sentinel, Defender XDR and
+   *  Chronicle exchange credentials for a bearer token over the network; Splunk and Elastic have
+   *  no token-issuing endpoint at all -- a static token or HTTP Basic credential IS the auth, so
+   *  those entries build the header directly rather than pretending a token step exists. Every
+   *  entry returns the headers to send, never a bare token string, so the shape is uniform however
+   *  differently each provider actually authenticates. */
+  token: Record<ImportProvider, (config: Record<string, unknown>, credentials: Record<string, string>) => Promise<Record<string, string>>>;
+  fetch: (url: string, options: RequestInit, timeout?: number) => Promise<Response>;
+  writesEnabled: boolean;
+  /** Injected so tests do not spend real seconds waiting for CrowdStrike to settle. */
+  wait?: (ms: number) => Promise<void>;
+};
+
+/** CrowdStrike applies a rule change asynchronously and refuses anything else meanwhile with 409
+ *  "rule is currently being updated". These are the waits between attempts, in milliseconds. */
+const SETTLE_BACKOFF_MS = [1000, 2000, 4000, 6000];
+export type NativeRequest = {
+  action: string; integrationId?: string; bindingId?: string; expectedHash?: string; expectedVersion?: number;
+  localChanges?: { name: string; description: string; query: string; severity: string; schedule: string;
+    lookback: string; outcome?: string; enabled?: boolean };
+  revisionId?: string;
+  ids?: string[];
+  excludeIds?: string[];
+  allMatching?: boolean;
+  sourceRunId?: string;
+  selectionSearch?: string;
+  selectionRelationship?: string;
+  idempotencyKey?: string;
+  runId?: string;
+  vendorRuleId?: string;
+  remoteRuleId?: string;
+  detectionId?: string;
+  queryId?: string;
+  detectionVersion?: number;
+  snapshotId?: string;
+};
+
+function checked<T>(result: { data: T; error: { message: string } | null }): T {
+  if (result.error) throw new Error(result.error.message);
+  return result.data;
+}
+
+async function connection(deps: Dependencies, id: string, actor: string) {
+  const row = checked(await deps.db.from('integrations').select('*').eq('id', id).eq('user_id', actor).single());
+  if (!row || row.archived_at) throw new Error('Connection unavailable');
+  try {
+    resolveProvider(row);
+  } catch {
+    throw new Error('Connection unavailable');
+  }
+  return row;
+}
+
+/** G38: an absolute continuation URL (`nextLink`, `@odata.nextLink`, a cursor URL a provider hands
+ *  back mid-scan) must be validated against the authorized provider endpoint BEFORE it is used to
+ *  carry our bearer token or headers. A tenant response -- or a compromised one -- must never be
+ *  able to redirect our credentials to an attacker-controlled host. Enforced once here, for every
+ *  provider, rather than trusted per-reader. */
+export function validateContinuationUrl(url: string, authorizedBase: string): string {
+  let candidate: URL;
+  let authorized: URL;
+  try {
+    candidate = new URL(url);
+    authorized = new URL(authorizedBase);
+  } catch {
+    throw new Error('Invalid continuation URL');
+  }
+  if (candidate.origin !== authorized.origin) {
+    throw new Error(`Continuation URL host "${candidate.host}" does not match the authorized provider ` +
+      `endpoint "${authorized.host}"; refusing to forward credentials`);
+  }
+  return url;
+}
+
+/**
+ * A refusal from CrowdStrike, carrying what it said and whether anything can have been written.
+ *
+ * Reporting only the status turned a precise validation complaint -- which field is wrong -- into
+ * "retry the sync after checking access", which is not what the user should do about it.
+ */
+export class VendorRequestError extends Error {
+  readonly status: number;
+  constructor(status: number, detail: string, provider = 'CrowdStrike') {
+    super(`${provider} refused the request (${status})${detail ? `: ${detail}` : ''}; ` +
+      'fetch rules again if this persists');
+    this.status = status;
+  }
+  /**
+   * A 4xx that is not a timeout or a rate limit means the request was understood and refused, so
+   * production was NOT changed. Recording that as an uncertain write would lock the rule and send
+   * the user to reconcile something that never happened. 5xx, 408 and 429 stay uncertain.
+   */
+  get refusedWithoutWriting(): boolean {
+    return this.status >= 400 && this.status < 500 && this.status !== 408 && this.status !== 429;
+  }
+}
+
+/** CrowdStrike puts the reason in `errors[].message`. */
+async function vendorDetail(response: Response): Promise<string> {
+  try {
+    const body = await response.json();
+    const messages = (Array.isArray(body?.errors) ? body.errors : [])
+      .map((entry: { message?: string }) => entry?.message).filter(Boolean);
+    if (messages.length) return messages.join('; ').slice(0, 400);
+    if (typeof body?.error?.message === 'string') return body.error.message.slice(0, 400);
+    if (typeof body?.message === 'string') return body.message.slice(0, 400);
+  } catch {
+    /* the body may not be JSON */
+  }
+  return '';
+}
+
+export async function client(deps: Dependencies, integration: { id: string; provider: string; config: Record<string, unknown> }) {
+  const provider = resolveProvider(integration);
+  // CrowdStrike's own strict validation (HTTPS origin, well-formed customer id) is preserved
+  // byte-for-byte -- providerEndpoint() only has to agree with it on where requests go.
+  if (provider === 'crowdstrike') crowdStrikeScope(integration.config);
+  const { baseUrl, pathPrefix } = providerEndpoint(provider, integration.config);
+  const credentials = await deps.credentials(integration.id);
+  const headers = await deps.token[provider](integration.config, credentials);
+  return async (path: string, options: RequestInit = {}): Promise<Record<string, Json>> => {
+    // A caller may pass either a path relative to this connection, or an absolute continuation
+    // URL the provider handed back (e.g. Sentinel's nextLink) -- the latter is validated before
+    // any credential is attached to it.
+    const url = /^https?:\/\//i.test(path) ? validateContinuationUrl(path, baseUrl) : `${baseUrl}/${pathPrefix}${path}`;
+    const response = await deps.fetch(url, {
+      ...options, headers: { ...headers, 'Content-Type': 'application/json', ...options.headers },
+    }, 10000);
+    if (!response.ok) throw new VendorRequestError(response.status, await vendorDetail(response), provider);
+    if (response.status === 204) return {};
+    const result = await response.json();
+    if (Array.isArray(result.errors) && result.errors.length) throw new Error(`${provider} returned an incomplete result`);
+    return result;
+  };
+}
+
+const DETAIL_UNREADABLE = 'CrowdStrike did not return this rule. It may have been deleted or it ' +
+  'may be a rule type this connection cannot read.';
+const MAX_DETAIL_RETRIES_PER_CHUNK = 10;
+/** siem_claim_sync grants a 45-second lease. Each provider request is allowed 10 seconds, so a
+ *  batch read plus ten sequential per-id retries can spend up to 110 seconds -- the commit then
+ *  fails its own lease check, the chunk is requeued, and the same slow chunk is reprocessed until
+ *  the run gives up. Slow-but-SUCCESSFUL responses are the dangerous case here: nothing errors, so
+ *  nothing else stops it. Reserve the tail of the lease for the commit and leave whatever did not
+ *  fit pending for the next chunk, which is already how the retry cap behaves. */
+const DETAIL_BUDGET_MS = 25000;
+
+/** CrowdStrike's list endpoint (`queries/rules/v1`) returns a rule's STABLE identity, but the
+ *  entity endpoint returns a rule that has been edited past version 1 with `id` set to the
+ *  CURRENT VERSION's id and `rule_id` holding that stable identity. A version-1 rule has the two
+ *  equal, which is why this only ever bites edited rules. EVERY read of an entity response has to
+ *  accept either field -- hydration, mutation preflight, readback and delete verification alike --
+ *  or an edited rule looks absent to whichever site still compares `id` alone. */
+export function matchesVendorRule(raw: Record<string, Json> | undefined, vendorRuleId: string): boolean {
+  return raw?.id === vendorRuleId || raw?.rule_id === vendorRuleId;
+}
+
+/** A batch detail read that returns fewer resources than requested is not evidence of deletion.
+ *  Retry each omitted id once on its own before recording it as unreadable. Retries are capped at
+ *  MAX_DETAIL_RETRIES_PER_CHUNK per call; ids beyond the cap are left out of both maps entirely so
+ *  the caller leaves them pending for a later chunk instead of stranding them. */
+export async function readRuleDetails(
+  request: (path: string) => Promise<Record<string, Json>>,
+  ids: string[],
+  budgetMs = DETAIL_BUDGET_MS,
+): Promise<{ found: Map<string, Record<string, Json>>; missing: Map<string, string> }> {
+  const found = new Map<string, Record<string, Json>>();
+  const missing = new Map<string, string>();
+  if (!ids.length) return { found, missing };
+  const startedAt = Date.now();
+  /** Keyed under the id we asked for, so the caller's identity stays the stable one even when
+   *  CrowdStrike answers with a version id (see matchesVendorRule). */
+  const collect = (response: Record<string, Json>) => {
+    if (!Array.isArray(response.resources)) throw new Error('Invalid rule detail response');
+    for (const raw of response.resources as Record<string, Json>[]) {
+      const requested = ids.find(id => matchesVendorRule(raw, id));
+      if (requested) found.set(requested, raw);
+    }
+  };
+  collect(await request(crowdStrikeDetailPath(ids)));
+  let retries = 0;
+  for (const id of ids) {
+    if (found.has(id)) continue;
+    if (retries >= MAX_DETAIL_RETRIES_PER_CHUNK) continue; // beyond the cap: leave pending for the next chunk
+    // Out of lease budget: stop reading rather than commit into an expired lease. Everything
+    // still unresolved stays out of both maps, so the commit leaves it pending.
+    if (Date.now() - startedAt >= budgetMs) break;
+    retries++;
+    // A throw here is not a missing rule: CrowdStrike answers 200 with empty resources for an
+    // unknown id, so request() only throws on a non-OK status or a non-empty errors array --
+    // auth failure, rate limit, outage. Reporting that as "this rule may have been deleted"
+    // across the chunk would be actively misleading, so let it propagate: the chunk fails,
+    // processNativeSync's fenced catch requeues with backoff, and the run gives up after 5
+    // attempts rather than limping on with wrong labels.
+    collect(await request(crowdStrikeDetailPath([id])));
+    if (!found.has(id)) missing.set(id, DETAIL_UNREADABLE);
+  }
+  return { found, missing };
+}
+
+/** One invocation owns one bounded chunk. Cron, not a browser, drives subsequent chunks. */
+export async function processNativeSync(deps: Dependencies): Promise<{ processed: boolean }> {
+  const runs = checked(await deps.db.rpc('siem_claim_sync'));
+  const run = runs?.[0];
+  if (!run) return { processed: false };
+  const chunkStartedAt = Date.now();
+  let retryError: Error | null = null;
+  try {
+    const kind: string = run.kind ?? 'legacy_import';
+    if (kind === 'legacy_import') {
+      // Superseded semantics. Park it rather than importing rules nobody selected.
+      checked(await deps.db.from('siem_sync_runs').update({
+        status: 'cancelled', completed_at: new Date().toISOString(),
+        error_message: 'This import used an earlier workflow. Open the connection and fetch rules again.',
+        lease_token: null, lease_expires_at: null,
+      }).eq('id', run.id).eq('lease_token', run.lease_token));
+      return { processed: true };
+    }
+    if (!checked(await deps.db.rpc('siem_can_import', { p_actor: run.actor_id, p_integration: run.integration_id }))) {
+      throw new Error('Native import permission revoked');
+    }
+    const integration = await connection(deps, run.integration_id, run.actor_id);
+    // CF2: this used to call crowdStrikeScope() unconditionally, which threw a CrowdStrike-shaped
+    // "Invalid URL" for any other provider's config instead of comparing that provider's own scope.
+    // connection() already admits all six providers via resolveProvider, so the scope check must
+    // use the same registry-driven derivation.
+    if (providerScope(resolveProvider(integration), integration.config) !== run.provider_scope) {
+      throw new Error('Connection scope changed');
+    }
+    const request = await client(deps, integration);
+    const provider = resolveProvider(integration);
+    let ids: string[] = [], next = run.cursor_offset, nextToken: string | null = run.cursor_token ?? null, done = false;
+    const results: Array<Record<string, Json>> = [];
+    if (run.phase === 'discovery') {
+      if (provider === 'crowdstrike') {
+        // Byte-for-byte the request this worker always issued: queries/rules/v1?limit=50&offset=.
+        const page = await fetchCrowdStrikeDiscoveryPage(request, run.cursor_offset);
+        ids = page.ids;
+        next = page.nextOffset;
+        done = page.done;
+      } else {
+        const reader = IMPORT_READERS[provider];
+        if (!reader) throw new Error(`Optimus does not yet support importing rules from ${provider}`);
+        const cursor: ReaderCursor = { offset: run.cursor_offset, token: run.cursor_token ?? null };
+        const page = await reader.discover(request, cursor);
+        ids = page.ids;
+        next = page.cursor.offset;
+        nextToken = page.cursor.token;
+        done = page.done;
+      }
+      // Repeated pages/cursor cycles are incomplete scans, never evidence of deletion.
+      // The durable item ledger survives invocations and detects A -> B -> A as well as echoes.
+      if (ids.length) {
+        const seen = checked(await deps.db.from('siem_sync_items').select('vendor_rule_id')
+          .eq('run_id', run.id).in('vendor_rule_id', ids)) ?? [];
+        if (seen.length === new Set(ids).size) throw new Error('Discovery repeated a page; fetch is incomplete');
+      } else if (!done) {
+        throw new Error('Discovery returned an empty page with a continuation; fetch is incomplete');
+      }
+    } else if (provider === 'crowdstrike') {
+      const items = checked(await deps.db.from('siem_sync_items').select('vendor_rule_id')
+        .eq('run_id', run.id).eq('status', 'pending').order('vendor_rule_id').limit(10)) ?? [];
+      const requested = items.map(item => item.vendor_rule_id as string);
+      if (requested.length) {
+        const { found: byId, missing } = await readRuleDetails(request, requested);
+        if (kind === 'inventory') {
+          for (const id of requested) {
+            const raw = byId.get(id);
+            if (!raw) { const reason = missing.get(id); if (reason) results.push({ id, status: 'failed', error: reason }); continue; }
+            const sanitized = sanitizeSnapshot(raw) as Record<string, Json>;
+            const name = typeof sanitized.name === 'string' ? sanitized.name : id;
+            try {
+              const content = normalizeCrowdStrike(sanitized);
+              results.push({ id, name, content, raw: sanitized, adapter: ADAPTER_VERSION,
+                hash: await contentHash(content), raw_hash: await contentHash(sanitized),
+                enabled: content.enabled, family: 'correlation' });
+            } catch (error) {
+              results.push({ id, name, family: 'correlation', status: 'unsupported',
+                error: error instanceof Error ? error.message : 'Unsupported rule' });
+            }
+          }
+        } else {
+          for (const id of requested) {
+            const raw = byId.get(id);
+            if (!raw) { const reason = missing.get(id); if (reason) results.push({ id, status: 'failed', error: reason }); continue; }
+            try {
+              const sanitized = sanitizeSnapshot(raw) as Record<string, Json>;
+              const content = normalizeCrowdStrike(sanitized);
+              results.push({ id, content, raw: sanitized, adapter: ADAPTER_VERSION,
+                hash: await contentHash(content), raw_hash: await contentHash(sanitized) });
+            } catch (error) {
+              results.push({ id, status: 'unsupported', error: error instanceof Error ? error.message : 'Unsupported rule' });
+            }
+          }
+        }
+      }
+    } else {
+      // The five non-CrowdStrike providers share one hydration path: each is read and normalized
+      // by its own registered reader, but the commit-shaped result item (id/content/raw/adapter/
+      // hash, or a distinguishable failure) is built the same way for all of them.
+      const reader = IMPORT_READERS[provider];
+      if (!reader) throw new Error(`Optimus does not yet support importing rules from ${provider}`);
+      const items = checked(await deps.db.from('siem_sync_items').select('vendor_rule_id')
+        .eq('run_id', run.id).eq('status', 'pending').order('vendor_rule_id').limit(10)) ?? [];
+      const requested = items.map(item => item.vendor_rule_id as string);
+      for (const id of requested) {
+        if (Date.now() - chunkStartedAt >= 25000) break;
+        const outcome = await reader.readRule(request, integration.config, id);
+        if (outcome.status === 'ok') {
+          const sanitized = sanitizeSnapshot(outcome.raw) as Record<string, Json>;
+          if (kind === 'inventory') {
+            results.push({ id, name: outcome.name, content: outcome.content as unknown as Json, raw: sanitized,
+              adapter: adapterVersion(provider), hash: await contentHash(outcome.content as unknown as Json),
+              raw_hash: await contentHash(sanitized), enabled: outcome.content.enabled, family: outcome.family });
+          } else {
+            results.push({ id, content: outcome.content as unknown as Json, raw: sanitized,
+              adapter: adapterVersion(provider), hash: await contentHash(outcome.content as unknown as Json),
+              raw_hash: await contentHash(sanitized) });
+          }
+        } else if (outcome.status === 'temporary_failure' || outcome.status === 'access_denied') {
+          retryError = new Error(outcome.error);
+          break;
+        } else if (outcome.status === 'unsupported') {
+          results.push({ id, status: 'unsupported', error: outcome.error,
+            ...(kind === 'inventory' ? { name: id, family: 'unknown' } : {}) });
+        } else {
+          // not_found / access_denied / temporary_failure all say something different happened,
+          // but none of them are evidence the rule is gone -- 'failed' is the same non-committal
+          // outcome CrowdStrike's own unreadable-detail path already reports, never an empty
+          // successful page.
+          results.push({ id, status: 'failed', error: outcome.error });
+        }
+      }
+    }
+    if (kind === 'inventory') {
+      checked(await deps.db.rpc('siem_commit_inventory_chunk', { p_run: run.id, p_lease: run.lease_token,
+        p_ids: ids, p_next: next, p_discovery_complete: done, p_results: results, p_next_token: nextToken }));
+    } else if (kind === 'import_selection') {
+      checked(await deps.db.rpc('siem_commit_import_chunk', { p_run: run.id, p_lease: run.lease_token,
+        p_results: results }));
+    } else {
+      checked(await deps.db.rpc('siem_commit_chunk', { p_run: run.id, p_lease: run.lease_token,
+        p_ids: ids, p_next: next, p_discovery_complete: done, p_results: results, p_next_token: nextToken }));
+    }
+    // Commit successful reads first. SQL releases the lease; defer only an unclaimed run so
+    // another worker's new lease can never be overwritten by this invocation.
+    if (retryError) {
+      checked(await deps.db.from('siem_sync_runs').update({
+        status: run.attempts >= 4 ? 'failed' : 'queued', attempts: run.attempts + 1,
+        error_message: retryError.message,
+        completed_at: run.attempts >= 4 ? new Date().toISOString() : null,
+        next_attempt_at: new Date(Date.now() + Math.min(300000, 15000 * 2 ** run.attempts)).toISOString(),
+      }).eq('id', run.id).is('lease_token', null).is('completed_at', null));
+    }
+  } catch (error) {
+    // Fenced failure: an expired worker cannot change a replacement worker's state.
+    checked(await deps.db.from('siem_sync_runs').update({
+      status: run.attempts >= 4 ? 'failed' : 'queued', attempts: run.attempts + 1,
+      completed_at: run.attempts >= 4 ? new Date().toISOString() : null,
+      error_message: error instanceof Error ? error.message : 'Sync failed',
+      lease_token: null, lease_expires_at: null,
+      next_attempt_at: new Date(Date.now() + Math.min(300000, 15000 * 2 ** run.attempts)).toISOString(),
+    }).eq('id', run.id).eq('lease_token', run.lease_token));
+  }
+  return { processed: true };
+}
+
+/**
+ * The ATT&CK ids CrowdStrike wants, resolved from the names Optimus stores.
+ *
+ * A detection records "Privilege Escalation" and "Account Manipulation: Additional Cloud Roles";
+ * the API takes `TA0004` and `T1098.003` and nothing else, which is why an imported rule's tactic
+ * and technique stayed empty however well the detection was mapped. A sub-technique is stored
+ * under its own name in the catalog ("Additional Cloud Roles"), so a "Parent: Sub" label is also
+ * tried by its trailing segment.
+ *
+ * The API refuses a technique without a tactic, so an unresolved tactic suppresses both.
+ */
+async function attackIds(
+  deps: Dependencies,
+  detection: { mitreTactics?: unknown; mitreTechniques?: unknown },
+): Promise<{ tactic?: string; technique?: string }> {
+  const names = (value: unknown) => (Array.isArray(value) ? value : []).filter(
+    (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+  const tacticNames = names(detection.mitreTactics);
+  const techniqueNames = names(detection.mitreTechniques);
+  if (!tacticNames.length) return {};
+
+  const tactics = checked(await deps.db.from('mitre_objects').select('mitre_id,name')
+    .in('name', tacticNames).like('mitre_id', 'TA*')) ?? [];
+  const tactic = tacticNames
+    .map(name => tactics.find((row: { name: string }) => row.name === name)?.mitre_id)
+    .find((id: string | undefined) => !!id);
+  if (!tactic) return {};
+  if (!techniqueNames.length) return { tactic };
+
+  // Each label is looked up whole and, for "Parent: Sub", by its trailing segment too.
+  const candidates = [...new Set(techniqueNames.flatMap(name =>
+    name.includes(':') ? [name, name.slice(name.lastIndexOf(':') + 1).trim()] : [name]))];
+  const techniques = checked(await deps.db.from('mitre_techniques').select('mitre_id,name')
+    .in('name', candidates)) ?? [];
+  const idFor = (name: string) => techniques.find((row: { name: string }) => row.name === name)?.mitre_id;
+  const technique = techniqueNames
+    .map(name => idFor(name) ?? (name.includes(':') ? idFor(name.slice(name.lastIndexOf(':') + 1).trim()) : undefined))
+    .find((id: string | undefined) => !!id);
+  return technique ? { tactic, technique } : { tactic };
+}
+
+/**
+ * What an update actually asks production for.
+ *
+ * CrowdStrike DERIVES `fields.mitre_attack` from the tactic and technique it is sent, so a rule
+ * read back after a perfectly successful write differs from the content that was sent: production
+ * holds `[{tactic_id, technique_id}]` while our copy still carries the empty array the last import
+ * observed. Requiring the whole object to match made a correct write impossible to verify and
+ * reported it as a failure.
+ *
+ * So verification is: every field we asked for must now hold what we asked. Everything else
+ * belongs to production and is recorded rather than argued with -- siem_finish_deployment stores
+ * production's own content as the new baseline, derived fields included.
+ */
+export function writtenFields(content: RuleContent): Record<string, unknown> {
+  const config = (content.config ?? {}) as Record<string, unknown>;
+  const at = (...path: string[]): unknown => path.reduce<unknown>((value, key) =>
+    value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined, config);
+  return {
+    name: content.name, description: content.description, severity: content.severity,
+    enabled: content.enabled, query: content.query,
+    outcome: at('search', 'outcome') ?? null,
+    lookback: at('search', 'lookback') ?? null,
+    schedule: at('operation', 'schedule', 'definition') ?? null,
+    tactic: config.tactic ?? '', technique: config.technique ?? '',
+  };
+}
+
+/**
+ * Which of those fields differ, for an error that can be acted on.
+ *
+ * "Production readback differs from the reviewed change" told the user that something was wrong
+ * and nothing about what -- and the readback is exactly the moment where the specific field
+ * matters, because it is the field CrowdStrike would not take or stores differently.
+ */
+export function contentDifferences(expected: RuleContent, actual: RuleContent): string[] {
+  const flatten = (content: RuleContent) => Object.fromEntries(
+    Object.entries(writtenFields(content)).map(([field, value]) =>
+      [field, typeof value === 'string' ? value : JSON.stringify(value) ?? String(value)]));
+  const sent = flatten(expected);
+  const found = flatten(actual);
+  // The query and the description run to hundreds of characters; naming them is the useful part.
+  const long = (field: string) => field === 'query' || field === 'description';
+  const show = (value: string | undefined) =>
+    value === undefined ? 'nothing' : `"${value.length > 60 ? `${value.slice(0, 60)}…` : value}"`;
+  return [...new Set([...Object.keys(sent), ...Object.keys(found)])]
+    .filter(field => sent[field] !== found[field])
+    .map(field => long(field) ? field : `${field} (sent ${show(sent[field])}, production has ${show(found[field])})`);
+}
+
+async function boundRule(deps: Dependencies, bindingId: string, actor: string) {
+  const binding = checked(await deps.db.from('siem_rule_bindings').select('*').eq('id', bindingId).single());
+  const integration = await connection(deps, binding.integration_id, actor);
+  // CF2: same fix as processNativeSync -- derive the scope through the registry rather than
+  // assuming CrowdStrike's shape for a binding that may belong to any of the six providers.
+  if (providerScope(resolveProvider(integration), integration.config) !== binding.provider_scope) {
+    throw new Error('Connection scope changed');
+  }
+  const detection = checked(await deps.db.from('detections').select('*').eq('id', binding.detection_id).single());
+  // Rule family lives on the catalog row, not the binding: it is a property of the rule in
+  // CrowdStrike, and it decides whether this adapter can serialize a write for it at all.
+  const catalog = (checked(await deps.db.from('siem_remote_rules')
+    .select('rule_family')
+    .eq('integration_id', binding.integration_id)
+    .eq('provider_scope', binding.provider_scope)
+    .eq('vendor_rule_id', binding.vendor_rule_id)) ?? [])[0] ?? null;
+  const snapshots = checked(await deps.db.from('siem_rule_snapshots').select('*')
+    .in('id', [binding.baseline_snapshot_id, binding.latest_remote_snapshot_id])) ?? [];
+  // A missing baseline is a real, reviewable state -- a link whose query differs from production
+  // is created that way on purpose -- so only the remote observation is required to open a
+  // comparison. Refusing here is what made the match dialog offer a review that could not open.
+  const baseline = snapshots.find(s => s.id === binding.baseline_snapshot_id) ?? null;
+  const remote = snapshots.find(s => s.id === binding.latest_remote_snapshot_id);
+  if (!remote) throw new Error('Sync this rule before reviewing changes');
+  if (baseline) baseline.content = semanticContent(binding.provider, baseline.content);
+  remote.content = semanticContent(binding.provider, remote.content);
+  const base = semanticContent(binding.provider, localContent(detection, binding.selected_query_id, binding.desired_content));
+  // The library's ATT&CK mapping is part of the content it would write. Leaving it out meant a
+  // detection mapped to a tactic and technique still updated the rule with the empty values the
+  // import had observed.
+  const attack = binding.provider === 'crowdstrike' ? await attackIds(deps, detection) : {};
+  const local: RuleContent = attack.tactic
+    ? { ...base, config: { ...base.config, tactic: attack.tactic, technique: attack.technique ?? '' } }
+    : base;
+  return { binding, integration, detection, baseline, remote, local,
+           ruleFamily: (catalog?.rule_family as string | undefined) ?? null };
+}
+
+export async function handleNativeRequest(deps: Dependencies, body: NativeRequest, actor: string): Promise<unknown> {
+  if (body.action === 'native_disconnect') {
+    checked(await deps.db.rpc('siem_disconnect', { p_actor: actor, p_integration: body.integrationId }));
+    return { success: true };
+  }
+  if (body.action === 'native_sync_start' || body.action === 'native_inventory_start') {
+    const integration = await connection(deps, body.integrationId || '', actor);
+    return checked(await deps.db.rpc('siem_start_inventory', { p_actor: actor, p_integration: integration.id,
+      p_scope: providerScope(resolveProvider(integration), integration.config) }));
+  }
+  if (body.action === 'native_import_cancel') {
+    checked(await deps.db.rpc('siem_cancel_import', { p_actor: actor, p_run: body.runId }));
+    return { success: true };
+  }
+  if (body.action === 'native_import_retry') {
+    return checked(await deps.db.rpc('siem_retry_import', { p_actor: actor, p_run: body.runId }));
+  }
+  if (body.action === 'native_refresh_tracked') {
+    const integration = await connection(deps, body.integrationId || '', actor);
+    return checked(await deps.db.rpc('siem_start_refresh', { p_actor: actor, p_integration: integration.id,
+      p_scope: providerScope(resolveProvider(integration), integration.config) }));
+  }
+  if (body.action === 'native_import_start') {
+    const integration = await connection(deps, body.integrationId || '', actor);
+    const ids = body.ids || [];
+    if (!body.allMatching && !ids.length) throw new Error('Select the rules you want to import');
+    if (!body.idempotencyKey) throw new Error('An import request key is required');
+    return checked(await deps.db.rpc('siem_start_import', {
+      p_actor: actor, p_integration: integration.id, p_source_run: body.sourceRunId,
+      p_ids: body.allMatching ? [] : ids, p_exclude: body.excludeIds || [],
+      p_all_matching: Boolean(body.allMatching), p_idempotency: body.idempotencyKey,
+      // The filter the count was computed under travels with the selection, so "all N matching"
+      // freezes exactly the N rows the table was showing rather than the whole catalog.
+      p_search: body.selectionSearch || null, p_relationship: body.selectionRelationship || null }));
+  }
+  if (body.action === 'native_match_candidates') {
+    const integration = await connection(deps, body.integrationId || '', actor);
+    if (!body.vendorRuleId) throw new Error('A SIEM rule id is required');
+    return checked(await deps.db.rpc('siem_match_candidates', {
+      p_actor: actor, p_integration: integration.id, p_vendor_rule_id: body.vendorRuleId,
+    }));
+  }
+  if (body.action === 'native_dismiss_match') {
+    const integration = await connection(deps, body.integrationId || '', actor);
+    if (!body.remoteRuleId) throw new Error('A catalog rule is required');
+    checked(await deps.db.rpc('siem_dismiss_match_candidates', {
+      p_actor: actor, p_integration: integration.id, p_remote_rule_id: body.remoteRuleId,
+    }));
+    return { success: true };
+  }
+  if (body.action === 'native_link_existing') {
+    const integration = await connection(deps, body.integrationId || '', actor);
+    if (!body.vendorRuleId || !body.detectionId || !body.queryId || body.detectionVersion == null || !body.snapshotId) {
+      throw new Error('Choose a library rule and query to link');
+    }
+    return checked(await deps.db.rpc('siem_link_existing', {
+      p_actor: actor, p_integration: integration.id, p_vendor_rule_id: body.vendorRuleId,
+      p_detection: body.detectionId, p_query_id: body.queryId, p_detection_version: body.detectionVersion,
+      p_snapshot: body.snapshotId,
+    }));
+  }
+  const state = await boundRule(deps, body.bindingId || '', actor);
+  const { binding, detection, baseline, remote, local, integration, ruleFamily } = state;
+  const drift = classifyDrift(baseline?.content ?? null, local, remote.content, binding.availability);
+  const mutationContext = {
+    writesEnabled: deps.writesEnabled, provider: binding.provider as string, ruleFamily,
+    bindingStatus: binding.binding_status,
+    availability: binding.availability, drift, pendingOperation: binding.pending_operation_id != null,
+  };
+  if (body.action === 'native_preview') return {
+    binding, baseline: baseline?.content ?? null, remote: remote.content, local, drift,
+    remoteHash: remote.content_hash, localVersion: detection.version, writesEnabled: deps.writesEnabled,
+    updateAfterEditBlocked: mutationBlockedReason('update', {
+      ...mutationContext, drift: drift === 'in_sync' ? 'local_changed' : drift,
+    }),
+    // Every reason the UI needs to explain a disabled action, computed by the same predicate the
+    // server refuses with — so a button is never offered for an operation that cannot run.
+    capabilities: Object.fromEntries(
+      NATIVE_OPERATIONS.map(op => [op, mutationBlockedReason(op, mutationContext)]),
+    ) as Record<NativeOperation, string | null>,
+  };
+  if (!checked(await deps.db.rpc('siem_can_import', { p_actor: actor, p_integration: integration.id }))) {
+    throw new Error('Native import permission denied');
+  }
+  if (body.action === 'native_reconcile') {
+    // Keep the library version and agree that this is the production revision it diverged from.
+    // The sibling decision is native_accept, which takes production's version instead.
+    checked(await deps.db.rpc('siem_reconcile_baseline', { p_actor: actor, p_binding: binding.id,
+      p_snapshot: remote.id, p_version: detection.version, p_hash: body.expectedHash }));
+    return { success: true };
+  }
+  if (body.action === 'native_accept') {
+    checked(await deps.db.rpc('siem_accept_remote', { p_actor: actor, p_binding: binding.id,
+      p_snapshot: remote.id, p_version: body.expectedVersion, p_hash: body.expectedHash }));
+    return { success: true };
+  }
+  if (body.action === 'native_save' || body.action === 'native_restore') {
+    let desired: RuleContent;
+    if (body.action === 'native_restore') {
+      const revision = checked(await deps.db.from('siem_local_revisions').select('content,binding_contents')
+        .eq('id', body.revisionId || '').eq('detection_id', detection.id).single());
+      const config = revision?.binding_contents?.[binding.id];
+      if (!config) throw new Error('This revision does not contain configuration for this connection');
+      desired = localContent(revision.content, binding.selected_query_id, config);
+    } else {
+      // Everything an update actually writes can be edited here, because a re-deploy is not only
+      // a query change: outcome, severity, the search window, the schedule and whether the rule
+      // runs are all part of the payload, and sending them straight from the last import would
+      // make them permanently unchangeable from Optimus.
+      const changes = (body.localChanges ?? {}) as Record<string, unknown>;
+      const TEXT_FIELDS = ['name', 'description', 'query', 'severity', 'schedule', 'lookback', 'outcome'];
+      const text = (key: string) => String(changes[key] ?? '');
+      const fields = schedulingFields(local);
+      if (Object.keys(changes).some(key => !TEXT_FIELDS.includes(key) && key !== 'enabled') ||
+          TEXT_FIELDS.some(key => changes[key] !== undefined && typeof changes[key] !== 'string') ||
+          (changes.enabled !== undefined && typeof changes.enabled !== 'boolean') ||
+          !text('name').trim() || !text('query').trim() ||
+          (fields.scheduleEditable && changes.schedule !== undefined && !text('schedule').trim()) ||
+          (fields.lookbackEditable && changes.lookback !== undefined && !text('lookback').trim()) ||
+          !['Critical','High','Medium','Low','Informational','Unknown'].includes(text('severity'))) throw new Error('Invalid rule changes');
+      desired = { ...local, name: text('name'), description: text('description'), query: text('query'),
+        severity: text('severity'),
+        ...(changes.enabled === undefined ? {} : { enabled: changes.enabled as boolean }),
+        config: applySchedule(local, changes as { schedule?: string; lookback?: string; outcome?: string }) };
+    }
+    checked(await deps.db.rpc('siem_save_local', { p_actor: actor, p_binding: binding.id,
+      p_version: body.expectedVersion, p_content: desired }));
+    return { success: true };
+  }
+  throw new Error('Unknown native SIEM action');
+}
+
+export interface NativeMutationParams {
+  bindingId: string;
+  operation: NativeOperation;
+  expectedVersion: number;
+  expectedHash: string;
+}
+
+/**
+ * The one production write path, called only by the unified deploy route. The pre-write read, the
+ * readback, the uncertain-outcome handling and the capability gate are the reason this path
+ * exists; a second caller that skipped any of them would be the duplicate path this merge deleted
+ * (the `native_apply` action, which used to delegate here).
+ */
+export async function applyNativeMutation(
+  deps: Dependencies,
+  params: NativeMutationParams,
+  actor: string,
+): Promise<{ success: true; deploymentId: string }> {
+  const { binding, detection, baseline, remote, local, integration, ruleFamily } =
+    await boundRule(deps, params.bindingId, actor);
+  if (!checked(await deps.db.rpc('siem_can_import', { p_actor: actor, p_integration: integration.id }))) {
+    throw new Error('Native import permission denied');
+  }
+  // The legacy deploy handler refuses any connection that is not `connected`, and the native route
+  // returns before reaching it -- so the same gate has to exist at the operation itself. A
+  // connection disabled or failing between the preview and the confirmation must not still write.
+  if (integration.status !== 'connected') {
+    throw new Error(`This connection is ${integration.status}. Reconnect it before changing rules in production.`);
+  }
+  const drift = classifyDrift(baseline?.content ?? null, local, remote.content, binding.availability);
+  const operation = params.operation;
+  // One predicate, used by the preview to explain and here to refuse. Previously these checks
+  // lived only here, so the UI learned an action was impossible only after the user chose it.
+  const blocked = mutationBlockedReason(operation, {
+    writesEnabled: deps.writesEnabled, provider: binding.provider as string, ruleFamily,
+    bindingStatus: binding.binding_status, availability: binding.availability, drift,
+    pendingOperation: binding.pending_operation_id != null,
+  });
+  if (blocked) throw new Error(blocked);
+  // Only an update is reviewed against a specific revision. A toggle or delete is still guarded:
+  // the capability gate above refuses it under remote drift, and the pre-write read below refuses
+  // it if production has moved since.
+  if (operation === 'update' &&
+      (params.expectedVersion !== detection.version || params.expectedHash !== remote.content_hash)) {
+    throw new Error('Review is stale; refresh the diff');
+  }
+  // siem_begin_deployment independently re-checks the detection version and snapshot hash. For a
+  // non-update operation the caller legitimately sent no hash, so pass the binding's current
+  // values instead of the caller's -- that is what production actually is right now.
+  const reviewedVersion = operation === 'update' ? params.expectedVersion : detection.version;
+  const reviewedHash = operation === 'update' ? params.expectedHash : remote.content_hash;
+  const isToggle = operation === 'enable' || operation === 'disable';
+  const desired = isToggle ? { ...remote.content, enabled: operation === 'enable' } : local;
+  // Permission, eligibility and operation lease are checked atomically before any vendor mutation.
+  const operationId = checked(await deps.db.rpc('siem_begin_deployment', { p_actor: actor, p_binding: binding.id,
+    p_version: reviewedVersion, p_hash: reviewedHash, p_content: desired, p_action: operation }));
+  let attempted = false;
+  // Set once a vendor request has actually come back OK. A later refusal after this point means
+  // production is PARTLY changed, which is uncertain however cleanly that later request was
+  // refused -- so the two flags are not the same question.
+  let applied = false;
+  try {
+    const request = await client(deps, integration);
+    const provider = resolveProvider(integration);
+    if (provider === 'defender_xdr' || provider === 'sentinel') {
+      if (operation !== 'update') throw new Error('Only reviewed updates are supported for this provider');
+      const reader = IMPORT_READERS[provider]!;
+      const read = async () => {
+        const result = await reader.readRule(request, integration.config, binding.vendor_rule_id);
+        if (result.status !== 'ok') throw new Error(result.error);
+        return result;
+      };
+      const before = await read();
+      if (provider === 'defender_xdr') await verifyDefenderInventory(request, binding.vendor_rule_id);
+      if (await contentHash(before.content) !== await contentHash(remote.content)) {
+        throw new Error('Production changed since review; fetch and review again');
+      }
+      const path = provider === 'defender_xdr'
+        ? `rules/detectionRules/${encodeURIComponent(binding.vendor_rule_id)}`
+        : `alertRules/${encodeURIComponent(binding.vendor_rule_id)}?api-version=${SENTINEL_API_VERSION}`;
+      const payload = provider === 'defender_xdr'
+        ? defenderUpdate(before.raw, desired) : sentinelUpdate(before.raw, desired);
+      attempted = true;
+      await request(path, { method: provider === 'sentinel' ? 'PUT' : 'PATCH', body: JSON.stringify(payload),
+        ...(provider === 'sentinel' && before.raw.etag ? { headers: { 'If-Match': String(before.raw.etag) } } : {}) });
+      applied = true;
+      let after = await read();
+      const expected = semanticContent(provider, desired);
+      const holds = () => canonicalJson(after.content) === canonicalJson(expected);
+      for (const ms of SETTLE_BACKOFF_MS) {
+        if (holds()) break;
+        await (deps.wait ?? ((delay: number) => new Promise(r => setTimeout(r, delay))))(ms);
+        after = await read();
+      }
+      if (!holds()) throw new Error('Production readback differs from the reviewed change; fetch and reconcile');
+      if (provider === 'defender_xdr') await verifyDefenderInventory(request, binding.vendor_rule_id);
+      const raw = sanitizeSnapshot(after.raw);
+      checked(await deps.db.rpc('siem_finish_deployment', { p_operation: operationId, p_actor: actor,
+        p_content: after.content, p_raw: raw, p_hash: await contentHash(after.content),
+        p_raw_hash: await contentHash(raw), p_adapter: adapterVersion(provider) }));
+      return { success: true, deploymentId: operationId as string };
+    }
+    const read = async () => {
+      const response = await request(`entities/rules/v1?ids=${encodeURIComponent(binding.vendor_rule_id)}`);
+      const raw = (response.resources as Record<string, Json>[])?.find(row => matchesVendorRule(row, binding.vendor_rule_id));
+      if (!raw) throw new Error('Rule is missing in production; automatic recreation is disabled');
+      return { raw, content: normalizeCrowdStrike(raw) };
+    };
+    const before = await read();
+    if (await contentHash(before.content) !== reviewedHash) throw new Error('Production changed since review; sync and review again');
+    // Serialize before marking the operation as attempted; unsupported payloads are safe failures.
+    const payload = params.operation === 'delete' ? undefined : isToggle ?
+      { id: binding.vendor_rule_id, status: desired.enabled ? 'active' : 'inactive' } : crowdStrikeUpdate(binding.vendor_rule_id, desired);
+    // A rule CrowdStrike is still applying an earlier change to answers 409 and changes nothing,
+    // so waiting and asking again is the whole remedy. Retrying is safe precisely because a 409
+    // wrote nothing.
+    const wait = deps.wait ?? ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)));
+    const sendWhileSettling = async (path: string, options: RequestInit) => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await request(path, options);
+        } catch (error) {
+          if (!(error instanceof VendorRequestError && error.status === 409) || attempt >= SETTLE_BACKOFF_MS.length) throw error;
+          await wait(SETTLE_BACKOFF_MS[attempt]);
+        }
+      }
+    };
+    attempted = true;
+    await sendWhileSettling(operation === 'delete' ? `entities/rules/v1?ids=${encodeURIComponent(binding.vendor_rule_id)}` : 'entities/rules/v1',
+      { method: operation === 'delete' ? 'DELETE' : 'PATCH', ...(payload ? { body: JSON.stringify([payload]) } : {}) });
+    applied = true;
+    // CrowdStrike refuses a status change made in the same request as the schedule attributes:
+    // "these operations should be performed one at a time". So an update never carries `status`,
+    // and a rule that also has to start or stop running gets a second request for that alone --
+    // and only when it really changes, which keeps the ordinary update a single call. That second
+    // request arrives while the first is still being applied, which is what 409s.
+    if (!isToggle && operation === 'update' && before.content.enabled !== desired.enabled) {
+      await sendWhileSettling('entities/rules/v1', { method: 'PATCH', body: JSON.stringify([
+        { id: binding.vendor_rule_id, status: desired.enabled ? 'active' : 'inactive' }]) });
+    }
+    let after: { raw: Record<string, Json>; content: RuleContent } | null = null;
+    if (operation === 'delete') {
+      const response = await request(`entities/rules/v1?ids=${encodeURIComponent(binding.vendor_rule_id)}`);
+      if (!Array.isArray(response.resources) || response.resources.some(row => matchesVendorRule(row as Record<string, Json>, binding.vendor_rule_id))) {
+        throw new Error('Deletion could not be verified');
+      }
+    } else {
+      // The rule is read back until the fields we asked for hold what we asked: a read taken while
+      // the change is still being applied shows the old value, and calling that a mismatch would
+      // report a successful write as a failed one.
+      const asked = canonicalJson(writtenFields(desired) as Json);
+      const holds = () => canonicalJson(writtenFields(after!.content) as Json) === asked;
+      after = await read();
+      for (let attempt = 0; attempt < SETTLE_BACKOFF_MS.length && !holds(); attempt++) {
+        await wait(SETTLE_BACKOFF_MS[attempt]);
+        after = await read();
+      }
+      if (!holds()) {
+        const differences = contentDifferences(desired, after.content);
+        throw new Error('Production readback differs from the reviewed change: ' +
+          (differences.slice(0, 4).join('; ') || 'no field-level difference found, so the two hash differently') +
+          (differences.length > 4 ? ` (and ${differences.length - 4} more)` : ''));
+      }
+    }
+    const raw = after ? sanitizeSnapshot(after.raw) : null;
+    checked(await deps.db.rpc('siem_finish_deployment', { p_operation: operationId, p_actor: actor,
+      p_content: after?.content || null, p_raw: raw, p_hash: after ? await contentHash(after.content) : null,
+      p_raw_hash: raw ? await contentHash(raw) : null, p_adapter: ADAPTER_VERSION }));
+    return { success: true, deploymentId: operationId as string };
+  } catch (error) {
+    // "We sent it and never learned the outcome" and "CrowdStrike read it and refused it" are
+    // different facts. Only the first is uncertain; the second leaves production untouched, so the
+    // rule stays usable and the user is told what to fix.
+    const uncertain = attempted && (applied || !(error instanceof VendorRequestError && error.refusedWithoutWriting));
+    checked(await deps.db.rpc('siem_fail_deployment', { p_operation: operationId, p_actor: actor,
+      p_uncertain: uncertain, p_error: uncertain ? 'Vendor write attempted; sync and verify production before retrying' :
+        error instanceof Error ? error.message : 'Deployment failed' }));
+    throw error;
+  }
+}

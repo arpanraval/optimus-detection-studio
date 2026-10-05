@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import type { ImportJobResult, ImportProgress, PreCheckSummary } from '../../services/bulk-import/types';
+import type { EmbeddingStrategy, ImportJobResult, ImportProgress, PreCheckSummary } from '../../services/bulk-import/types';
+import { ROUTES } from '../../router/routes';
 
 export interface ImportSelectionSummary {
   netNewImported: number;
@@ -15,6 +16,10 @@ interface ImportReportProps {
   selection: ImportSelectionSummary;
   destinationLabel: string;
   jobId: string;
+  /** Strategy the user picked on the pre-check; drives the embedding outcome notice. */
+  embeddingStrategy?: EmbeddingStrategy;
+  /** Recoverable embedding-phase message from the job (e.g. batch submit refused). */
+  embeddingNotice?: string;
   onRollback: () => Promise<void>;
   onDone: (destination?: string) => void;
 }
@@ -26,6 +31,8 @@ export function ImportReport({
   selection,
   destinationLabel,
   jobId,
+  embeddingStrategy = 'realtime',
+  embeddingNotice,
   onRollback,
   onDone,
 }: ImportReportProps): React.JSX.Element {
@@ -60,6 +67,22 @@ export function ImportReport({
 
   const hasIssues = result.failureCount > 0 || embeddingErrors > 0;
 
+  const batchQueued = embeddingStrategy === 'batch' && Boolean(progress?.embeddingBatchJobId);
+  const embeddingOutcome: { text: string; tone: 'info' | 'warn' } | null =
+    embeddingStrategy === 'batch'
+      ? batchQueued
+        ? {
+            text: `Batch embedding job queued (${(progress?.embeddingTotal ?? 0).toLocaleString()} items). Search embeddings appear when it finishes, typically within minutes to hours.`,
+            tone: 'info',
+          }
+        : {
+            text: embeddingNotice ?? 'Batch embedding job was not submitted. Generate embeddings from Data Sync.',
+            tone: 'warn',
+          }
+      : embeddingStrategy === 'skip'
+        ? { text: 'Embeddings skipped. Generate them later from Data Sync.', tone: 'info' }
+        : null;
+
   return (
     <div className="max-w-md w-full p-6" role="status" aria-live="polite">
       <h3 className="font-brand text-[16px] font-medium text-on-surface mb-1">
@@ -78,6 +101,25 @@ export function ImportReport({
         )}
         <StatRow label="Embedding failures" value={embeddingErrors} tone="error" />
       </div>
+
+      {embeddingOutcome && (
+        <div
+          className={
+            embeddingOutcome.tone === 'warn'
+              ? 'mt-4 p-3 rounded-xl bg-[rgba(245,158,11,0.08)] border border-[rgba(245,158,11,0.25)]'
+              : 'mt-4 p-3 rounded-xl bg-tertiary-container/15 border border-tertiary/20'
+          }
+        >
+          <p className="text-[12px] text-on-surface mb-2">{embeddingOutcome.text}</p>
+          <button
+            type="button"
+            onClick={() => onDone(ROUTES.DATA_SYNC)}
+            className="text-[12px] px-3 py-1.5 rounded-lg cursor-pointer bg-primary/10 text-on-primary-container hover:bg-primary/20"
+          >
+            {batchQueued ? 'Track on Data Sync' : 'Open Data Sync'}
+          </button>
+        </div>
+      )}
 
       {needsEnrichment > 0 && (
         <div className="mt-4 p-3 rounded-xl bg-primary/5 border border-primary/15">

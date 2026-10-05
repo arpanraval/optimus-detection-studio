@@ -58,6 +58,7 @@ export const ROUTES = {
 
   // Action Plan
   ACTION_PLAN: '/action-plan',
+  ACTION_PLAN_PREVIEW: '/action-plan/preview',
   ACTION_PLAN_TECHNOLOGY: '/action-plan/technology/:slug',
   ACTION_PLAN_THREAT: '/action-plan/threat/:slug',
 
@@ -271,6 +272,7 @@ export const routeHeaders: Record<string, { title: string; description?: string 
   [ROUTES.SIEM_HEALTH]: { title: 'SIEM Home', description: 'Manage your SIEM and EDR integrations' },
   [ROUTES.SIEM_HOME]: { title: 'SIEM Home', description: undefined },
   [ROUTES.ACTION_PLAN]: { title: 'Detection Action Plan', description: 'Prioritized detection deployment roadmap' },
+  [ROUTES.ACTION_PLAN_PREVIEW]: { title: 'Action Plan Preview', description: 'Explore coverage evidence and your next detection' },
   [ROUTES.ACTION_PLAN_TECHNOLOGY]: { title: 'Action Plan — Technology', description: 'Focused detection plan for one technology area' },
   [ROUTES.ACTION_PLAN_THREAT]: { title: 'Action Plan — Threat', description: 'Focused detection plan for one threat actor or origin country' },
   [ROUTES.EXERCISES_STATE_SPONSORED]: { title: 'State Sponsored Attack Report', description: 'Defense exercise: state-sponsored threat posture analysis' },

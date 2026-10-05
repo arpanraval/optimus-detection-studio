@@ -57,7 +57,7 @@ export const MitreDashboard: React.FC<MitreDashboardProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   
-  const { tactics, techniques, loading: loadingMatrix } = useMitreMatrix();
+  const { tactics, techniques, version, error: matrixError, loading: loadingMatrix } = useMitreMatrix();
   const { coverage, getCoverageColor, loading: loadingCoverage } = useMitreCoverage(scope);
   const threatActorFilter = useThreatActorFilter();
   const { showToast } = useToast();
@@ -164,7 +164,8 @@ export const MitreDashboard: React.FC<MitreDashboardProps> = ({
 
   const handleExportJson = () => {
     try {
-        const layer = NavigatorService.generateNavigatorLayer(coverage);
+        if (!version) throw new Error('MITRE version unavailable');
+        const layer = NavigatorService.generateNavigatorLayer(coverage, undefined, undefined, version);
         NavigatorService.downloadJson(layer, 'optimus-coverage-layer.json');
         showToast('success', 'Export Complete', 'Navigator JSON layer exported.');
     } catch (err) {
@@ -350,7 +351,8 @@ export const MitreDashboard: React.FC<MitreDashboardProps> = ({
             <div>
                 <h1 className="text-2xl font-brand font-bold text-on-surface tracking-wide flex items-center gap-3">
                     MITRE ATT&CK Matrix
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg text-white" style={{ backgroundColor: '#783264' }}>V18.1</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg text-white" style={{ backgroundColor: '#783264' }}>{version ? `V${version}` : 'Version unavailable'}</span>
+                    {matrixError && <span role="alert" className="text-xs text-error">MITRE data could not be loaded: {matrixError.message}</span>}
                 </h1>
             </div>
             <div className="h-6 w-px bg-outline-variant/30 hidden md:block"></div>

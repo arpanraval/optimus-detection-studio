@@ -196,7 +196,7 @@ export const DetectionActionQueue: React.FC<DetectionActionQueueProps> = ({
         <div>
           <div className="flex items-baseline gap-3">
             <h2 className="text-[10px] font-brand font-bold text-on-surface tracking-[0.2em] uppercase">
-              Top {Math.min(TOP_N, totalMatched)} Priority Detections
+              Top {Math.min(TOP_N, totalMatched)} Detection Candidates
             </h2>
             <span className="text-[10px] text-on-surface-variant">
               of {totalMatched.toLocaleString()} matched

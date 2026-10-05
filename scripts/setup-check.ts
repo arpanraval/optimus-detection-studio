@@ -151,10 +151,10 @@ async function main() {
     if (Number(vaultSecrets) === 2) pass('Vault secrets (tr_supabase_url, tr_service_role_key)');
     else warn('Vault secrets missing — Threat Research sessions will stall in pending', `${vaultSecrets ?? 0}/2 — run bun run setup (step 7) or supabase/optional-scheduled-jobs.sql`);
 
-    const cronJobs = psqlScalar(dbUrl, "select count(*) from cron.job where jobname in ('ai_usage_rollup','threat-research-dispatcher','auto-digest-watchdog','auto-digest-scheduler','auto-digest-queue-consumer')");
-    if (Number(cronJobs) === 5) pass('scheduled jobs (dispatcher, watchdog, digest, rollup, queue)', '5/5');
+    const cronJobs = psqlScalar(dbUrl, "select count(*) from cron.job where jobname in ('ai_usage_rollup','threat-research-dispatcher','auto-digest-watchdog','auto-digest-scheduler','auto-digest-queue-consumer','pack-deploy-dispatcher')");
+    if (Number(cronJobs) === 6) pass('scheduled jobs (dispatcher, watchdog, digest, rollup, queue, packs)', '6/6');
     else if (cronJobs === null) warn('cron jobs not readable (pg_cron missing?)', 'run bun run setup (step 7)');
-    else warn('scheduled jobs missing', `${cronJobs}/4 — Threat Research recovery + scheduled digests off; run bun run setup (step 7)`);
+    else warn('scheduled jobs missing', `${cronJobs}/6 — Background recovery or scheduled jobs unavailable; run bun run setup (step 7)`);
   }
 
   // ── Edge functions ──

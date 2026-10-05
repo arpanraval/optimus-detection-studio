@@ -50,6 +50,7 @@ alter database postgres set app.settings.supabase_url    = 'https://YOUR_PROJECT
 alter database postgres set app.settings.service_role_key = 'YOUR_SERVICE_ROLE_KEY';
 
 -- 4) Schedule the jobs (idempotent: re-scheduling an existing job name updates it).
+select cron.schedule('pack-deploy-dispatcher', '* * * * *', $$ select public.pack_deploy_dispatch() $$);
 select cron.schedule('ai_usage_rollup',            '0 2 * * *',   $$ select public.rollup_ai_usage() $$);
 select cron.schedule('threat-research-dispatcher', '* * * * *',   $$ select public.threat_research_dispatcher() $$);
 select cron.schedule('auto-digest-watchdog',       '*/5 * * * *', $$ select public.auto_digest_watchdog() $$);

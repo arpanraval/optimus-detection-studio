@@ -1,18 +1,17 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useProfileIntelligence, SIEM_TO_QUERY_LANGUAGES } from '../../../hooks/useProfileIntelligence';
+import { useProfileIntelligence, SIEM_TO_QUERY_LANGUAGES, type ProfileIntelligence } from '../../../hooks/useProfileIntelligence';
+import { buildActionPlanPreview, projectReviewBatch } from '../../../lib/actionPlan/preview';
 import { useFeasibilityLive } from './useFeasibilityLive';
 import { scoreToGrade } from '../../../lib/quality/scoringEngine';
 import { supabase } from '../../../lib/supabaseClient';
 import { useToast } from '../../../hooks/useToast';
 import { useAppData } from '../../../router/AppDataContext';
-import { LIBRARY_PRODUCTION } from '../../../constants/library';
 import { ROUTES } from '../../../router/routes';
 import { createEmptyDetection } from '../../../types/detection';
 import { Status } from '../../../types';
 import { DetectionActionQueue } from './DetectionActionQueue';
 import { CriticalGapsList } from './CriticalGapsList';
-import { TacticCoverageHeatmap } from './TacticCoverageHeatmap';
 import { MiniMitreMatrix } from './MiniMitreMatrix';
 import { SiemReadinessBar } from './SiemReadinessBar';
 import { TechnologyWidget } from '../../action-plan/TechnologyWidget';
@@ -35,19 +34,31 @@ const RING_C = 2 * Math.PI * RING_R; // ~326.7
 
 const DISMISSED_STORAGE_KEY = 'optimus:action-plan:dismissed';
 
-export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
+export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = (props) => {
+  const { profile, scope = 'production' } = props;
+  const feasibility = useFeasibilityLive(profile.log_sources, profile.custom_log_sources || [], profile.edr_tools || [], profile.cloud_platforms || {});
+  const intel = useProfileIntelligence(profile.sectors || [], profile.siem_platforms, feasibility.matchResult,
+    profile.user_country || null, profile.threat_origin_countries || [], profile.crown_jewels || [], scope === 'all');
+  return <DetectionActionPlanContent {...props} feasibility={feasibility} intel={intel} />;
+};
+
+/** The original layout is shared verbatim; preview-only explanations do not replace its widgets or actions. */
+export const DetectionActionPlanContent: React.FC<DetectionActionPlanProps & {
+  feasibility: ReturnType<typeof useFeasibilityLive>;
+  intel: ProfileIntelligence;
+  explainMetrics?: boolean;
+}> = ({
   profile,
   scope = 'production',
   onScopeChange,
   onEditProfile,
+  feasibility,
+  intel,
+  explainMetrics = false,
 }) => {
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const { detections: allDetections, user } = useAppData();
-  const libraryDetections = useMemo(() => {
-    if (scope === 'all') return allDetections;
-    return allDetections.filter(d => d.library_type === LIBRARY_PRODUCTION);
-  }, [allDetections, scope]);
+  const { user } = useAppData();
 
   // Dismissed gap items (persisted in localStorage)
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => {
@@ -78,22 +89,6 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
       return next;
     });
   }, []);
-
-  const feasibility = useFeasibilityLive(
-    profile.log_sources,
-    profile.custom_log_sources || [],
-    profile.edr_tools || [],
-    profile.cloud_platforms || {}
-  );
-
-  const intel = useProfileIntelligence(
-    profile.sectors || [],
-    profile.siem_platforms,
-    feasibility.matchResult,
-    profile.user_country || null,
-    profile.threat_origin_countries || [],
-    profile.crown_jewels || []
-  );
 
   const refetchIntel = intel.refetch;
 
@@ -153,12 +148,12 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
   // Week 1 impact projection: what happens if top 50 are deployed
   const weekOneImpact = useMemo(() => {
     const currentTechIds = new Set<string>();
-    for (const d of intel.recommendedDetections) {
+    for (const d of intel.deployedDetections) {
       for (const id of d.mitreAttackIds) if (id) currentTechIds.add(id);
     }
     const top50TechIds = new Set<string>();
     for (const d of top50) {
-      for (const id of d.mitreAttackIds) if (id) top50TechIds.add(id);
+      for (const id of d.mitreAttackIds) if (id && !currentTechIds.has(id)) top50TechIds.add(id);
     }
     // Gaps that would be closed by top 50
     const gapsClosedCount = intel.gapTechniques.filter(g =>
@@ -170,7 +165,7 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
       gapsClosed: gapsClosedCount,
       totalActionableGaps: intel.gapTechniques.filter(g => g.siemDetectable).length,
     };
-  }, [intel.recommendedDetections, top50, intel.gapTechniques]);
+  }, [intel.deployedDetections, top50, intel.gapTechniques]);
 
   // Quality breakdown of top 50
   const qualityBreakdown = useMemo(() => {
@@ -231,27 +226,26 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
     return computeMissingLogSourceSuggestions(feasibility.matchResult.unmatchedByGroup);
   }, [feasibility.matchResult]);
 
-  // Build set of technique IDs that have at least one detection in progress (Development+)
+  // Workflow status and My Lab inclusion never alter observed remote coverage.
   const coveredTechniqueIds = useMemo(() => {
-    const covered = new Set<string>();
-    for (const d of libraryDetections) {
-      const status = (d.status || '').toLowerCase();
-      if (['development', 'review', 'testing', 'production'].includes(status)) {
-        const techIds = d.mitreAttackIds || d.mitreTechniques || [];
-        for (const id of techIds) {
-          if (id) covered.add(id);
-        }
-      }
-    }
-    return covered;
-  }, [libraryDetections]);
+    return new Set(intel.deployedDetections.flatMap(d => d.mitreAttackIds));
+  }, [intel.deployedDetections]);
 
-  // Progress: how many gap techniques are already addressed
+  const threatTechniqueIds = useMemo(() => new Set(
+    Object.values(intel.groupTechniqueDetails).flatMap(techniques => techniques.map(t => t.mitreId)),
+  ), [intel.groupTechniqueDetails]);
   const addressedCount = useMemo(() => {
-    return intel.gapTechniques.filter(g => coveredTechniqueIds.has(g.mitreId)).length;
-  }, [intel.gapTechniques, coveredTechniqueIds]);
+    return [...threatTechniqueIds].filter(id => coveredTechniqueIds.has(id)).length;
+  }, [threatTechniqueIds, coveredTechniqueIds]);
 
-  const totalGapItems = intel.gapTechniques.length;
+  const totalThreatTechniques = threatTechniqueIds.size;
+  const previewModel = useMemo(() => buildActionPlanPreview(intel), [intel]);
+  const previewImpact = useMemo(() => projectReviewBatch(previewModel, top50.map(d => d.id)), [previewModel, top50]);
+  const candidateGapCount = intel.gapTechniques.filter(g => (g.candidateDetectionIds?.length ?? 0) > 0).length;
+
+  if (feasibility.error || intel.error) {
+    return <div role="alert" className="p-6 text-error">{feasibility.error || intel.error}</div>;
+  }
 
   if (isLoading) {
     return (
@@ -300,7 +294,7 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
           <div className="flex items-center gap-3">
             {onScopeChange && (
               <span
-                title="Affects which detections count as 'addressed' on the progress bar. Recommendations and gaps always reflect your full library."
+                title="Include My Lab candidates in recommendations. Deployed coverage always uses the last observed enabled rules."
                 className="cursor-help"
               >
                 <ScopeToggle includeMyLab={scope === 'all'} onChange={onScopeChange} />
@@ -329,16 +323,25 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
           <div className="flex-1 bg-surface-container rounded-full h-2 overflow-hidden">
             <div
               className="bg-primary rounded-full h-2 transition-all duration-500"
-              style={{ width: `${totalGapItems > 0 ? (addressedCount / totalGapItems) * 100 : 0}%` }}
+              style={{ width: `${totalThreatTechniques > 0 ? (addressedCount / totalThreatTechniques) * 100 : 0}%` }}
             />
           </div>
           <span className="text-sm text-on-surface-variant whitespace-nowrap">
-            {addressedCount}/{totalGapItems} addressed
+            {explainMetrics ? `${addressedCount} of ${totalThreatTechniques} attacker techniques have enabled rules` : `${addressedCount}/${totalThreatTechniques} threat techniques covered by enabled rules`}
           </span>
           <label className="flex items-center gap-2 text-xs text-on-surface-variant cursor-pointer">
             <input type="checkbox" checked={showDismissed} onChange={e => setShowDismissed(e.target.checked)} className="rounded" />
             Show dismissed ({dismissedIds.size})
           </label>
+        </div>
+
+        <div className="mb-6 rounded-xl bg-surface-container p-4 text-sm text-on-surface-variant">
+          <p>{explainMetrics ? `Start with the Top ${top50.length} rules below: review, preflight and tune, then deploy.` : `${intel.deployedDetections.length} detections observed enabled in your connected platforms.`}</p>
+          <p className="mt-1">
+            {explainMetrics ? `${intel.deployedDetections.length} enabled detections cover ${addressedCount} distinct attacker techniques. Library rules could address ${candidateGapCount} more; ${intel.gapTechniques.length - candidateGapCount} need further research.` : <>{candidateGapCount} coverage gaps have compatible candidates;{' '}{intel.gapTechniques.length - candidateGapCount} have no candidate in the selected scope.</>}
+          </p>
+          <p className="mt-1 text-xs">Candidates remain gaps until deployed and observed enabled. Coverage reflects the last SIEM refresh.</p>
+          {explainMetrics && <details className="mt-2 text-xs"><summary className="cursor-pointer text-primary">What do these numbers mean?</summary><p className="mt-2">A rule is a detection query. A technique is an attacker behavior, such as credential dumping. Ten rules for the same behavior count as one technique. The {totalThreatTechniques} techniques come from threat groups matched to your profile, not your entire library. Coverage uses saved enabled remote-rule mappings; it does not prove detection effectiveness.</p></details>}
         </div>
 
         {/* ═══════════════════════════════════════════
@@ -364,7 +367,7 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
                 {feasibility.totalCount.toLocaleString()}
               </div>
               <div className="text-[9px] text-outline mt-1">
-                Detections across all sources
+                {explainMetrics ? 'Detection rules across all sources' : 'Detections across all sources'}
               </div>
             </div>
 
@@ -374,10 +377,10 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
               style={{ backgroundColor: 'rgb(var(--md-sys-color-surface-container) / 0.5)' }}
             >
               <div className="text-[10px] font-bold text-ext-teal uppercase tracking-wider">
-                Relevant to You
+                {explainMetrics ? 'Match Your Log Sources' : 'Relevant to You'}
               </div>
               <div className="flex items-center gap-3 mt-2">
-                <div className="relative flex-shrink-0">
+                <div className="relative flex-shrink-0" title={explainMetrics ? `${feasibility.matchedCount} of ${feasibility.totalCount} library rules match configured telemetry. This percentage is library compatibility, not deployed coverage.` : undefined}>
                   <svg viewBox="0 0 120 120" className="w-14 h-14">
                     <circle cx="60" cy="60" r={RING_R} fill="none" stroke="rgb(var(--md-sys-color-surface-container))" strokeWidth="9" />
                     <circle
@@ -397,7 +400,7 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
                 </div>
               </div>
               <div className="text-[9px] text-outline mt-1">
-                Compatible with your {(profile.log_sources || []).length} log sources
+                {explainMetrics ? `${coveragePct}% of your library matches configured telemetry` : `Compatible with your ${(profile.log_sources || []).length} log sources`}
               </div>
             </div>
 
@@ -407,7 +410,7 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
               style={{ backgroundColor: 'rgb(var(--md-ext-color-teal) / 0.08)' }}
             >
               <div className="text-[10px] font-bold text-ext-teal uppercase tracking-wider">
-                Week 1 Priority
+                {explainMetrics ? 'Review Next' : 'Week 1 Priority'}
               </div>
               <div className="text-3xl font-brand font-bold text-ext-teal leading-none tabular-nums mt-2">
                 Top {top50.length}
@@ -425,6 +428,7 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
                   Add All to Backlog
                 </span>
               </button>
+              {explainMetrics && <p className="text-[9px] text-outline mt-1">Queues work for review; does not deploy rules.</p>}
             </div>
 
             {/* Step 4: After Week 1 Impact */}
@@ -433,21 +437,21 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
               style={{ backgroundColor: 'rgb(var(--md-sys-color-surface-container) / 0.5)' }}
             >
               <div className="text-[10px] font-bold text-ext-green uppercase tracking-wider">
-                After Week 1
+                Potential After Deployment
               </div>
               <div className="space-y-1.5 mt-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-on-surface-variant">Techniques covered</span>
-                  <span className="text-[11px] font-mono font-bold text-on-surface tabular-nums">{weekOneImpact.techniquesAdded}</span>
+                  <span className="text-[10px] text-on-surface-variant">{explainMetrics ? 'New threat techniques' : 'Additional techniques'}</span>
+                  <span className="text-[11px] font-mono font-bold text-on-surface tabular-nums">{explainMetrics ? `+${previewImpact.techniques.length}` : weekOneImpact.techniquesAdded}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-on-surface-variant">Gaps closed</span>
+                  <span className="text-[10px] text-on-surface-variant">{explainMetrics ? 'Coverage now → after' : 'Gaps candidates could close'}</span>
                   <span className="text-[11px] font-mono font-bold text-ext-green tabular-nums">
-                    {weekOneImpact.gapsClosed}/{weekOneImpact.totalActionableGaps}
+                    {explainMetrics ? `${addressedCount} → ${previewImpact.potentialCovered} / ${totalThreatTechniques}` : `${weekOneImpact.gapsClosed}/${weekOneImpact.totalActionableGaps}`}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-on-surface-variant">Quality</span>
+                  <span className="text-[10px] text-on-surface-variant" title={explainMetrics ? 'Content quality grades, not proof of detection effectiveness. D/F rules need more review before deployment.' : undefined}>Quality</span>
                   <span className="text-[11px] font-mono font-bold text-on-surface tabular-nums">
                     {qualityBreakdown.good} A/B
                     {qualityBreakdown.poor > 0 && (
@@ -456,6 +460,7 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
                   </span>
                 </div>
               </div>
+              {explainMetrics && <details className="mt-2 text-[9px] text-outline"><summary className="cursor-pointer text-primary">What would these Top {top50.length} rules add?</summary><p className="mt-1">After review, deployment and an enabled SIEM observation, these techniques could gain coverage. Overlaps count once.</p><ul className="mt-1 space-y-1">{previewImpact.techniques.map(t => <li key={t.id}>{t.name} ({t.id})</li>)}</ul></details>}
             </div>
           </div>
 
@@ -479,12 +484,14 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
         <div className="mb-8">
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <TechnologyWidget
+              explainMetrics={explainMetrics}
               detections={intel.recommendedDetections}
               gaps={intel.gapTechniques}
               tacticCoverage={intel.tacticThreatCoverage}
               loading={isLoading}
             />
             <ThreatLandscapeWidget
+              explainMetrics={explainMetrics}
               groups={intel.threatGroups}
               sectorLabel={sectorLabel}
               loading={isLoading}
@@ -513,25 +520,34 @@ export const DetectionActionPlan: React.FC<DetectionActionPlanProps> = ({
           />
         </div>
 
+        <div className="mb-8">
+          <CriticalGapsList
+            gaps={intel.gapTechniques}
+            crownJewels={profile.crown_jewels || []}
+            loading={isLoading}
+            dismissedIds={dismissedIds}
+            showDismissed={showDismissed}
+            onDismiss={handleDismissGap}
+            onRestore={handleRestoreGap}
+            selectedIds={selectedGapIds}
+            onSelectionChange={setSelectedGapIds}
+            onBatchCreateDrafts={handleBatchCreateDrafts}
+          />
+        </div>
+
         {/* ═══════════════════════════════════════════
             COVERAGE POSTURE: MITRE Heatmap + SIEM
             ═══════════════════════════════════════════ */}
         <div>
           <h2 className="text-[10px] font-brand font-bold text-on-surface-variant tracking-[0.2em] uppercase mb-4">
-            Coverage Posture
+            Candidate Readiness
           </h2>
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-            <div className="xl:col-span-2">
-              <TacticCoverageHeatmap
-                tacticBreakdown={feasibility.tacticBreakdown}
-                totalMatchedDetections={feasibility.matchedCount}
-                loading={feasibility.loading}
-              />
-            </div>
+          <p className="mb-3 text-xs text-on-surface-variant">Query-language compatibility is a starting point; validate each candidate against your platform and telemetry before deployment.</p>
+          <div>
             <div>
               <SiemReadinessBar
                 readiness={intel.siemReadiness}
-                totalMatched={feasibility.matchedCount}
+                totalMatched={intel.recommendedDetections.length}
                 loading={isLoading}
               />
             </div>

@@ -13,6 +13,7 @@ import { SiemFinetuneModal } from './SiemFinetuneModal';
 import type { FinetuneRefinement } from '../../types/finetune';
 import { CrowdStrikeFinetuneModal } from './CrowdStrikeFinetuneModal';
 import type { CrowdStrikeFinetuneRefinement } from '../../types/crowdstrikeFinetune';
+import { selectSiemQuery } from '../../../supabase/functions/_shared/siem-query-selection';
 
 interface SiemPreflightPanelProps {
   detection: Detection;
@@ -25,29 +26,19 @@ const WINDOW_PRESETS = [3, 7, 14, 30, 60];
 const WINDOW_MIN = 1;
 const WINDOW_MAX = 90;
 
-type PreflightProvider = 'defender_xdr' | 'crowdstrike';
+type PreflightProvider = 'defender_xdr' | 'crowdstrike' | 'sentinel';
 
 function providerLabel(provider: PreflightProvider | undefined): string {
-  return provider === 'crowdstrike' ? 'CrowdStrike Falcon NGSIEM' : 'Microsoft Defender XDR';
+  return provider === 'crowdstrike' ? 'CrowdStrike Falcon NGSIEM' : provider === 'sentinel' ? 'Microsoft Sentinel' : 'Microsoft Defender XDR';
 }
 
 /** Best-effort provider query extraction for the read-only preview. */
-function previewProviderQuery(detection: Detection, provider: PreflightProvider | undefined): string | null {
+function previewProviderQuery(detection: Detection, provider: PreflightProvider | undefined, integrationId?: string): string | null {
   if (!provider) return null;
   const language = provider === 'crowdstrike' ? 'CQL' : 'KQL';
-  const fromArray = (detection.queries || []).find(
-    (q) => q.language && q.language.toUpperCase() === language && q.query && q.query.trim() !== '',
-  );
-  if (fromArray?.query) return fromArray.query;
-  if (
-    detection.detectionQuery &&
-    detection.detectionQuery.trim() !== '' &&
-    detection.queryLanguage &&
-    detection.queryLanguage.toUpperCase() === language
-  ) {
-    return detection.detectionQuery;
-  }
-  return null;
+  const ids = (detection.siem_observations ?? []).filter(b => b.integration_id === integrationId && b.binding_status === 'active')
+    .map(b => b.selected_query_id).filter((id): id is string => !!id);
+  try { return selectSiemQuery(detection, language, ids); } catch { return null; }
 }
 
 export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
@@ -57,7 +48,7 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
   onResult,
 }) => {
   const navigate = useNavigate();
-  const { run, cancel, loading, result, error } = usePreflight();
+  const { run, cancel, loading, result, error, reset } = usePreflight();
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [loadingIntegrations, setLoadingIntegrations] = useState(!integration);
   const [selectedId, setSelectedId] = useState<string | undefined>(integration?.id);
@@ -73,18 +64,22 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
       .listIntegrations()
       .then((all) => {
         if (cancelled) return;
-        const connected = all.filter((candidate) => {
+        const boundIds = (detection.siem_observations ?? []).filter(b => b.binding_status === 'active').map(b => b.integration_id);
+        const compatible = all.filter((candidate) => {
           if (
-            candidate.status !== 'connected' ||
-            (candidate.provider !== 'defender_xdr' && candidate.provider !== 'crowdstrike')
+            (candidate.provider !== 'defender_xdr' && candidate.provider !== 'crowdstrike' && candidate.provider !== 'sentinel')
           ) {
             return false;
           }
-          return previewProviderQuery(detection, candidate.provider) !== null;
+          return previewProviderQuery(detection, candidate.provider, candidate.id) !== null;
         });
-        setIntegrations(connected);
-        // Auto-select when exactly one connected integration exists.
-        if (connected.length === 1) setSelectedId(connected[0].id);
+        setIntegrations(compatible);
+        setSelectedId(current => {
+          if (compatible.some(candidate => candidate.id === current)) return current;
+          const bound = compatible.filter(candidate => boundIds.includes(candidate.id));
+          if (bound.length === 1) return bound[0].id;
+          return compatible.length === 1 ? compatible[0].id : undefined;
+        });
       })
       .catch(() => {
         if (!cancelled) setIntegrations([]);
@@ -103,11 +98,17 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
   );
 
   const activeProvider =
-    activeIntegration?.provider === 'crowdstrike' ? 'crowdstrike' : activeIntegration ? 'defender_xdr' : undefined;
+    activeIntegration?.provider as PreflightProvider | undefined;
   const previewQuery = useMemo(
-    () => previewProviderQuery(detection, activeProvider),
-    [activeProvider, detection],
+    () => previewProviderQuery(detection, activeProvider, activeIntegration?.id),
+    [activeProvider, activeIntegration?.id, detection],
   );
+
+  useEffect(() => {
+    reset();
+    setShowFinetune(false);
+    setShowCrowdStrikeFinetune(false);
+  }, [activeIntegration?.id, detection.id, previewQuery, reset]);
 
   const sampleColumns = useMemo(() => {
     const rows = result?.sample ?? [];
@@ -119,19 +120,19 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
     // persisted until the user saves there.
     setShowFinetune(false);
     navigate(routeHelpers.detectionEdit(detection.id), {
-      state: { refinedKql: refinement.kql },
+      state: { refinedKql: refinement.kql, refinementOriginalQuery: result?.query_text ?? previewQuery },
     });
   };
 
   const handleApplyCrowdStrikeRefinement = (refinement: CrowdStrikeFinetuneRefinement) => {
     setShowCrowdStrikeFinetune(false);
     navigate(routeHelpers.detectionEdit(detection.id), {
-      state: { refinedCql: refinement.cql },
+      state: { refinedCql: refinement.cql, refinementOriginalQuery: result?.query_text ?? previewQuery },
     });
   };
 
   const handleRun = async () => {
-    if (!activeIntegration) return;
+    if (!activeIntegration || activeIntegration.status !== 'connected') return;
     const res = await run({
       detectionId: detection.id,
       detectionName: detection.name,
@@ -149,7 +150,7 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
       <EmptyState
         icon="unlink"
         title="No compatible pre-flight integration"
-        description="Connect Defender XDR for KQL or CrowdStrike Falcon NGSIEM for CQL, and ensure this detection has a matching query."
+        description="Connect Defender XDR or Sentinel for KQL, or CrowdStrike Falcon NGSIEM for CQL, and ensure this detection has a matching query."
         action={{
           label: 'Open integration settings',
           onClick: () => navigate('/settings/integrations'),
@@ -174,7 +175,8 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
           fullWidth
           options={integrations.map((candidate) => ({
             value: candidate.id,
-            label: candidate.name + ' - ' + providerLabel(candidate.provider as PreflightProvider),
+            label: candidate.name + ' - ' + providerLabel(candidate.provider as PreflightProvider) +
+              (candidate.status === 'connected' ? '' : ' (test connection required)'),
           }))}
           value={selectedId}
           onChange={setSelectedId}
@@ -234,7 +236,7 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
           {WINDOW_MIN}–{WINDOW_MAX} days ·{' '}
           {activeProvider === 'crowdstrike'
             ? 'Applied as the NGSIEM query job start/end window.'
-            : 'Defender Advanced Hunting retains ~30 days by default.'}
+            : activeProvider === 'sentinel' ? 'Available history depends on workspace retention.' : 'Defender Advanced Hunting retains ~30 days by default.'}
         </p>
       </div>
 
@@ -244,11 +246,16 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
         fullWidth
         leadingIcon="play"
         loading={loading}
-        disabled={!activeIntegration}
+        disabled={!activeIntegration || activeIntegration.status !== 'connected'}
         onClick={handleRun}
       >
         {loading ? 'Running pre-flight…' : result ? 'Run pre-flight again' : 'Run pre-flight'}
       </Button>
+      {activeIntegration && activeIntegration.status !== 'connected' && (
+        <p role="alert" className="text-sm text-error">
+          {activeIntegration.name} is marked {activeIntegration.status}. Run Test Connection in integration settings before pre-flight.
+        </p>
+      )}
       {loading && activeProvider === 'crowdstrike' && (
         <Button variant="outlined" color="surface" fullWidth onClick={cancel}>
           Cancel CrowdStrike query
@@ -271,7 +278,7 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
           Runs this detection&apos;s{' '}
           {activeProvider === 'crowdstrike'
             ? 'CQL against CrowdStrike Falcon NGSIEM'
-            : 'KQL against Defender Advanced Hunting'}{' '}
+            : activeProvider === 'sentinel' ? 'KQL against Sentinel Log Analytics' : 'KQL against Defender Advanced Hunting'}{' '}
           to confirm it executes cleanly and estimate how often it would have fired — before you deploy it.
         </p>
       )}
@@ -388,11 +395,15 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
                 </div>
                 {(result.hit_count ?? 0) > 0 &&
                 (activeIntegration?.provider === 'defender_xdr' ||
+                  activeIntegration?.provider === 'sentinel' ||
                   activeIntegration?.provider === 'crowdstrike') ? (
                   <Button
                     variant="filled"
                     color="primary"
                     leadingIcon="magic-wand"
+                    disabled={activeIntegration.provider !== 'crowdstrike' && result.window_days > 30}
+                    title={activeIntegration.provider !== 'crowdstrike' && result.window_days > 30
+                      ? 'Run pre-flight with a window of 30 days or less to fine-tune this query.' : undefined}
                     onClick={() => {
                       if (activeIntegration.provider === 'crowdstrike') {
                         setShowCrowdStrikeFinetune(true);
@@ -488,11 +499,11 @@ export const SiemPreflightPanel: React.FC<SiemPreflightPanelProps> = ({
         </div>
       )}
 
-      {showFinetune && activeIntegration?.provider === 'defender_xdr' && result && (
+      {showFinetune && (activeIntegration?.provider === 'defender_xdr' || activeIntegration?.provider === 'sentinel') && result && (
         <SiemFinetuneModal
           detection={detection}
           integrationId={activeIntegration.id}
-          windowDays={windowDays}
+          windowDays={result.window_days}
           baselineHitCount={result.hit_count ?? 0}
           preflightRunId={result.id}
           onApplyRefinement={handleApplyRefinement}

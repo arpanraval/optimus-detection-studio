@@ -94,19 +94,37 @@ export class MITREQueryService {
    * Get all techniques (Fetched once, filtered client-side for performance)
    */
   async getAllTechniques(): Promise<(MitreObject & { platforms: string[] })[]> {
-    // We fetch everything and let the UI handle filtering.
-    // This avoids complex database queries and provides instant UI feedback.
-    const { data, error } = await this.supabase
-      .from('v_mitre_techniques_full')
-      .select('*')
-      .eq('deprecated', false);
-    
-    if (error) {
-      console.error('Error fetching techniques:', error);
-      return [];
+    const all: (MitreObject & { platforms: string[] })[] = [];
+    for (let offset = 0; ; offset += 500) {
+      const { data, error } = await this.supabase
+        .from('v_mitre_techniques_full')
+        .select('*')
+        .eq('deprecated', false)
+        .eq('revoked', false)
+        .order('stix_id')
+        .range(offset, offset + 499);
+      if (error) throw error;
+      all.push(...(data || []));
+      if (!data || data.length < 500) return all;
     }
+  }
 
-    return data || [];
+  async getMatrixDefinition(): Promise<{ version: string | null; tactics: { name: string; shortname: string }[] }> {
+    const { data, error } = await this.supabase.from('mitre_objects')
+      .select('stix_id, type, name, data')
+      .in('type', ['x-mitre-matrix', 'x-mitre-tactic', 'x-mitre-collection'])
+      .eq('deprecated', false).eq('revoked', false);
+    if (error) throw error;
+    const objects = data || [];
+    const collection = objects.find(row => row.type === 'x-mitre-collection');
+    const matrix = objects.find(row => row.type === 'x-mitre-matrix');
+    const tacticsById = new Map(objects.filter(row => row.type === 'x-mitre-tactic').map(row => [row.stix_id, row]));
+    const refs: string[] = matrix?.data?.tactic_refs ?? [...tacticsById.keys()];
+    const tactics = refs.flatMap(id => {
+      const tactic = tacticsById.get(id);
+      return tactic?.data?.x_mitre_shortname ? [{ name: tactic.name, shortname: tactic.data.x_mitre_shortname }] : [];
+    });
+    return { version: collection?.data?.x_mitre_version ?? null, tactics };
   }
 
   // ==========================================================================

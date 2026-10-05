@@ -11,6 +11,7 @@
 import { supabase } from '../../../lib/supabaseClient';
 import { Detection } from '../../../types';
 import type { LibraryType } from '../../../constants/library';
+import { normalizeQueryLanguageForStorage } from '../../../lib/queryLanguage';
 import {
   ImportJobError,
   ImportJobResult,
@@ -607,7 +608,7 @@ export class BatchInserter {
       platforms: detection.platforms || [],
       technology: detection.technology || '',
       queries: detection.queries || [],
-      queryLanguage: detection.queryLanguage || 'Sigma',
+      queryLanguage: normalizeQueryLanguageForStorage(detection.queryLanguage) || 'Sigma',
       detectionQuery: detection.detectionQuery || '',
       queryExplanation: detection.queryExplanation || '',
       mitreAttackIds: detection.mitreAttackIds || [],

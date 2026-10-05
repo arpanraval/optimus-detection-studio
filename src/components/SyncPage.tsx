@@ -8,13 +8,14 @@ import { getEmbeddingStats, backfillDetectionEmbeddings, backfillMitreEmbeddings
 import { submitBatchJob, checkBatchJob, processBatchResults, getActiveBatchJob, cancelBatchJob, type BatchJob } from '../lib/batchEmbeddingService';
 import { VendorDriftSection } from './sync/VendorDriftSection';
 import type { IconName } from './Icon';
+import { writeMitreBatch, publishMitreMetadata, preserveTargetingIntel } from '@/lib/mitre/syncWrites';
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
 interface MitreMetadata {
-    id?: number;
+    id?: string;
     framework_version: string;
     stix_version: string;
     last_updated: string;
@@ -571,30 +572,34 @@ export const SyncPage: React.FC = () => {
             addProgress('rollback', 'Clearing current data...', 10);
             for (const table of MITRE_TABLES_DELETE_ORDER) {
                 if (table.includes('technique_')) {
-                    await supabase.from(table).delete().gt('technique_stix_id', '');
+                    await supabase.from(table).delete().gt('technique_stix_id', '').throwOnError();
                 } else {
-                    await supabase.from(table).delete().gt('stix_id', '');
+                    await supabase.from(table).delete().gt('stix_id', '').throwOnError();
                 }
             }
 
             if (backup.objects.length > 0) {
                 addProgress('rollback', `Restoring ${backup.objects.length} objects...`, 40);
                 for (let i = 0; i < backup.objects.length; i += BATCH_SIZE) {
-                    await supabase.from('mitre_objects').insert(backup.objects.slice(i, i + BATCH_SIZE));
+                    await supabase.from('mitre_objects').insert(backup.objects.slice(i, i + BATCH_SIZE)).throwOnError();
                 }
             }
 
             if (backup.relationships.length > 0) {
                 addProgress('rollback', `Restoring relationships...`, 70);
                 for (let i = 0; i < backup.relationships.length; i += BATCH_SIZE) {
-                    await supabase.from('mitre_relationships').insert(backup.relationships.slice(i, i + BATCH_SIZE));
+                    await supabase.from('mitre_relationships').insert(backup.relationships.slice(i, i + BATCH_SIZE)).throwOnError();
                 }
             }
 
-            if (backup.tacticJunctions.length) await supabase.from('mitre_technique_tactics').insert(backup.tacticJunctions);
-            if (backup.platformJunctions.length) await supabase.from('mitre_technique_platforms').insert(backup.platformJunctions);
-            if (backup.dataSourceJunctions.length) await supabase.from('mitre_technique_data_sources').insert(backup.dataSourceJunctions);
+            if (backup.tacticJunctions.length) await supabase.from('mitre_technique_tactics').insert(backup.tacticJunctions).throwOnError();
+            if (backup.platformJunctions.length) await supabase.from('mitre_technique_platforms').insert(backup.platformJunctions).throwOnError();
+            if (backup.dataSourceJunctions.length) await supabase.from('mitre_technique_data_sources').insert(backup.dataSourceJunctions).throwOnError();
 
+            if (backup.metadata) {
+                const { id: _id, ...restoredMetadata } = backup.metadata;
+                await publishMitreMetadata(supabase, { ...restoredMetadata, last_updated: new Date().toISOString() });
+            }
             addProgress('rollback', 'Rollback complete', 100);
             await fetchCurrentMetadata();
             setSyncStatus('idle');
@@ -643,8 +648,10 @@ export const SyncPage: React.FC = () => {
             if (metadata) {
                 const localModified = new Date(metadata.last_updated).getTime();
                 const remoteModified = new Date(modified).getTime();
-                setHasUpdates(remoteModified > localModified);
-                addProgress('check', remoteModified > localModified ? 'Updates available' : 'Up to date', 100);
+                const localVersion = metadata.framework_version.match(/\d+(?:\.\d+)*/)?.[0];
+                const updatesAvailable = version !== localVersion || remoteModified > localModified;
+                setHasUpdates(updatesAvailable);
+                addProgress('check', updatesAvailable ? 'Updates available' : 'Up to date', 100);
             } else {
                 setHasUpdates(true);
                 addProgress('check', 'No local data - sync required', 100, true);
@@ -699,14 +706,22 @@ export const SyncPage: React.FC = () => {
                 addProgress('clear', 'Clearing existing data...', 45);
                 for (const table of MITRE_TABLES_DELETE_ORDER) {
                     if (table.includes('technique_')) {
-                        await supabase.from(table).delete().gt('technique_stix_id', '');
+                        await supabase.from(table).delete().gt('technique_stix_id', '').throwOnError();
                     } else {
-                        await supabase.from(table).delete().gt('stix_id', '');
+                        await supabase.from(table).delete().gt('stix_id', '').throwOnError();
                     }
                 }
             }
 
             addProgress('objects', 'Inserting objects...', 50);
+            const existingGroups = await fetchAllWithPagination<{ stix_id: string; data: Record<string, unknown> }>(
+                'mitre_objects', 'stix_id, data', [{ column: 'type', value: 'intrusion-set' }]
+            );
+            const previousGroups = new Map(existingGroups.map(group => [group.stix_id, group.data]));
+            // A fresh sync may have cleared the table; retain the overlay from the in-memory backup too.
+            for (const group of backupRef.current?.objects ?? []) {
+                if (group.type === 'intrusion-set' && !previousGroups.has(group.stix_id)) previousGroups.set(group.stix_id, group.data);
+            }
             for (let i = 0; i < nonRelationships.length; i += BATCH_SIZE) {
                 const batch = nonRelationships.slice(i, i + BATCH_SIZE);
                 const records = batch.map((obj: any) => ({
@@ -717,11 +732,11 @@ export const SyncPage: React.FC = () => {
                     description: obj.description || null,
                     created: obj.created,
                     modified: obj.modified || obj.created,
-                    data: obj,
+                    data: preserveTargetingIntel(obj, previousGroups.get(obj.id)),
                     deprecated: obj.x_mitre_deprecated || false,
                     revoked: obj.revoked || false,
                 }));
-                await supabase.from('mitre_objects').upsert(records, { onConflict: 'stix_id' });
+                await writeMitreBatch(supabase, 'mitre_objects', records);
                 setCurrentProgress(50 + Math.floor((i / nonRelationships.length) * 20));
             }
 
@@ -747,7 +762,7 @@ export const SyncPage: React.FC = () => {
                         created: rel.created,
                         modified: rel.modified || rel.created,
                     }));
-                    await supabase.from('mitre_relationships').upsert(records, { onConflict: 'stix_id' });
+                    await writeMitreBatch(supabase, 'mitre_relationships', records);
                 }
                 setCurrentProgress(75 + Math.floor((i / relationships.length) * 15));
             }
@@ -784,7 +799,7 @@ export const SyncPage: React.FC = () => {
             addProgress('error', `Error: ${message}`, undefined, false, true);
             setError(message);
             setSyncStatus('error');
-            showToast('error', 'Sync Failed', canRollback ? 'Use Rollback to restore' : message);
+            showToast('error', 'Sync Failed', message);
         }
     };
 
@@ -868,9 +883,19 @@ export const SyncPage: React.FC = () => {
             }
         });
 
-        if (tacticJunctions.length) await supabase.from('mitre_technique_tactics').upsert(tacticJunctions, { onConflict: 'technique_stix_id,tactic_stix_id' });
-        if (platformJunctions.length) await supabase.from('mitre_technique_platforms').upsert(platformJunctions, { onConflict: 'technique_stix_id,platform' });
-        if (dataSourceJunctions.length) await supabase.from('mitre_technique_data_sources').upsert(dataSourceJunctions, { onConflict: 'technique_stix_id,data_source' });
+        // Replace obsolete associations (for example a technique moving to a new tactic).
+        for (const table of ['mitre_technique_tactics', 'mitre_technique_platforms', 'mitre_technique_data_sources']) {
+            await supabase.from(table).delete().gt('technique_stix_id', '').throwOnError();
+        }
+        for (const [table, rows, conflict] of [
+            ['mitre_technique_tactics', tacticJunctions, 'technique_stix_id,tactic_stix_id'],
+            ['mitre_technique_platforms', platformJunctions, 'technique_stix_id,platform'],
+            ['mitre_technique_data_sources', dataSourceJunctions, 'technique_stix_id,data_source'],
+        ] as const) {
+            for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+                await supabase.from(table).upsert(rows.slice(i, i + BATCH_SIZE), { onConflict: conflict }).throwOnError();
+            }
+        }
     };
 
     // ==========================================================================
@@ -882,7 +907,7 @@ export const SyncPage: React.FC = () => {
         const typeCounts: Record<string, number> = {};
         allObjects.forEach((obj) => { typeCounts[obj.type] = (typeCounts[obj.type] || 0) + 1; });
 
-        const { count: relCount } = await supabase.from('mitre_relationships').select('*', { count: 'exact', head: true });
+        const { count: relCount } = await supabase.from('mitre_relationships').select('*', { count: 'exact', head: true }).throwOnError();
 
         const newMetadata: MitreMetadata = {
             framework_version: `ATT&CK v${version}`,
@@ -899,8 +924,7 @@ export const SyncPage: React.FC = () => {
             total_data_components: typeCounts['x-mitre-data-component'] || 0,
         };
 
-        await supabase.from('mitre_metadata').insert(newMetadata);
-        return newMetadata;
+        return publishMitreMetadata(supabase, newMetadata);
     };
 
     // ==========================================================================

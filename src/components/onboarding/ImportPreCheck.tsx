@@ -8,15 +8,35 @@
 
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { Button } from '../ui/Button';
-import type { PreCheckSummary } from '../../services/bulk-import/types';
+import { RadioGroup } from '../ui/Radio';
+import type { EmbeddingStrategy, PreCheckSummary } from '../../services/bulk-import/types';
+
+export interface ImportPreCheckConfig {
+  importNetNew: boolean;
+  updateExisting: boolean;
+  forceUnchanged: boolean;
+  embeddingStrategy: EmbeddingStrategy;
+}
 
 interface ImportPreCheckProps {
   summary: PreCheckSummary;
   sourceName: string;
   destinationLabel: string;
-  onConfirm: (config: { importNetNew: boolean; updateExisting: boolean; forceUnchanged: boolean }) => void;
+  onConfirm: (config: ImportPreCheckConfig) => void;
   onCancel: () => void;
 }
+
+const EMBEDDING_OPTIONS: Array<{ value: EmbeddingStrategy; label: string }> = [
+  { value: 'realtime', label: 'Now' },
+  { value: 'batch', label: 'Batch (50% cheaper)' },
+  { value: 'skip', label: 'Skip' },
+];
+
+const EMBEDDING_HINTS: Record<EmbeddingStrategy, string> = {
+  realtime: 'Embeddings are generated right after storing. The import stays on screen until they finish.',
+  batch: 'Rules are stored, then one batch job is queued to Gemini. Ready in minutes to hours; track it on Data Sync.',
+  skip: 'No embeddings now. Generate them later from Data Sync.',
+};
 
 export function ImportPreCheck({
   summary,
@@ -26,6 +46,7 @@ export function ImportPreCheck({
   onCancel,
 }: ImportPreCheckProps): React.JSX.Element {
   const [forceAll, setForceAll] = useState(false);
+  const [embeddingStrategy, setEmbeddingStrategy] = useState<EmbeddingStrategy>('realtime');
   const [visible, setVisible] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -68,6 +89,7 @@ export function ImportPreCheck({
       importNetNew: true,
       updateExisting: false,
       forceUnchanged: forceAll,
+      embeddingStrategy,
     });
   };
 
@@ -158,6 +180,24 @@ export function ImportPreCheck({
               </div>
             </div>
           </div>
+
+          {/* Embedding strategy — only meaningful when something will be stored */}
+          {(actionCount > 0 || unchangedCount > 0) && (
+            <div className="mb-2 p-2 rounded-lg bg-surface-container-high/50">
+              <span className="text-[9px] tracking-[0.15em] uppercase text-on-surface-variant block mb-1.5">
+                Search embeddings
+              </span>
+              <RadioGroup
+                name="onboarding-embedding-strategy"
+                size="sm"
+                direction="horizontal"
+                options={EMBEDDING_OPTIONS}
+                value={embeddingStrategy}
+                onChange={(value) => setEmbeddingStrategy(value as EmbeddingStrategy)}
+              />
+              <p className="mt-1.5 text-[10px] text-on-surface-variant">{EMBEDDING_HINTS[embeddingStrategy]}</p>
+            </div>
+          )}
 
           {/* Info messages */}
           {unchangedCount > 0 && actionCount > 0 && (

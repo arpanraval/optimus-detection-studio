@@ -7,6 +7,8 @@ import { supabase } from './supabaseClient';
 import type { Detection } from '../types';
 
 export interface PackDeployJob {
+  detection_packs?: { name: string } | null;
+  integrations?: { name: string } | null;
   id: string;
   pack_id: string | null;
   integration_id: string;
@@ -24,137 +26,71 @@ export interface PackDeployJob {
 }
 
 export interface CreateJobInput {
+  reconcile?: boolean;
+  requestKey?: string;
   packId: string | null;
   integrationId: string;
   detections: Detection[];
   ruleConfig?: Record<string, unknown>;
 }
 
-const BLOCKED_STATUSES = new Set(['Draft', 'Deprecated', 'Archived']);
+export interface PackPreviewItem {
+  detection_id: string;
+  detection_name: string;
+  reason: string | null;
+  notice?: string;
+  can_reconcile?: boolean;
+}
 
-/**
- * Create a new deploy job and kick off background processing.
- * Returns the job ID immediately — deploy runs server-side.
- *
- * Deduplication: if the same detection_id appears more than once (common when
- * deploying multiple packs with overlap), it is inserted only once.
- */
+async function invokePack<T>(body: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabase.functions.invoke('pack-deploy-worker', { body });
+  if (error) {
+    const context = (error as { context?: Response }).context;
+    const details = context && typeof context.json === 'function' ? await context.json().catch(() => null) : null;
+    throw new Error(details?.error || error.message || 'Pack deployment request failed');
+  }
+  if (data?.error) throw new Error(data.error);
+  return data as T;
+}
+
+export async function previewDeployJob(input: CreateJobInput): Promise<PackPreviewItem[]> {
+  const data = await invokePack<{ items: PackPreviewItem[] }>({
+    action: input.reconcile ? 'reconcile' : 'preview',
+    integrationId: input.integrationId,
+    detectionIds: [...new Set(input.detections.map((d) => d.id))],
+    ruleConfig: input.ruleConfig ?? {},
+  });
+  return data.items;
+}
+
 export async function createDeployJob(input: CreateJobInput): Promise<string> {
-  const { data: userData } = await supabase.auth.getUser();
-  if (!userData.user) throw new Error('Not authenticated');
-
-  // Filter deployable detections
-  const deployable = input.detections.filter(
-    (d) => d.library_type === 'production' && !BLOCKED_STATUSES.has(d.status)
-  );
-
-  if (deployable.length === 0) {
-    throw new Error(
-      'No deployable detections. Rules must be in the Production library and not Draft/Deprecated/Archived.'
-    );
-  }
-
-  // Deduplicate by detection ID
-  const seen = new Set<string>();
-  const deduplicated = deployable.filter((d) => {
-    if (seen.has(d.id)) return false;
-    seen.add(d.id);
-    return true;
+  const data = await invokePack<{ jobId: string }>({
+    action: 'create',
+    reconcile: input.reconcile === true,
+    packId: input.packId,
+    integrationId: input.integrationId,
+    detectionIds: [...new Set(input.detections.map((d) => d.id))],
+    ruleConfig: input.ruleConfig ?? {},
+    requestKey: input.requestKey ?? crypto.randomUUID(),
   });
-
-  // Create the job row
-  const { data: job, error: jobError } = await supabase
-    .from('pack_deploy_jobs')
-    .insert({
-      pack_id: input.packId,
-      integration_id: input.integrationId,
-      created_by: userData.user.id,
-      total_items: deduplicated.length,
-      status: 'queued',
-      rule_config: input.ruleConfig ?? null,
-    })
-    .select('id')
-    .single();
-
-  if (jobError || !job) {
-    throw new Error(jobError?.message || 'Failed to create deploy job');
-  }
-
-  // Insert job items in batches
-  const items = deduplicated.map((d) => ({
-    job_id: job.id,
-    detection_id: d.id,
-    detection_name: d.name || d.id,
-    status: 'pending' as const,
-  }));
-
-  const CHUNK = 100;
-  for (let i = 0; i < items.length; i += CHUNK) {
-    const chunk = items.slice(i, i + CHUNK);
-    const { error: itemError } = await supabase.from('pack_deploy_job_items').insert(chunk);
-    if (itemError) {
-      throw new Error(`Failed to queue items: ${itemError.message}`);
-    }
-  }
-
-  // Kick off the worker (fire and forget — if invoke fails, job stays queued and can be restarted)
-  supabase.functions
-    .invoke('pack-deploy-worker', { body: { jobId: job.id } })
-    .catch((err) => {
-      console.error('Failed to invoke pack-deploy-worker:', err);
-    });
-
-  return job.id;
+  if (!data?.jobId) throw new Error('The server did not return a deployment job');
+  return data.jobId;
 }
 
-/**
- * Retry all failed items in an existing job.
- */
 export async function retryFailedItems(jobId: string): Promise<void> {
-  // Reset failed items to pending
-  const { error: resetError } = await supabase
-    .from('pack_deploy_job_items')
-    .update({ status: 'pending', error_message: null })
-    .eq('job_id', jobId)
-    .eq('status', 'failed');
-
-  if (resetError) throw resetError;
-
-  // Reset job to queued
-  const { error: jobError } = await supabase
-    .from('pack_deploy_jobs')
-    .update({ status: 'queued', failed_count: 0, current_detection_id: null, completed_at: null })
-    .eq('id', jobId);
-
-  if (jobError) throw jobError;
-
-  // Re-invoke worker
-  supabase.functions.invoke('pack-deploy-worker', { body: { jobId } }).catch((err) => {
-    console.error('Failed to invoke worker for retry:', err);
-  });
+  await invokePack({ action: 'retry', jobId });
 }
 
-/**
- * Cancel a running or queued job.
- * The worker checks cancellation status between items and stops gracefully.
- */
 export async function cancelJob(jobId: string): Promise<void> {
-  await supabase
-    .from('pack_deploy_jobs')
-    .update({ status: 'cancelled', completed_at: new Date().toISOString() })
-    .eq('id', jobId)
-    .in('status', ['queued', 'running']);
+  await invokePack({ action: 'cancel', jobId });
 }
 
-/**
- * Fetch any active (queued or running) jobs for the current user.
- * Used at app startup to resume showing the progress panel.
- */
 export async function getActiveJobs(): Promise<PackDeployJob[]> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('pack_deploy_jobs')
     .select('*')
     .in('status', ['queued', 'running'])
     .order('created_at', { ascending: false });
+  if (error) throw error;
   return (data || []) as PackDeployJob[];
 }

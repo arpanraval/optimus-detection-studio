@@ -13,7 +13,7 @@ interface ModalProps {
   /** Called on close — backdrop click, Escape, or the close button. */
   onClose: () => void;
   /** Card width. Defaults to 'lg' (max-w-2xl). */
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
   /** Optional sticky footer region (actions). */
   footer?: React.ReactNode;
   children: React.ReactNode;
@@ -23,6 +23,7 @@ const SIZE_CLASS: Record<NonNullable<ModalProps['size']>, string> = {
   sm: 'max-w-md',
   md: 'max-w-xl',
   lg: 'max-w-2xl',
+  xl: 'max-w-6xl',
 };
 
 /**
@@ -40,22 +41,68 @@ const SIZE_CLASS: Record<NonNullable<ModalProps['size']>, string> = {
  * optional sticky footer, backdrop-click / Escape close, body-scroll lock,
  * and focus handling.
  */
+/** Elements that can hold focus. Deliberately does NOT filter on visibility: `offsetParent` and
+ *  `getClientRects()` are both empty under jsdom, so a visibility filter would silently make the
+ *  trap untestable — and everything inside an open modal card is visible by construction. */
+const FOCUSABLE = [
+  'a[href]', 'button:not([disabled])', 'input:not([disabled])', 'select:not([disabled])',
+  'textarea:not([disabled])', 'details', 'summary', '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+function focusableWithin(card: HTMLElement): HTMLElement[] {
+  return Array.from(card.querySelectorAll<HTMLElement>(FOCUSABLE))
+    .filter((el) => !el.hasAttribute('hidden') && !el.closest('[aria-hidden="true"]'));
+}
+
 export const Modal: React.FC<ModalProps> = ({
   title, subject, onClose, size = 'lg', footer, children,
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
+  const restoreRef = useRef<HTMLElement | null>(null);
   const titleId = useRef(`modal-${Math.random().toString(36).slice(2, 9)}`).current;
 
+  // Mount-scoped: capture the trigger, take focus, lock scroll, and hand focus back on unmount.
+  // Kept separate from the key handler below because that one depends on `onClose`; a caller
+  // passing an inline arrow would re-run the effect on every render, and a restore in this
+  // cleanup would then yank focus back to the trigger while the dialog is still open.
   useEffect(() => {
+    restoreRef.current = document.activeElement as HTMLElement | null;
     cardRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
-      document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
+      const trigger = restoreRef.current;
+      // Only if it is still in the document: the trigger may have been unmounted by the very
+      // action that closed the dialog, and focusing a detached node silently sends focus to body.
+      if (trigger?.isConnected) trigger.focus?.();
     };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab') return;
+      const card = cardRef.current;
+      if (!card) return;
+      const focusables = focusableWithin(card);
+      // Nothing tabbable inside: keep focus on the card rather than letting Tab walk out into
+      // the page behind the backdrop, which is unreachable by mouse but not by keyboard.
+      if (!focusables.length) { e.preventDefault(); card.focus(); return; }
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      const outside = !active || !card.contains(active);
+      if (e.shiftKey && (outside || active === first || active === card)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (outside || active === last)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
   return createPortal(

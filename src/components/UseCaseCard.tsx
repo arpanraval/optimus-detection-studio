@@ -1,3 +1,4 @@
+import { SiemLibraryBadge } from '@/components/siem/SiemLibraryBadge';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Detection, Severity, LibraryType, DetectionType, LIBRARY_LABELS_SHORT } from '../types';
@@ -268,7 +269,7 @@ export const UseCaseCard: React.FC<UseCaseCardProps> = ({
       }`}
     >
       {/* === SECTION 1: Header (ID + Title + Status) - Fixed Height === */}
-      <div className="h-[72px] mb-3">
+      <div className="min-h-[72px] mb-3 shrink-0">
         <div className="flex justify-between items-start">
           <div className="pr-4 flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
@@ -376,6 +377,7 @@ export const UseCaseCard: React.FC<UseCaseCardProps> = ({
               <Badge icon={libraryType === LIBRARY_DEVELOPMENT ? 'globe' : 'library'}>
                 {LIBRARY_LABELS_SHORT[libraryType]}
               </Badge>
+              <SiemLibraryBadge detection={detection} />
               {isUser && isForked && (
                 <Badge icon="git-fork">Forked</Badge>
               )}

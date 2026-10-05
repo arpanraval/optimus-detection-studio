@@ -102,6 +102,7 @@ const SOURCE_COLORS: Record<string, { bg: string; text: string }> = {
   'microsoft': { bg: 'E6F7FA', text: '0078D4' },
   'community': { bg: 'F3E8FF', text: '7C3AED' },
   'custom': { bg: COLORS.surfaceDim, text: COLORS.textSecondary },
+  'native_siem': { bg: 'E6F7FA', text: '0078D4' },
 };
 
 // ============================================================================
@@ -506,7 +507,7 @@ export async function downloadExcel(detections: Detection[], filename?: string, 
         
         if (col.key === 'source' && value && SOURCE_COLORS[value]) {
           applyColorStyle(cell, SOURCE_COLORS[value]);
-          const labels: Record<string, string> = { 'sigmahq': 'SigmaHQ', 'splunk_escu': 'Splunk ESCU', 'elastic': 'Elastic', 'microsoft': 'Microsoft', 'community': 'Community', 'custom': 'Custom' };
+          const labels: Record<string, string> = { 'sigmahq': 'SigmaHQ', 'splunk_escu': 'Splunk ESCU', 'elastic': 'Elastic', 'microsoft': 'Microsoft', 'community': 'Community', 'custom': 'Custom', 'native_siem': 'SIEM Import' };
           cell.value = labels[value] || value;
         }
         

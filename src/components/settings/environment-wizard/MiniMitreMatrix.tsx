@@ -35,11 +35,15 @@ export const MiniMitreMatrix: React.FC<MiniMitreMatrixProps> = ({
 
   // Summary stats
   const totals = useMemo(() => {
-    let covered = 0, total = 0;
+    const ids = new Set<string>();
+    const coveredIds = new Set<string>();
     for (const t of tacticCoverage) {
-      covered += t.coveredCount;
-      total += t.totalCount;
+      for (const technique of t.techniques) {
+        ids.add(technique.mitreId);
+        if (technique.covered) coveredIds.add(technique.mitreId);
+      }
     }
+    const covered = coveredIds.size, total = ids.size;
     return { covered, total, pct: total > 0 ? Math.round((covered / total) * 100) : 0 };
   }, [tacticCoverage]);
 
@@ -94,7 +98,7 @@ export const MiniMitreMatrix: React.FC<MiniMitreMatrixProps> = ({
             MITRE ATT&CK Threat Matrix
           </h3>
           <div className="text-[9px] text-outline mt-0.5">
-            Techniques used by threat groups targeting your profile
+            Threat techniques mapped to rules last observed enabled in your SIEMs
           </div>
         </div>
         <div className="text-right">

@@ -630,7 +630,12 @@ export function GlobalImportProvider({ children, userId }: GlobalImportProviderP
           if (jobStatus === 'inserting') {
             emitImportActivity('Storing detections in the library...', 'info');
           } else if (jobStatus === 'embedding') {
-            emitImportActivity('Detections stored. Generating search embeddings...', 'info');
+            emitImportActivity(
+              jobConfig.embeddingStrategy === 'batch'
+                ? 'Detections stored. Submitting batch embedding job...'
+                : 'Detections stored. Generating search embeddings...',
+              'info',
+            );
           } else if (jobStatus === 'failed') {
             dispatch({ type: 'SET_STATUS', payload: 'paused' });
             emitImportActivity('Import failed before completion.', 'error');
@@ -653,7 +658,15 @@ export function GlobalImportProvider({ children, userId }: GlobalImportProviderP
             );
           }
 
-          if (
+          if (jobConfig.embeddingStrategy === 'batch') {
+            if (jobProgress.phase === 'embedding' && jobProgress.embeddingBatchJobId && lastLoggedEmbeddingRef.current < 0) {
+              lastLoggedEmbeddingRef.current = jobProgress.embeddingTotal ?? 0;
+              emitImportActivity(
+                `Batch embedding job queued: ${(jobProgress.embeddingTotal ?? 0).toLocaleString()} items. Track it on Data Sync.`,
+                'ok',
+              );
+            }
+          } else if (
             jobProgress.phase === 'embedding' &&
             jobProgress.embeddingGenerated !== undefined &&
             jobProgress.embeddingGenerated !== lastLoggedEmbeddingRef.current

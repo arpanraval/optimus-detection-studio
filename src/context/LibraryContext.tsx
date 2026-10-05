@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { optionalColumnQuery } from '../lib/optionalColumnQuery';
+import { withSiemLibraryState } from '../lib/siemLibraryState';
 import {
   Detection,
   PublishRequest,
@@ -9,6 +11,7 @@ import {
 } from '../types';
 import { LIBRARY_DEVELOPMENT, LIBRARY_PRODUCTION, VISIBILITY_PRIVATE, VISIBILITY_SHARED } from '../constants/library';
 import type { LibraryType } from '../constants/library';
+import { EMPTY_FILTER_TARGETS, EMPTY_FILTER_VALUE } from '../constants/filters';
 import { useToast } from '../hooks/useToast';
 import { logger } from '../lib/logger';
 import { logAuditEvent, logAuditEvents } from '../lib/audit';
@@ -125,8 +128,23 @@ export interface ServerFilters {
  * Applies ServerFilters to a Supabase query builder.
  * Chains filter methods for string, boolean, array, quality grade, date, missing field, and text search.
  */
-const applyServerFilters = (query: any, filters: ServerFilters): any => {
+export const applyServerFilters = (query: any, filters: ServerFilters): any => {
   let q = query;
+
+  // "(None)" selections ask for rows where the field is empty, so they replace that field's
+  // value filter rather than adding to it. The sentinel is exclusive in the panel, so a field
+  // is either asking for emptiness or for concrete values — never both. Column names come from
+  // EMPTY_FILTER_TARGETS, never from user input, so nothing user-supplied reaches the or() string.
+  const emptyFields = new Set<string>();
+  for (const [field, target] of Object.entries(EMPTY_FILTER_TARGETS)) {
+    const vals = filters[field as keyof ServerFilters];
+    if (Array.isArray(vals) && vals.includes(EMPTY_FILTER_VALUE)) {
+      emptyFields.add(field);
+      q = target.kind === 'array'
+        ? q.or(`${target.column}.is.null,${target.column}.eq.{}`)
+        : q.or(`${target.column}.is.null,${target.column}.eq.`);
+    }
+  }
 
   // String fields: .in(field, values)
   const stringFields: (keyof ServerFilters)[] = [
@@ -134,6 +152,7 @@ const applyServerFilters = (query: any, filters: ServerFilters): any => {
     'technology', 'logSource', 'promotion_status', 'source', 'review_status'
   ];
   for (const field of stringFields) {
+    if (emptyFields.has(field)) continue;
     const vals = filters[field];
     if (Array.isArray(vals) && vals.length > 0) q = q.in(field, vals);
   }
@@ -149,6 +168,7 @@ const applyServerFilters = (query: any, filters: ServerFilters): any => {
     'threatActors', 'campaigns', 'software', 'associatedCVEs'
   ];
   for (const field of arrayFields) {
+    if (emptyFields.has(field)) continue;
     const vals = filters[field];
     if (Array.isArray(vals) && vals.length > 0) q = q.overlaps(field, vals);
   }
@@ -233,6 +253,8 @@ const LIBRARY_COLUMNS = [
   'auditLog',
 ].join(',');
 
+const queryLibrary = optionalColumnQuery('native_provenance');
+
 // ============================================
 // CONTEXT TYPE
 // ============================================
@@ -252,7 +274,55 @@ export interface BulkActionResult {
   successCount: number;
   failureCount: number;
   errors?: string[];
+  /** Rows the preflight held back. Present when a delete skipped protected detections. */
+  blocked?: DeleteBlocker[];
 }
+
+// ============================================
+// DELETE PREFLIGHT
+// ============================================
+
+/**
+ * A detection the database will refuse to delete.
+ *
+ * `siem_rule_bindings.detection_id` and `siem_local_revisions.detection_id` are both
+ * ON DELETE RESTRICT, so a rule that is live in a SIEM — or that has local revision history
+ * from the native editor — cannot be removed. Postgres rejects the whole statement, which for
+ * a batch delete means one protected rule silently takes the other 199 with it. The preflight
+ * finds these first so the confirmation can name them and the delete can skip them.
+ */
+export interface DeleteBlocker {
+  id: string;
+  name: string;
+  reason: string;
+}
+
+/**
+ * A detection that can be deleted but whose removal costs something elsewhere.
+ * `promoted_to_id` / `source_rule_id` are ON DELETE SET NULL, so the promoted or forked copy
+ * survives the delete but silently loses its link back to the original.
+ */
+export interface DeleteWarning {
+  id: string;
+  name: string;
+  reason: string;
+}
+
+export interface DeletePreflight {
+  /** How many detections the user asked to delete. */
+  requested: number;
+  /** IDs that are safe to delete — the only ones that should be sent to bulkDelete. */
+  deletableIds: string[];
+  /** Detections the database will refuse to delete, with the reason. */
+  blocked: DeleteBlocker[];
+  /** Detections that will delete but break a link somewhere else. */
+  warnings: DeleteWarning[];
+  /** Set when the preflight could not be completed; the caller should not delete. */
+  error?: string;
+}
+
+/** Chunk size for id-based deletes — keeps each request's URL well inside PostgREST limits. */
+const DELETE_CHUNK_SIZE = 200;
 
 interface LibraryContextType {
   // Current library view
@@ -334,12 +404,19 @@ interface LibraryContextType {
   bulkRemoveTags: (detectionIds: string[], tags: string[]) => Promise<BulkActionResult>;
 
   // Server-side bulk actions (for "select all matching filters")
-  bulkDeleteByFilter: (filters: Record<string, any>) => Promise<BulkActionResult>;
-  bulkUpdateStatusByFilter: (filters: Record<string, any>, status: string) => Promise<BulkActionResult>;
-  bulkUpdateSeverityByFilter: (filters: Record<string, any>, severity: string) => Promise<BulkActionResult>;
+  // Server-side bulk actions operate on everything matching the CURRENT server filters —
+  // the same filters that produced the visible list, so what you see is what you act on.
+  bulkDeleteByFilter: () => Promise<BulkActionResult>;
+  bulkUpdateStatusByFilter: (status: string) => Promise<BulkActionResult>;
+  bulkUpdateSeverityByFilter: (severity: string) => Promise<BulkActionResult>;
+
+  // Delete preflight — resolves which of the targeted rows can actually be removed
+  preflightDelete: (detectionIds: string[]) => Promise<DeletePreflight>;
+  preflightDeleteByFilter: () => Promise<DeletePreflight>;
 
   // Get count of detections matching filters (for "select all X matching")
-  getFilteredCount: (filters: Record<string, any>) => Promise<number>;
+  getFilteredCount: () => Promise<number>;
+  getFilteredIds: () => Promise<string[]>;
 }
 
 const LibraryContext = createContext<LibraryContextType | undefined>(undefined);
@@ -411,7 +488,23 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   }, []);
 
   // Track if initial load is done
-  const initialLoadDone = useRef(false);
+  // State, not a ref: the filter re-fetch effect below has to re-run once the first load
+  // lands, to pick up filters that arrived from the URL while it was still in flight.
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
+
+  /**
+   * Request tickets, so a slow earlier fetch cannot overwrite a newer one.
+   *
+   * Several things refetch a library — pagination, sorting, switching library, and filters
+   * changing — and more than one can be in flight at once. `refreshAll` depends on the refresh
+   * callbacks, which depend on `serverFilters`, so filters arriving from a deep link change its
+   * identity and re-run the initial-load effect while the first unfiltered fetch is still
+   * running. Both then resolve in whatever order the network decides, and the loser's rows win
+   * if they land last: the URL and chips said "Language: Sigma" while the list showed all 57
+   * rules. Every fetch now takes a ticket and drops its result if a newer one has started.
+   */
+  const productionRequestRef = useRef(0);
+  const developmentRequestRef = useRef(0);
 
   // Current pagination based on active library
   const currentPagination = currentLibrary === LIBRARY_DEVELOPMENT ? developmentPagination : productionPagination;
@@ -427,6 +520,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   // ============================================
 
   const refreshProductionLibrary = useCallback(async (page?: number, pageSize?: number, sort?: SortConfig, filters?: ServerFilters) => {
+    const requestId = ++productionRequestRef.current;
     const currentPage = page ?? productionPagination.page;
     const currentPageSize = pageSize ?? productionPagination.pageSize;
     const currentSort = sort ?? sortConfig;
@@ -454,17 +548,21 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       const totalPages = Math.ceil(totalCount / currentPageSize);
 
       // Data query WITH filters (lightweight columns only)
-      let dataQ = supabase
-        .from('detections')
-        .select(LIBRARY_COLUMNS)
-        .or(`library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null`);
-      dataQ = applyServerFilters(dataQ, activeFilters);
-      dataQ = dataQ.order(sortColumn, { ascending: sortAscending }).range(from, to);
-
-      const { data, error } = await dataQ;
+      const { data, error } = await queryLibrary((includeProvenance) => {
+        let dataQ = supabase
+          .from('detections')
+          .select(includeProvenance ? `${LIBRARY_COLUMNS},native_provenance` : LIBRARY_COLUMNS)
+          .or(`library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null`);
+        dataQ = applyServerFilters(dataQ, activeFilters);
+        return dataQ.order(sortColumn, { ascending: sortAscending }).range(from, to);
+      });
       if (error) throw error;
 
-      setProductionDetections((data as unknown as Detection[]) || []);
+      const rows = await withSiemLibraryState((data as unknown as Detection[]) || []);
+      // A newer fetch started while this one was in flight — its answer is the current one.
+      if (requestId !== productionRequestRef.current) return;
+
+      setProductionDetections(rows);
       setProductionPagination(prev => ({
         ...prev,
         page: currentPage,
@@ -478,6 +576,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   }, [userId, productionPagination.page, productionPagination.pageSize, sortConfig, serverFilters]);
 
   const refreshDevelopmentLibrary = useCallback(async (page?: number, pageSize?: number, sort?: SortConfig, filters?: ServerFilters) => {
+    const requestId = ++developmentRequestRef.current;
     const currentPage = page ?? developmentPagination.page;
     const currentPageSize = pageSize ?? developmentPagination.pageSize;
     const currentSort = sort ?? sortConfig;
@@ -504,15 +603,17 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       const totalPages = Math.ceil(totalCount / currentPageSize);
 
       // Data query WITH filters (lightweight columns only)
-      let dataQ = supabase
-        .from('detections')
-        .select(LIBRARY_COLUMNS)
-        .eq('library_type', LIBRARY_DEVELOPMENT);
-      dataQ = applyServerFilters(dataQ, activeFilters);
-      dataQ = dataQ.order(sortColumn, { ascending: sortAscending }).range(from, to);
-
-      const { data, error } = await dataQ;
+      const { data, error } = await queryLibrary((includeProvenance) => {
+        let dataQ = supabase
+          .from('detections')
+          .select(includeProvenance ? `${LIBRARY_COLUMNS},native_provenance` : LIBRARY_COLUMNS)
+          .eq('library_type', LIBRARY_DEVELOPMENT);
+        dataQ = applyServerFilters(dataQ, activeFilters);
+        return dataQ.order(sortColumn, { ascending: sortAscending }).range(from, to);
+      });
       if (error) throw error;
+
+      if (requestId !== developmentRequestRef.current) return;
 
       setDevelopmentDetections((data as unknown as Detection[]) || []);
       setDevelopmentPagination(prev => ({
@@ -544,6 +645,12 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       if (!silent) setIsLoading(false);
     }
   }, [refreshProductionLibrary, refreshDevelopmentLibrary]);
+
+  useEffect(() => {
+    const onNativeImport = () => { void refreshProductionLibrary(); };
+    window.addEventListener('native-siem-library-updated', onNativeImport);
+    return () => window.removeEventListener('native-siem-library-updated', onNativeImport);
+  }, [refreshProductionLibrary]);
 
   // H1: Enhanced pending requests - fetch submitter profile separately if needed
   const refreshPendingRequests = useCallback(async () => {
@@ -643,7 +750,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   useEffect(() => {
     const doInitialLoad = async () => {
       await refreshAll();
-      initialLoadDone.current = true;
+      setInitialLoadDone(true);
     };
     doInitialLoad();
     refreshDetectionPacks();
@@ -661,10 +768,16 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     }
   }, [refreshTrigger, refreshAll, refreshUserSubmissions]);
 
-  // Re-fetch when serverFilters change
+  // Re-fetch when serverFilters change.
+  //
+  // `initialLoadDone` is a dependency, not just a guard: a deep link such as
+  // /library?queryLanguage=Sigma sets these filters while the unfiltered first load is still in
+  // flight. Bailing out on a ref dropped them for good — the chips said "Language: Sigma" while
+  // the list showed everything. Waiting for the flag and re-running instead applies them once,
+  // after the initial fetch, so the filtered result cannot be overwritten by the unfiltered one.
   const serverFiltersRef = useRef(serverFilters);
   useEffect(() => {
-    if (!initialLoadDone.current) return;
+    if (!initialLoadDone) return;
     // Skip if filters haven't actually changed (initial render)
     if (serverFiltersRef.current === serverFilters && Object.keys(serverFilters).length === 0) return;
     serverFiltersRef.current = serverFilters;
@@ -674,7 +787,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       refreshProductionLibrary(1, productionPagination.pageSize, sortConfig, serverFilters);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverFilters]);
+  }, [serverFilters, initialLoadDone]);
 
   // ============================================
   // USER OPERATIONS
@@ -942,13 +1055,144 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   // BULK ACTIONS
   // ============================================
 
-  const bulkDelete = useCallback(async (detectionIds: string[]): Promise<BulkActionResult> => {
-    try {
-      const { error } = await supabase.from('detections').delete().in('id', detectionIds);
-      if (error) throw error;
+  /**
+   * Resolve which of `detectionIds` can actually be deleted.
+   *
+   * Two tables reference detections with ON DELETE RESTRICT — `siem_rule_bindings` (the rule is
+   * live in a connected SIEM) and `siem_local_revisions` (the rule has native-editor history).
+   * Postgres rejects the entire DELETE if any targeted row is referenced, so without this the
+   * user's whole selection fails on one protected rule with a raw constraint error.
+   */
+  const preflightDelete = useCallback(async (detectionIds: string[]): Promise<DeletePreflight> => {
+    const empty: DeletePreflight = { requested: detectionIds.length, deletableIds: [], blocked: [], warnings: [] };
+    if (detectionIds.length === 0) return empty;
 
-      showToast('success', 'Deleted', `Successfully deleted ${detectionIds.length} detection${detectionIds.length > 1 ? 's' : ''}`);
-      logAuditEvents(detectionIds.map(id => ({
+    // A rule can be both deployed and locally revised, and can hold many revision rows or be
+    // bound to several SIEMs — collect each distinct reason once rather than per row.
+    const reasonsById = new Map<string, Set<string>>();
+    const warningById = new Map<string, { id: string; reason: string }>();
+
+    const addBlocker = (id: string, reason: string) => {
+      const reasons = reasonsById.get(id) || new Set<string>();
+      reasons.add(reason);
+      reasonsById.set(id, reasons);
+    };
+
+    // Related copies survive the delete but lose their link back (both FKs are SET NULL):
+    // rules forked or promoted FROM one of these, and the Development rule a Production copy
+    // was promoted from.
+    const noteLostLink = (relatedId: string, related: { id: string; name?: string | null; library_type?: string | null }) => {
+      const where = related.library_type === LIBRARY_PRODUCTION ? 'Production' : 'Development';
+      warningById.set(relatedId, {
+        id: relatedId,
+        reason: `A linked rule in the ${where} Library ("${related.name || related.id}") will lose its link to this one`,
+      });
+    };
+
+    const unwrap = <T,>(result: { data: T[] | null; error: unknown }): T[] => {
+      if (result.error) throw result.error;
+      return result.data || [];
+    };
+
+    try {
+      for (let i = 0; i < detectionIds.length; i += DELETE_CHUNK_SIZE) {
+        const chunk = detectionIds.slice(i, i + DELETE_CHUNK_SIZE);
+
+        // Four independent questions about the same chunk — asked together so a large
+        // "select all matching" preflight costs one round trip per chunk, not four.
+        const [bindings, revisions, children, sources] = await Promise.all([
+          // Live in a SIEM. Tombstoned bindings no longer restrict the delete.
+          supabase.from('siem_rule_bindings')
+            .select('detection_id,provider,binding_status,integrations(name)')
+            .in('detection_id', chunk)
+            .neq('binding_status', 'tombstone'),
+          // Native-editor revision history.
+          supabase.from('siem_local_revisions').select('detection_id').in('detection_id', chunk),
+          supabase.from('detections').select('id,name,source_rule_id,library_type').in('source_rule_id', chunk),
+          supabase.from('detections').select('id,name,promoted_to_id,library_type').in('promoted_to_id', chunk),
+        ]);
+
+        for (const b of unwrap<any>(bindings)) {
+          const target = b.integrations?.name || b.provider || 'a connected SIEM';
+          addBlocker(b.detection_id, `Deployed to ${target}`);
+        }
+        for (const r of unwrap<any>(revisions)) addBlocker(r.detection_id, 'Has SIEM revision history');
+        for (const d of unwrap<any>(children)) {
+          if (d.source_rule_id) noteLostLink(d.source_rule_id, d);
+        }
+        for (const d of unwrap<any>(sources)) {
+          if (d.promoted_to_id) noteLostLink(d.promoted_to_id, d);
+        }
+      }
+
+      // Names are only needed for the rules the dialog actually lists, which is normally a
+      // handful — far cheaper than naming every id the user selected.
+      const namedIds = [...new Set([...reasonsById.keys(), ...warningById.keys()])];
+      const nameById = new Map<string, string>();
+      for (let i = 0; i < namedIds.length; i += DELETE_CHUNK_SIZE) {
+        const chunk = namedIds.slice(i, i + DELETE_CHUNK_SIZE);
+        const rows = unwrap<any>(await supabase.from('detections').select('id,name').in('id', chunk));
+        for (const row of rows) nameById.set(row.id, row.name || row.id);
+      }
+      const nameFor = (id: string) => nameById.get(id) || id;
+
+      const blocked: DeleteBlocker[] = [...reasonsById.entries()].map(([id, reasons]) => ({
+        id,
+        name: nameFor(id),
+        reason: [...reasons].join('; '),
+      }));
+
+      return {
+        requested: detectionIds.length,
+        deletableIds: detectionIds.filter(id => !reasonsById.has(id)),
+        blocked,
+        warnings: [...warningById.values()]
+          .filter(w => !reasonsById.has(w.id))
+          .map(w => ({ ...w, name: nameFor(w.id) })),
+      };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('Delete preflight failed:', err);
+      return { ...empty, error: message };
+    }
+  }, []);
+
+  /**
+   * Row-level security filters rows out silently rather than raising, so a bulk write can touch
+   * fewer rows than were selected and still come back without an error. Reporting the requested
+   * count would claim success over rows that never changed — visible in the Development Library,
+   * where `development_select` shows everyone's shared rules but `development_update` and
+   * `development_delete` only permit your own, ones assigned to you, or admin/lead.
+   */
+  const reportSkipped = useCallback((skipped: number, verb: string) => {
+    showToast(
+      'info',
+      'Some Rules Unchanged',
+      `${skipped} detection${skipped === 1 ? ' was' : 's were'} not ${verb} — you do not have permission to change ${skipped === 1 ? 'it' : 'them'}.`
+    );
+  }, [showToast]);
+
+  const bulkDelete = useCallback(async (detectionIds: string[]): Promise<BulkActionResult> => {
+    if (detectionIds.length === 0) {
+      return { success: true, successCount: 0, failureCount: 0 };
+    }
+    try {
+      // Chunked so a large "select all matching" delete stays inside PostgREST's URL limits.
+      // `returning: 'minimal'` with an exact count gives the number of rows actually removed
+      // without paying for the row bodies.
+      const deletedIds: string[] = [];
+      for (let i = 0; i < detectionIds.length; i += DELETE_CHUNK_SIZE) {
+        const chunk = detectionIds.slice(i, i + DELETE_CHUNK_SIZE);
+        const { data, error } = await supabase.from('detections').delete().in('id', chunk).select('id');
+        if (error) throw error;
+        for (const row of data || []) deletedIds.push(row.id);
+      }
+
+      const skipped = detectionIds.length - deletedIds.length;
+      showToast('success', 'Deleted', `Successfully deleted ${deletedIds.length} detection${deletedIds.length === 1 ? '' : 's'}`);
+      if (skipped > 0) reportSkipped(skipped, 'deleted');
+      // Only record what actually changed — an audit trail of rows RLS refused would be a lie.
+      logAuditEvents(deletedIds.map(id => ({
         action: 'detection.deleted' as const,
         entity_type: 'detection',
         entity_id: id,
@@ -956,21 +1200,28 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       await refreshAll();
       clearSelection();
 
-      return { success: true, successCount: detectionIds.length, failureCount: 0 };
+      return { success: true, successCount: deletedIds.length, failureCount: skipped };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       showToast('error', 'Delete Failed', message);
       return { success: false, successCount: 0, failureCount: detectionIds.length, errors: [message] };
     }
-  }, [refreshAll, clearSelection, showToast]);
+  }, [refreshAll, clearSelection, showToast, reportSkipped]);
 
   const bulkUpdateStatus = useCallback(async (detectionIds: string[], newStatus: string): Promise<BulkActionResult> => {
     try {
-      const { error } = await supabase.from('detections').update({ status: newStatus, updatedDate: new Date().toISOString() }).in('id', detectionIds);
+      const { data, error } = await supabase
+        .from('detections')
+        .update({ status: newStatus, updatedDate: new Date().toISOString() })
+        .in('id', detectionIds)
+        .select('id');
       if (error) throw error;
 
-      showToast('success', 'Status Updated', `Updated status for ${detectionIds.length} detection${detectionIds.length > 1 ? 's' : ''}`);
-      logAuditEvents(detectionIds.map(id => ({
+      const updatedIds = (data || []).map(row => row.id);
+      const skipped = detectionIds.length - updatedIds.length;
+      showToast('success', 'Status Updated', `Updated status for ${updatedIds.length} detection${updatedIds.length === 1 ? '' : 's'}`);
+      if (skipped > 0) reportSkipped(skipped, 'updated');
+      logAuditEvents(updatedIds.map(id => ({
         action: 'detection.status_changed' as const,
         entity_type: 'detection',
         entity_id: id,
@@ -978,29 +1229,36 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       })));
       await refreshAll();
 
-      return { success: true, successCount: detectionIds.length, failureCount: 0 };
+      return { success: true, successCount: updatedIds.length, failureCount: skipped };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       showToast('error', 'Update Failed', message);
       return { success: false, successCount: 0, failureCount: detectionIds.length, errors: [message] };
     }
-  }, [refreshAll, showToast]);
+  }, [refreshAll, showToast, reportSkipped]);
 
   const bulkUpdateSeverity = useCallback(async (detectionIds: string[], newSeverity: string): Promise<BulkActionResult> => {
     try {
-      const { error } = await supabase.from('detections').update({ severity: newSeverity, updatedDate: new Date().toISOString() }).in('id', detectionIds);
+      const { data, error } = await supabase
+        .from('detections')
+        .update({ severity: newSeverity, updatedDate: new Date().toISOString() })
+        .in('id', detectionIds)
+        .select('id');
       if (error) throw error;
 
-      showToast('success', 'Severity Updated', `Updated severity for ${detectionIds.length} detection${detectionIds.length > 1 ? 's' : ''}`);
+      const updatedCount = (data || []).length;
+      const skipped = detectionIds.length - updatedCount;
+      showToast('success', 'Severity Updated', `Updated severity for ${updatedCount} detection${updatedCount === 1 ? '' : 's'}`);
+      if (skipped > 0) reportSkipped(skipped, 'updated');
       await refreshAll();
 
-      return { success: true, successCount: detectionIds.length, failureCount: 0 };
+      return { success: true, successCount: updatedCount, failureCount: skipped };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       showToast('error', 'Update Failed', message);
       return { success: false, successCount: 0, failureCount: detectionIds.length, errors: [message] };
     }
-  }, [refreshAll, showToast]);
+  }, [refreshAll, showToast, reportSkipped]);
 
   const bulkAddTags = useCallback(async (detectionIds: string[], newTags: string[]): Promise<BulkActionResult> => {
     let successCount = 0;
@@ -1151,37 +1409,31 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   // SERVER-SIDE BULK ACTIONS (for select all matching)
   // ============================================
 
-  const buildFilterQuery = useCallback((baseQuery: any, filters: Record<string, any>) => {
+  /**
+   * Scope a query to everything the user is currently looking at across all pages.
+   *
+   * This deliberately reuses `applyServerFilters` — the same builder the list fetch uses — so a
+   * "select all matching" action hits exactly the rows the list is showing. The previous builder
+   * took the raw UI filter map and applied `.in()` to every field, which silently mis-targeted
+   * array columns like `platforms` and `mitreTactics`; for a bulk delete that is the worst kind
+   * of bug, so the two paths now share one implementation.
+   */
+  const buildFilterQuery = useCallback((baseQuery: any) => {
     let query = baseQuery;
 
-    // Apply library filter
-    // Production Library is shared — no user_id filter needed
+    // Library scope. Production Library is shared — no user_id filter needed.
     if (currentLibrary === LIBRARY_PRODUCTION) {
       query = query.or(`library_type.eq.${LIBRARY_PRODUCTION},library_type.is.null`);
     } else {
       query = query.eq('user_id', userId).eq('library_type', LIBRARY_DEVELOPMENT);
     }
 
-    // Apply additional filters
-    Object.entries(filters).forEach(([key, values]) => {
-      if (!values || (Array.isArray(values) && values.length === 0)) return;
+    return applyServerFilters(query, serverFilters);
+  }, [currentLibrary, userId, serverFilters]);
 
-      if (Array.isArray(values) && values.length > 0) {
-        // For array fields, use contains; for string fields, use in
-        query = query.in(key, values);
-      } else if (typeof values === 'string') {
-        query = query.eq(key, values);
-      }
-    });
-
-    return query;
-  }, [currentLibrary, userId]);
-
-  const getFilteredCount = useCallback(async (filters: Record<string, any>): Promise<number> => {
+  const getFilteredCount = useCallback(async (): Promise<number> => {
     try {
-      let query = supabase.from('detections').select('id', { count: 'exact', head: true });
-      query = buildFilterQuery(query, filters);
-
+      const query = buildFilterQuery(supabase.from('detections').select('id', { count: 'exact', head: true }));
       const { count, error } = await query;
       if (error) throw error;
       return count || 0;
@@ -1191,95 +1443,130 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     }
   }, [buildFilterQuery]);
 
-  const bulkDeleteByFilter = useCallback(async (filters: Record<string, any>): Promise<BulkActionResult> => {
+  /** Every id matching the current filters, paged out so the set is complete. */
+  const getFilteredIds = useCallback(async (): Promise<string[]> => {
+    const ids: string[] = [];
+    const BATCH = 1000;
+    for (let from = 0; ; from += BATCH) {
+      const query = buildFilterQuery(supabase.from('detections').select('id')).order('id').range(from, from + BATCH - 1);
+      const { data, error } = await query;
+      if (error) throw error;
+      const rows = data || [];
+      ids.push(...rows.map((r: { id: string }) => r.id));
+      if (rows.length < BATCH) break;
+    }
+    return ids;
+  }, [buildFilterQuery]);
+
+  const preflightDeleteByFilter = useCallback(async (): Promise<DeletePreflight> => {
     try {
-      // First get the count
-      const count = await getFilteredCount(filters);
+      return await preflightDelete(await getFilteredIds());
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('Delete preflight (by filter) failed:', err);
+      return { requested: 0, deletableIds: [], blocked: [], warnings: [], error: message };
+    }
+  }, [getFilteredIds, preflightDelete]);
 
-      if (count === 0) {
-        return { success: true, successCount: 0, failureCount: 0 };
+  /**
+   * Delete everything matching the current filters.
+   *
+   * Routed through ids rather than a filtered DELETE so protected rows can be excluded — a
+   * single filtered statement would be rejected in full by the ON DELETE RESTRICT references.
+   */
+  const bulkDeleteByFilter = useCallback(async (): Promise<BulkActionResult> => {
+    try {
+      const preflight = await preflightDeleteByFilter();
+      if (preflight.error) {
+        showToast('error', 'Delete Failed', preflight.error);
+        return { success: false, successCount: 0, failureCount: 0, errors: [preflight.error] };
+      }
+      if (preflight.deletableIds.length === 0) {
+        if (preflight.blocked.length > 0) {
+          showToast('error', 'Nothing Deleted', `All ${preflight.blocked.length} matching detections are protected and cannot be deleted.`);
+        }
+        return { success: preflight.blocked.length === 0, successCount: 0, failureCount: preflight.blocked.length, blocked: preflight.blocked };
       }
 
-      // Build delete query with filters
-      let query = supabase.from('detections').delete();
-      query = buildFilterQuery(query, filters);
-
-      const { error } = await query;
-
-      if (error) {
-        showToast('error', 'Delete Failed', error.message);
-        return { success: false, successCount: 0, failureCount: count, errors: [error.message] };
+      const result = await bulkDelete(preflight.deletableIds);
+      if (result.success && preflight.blocked.length > 0) {
+        showToast('info', 'Some Rules Kept', `${preflight.blocked.length} detection${preflight.blocked.length > 1 ? 's were' : ' was'} skipped because ${preflight.blocked.length > 1 ? 'they are' : 'it is'} still live in a SIEM.`);
       }
-
-      showToast('success', 'Deleted', `Successfully deleted ${count} detection${count > 1 ? 's' : ''}`);
-      await refreshAll();
-      clearSelection();
-
-      return { success: true, successCount: count, failureCount: 0 };
+      return { ...result, blocked: preflight.blocked };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to delete';
       showToast('error', 'Delete Failed', message);
       return { success: false, successCount: 0, failureCount: 0, errors: [message] };
     }
-  }, [buildFilterQuery, getFilteredCount, refreshAll, clearSelection, showToast]);
+  }, [preflightDeleteByFilter, bulkDelete, showToast]);
 
-  const bulkUpdateStatusByFilter = useCallback(async (filters: Record<string, any>, status: string): Promise<BulkActionResult> => {
+  const bulkUpdateStatusByFilter = useCallback(async (status: string): Promise<BulkActionResult> => {
     try {
-      const count = await getFilteredCount(filters);
-
-      if (count === 0) {
+      const matched = await getFilteredCount();
+      if (matched === 0) {
         return { success: true, successCount: 0, failureCount: 0 };
       }
 
-      let query = supabase.from('detections').update({ status, updatedDate: new Date().toISOString() });
-      query = buildFilterQuery(query, filters);
-
-      const { error } = await query;
+      // count: 'exact' returns how many rows were actually written, without their bodies. RLS
+      // drops rows the user may not change without raising, so the matched count is what they
+      // can see and the affected count is what really changed.
+      const query = buildFilterQuery(
+        supabase.from('detections').update({ status, updatedDate: new Date().toISOString() }, { count: 'exact' })
+      );
+      const { error, count } = await query;
 
       if (error) {
         showToast('error', 'Update Failed', error.message);
-        return { success: false, successCount: 0, failureCount: count, errors: [error.message] };
+        return { success: false, successCount: 0, failureCount: matched, errors: [error.message] };
       }
 
-      showToast('success', 'Status Updated', `Updated status for ${count} detection${count > 1 ? 's' : ''}`);
+      const affected = count ?? matched;
+      const skipped = Math.max(0, matched - affected);
+      showToast('success', 'Status Updated', `Updated status for ${affected.toLocaleString()} detection${affected === 1 ? '' : 's'}`);
+      if (skipped > 0) reportSkipped(skipped, 'updated');
       await refreshAll();
 
-      return { success: true, successCount: count, failureCount: 0 };
+      return { success: true, successCount: affected, failureCount: skipped };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to update';
       showToast('error', 'Update Failed', message);
       return { success: false, successCount: 0, failureCount: 0, errors: [message] };
     }
-  }, [buildFilterQuery, getFilteredCount, refreshAll, showToast]);
+  }, [buildFilterQuery, getFilteredCount, refreshAll, showToast, reportSkipped]);
 
-  const bulkUpdateSeverityByFilter = useCallback(async (filters: Record<string, any>, severity: string): Promise<BulkActionResult> => {
+  const bulkUpdateSeverityByFilter = useCallback(async (severity: string): Promise<BulkActionResult> => {
     try {
-      const count = await getFilteredCount(filters);
-
-      if (count === 0) {
+      const matched = await getFilteredCount();
+      if (matched === 0) {
         return { success: true, successCount: 0, failureCount: 0 };
       }
 
-      let query = supabase.from('detections').update({ severity, updatedDate: new Date().toISOString() });
-      query = buildFilterQuery(query, filters);
-
-      const { error } = await query;
+      // count: 'exact' returns how many rows were actually written, without their bodies. RLS
+      // drops rows the user may not change without raising, so the matched count is what they
+      // can see and the affected count is what really changed.
+      const query = buildFilterQuery(
+        supabase.from('detections').update({ severity, updatedDate: new Date().toISOString() }, { count: 'exact' })
+      );
+      const { error, count } = await query;
 
       if (error) {
         showToast('error', 'Update Failed', error.message);
-        return { success: false, successCount: 0, failureCount: count, errors: [error.message] };
+        return { success: false, successCount: 0, failureCount: matched, errors: [error.message] };
       }
 
-      showToast('success', 'Severity Updated', `Updated severity for ${count} detection${count > 1 ? 's' : ''}`);
+      const affected = count ?? matched;
+      const skipped = Math.max(0, matched - affected);
+      showToast('success', 'Severity Updated', `Updated severity for ${affected.toLocaleString()} detection${affected === 1 ? '' : 's'}`);
+      if (skipped > 0) reportSkipped(skipped, 'updated');
       await refreshAll();
 
-      return { success: true, successCount: count, failureCount: 0 };
+      return { success: true, successCount: affected, failureCount: skipped };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to update';
       showToast('error', 'Update Failed', message);
       return { success: false, successCount: 0, failureCount: 0, errors: [message] };
     }
-  }, [buildFilterQuery, getFilteredCount, refreshAll, showToast]);
+  }, [buildFilterQuery, getFilteredCount, refreshAll, showToast, reportSkipped]);
 
   // ============================================
   // REALTIME SUBSCRIPTION
@@ -1384,7 +1671,10 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     bulkDeleteByFilter,
     bulkUpdateStatusByFilter,
     bulkUpdateSeverityByFilter,
+    preflightDelete,
+    preflightDeleteByFilter,
     getFilteredCount,
+    getFilteredIds,
   }), [
     currentLibrary, userRole, userId, productionDetections, developmentDetections, isLoading,
     productionPagination, developmentPagination, currentPagination, setPage, setPageSize,
@@ -1396,6 +1686,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     selectedDetectionIds, toggleSelection, selectAll, clearSelection, isSelected,
     bulkDelete, bulkUpdateStatus, bulkUpdateSeverity, bulkAddTags, bulkRemoveTags,
     bulkDeleteByFilter, bulkUpdateStatusByFilter, bulkUpdateSeverityByFilter, getFilteredCount,
+    preflightDelete, preflightDeleteByFilter, getFilteredIds,
   ]);
 
   return (

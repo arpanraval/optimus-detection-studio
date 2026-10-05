@@ -4,6 +4,7 @@ import { UseCaseLibrary } from '../../components/UseCaseLibrary';
 import { PageErrorBoundary } from '../../components/ErrorBoundary';
 import { useAppData } from '../AppDataContext';
 import { ROUTES, routeHelpers } from '../routes';
+import { EMPTY_FILTER_VALUE, filterFieldForMissingColumn } from '../../constants/filters';
 
 // Filter keys that can appear in URL search params
 const URL_FILTER_KEYS = [
@@ -22,7 +23,14 @@ export const DetectionLibraryPage: React.FC = () => {
   const mitreFilter = searchParams.get('filter') || null;
   const initialSearch = searchParams.get('search') || '';
   const createdBefore = searchParams.get('createdBefore') || undefined;
-  const missingField = searchParams.get('missingField') || undefined;
+  const missingFieldParam = searchParams.get('missingField') || undefined;
+
+  // Dashboard hygiene widgets link here with ?missingField=<column>. Where that column has a
+  // filter group, express it as a normal "(None)" selection so the user sees a chip they can
+  // inspect and clear, and can reproduce the same view from the panel. Columns with no group
+  // (description, detectionQuery, ...) keep travelling on the dedicated prop.
+  const missingFieldAsFilter = missingFieldParam ? filterFieldForMissingColumn(missingFieldParam) : undefined;
+  const missingField = missingFieldAsFilter ? undefined : missingFieldParam;
 
   // Build initialFilters from ALL URL parameters
   const initialFilters = useMemo(() => {
@@ -44,8 +52,12 @@ export const DetectionLibraryPage: React.FC = () => {
     if (validatedLegacy === 'true' && !filters.testedAndValidated) {
       filters.testedAndValidated = ['true'];
     }
+    // ?missingField=<column> arriving from a Dashboard widget
+    if (missingFieldAsFilter && !filters[missingFieldAsFilter]) {
+      filters[missingFieldAsFilter] = [EMPTY_FILTER_VALUE];
+    }
     return Object.keys(filters).length > 0 ? filters : undefined;
-  }, [searchParams]);
+  }, [searchParams, missingFieldAsFilter]);
 
   const setMitreFilter = (filter: string | null) => {
     const newParams = new URLSearchParams(searchParams);

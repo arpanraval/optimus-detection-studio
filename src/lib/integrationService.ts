@@ -1,5 +1,7 @@
 import { logger } from './logger';
 import { supabase } from './supabaseClient';
+import { supportsNativeImport } from './providerMeta';
+import { elasticEndpoint } from '../../supabase/functions/_shared/siem-providers';
 import type {
   Integration,
   IntegrationProvider,
@@ -31,9 +33,94 @@ import {
 // =============================================================================
 // Direct Supabase reads for non-sensitive data.
 // Edge function calls for anything involving credentials.
-// In dev mode, bypasses edge functions and uses a local Vite proxy for vendor calls.
+// Localhost uses the same credential-bearing backend as production. The direct vendor proxy
+// is an explicit opt-in for developers connecting to private/local vendor installations.
 
-const IS_DEV = import.meta.env.DEV;
+const IS_DEV = import.meta.env.DEV && import.meta.env.VITE_SIEM_DEV_PROXY === 'true';
+
+// The dev proxy calls the vendor directly from the browser -- no server route, no
+// NATIVE_SIEM_MUTATIONS gate, no drift check, no readback. It cannot perform the safety checks
+// the native write path uses for a rule Optimus already tracks in a SIEM, so it must refuse one
+// rather than silently duplicating or clobbering it. Production builds route tracked rules
+// through the server instead, where this guard would break the feature -- so it is dev-proxy only.
+async function requireUnboundTarget(detectionId?: string, integrationId?: string, vendorRuleId?: string) {
+  let query = supabase.from('siem_rule_bindings').select('id').eq('binding_status', 'active').limit(1);
+  if (detectionId) query = query.eq('detection_id', detectionId);
+  else if (integrationId && vendorRuleId) query = query.eq('integration_id', integrationId).eq('vendor_rule_id', vendorRuleId);
+  else throw new Error('A detection or target rule is required');
+  const { data, error } = await query;
+  if (error) throw new Error('Unable to verify production rule bindings');
+  if (data?.length) throw new Error('This rule is tracked in a SIEM — use Deploy to update it safely instead of the local dev proxy.');
+}
+
+/**
+ * Whether this exact connection already tracks a rule for this detection.
+ *
+ * The deploy path uses it to ROUTE rather than to refuse: a tracked rule is an update of something
+ * live, which only the server route can do safely, so it goes there in development as well as in a
+ * production build. Refusing instead left the Deploy button telling the user to press Deploy.
+ */
+/**
+ * The connection and browser-held credentials the dev proxy would need, or null.
+ *
+ * Whether this browser holds credentials is a ROUTING question, not an error: the credentials the
+ * proxy uses live in this tab's memory (or a legacy config blob), while the real ones are
+ * encrypted server-side, where the Edge Function can use them. Treating their absence as a failure
+ * meant deploying a new rule from a dev server said "Dev credentials not found" while the deployed
+ * app -- and a tracked rule from the same dev server -- went through the server and worked.
+ */
+async function devProxyTarget(integrationId: string): Promise<
+  { integration: Record<string, unknown>; config: Record<string, unknown>; credentials: Record<string, string> } | null
+> {
+  const { data: integration, error } = await supabase
+    .from('integrations')
+    .select('*')
+    .eq('id', integrationId)
+    .single();
+  if (error || !integration) return null;
+  const config = (integration.config || {}) as Record<string, unknown>;
+  const credentials = await migrateDevCredentials(integrationId, config);
+  return credentials ? { integration, config, credentials } : null;
+}
+
+async function hasActiveBinding(
+  integrationId: string,
+  target: { detectionId?: string; vendorRuleId?: string },
+): Promise<boolean> {
+  let query = supabase
+    .from('siem_rule_bindings')
+    .select('id')
+    .eq('binding_status', 'active')
+    .eq('integration_id', integrationId)
+    .limit(1);
+  if (target.detectionId) query = query.eq('detection_id', target.detectionId);
+  if (target.vendorRuleId) query = query.eq('vendor_rule_id', target.vendorRuleId);
+  const { data, error } = await query;
+  if (error) throw new Error('Unable to verify production rule bindings');
+  return Boolean(data?.length);
+}
+
+/**
+ * The reason the server actually gave.
+ *
+ * supabase-js reports a non-2xx Edge Function response as "Edge Function returned a non-2xx status
+ * code" and puts the server's own message in the response body. Throwing the former turned
+ * "Review this detection before deploying" and "Production changed since review" into a shrug --
+ * the user was told a request failed but never what to do about it.
+ */
+async function edgeFunctionMessage(
+  error: { message: string; context?: { json?: () => Promise<{ error?: string }> } },
+  fallback: string,
+): Promise<string> {
+  try {
+    const body = await error.context?.json?.();
+    if (body?.error) return body.error;
+  } catch {
+    /* the response body may not be JSON */
+  }
+  return error.message || fallback;
+}
+
 const PREFLIGHT_POLL_INTERVAL_MS = 10_000;
 
 interface RunPreflightOptions {
@@ -1149,7 +1236,9 @@ async function devListChronicleRules(
       id: r.name?.split('/').pop() || r.ruleId,
       name: r.ruleName || r.metadata?.description || 'Unnamed Rule',
       query: r.ruleText,
-      enabled: r.liveRuleEnabled ?? false,
+      // Preserve absence: execution state lives on a separate RuleDeployment
+      // resource, so a missing liveRuleEnabled means "unknown", not "disabled".
+      enabled: r.liveRuleEnabled,
       severity: r.metadata?.severity,
       description: r.metadata?.description,
       lastModified: r.revisionCreateTime,
@@ -1932,7 +2021,10 @@ async function devListSplunkRules(
     search: e.content?.search,
     isScheduled: e.content?.is_scheduled === '1',
     cronSchedule: e.content?.cron_schedule,
-    disabled: e.content?.disabled === '1',
+    // Same contract as the production edge function's `splunkListRules` projection
+    // (supabase/functions/integration-ops/index.ts): emit `enabled`, never `disabled`,
+    // so normalizeVendorRule's Splunk branch reads one consistent shape in dev and prod.
+    enabled: e.content?.disabled === '1' ? false : true,
     updatedAt: e.updated,
   }));
 }
@@ -2082,8 +2174,58 @@ async function devToggleElasticRule(
 }
 
 // =============================================================================
-// Dev-mode delete for Elastic (missing from existing code)
+// Dev-mode list for Elastic (was missing: the toggle/delete dev paths above already existed for
+// Elastic, but the list switch below did not have a case for it, so a dev-mode Elastic
+// connection fell into the `default` throw for `listVendorRules` alone).
 // =============================================================================
+
+async function devListElasticRules(
+  config: Record<string, unknown>,
+  credentials: Record<string, string>
+): Promise<unknown[]> {
+  const baseUrl = elasticEndpoint(config);
+
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    'kbn-xsrf': 'true',
+  };
+  if (credentials.apiKey) {
+    headers['Authorization'] = `ApiKey ${credentials.apiKey}`;
+  } else if (credentials.username && credentials.password) {
+    headers['Authorization'] = `Basic ${btoa(`${credentials.username}:${credentials.password}`)}`;
+  }
+
+  const rules: Array<Record<string, any>> = [];
+  const seen = new Set<string>();
+  for (let page = 1; page <= 500; page++) {
+    const res = await devProxy(`${baseUrl}/api/detection_engine/rules/_find?per_page=200&page=${page}`, 'GET', headers);
+    if (!res.ok) throw new Error(`Elastic list rules failed (${res.status}): ${res.body.slice(0, 200)}`);
+    const data = JSON.parse(res.body);
+    if (!Array.isArray(data.data)) throw new Error('Elastic returned an invalid rule page');
+    if (data.data.length && data.data.every((rule: Record<string, unknown>) => seen.has(String(rule.id)))) {
+      throw new Error('Elastic returned a repeated page; the rule list is incomplete');
+    }
+    for (const rule of data.data) {
+      if (!rule.id) throw new Error('Elastic returned a rule without an object ID');
+      if (!seen.has(rule.id)) { seen.add(rule.id); rules.push(rule); }
+    }
+    if (data.data.length < 200) break;
+    if (page === 500) throw new Error('Elastic pagination limit reached; the rule list is incomplete');
+  }
+  // Same shape normalizeVendorRule's 'elastic' branch already reads (id/name/enabled/query/
+  // language/severity/type) -- matching the projection the production edge function's
+  // elasticListRules sends, so dev and prod agree on what a rule looks like.
+  return rules.map((rule) => ({
+    id: rule.id,
+    ruleId: rule.rule_id,
+    name: rule.name,
+    enabled: rule.enabled === true,
+    query: rule.query ?? null,
+    language: rule.language,
+    severity: rule.severity,
+    type: rule.type,
+  }));
+}
 
 async function devDeleteElasticRule(
   config: Record<string, unknown>,
@@ -2122,18 +2264,48 @@ async function devDeleteElasticRule(
 // Vendor Rule Normalization
 // =============================================================================
 
-function normalizeVendorRule(
+/**
+ * Derives the observed enable/disable state reported by a vendor's list API.
+ *
+ * Contract: every provider's list projection (dev proxy AND production edge
+ * function alike) must report observed state through one boolean field named
+ * `enabled` on the raw rule object — never a `disabled` field, and never a
+ * provider-specific name like Chronicle's underlying `liveRuleEnabled` (that
+ * gets renamed to `enabled` at projection time, in both
+ * `devListChronicleRules` and `chronicleListRules`). When that field is absent
+ * — whether because the projection never set it, or because the vendor
+ * genuinely didn't return it (Chronicle's execution state lives on a separate
+ * RuleDeployment resource and may simply not be present) — the state is
+ * "unknown", NOT "disabled". Callers must never default a missing value to
+ * `false`.
+ *
+ * `provider` is accepted (rather than reading `raw.enabled` inline at each
+ * call site) so this stays the single place that contract is enforced if a
+ * future provider needs a different raw field name.
+ */
+export function observedState(
+  _provider: IntegrationProvider,
+  raw: Record<string, any>
+): 'enabled' | 'disabled' | 'unknown' {
+  if (raw.enabled === true) return 'enabled';
+  if (raw.enabled === false) return 'disabled';
+  return 'unknown';
+}
+
+export function normalizeVendorRule(
   raw: Record<string, any>,
   provider: IntegrationProvider,
   integrationId: string,
   integrationName: string
 ): VendorRule {
   switch (provider) {
-    case 'splunk':
+    case 'splunk': {
+      const state = observedState(provider, raw);
       return {
         vendorRuleId: raw.name,
         name: raw.name,
-        enabled: !raw.disabled,
+        enabled: state === 'enabled',
+        observedState: state,
         provider,
         integrationId,
         integrationName,
@@ -2144,11 +2316,14 @@ function normalizeVendorRule(
         isFromOptimus: false,
         rawMetadata: raw,
       };
-    case 'sentinel':
+    }
+    case 'sentinel': {
+      const state = observedState(provider, raw);
       return {
         vendorRuleId: raw.id,
         name: raw.name,
-        enabled: raw.enabled ?? false,
+        enabled: state === 'enabled',
+        observedState: state,
         provider,
         integrationId,
         integrationName,
@@ -2159,20 +2334,63 @@ function normalizeVendorRule(
         isFromOptimus: false,
         rawMetadata: raw,
       };
-    case 'defender_xdr':
+    }
+    case 'defender_xdr': {
+      // Microsoft removes `isEnabled` and `schedule.period` on 2026-10-01
+      // (Graph beta security-detectionrule / security-ruleschedule docs,
+      // dated 2026-05-25). Replacements are `status` (enum) and
+      // `schedule.frequency` (ISO-8601 Duration). The tenant evidence we have
+      // (deployment_history, 2026-02-12) shows a tenant served ONLY the
+      // deprecated shape, so both must be read: prefer the current field,
+      // fall back to the deprecated one, and treat absence of both as
+      // `unknown` rather than `disabled` (observedState()'s contract).
+      let rawEnabled: boolean | undefined;
+      let stateReason: string | undefined;
+      if (raw.status !== undefined) {
+        if (raw.status === 'enabled') rawEnabled = true;
+        else if (raw.status === 'disabled') rawEnabled = false;
+        else if (raw.status === 'autoDisabled') {
+          // Microsoft turned the rule off (not a human) -- preserve why.
+          rawEnabled = false;
+          stateReason = 'autoDisabled';
+        }
+        // 'unknownFutureValue' (or any other value) leaves rawEnabled undefined -> unknown.
+      } else if (raw.isEnabled !== undefined) {
+        rawEnabled = raw.isEnabled === true;
+      }
+      const state = observedState(provider, { enabled: rawEnabled });
+
+      const frequency = raw.schedule?.frequency;
+      const period = raw.schedule?.period;
+      const schedule =
+        frequency !== undefined
+          ? frequency
+          : period !== undefined
+            ? period === '0'
+              ? 'continuous' // '0' means continuous, not a literal zero-length interval.
+              : period
+            : undefined;
+
       return {
         vendorRuleId: raw.id,
         name: raw.name,
-        enabled: raw.enabled ?? false,
+        enabled: state === 'enabled',
+        observedState: state,
         provider,
         integrationId,
         integrationName,
         query: raw.query || null,
         queryLanguage: 'KQL',
-        schedule: raw.frequency,
+        schedule,
+        description: raw.description || raw.detectionAction?.alertTemplate?.description,
         isFromOptimus: false,
-        rawMetadata: raw,
+        // Full raw response preserved (not just the projected fields) so the
+        // next real fetch reveals which shape the tenant serves today --
+        // including mitreTechniques, organizationalScope, responseActions,
+        // automatedActions, detectorId and lastRunDetails where present.
+        rawMetadata: stateReason ? { ...raw, stateReason } : raw,
       };
+    }
     case 'elastic':
       return {
         vendorRuleId: raw.id,
@@ -2205,11 +2423,13 @@ function normalizeVendorRule(
         isFromOptimus: false,
         rawMetadata: raw,
       };
-    case 'chronicle':
+    case 'chronicle': {
+      const state = observedState(provider, raw);
       return {
         vendorRuleId: raw.id,
         name: raw.name,
-        enabled: raw.enabled ?? false,
+        enabled: state === 'enabled',
+        observedState: state,
         provider,
         integrationId,
         integrationName,
@@ -2221,6 +2441,7 @@ function normalizeVendorRule(
         isFromOptimus: false,
         rawMetadata: raw,
       };
+    }
     default:
       return {
         vendorRuleId: raw.id || raw.name || '',
@@ -2249,7 +2470,8 @@ export const integrationService = {
       .order('created_at', { ascending: false });
 
     if (error) throw new Error(`Failed to list integrations: ${error.message}`);
-    return (data || []) as Integration[];
+    // select('*') works before archived_at is introduced by the native SIEM migration.
+    return (data || []).filter((integration) => !integration.archived_at) as Integration[];
   },
 
   async getIntegration(id: string): Promise<Integration> {
@@ -2317,6 +2539,15 @@ export const integrationService = {
   },
 
   async deleteIntegration(id: string): Promise<void> {
+    const { data: runs, error: runError } = await supabase.from('siem_sync_runs').select('id').eq('integration_id', id).limit(1);
+    const { data: bindings, error: bindingError } = await supabase.from('siem_rule_bindings').select('id').eq('integration_id', id).limit(1);
+    if (runError || bindingError) throw new Error('Unable to verify connection history');
+    if (runs?.length || bindings?.length) {
+      const { data, error } = await supabase.functions.invoke('integration-ops', { body: { action: 'native_disconnect', integrationId: id } });
+      if (error || data?.error) throw new Error(data?.error || error?.message);
+      devCredentialCache.delete(id);
+      return;
+    }
     const { error } = await supabase
       .from('integrations')
       .delete()
@@ -2495,14 +2726,14 @@ export const integrationService = {
 
       if (error || !integration) throw new Error('Integration not found');
 
+      const config = (integration.config || {}) as Record<string, unknown>;
+      const credentials = await migrateDevCredentials(integrationId, config);
+      if (!credentials) throw new Error('Dev credentials not found — please re-enter credentials in integration settings.');
+
       await supabase
         .from('integrations')
         .update({ status: 'testing' })
         .eq('id', integrationId);
-
-      const config = (integration.config || {}) as Record<string, unknown>;
-      const credentials = await migrateDevCredentials(integrationId, config);
-      if (!credentials) throw new Error('Dev credentials not found — please re-enter credentials in integration settings.');
 
       let result: ConnectionTestResult;
       try {
@@ -2542,6 +2773,10 @@ export const integrationService = {
     queryLanguage: string;
     ruleConfig?: Partial<VendorRuleConfig> & { name?: string; description?: string; action?: string };
     vendorRuleId?: string;
+    // Present only for a rule already tracked in a SIEM: the revision the user reviewed
+    // in the Deploy modal's production comparison before confirming.
+    expectedHash?: string;
+    expectedVersion?: number;
   }): Promise<DeploymentRecord> {
     // Guard: only Production Library detections can be deployed
     const { data: detectionCheck } = await supabase
@@ -2559,40 +2794,28 @@ export const integrationService = {
       );
     }
 
-    if (IS_DEV) {
+    // The dev proxy calls the vendor straight from the browser: no write gate, no drift check, no
+    // readback. A rule this connection already tracks is therefore the server route's to write, in
+    // development too -- otherwise the only UI route to update it dead-ends. Untracked targets keep
+    // the proxy, and requireUnboundTarget still refuses one bound anywhere else.
+    // ... and the proxy is only usable at all when this browser holds credentials for the
+    // connection. Without them the deploy belongs to the server route, which has the encrypted
+    // ones -- the same path the deployed app always takes.
+    let devTarget = IS_DEV && !(await hasActiveBinding(params.integrationId, { detectionId: params.detectionId }))
+      ? await devProxyTarget(params.integrationId)
+      : null;
+    // Defender always uses the server's inventory verification, even with the dev proxy enabled.
+    if (devTarget?.integration.provider === 'defender_xdr') devTarget = null;
+    if (devTarget) {
+      await requireUnboundTarget(params.detectionId, params.integrationId, params.vendorRuleId);
+
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      const { data: integration, error: intErr } = await supabase
-        .from('integrations')
-        .select('*')
-        .eq('id', params.integrationId)
-        .single();
-      if (intErr || !integration) throw new Error('Integration not found');
+      const { integration, config, credentials } = devTarget;
 
-      const config = (integration.config || {}) as Record<string, unknown>;
-      const credentials = await migrateDevCredentials(params.integrationId, config);
-      if (!credentials) throw new Error('Dev credentials not found — please re-enter credentials in integration settings.');
-
-      // Check for existing deployment (auto-upgrade create → update)
-      let action = params.vendorRuleId ? 'update' : 'create';
-      let existingVendorRuleId = params.vendorRuleId;
-      if (action === 'create') {
-        const { data: existing } = await supabase
-          .from('deployment_history')
-          .select('vendor_rule_id')
-          .eq('detection_id', params.detectionId)
-          .eq('integration_id', params.integrationId)
-          .eq('action', 'create')
-          .eq('status', 'success')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (existing?.vendor_rule_id) {
-          action = 'update';
-          existingVendorRuleId = existing.vendor_rule_id;
-        }
-      }
+      const action = params.ruleConfig?.action || (params.vendorRuleId ? 'update' : 'create');
+      const existingVendorRuleId = action === 'update' ? params.vendorRuleId : undefined;
 
       const startedAt = new Date().toISOString();
 
@@ -2705,11 +2928,14 @@ export const integrationService = {
         query: params.query,
         queryLanguage: params.queryLanguage,
         ruleConfig: params.ruleConfig,
-        vendorRuleId: params.vendorRuleId,
+        vendorRuleId: params.ruleConfig?.action === 'create' ? undefined : params.vendorRuleId,
+        // Present only for a rule already tracked in a SIEM: the revision the user reviewed.
+        expectedHash: params.expectedHash,
+        expectedVersion: params.expectedVersion,
       },
     });
 
-    if (error) throw new Error(`Deployment failed: ${error.message}`);
+    if (error) throw new Error(await edgeFunctionMessage(error, 'Deployment failed'));
     if (data?.error) throw new Error(data.error);
     return data.deployment as DeploymentRecord;
   },
@@ -2720,7 +2946,7 @@ export const integrationService = {
     windowDays: number;
     provider: IntegrationProvider;
   }, options: RunPreflightOptions = {}): Promise<PreflightResult> {
-    if (IS_DEV && params.provider !== 'crowdstrike') {
+    if (IS_DEV && params.provider === 'defender_xdr') {
       return devRunPreflightDefenderXdr(params);
     }
     const { data, error } = await supabase.functions.invoke('integration-ops', {
@@ -2731,7 +2957,7 @@ export const integrationService = {
         windowDays: params.windowDays,
       },
     });
-    if (error) throw new Error(`Pre-flight failed: ${error.message}`);
+    if (error) throw new Error(`Pre-flight failed: ${await edgeFunctionMessage(error, 'Request failed')}`);
     if (data?.error) throw new Error(data.error);
     let run = data as PreflightResult;
     if (run.status !== 'running') return run;
@@ -2784,6 +3010,8 @@ export const integrationService = {
           return devListCrowdStrikeRules(config, credentials);
         case 'chronicle':
           return devListChronicleRules(config, credentials);
+        case 'elastic':
+          return devListElasticRules(config, credentials);
         default:
           throw new Error(`Dev mode list rules not implemented for ${integration.provider}`);
       }
@@ -2836,7 +3064,11 @@ export const integrationService = {
   },
 
   async toggleVendorRule(integrationId: string, vendorRuleId: string, enabled: boolean): Promise<void> {
-    if (IS_DEV) {
+    // A tracked rule's enable/disable goes through the server route in development too: the proxy
+    // cannot read production first, refuse under drift, or read the result back.
+    if (IS_DEV && !(await hasActiveBinding(integrationId, { vendorRuleId }))) {
+      await requireUnboundTarget(undefined, integrationId, vendorRuleId);
+
       const { data: integration, error } = await supabase
         .from('integrations')
         .select('*')
@@ -2882,12 +3114,14 @@ export const integrationService = {
       },
     });
 
-    if (error) throw new Error(`Failed to toggle rule: ${error.message}`);
+    if (error) throw new Error(await edgeFunctionMessage(error, 'Failed to toggle rule'));
     if (data?.error) throw new Error(data.error);
   },
 
   async deleteVendorRule(integrationId: string, vendorRuleId: string): Promise<void> {
-    if (IS_DEV) {
+    if (IS_DEV && !(await hasActiveBinding(integrationId, { vendorRuleId }))) {
+      await requireUnboundTarget(undefined, integrationId, vendorRuleId);
+
       const { data: integration, error } = await supabase
         .from('integrations')
         .select('*')
@@ -2941,11 +3175,17 @@ export const integrationService = {
       },
     });
 
-    if (error) throw new Error(`Failed to delete rule: ${error.message}`);
+    if (error) throw new Error(await edgeFunctionMessage(error, 'Failed to delete rule'));
     if (data?.error) throw new Error(data.error);
   },
 
   async importVendorRule(rule: VendorRule): Promise<string> {
+    // Every provider whose durable import is enabled (supportsNativeImport) goes through
+    // "Sync rules to Production Library" on the connection instead -- this legacy path predates
+    // matching/linking, duplicate detection and event recording, none of which it has. CrowdStrike
+    // was blocked here first; this is the same guard applied to the other five now that their
+    // durable readers exist. A provider without the capability keeps this path exactly as before.
+    if (supportsNativeImport(rule.provider)) throw new Error('Use “Sync rules to Production Library” on the connection to import and link this rule.');
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
@@ -2958,18 +3198,30 @@ export const integrationService = {
       'KQL': 'KQL',
       'LUCENE': 'Lucene',
       'EQL': 'EQL',
-      'ES|QL': 'ES|QL',
-      'ESQL': 'ES|QL',
+      'ES|QL': 'ESQL',
+      'ESQL': 'ESQL',
       'YARA-L': 'YARA-L',
     };
     const normalizedLang = queryLanguageMap[rule.queryLanguage.toUpperCase()] || rule.queryLanguage;
 
     // Determine source based on provider
+    // This path is unreachable today for every provider supportsNativeImport() covers (blocked
+    // above); it only still runs for a provider that has NOT been given durable import, or if one
+    // is rolled back later. The map is still fixed here so it is correct the moment that happens.
+    //
+    // Defender XDR used to share 'microsoft_sentinel' with the actual Sentinel entry -- a
+    // confirmed defect, not a deliberate choice, so a Defender-imported row was mislabelled as
+    // Sentinel-sourced. There is no dedicated DetectionSource value for Defender XDR (see
+    // types/detection.ts), and the durable path's own rows use 'native_siem' (Task 17), so that is
+    // what a Defender import through this legacy path gets now instead of colliding with Sentinel.
+    // Existing rows already written with 'microsoft_sentinel' are NOT rewritten here -- there is
+    // no way to tell, after the fact, which of those rows actually came from Defender vs Sentinel
+    // without proven native provenance, and guessing would corrupt correct Sentinel rows.
     const sourceMap: Record<string, string> = {
       splunk: 'splunk_escu',
       sentinel: 'microsoft_sentinel',
       elastic: 'elastic',
-      defender_xdr: 'microsoft_sentinel',
+      defender_xdr: 'native_siem',
       crowdstrike: 'crowdstrike',
       chronicle: 'chronicle',
     };
@@ -3051,7 +3303,14 @@ export const integrationService = {
   },
 
   async deleteDeployedRule(deploymentId: string): Promise<void> {
-    if (IS_DEV) {
+    const { data: target, error: targetError } = await supabase.from('deployment_history')
+      .select('detection_id,integration_id,vendor_rule_id').eq('id', deploymentId).single();
+    if (targetError) throw new Error('Deployment not found');
+    if (IS_DEV && !(await hasActiveBinding(target.integration_id, {
+      detectionId: target.detection_id, vendorRuleId: target.vendor_rule_id,
+    }))) {
+      await requireUnboundTarget(target.detection_id, target.integration_id, target.vendor_rule_id);
+
       const { data: deployment, error: depErr } = await supabase
         .from('deployment_history')
         .select('*, integration:integrations(*)')
@@ -3099,7 +3358,7 @@ export const integrationService = {
       },
     });
 
-    if (error) throw new Error(`Failed to delete rule: ${error.message}`);
+    if (error) throw new Error(await edgeFunctionMessage(error, 'Failed to delete rule'));
     if (data?.error) throw new Error(data.error);
   },
 };

@@ -10,7 +10,7 @@ import { classifyRule } from '../../_shared/rule-type.ts'
 
 export const MAX_MODEL_OUTPUT_CHARS = 1_000_000
 export const ALLOWED_MODEL_IDS = new Set([
-  'gemini-3.6-flash', 'gemini-3.5-flash-lite',
+  'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.8-flash',
   'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna',
   'claude-opus-5', 'claude-sonnet-5',
 ])

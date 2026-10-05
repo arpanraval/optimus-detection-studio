@@ -28,7 +28,7 @@ import { duplicateDetector } from '../validators/DuplicateDetector';
 import { detectionNormalizer, NormalizationOptions } from '../normalizers/DetectionNormalizer';
 import { zipFetcher } from '../fetchers/ZipFetcher';
 import { fileFetcher } from '../fetchers/FileFetcher';
-import { GitHubFetcher } from '../fetchers/GitHubFetcher';
+import { GitHubFetcher, isUnderIncludePaths } from '../fetchers/GitHubFetcher';
 import { batchInserter } from '../persistence/BatchInserter';
 import { Detection } from '../../../types';
 import { batchResolveTechniques } from '../../../mitre';
@@ -70,6 +70,11 @@ export class BulkImportJobManager {
     this.embeddingStrategy = strategy;
   }
 
+  /** Strategy that will run after the next insert (config value, unless overridden by the setter). */
+  getEmbeddingStrategy(): EmbeddingStrategy {
+    return this.embeddingStrategy;
+  }
+
   /**
    * Create a new import job
    */
@@ -100,6 +105,9 @@ export class BulkImportJobManager {
       updatedAt: now,
     };
 
+    // A job config may carry its own strategy (onboarding pre-check). Without one, fall back to
+    // the default so a previous job's choice never leaks into this one on the shared singleton.
+    this.embeddingStrategy = config.embeddingStrategy ?? 'realtime';
     this.aborted = false;
     this.githubFetcher.resetAbort();
     return this.job;
@@ -403,6 +411,8 @@ export class BulkImportJobManager {
       const result = await this.githubFetcher.fetch(config.sourceUrl, {
         token: config.githubToken,
         path: config.githubPath,
+        // Folder selection is applied at the tree level so unselected folders are never downloaded.
+        includePaths: config.includePaths,
         onProgress: (current, total, fileName) => {
           this.updateProgress({
             processedFiles: current,
@@ -439,11 +449,12 @@ export class BulkImportJobManager {
     const parsedRules: ParsedRule[] = [];
     const warnings: string[] = [];
 
-    // Filter by includePaths if specified (folder selection from onboarding)
+    // Filter by includePaths if specified (folder selection from onboarding). For GitHub sources the
+    // fetcher already applied this at the tree level; this remains a safety net for other sources.
     const includePaths = this.job!.config.includePaths;
     if (includePaths && includePaths.length > 0) {
       const beforeCount = files.length;
-      files = files.filter((f) => includePaths.some((prefix) => f.path.startsWith(prefix + '/') || f.path === prefix));
+      files = files.filter((f) => isUnderIncludePaths(f.path, includePaths));
       if (files.length < beforeCount) {
         warnings.push(`Filtered ${beforeCount - files.length} files outside selected folders`);
       }

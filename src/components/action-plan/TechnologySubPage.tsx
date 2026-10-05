@@ -72,7 +72,11 @@ export const TechnologySubPage: React.FC<Props> = ({ profile, bucket }) => {
   }, [intel.tacticThreatCoverage, bucket, buckets]);
 
   const actionableGapCount = scopedGaps.filter(g => g.siemDetectable).length;
-  const techniquesInScope = scopedMatrix.reduce((s, t) => s + t.totalCount, 0);
+  const techniquesInScope = new Set(scopedMatrix.flatMap(t => t.techniques.map(tech => tech.mitreId))).size;
+
+  if (feasibility.error || intel.error) {
+    return <div role="alert" className="p-6 text-error">{feasibility.error || intel.error}</div>;
+  }
 
   return (
     <div className="h-full overflow-y-auto bg-background scrollbar-page animate-page-enter">
@@ -101,7 +105,7 @@ export const TechnologySubPage: React.FC<Props> = ({ profile, bucket }) => {
               {scopedDetections.length.toLocaleString()}
             </div>
             <div className="text-[9px] text-on-surface-variant uppercase tracking-wider mt-1">
-              {BUCKET_LABELS[bucket]} Detections
+              {BUCKET_LABELS[bucket]} Candidates
             </div>
             <div className="text-[8px] text-outline mt-0.5">relevant to your environment</div>
           </div>

@@ -446,6 +446,7 @@ export interface MatchedDetection {
   status: string;
   qualityScore: number;
   testedAndValidated: boolean;
+  library_type?: string;
 }
 
 export interface MatchResult {
@@ -497,12 +498,12 @@ export async function matchDetectionsByLogSources(
   while (!done) {
     const { data, error } = await supabase
       .from('detections')
-      .select('id,name,severity,mitreAttackIds,mitreTechniques,mitreTactics,queryLanguage,logSource,technology,status,qualityScore,testedAndValidated')
+      .select('id,name,severity,mitreAttackIds,mitreTechniques,mitreTactics,queryLanguage,logSource,technology,status,qualityScore,testedAndValidated,library_type')
+      .order('id')
       .range(from, from + pageSize - 1);
 
     if (error) {
-      console.error('[logSourceDiscovery] Supabase query error:', error.message, error.details);
-      done = true;
+      throw new Error(`Could not load detection candidates: ${error.message}`);
     } else if (!data || data.length === 0) {
       done = true;
     } else {
@@ -521,6 +522,7 @@ export async function matchDetectionsByLogSources(
           status: d.status || 'Draft',
           qualityScore: d.qualityScore ?? 0,
           testedAndValidated: d.testedAndValidated ?? false,
+          library_type: d.library_type,
         });
       }
       if (data.length < pageSize) done = true;

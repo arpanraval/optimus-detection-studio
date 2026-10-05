@@ -532,6 +532,7 @@ export async function generateReportExcel(report: StateSponsoredReport): Promise
     chronicle: 'Chronicle',
     community: 'Community',
     custom: 'Custom',
+    native_siem: 'SIEM Import',
   };
 
   // Group detections by source (vendor) instead of query language

@@ -1,3 +1,4 @@
+import { sentinelAttackMapping, SENTINEL_API_VERSION } from '../../../supabase/functions/_shared/sentinel-mitre';
 /**
  * packExporters — SIEM-native export formats for detection packs.
  *
@@ -285,7 +286,7 @@ function detectionToSentinelRule(detection: Detection, index: number): Record<st
 
   return {
     type: 'Microsoft.OperationalInsights/workspaces/providers/alertRules',
-    apiVersion: '2022-11-01',
+    apiVersion: SENTINEL_API_VERSION,
     name: `[concat(parameters('workspace'),'/Microsoft.SecurityInsights/',guid('${detection.id}'))]`,
     kind: 'Scheduled',
     properties: {
@@ -301,7 +302,7 @@ function detectionToSentinelRule(detection: Detection, index: number): Record<st
       suppressionDuration: 'PT1H',
       suppressionEnabled: false,
       tactics: (detection.mitreTactics || []).map((t) => t.replace(/\s+/g, '')),
-      techniques: detection.mitreAttackIds || [],
+      ...sentinelAttackMapping(detection.mitreAttackIds || []),
     },
     dependsOn: [],
   };

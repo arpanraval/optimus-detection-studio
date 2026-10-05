@@ -74,11 +74,9 @@ export const PackVersionTimeline: React.FC<Props> = ({ packId, onRestored }) => 
   if (versions.length === 0) {
     return (
       <div className="text-center py-12">
-        <Icon name="tag" className="w-10 h-10 text-on-surface-variant/30 mx-auto mb-3" />
+        <Icon name="tag" className="w-10 h-10 text-on-surface-variant mx-auto mb-3" />
         <p className="text-on-surface-variant font-medium">No versions published yet</p>
-        <p className="text-xs text-on-surface-variant/60 mt-1">
-          Click "Publish" to create the first immutable snapshot
-        </p>
+        <p className="text-xs text-on-surface-variant mt-1">Click "Publish" to create the first immutable snapshot</p>
       </div>
     );
   }
@@ -102,9 +100,7 @@ export const PackVersionTimeline: React.FC<Props> = ({ packId, onRestored }) => 
             {/* Dot */}
             <div
               className={`absolute left-2 top-2 w-4 h-4 rounded-full border-2 ${
-                isLatest
-                  ? 'bg-primary border-primary'
-                  : 'bg-surface border-outline-variant'
+                isLatest ? 'bg-primary border-primary' : 'bg-surface border-outline-variant'
               }`}
             />
 
@@ -112,18 +108,14 @@ export const PackVersionTimeline: React.FC<Props> = ({ packId, onRestored }) => 
             <div className="bg-surface-container rounded-lg p-4 border border-outline-variant/20">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-bold text-on-surface truncate">
-                    {v.label || `v${v.version_number}`}
-                  </span>
+                  <span className="font-bold text-on-surface truncate">{v.label || `v${v.version_number}`}</span>
                   {isLatest && (
-                    <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded uppercase tracking-wider flex-shrink-0">
+                    <span className="text-[10px] font-semibold text-on-surface bg-secondary/10 px-2 py-0.5 rounded uppercase tracking-wider flex-shrink-0">
                       Latest
                     </span>
                   )}
                 </div>
-                <span className="text-xs text-on-surface-variant flex-shrink-0 ml-2">
-                  {formatDate(v.created_at)}
-                </span>
+                <span className="text-xs text-on-surface-variant flex-shrink-0 ml-2">{formatDate(v.created_at)}</span>
               </div>
 
               <div className="text-xs text-on-surface-variant mb-2 flex items-center gap-1">
@@ -131,16 +123,12 @@ export const PackVersionTimeline: React.FC<Props> = ({ packId, onRestored }) => 
                 {detectionCount} detection{detectionCount !== 1 ? 's' : ''} snapshotted
               </div>
 
-              {v.notes && (
-                <p className="text-sm text-on-surface/80 whitespace-pre-wrap mb-3">
-                  {v.notes}
-                </p>
-              )}
+              {v.notes && <p className="text-sm text-on-surface/80 whitespace-pre-wrap mb-3">{v.notes}</p>}
 
               {/* Diff vs previous version — only when there IS a previous */}
               {idx < versions.length - 1 && (
                 <details className="mt-2">
-                  <summary className="text-xs text-on-surface-variant/70 hover:text-on-surface cursor-pointer select-none">
+                  <summary className="text-xs text-on-surface-variant hover:text-on-surface cursor-pointer select-none">
                     Show changes since v{versions[idx + 1].version_number}
                   </summary>
                   <VersionDiffDisplay older={versions[idx + 1]} newer={v} />
@@ -152,9 +140,12 @@ export const PackVersionTimeline: React.FC<Props> = ({ packId, onRestored }) => 
                   {showConfirm ? (
                     <div className="flex flex-col gap-2 w-full">
                       {confirmHasDeploys && (
-                        <div role="alert" className="flex items-start gap-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-                          <Icon name="alert-triangle" className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-                          <div className="text-xs text-amber-200">
+                        <div
+                          role="alert"
+                          className="flex items-start gap-2 p-2.5 bg-surface-container-highest border border-outline-variant/30 rounded-lg"
+                        >
+                          <Icon name="alert-triangle" className="w-4 h-4 text-on-surface flex-shrink-0 mt-0.5" />
+                          <div className="text-xs text-on-surface">
                             <div className="font-semibold mb-0.5">This pack has active SIEM deployments</div>
                             <div>
                               Rollback only changes the pack's local detection list. Rules already deployed to SIEMs
@@ -167,12 +158,15 @@ export const PackVersionTimeline: React.FC<Props> = ({ packId, onRestored }) => 
                         <button
                           onClick={() => handleRollback(v.id, v.version_number)}
                           disabled={isRollingBack}
-                          className="text-xs font-semibold px-3 py-1.5 bg-yellow-500/20 text-yellow-400 rounded hover:bg-yellow-500/30 transition-colors"
+                          className="text-xs font-semibold px-3 py-1.5 bg-surface-container-highest text-on-surface rounded hover:bg-surface-container-highest transition-colors"
                         >
                           {isRollingBack ? 'Rolling back...' : 'Confirm rollback'}
                         </button>
                         <button
-                          onClick={() => { setConfirmId(null); setConfirmHasDeploys(false); }}
+                          onClick={() => {
+                            setConfirmId(null);
+                            setConfirmHasDeploys(false);
+                          }}
                           disabled={isRollingBack}
                           className="text-xs text-on-surface-variant hover:text-on-surface"
                         >
@@ -202,15 +196,19 @@ export const PackVersionTimeline: React.FC<Props> = ({ packId, onRestored }) => 
 const VersionDiffDisplay: React.FC<{ older: PackVersion; newer: PackVersion }> = ({ older, newer }) => {
   const diff = computeVersionDiff(older, newer);
   if (diff.added.length === 0 && diff.removed.length === 0) {
-    return <div className="mt-2 text-xs text-on-surface-variant/60">No detection changes</div>;
+    return <div className="mt-2 text-xs text-on-surface-variant">No detection changes</div>;
   }
   return (
     <div className="mt-2 text-xs space-y-1">
       {diff.added.length > 0 && (
-        <div className="text-emerald-300">+ {diff.added.length} detection{diff.added.length !== 1 ? 's' : ''} added</div>
+        <div className="text-on-surface">
+          + {diff.added.length} detection{diff.added.length !== 1 ? 's' : ''} added
+        </div>
       )}
       {diff.removed.length > 0 && (
-        <div className="text-red-300">− {diff.removed.length} detection{diff.removed.length !== 1 ? 's' : ''} removed</div>
+        <div className="text-error">
+          − {diff.removed.length} detection{diff.removed.length !== 1 ? 's' : ''} removed
+        </div>
       )}
     </div>
   );

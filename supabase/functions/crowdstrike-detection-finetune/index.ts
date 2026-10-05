@@ -23,8 +23,8 @@ import {
 } from '../_shared/crowdstrike-finetune-query.ts'
 import {
   isCrowdStrikeQueryRepository,
-  pickCrowdStrikeQuery,
 } from '../_shared/crowdstrike-preflight.ts'
+import { selectSiemQuery } from '../_shared/siem-query-selection.ts'
 
 declare const Deno: {
   env: { get(key: string): string | undefined }
@@ -145,7 +145,7 @@ async function handleStart(
 
   const { data: existing } = await admin
     .from('crowdstrike_finetune_runs')
-    .select('id, anthropic_session_id')
+    .select('id, anthropic_session_id, integration_id')
     .eq('detection_id', body.detectionId)
     .eq('user_id', userId)
     .eq('status', 'running')
@@ -153,6 +153,9 @@ async function handleStart(
     .limit(1)
     .maybeSingle()
   if (existing) {
+    if (existing.integration_id !== body.integrationId) {
+      return json({ error: 'A fine-tuning run is active on another integration. Finish or cancel it first.' }, req, 409)
+    }
     return json({ runId: existing.id, sessionId: existing.anthropic_session_id, resumed: true }, req)
   }
 
@@ -163,12 +166,21 @@ async function handleStart(
     .single()
   if (detectionError || !detection) return json({ error: 'Detection not found.' }, req, 404)
   if (detection.user_id !== userId) return json({ error: 'You can only finetune your own detections.' }, req, 403)
-  const cql = pickCrowdStrikeQuery(detection)
+  const { data: bindings, error: bindingError } = await admin.from('siem_rule_bindings')
+    .select('selected_query_id').eq('detection_id', body.detectionId)
+    .eq('integration_id', body.integrationId).eq('binding_status', 'active')
+  if (bindingError) return json({ error: 'Could not resolve the tracked query.' }, req, 500)
+  let cql: string | null
+  try {
+    cql = selectSiemQuery(detection, 'CQL', (bindings ?? []).map((binding: { selected_query_id: string }) => binding.selected_query_id))
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : 'Invalid tracked query.' }, req, 400)
+  }
   if (!cql) return json({ error: 'This detection has no CrowdStrike CQL query to finetune.' }, req, 400)
 
   const { data: preflight, error: preflightError } = await admin
     .from('detection_preflight_runs')
-    .select('id, user_id, integration_id, detection_id, provider, status, validation_passed, hit_count, sample, window_days')
+    .select('id, user_id, integration_id, detection_id, provider, status, validation_passed, hit_count, sample, window_days, query_text')
     .eq('id', body.preflightRunId)
     .single()
   if (preflightError || !preflight) return json({ error: 'CrowdStrike pre-flight run not found.' }, req, 404)
@@ -179,6 +191,7 @@ async function handleStart(
     preflight.provider !== 'crowdstrike' ||
     preflight.status !== 'success' ||
     preflight.validation_passed !== true ||
+    preflight.query_text !== cql ||
     typeof preflight.hit_count !== 'number'
   ) {
     return json({ error: 'A successful matching CrowdStrike pre-flight run is required.' }, req, 400)
@@ -226,13 +239,13 @@ async function handleStart(
     if ((insertError as { code?: string }).code === '23505') {
       const { data: duplicate } = await admin
         .from('crowdstrike_finetune_runs')
-        .select('id, anthropic_session_id')
+        .select('id, anthropic_session_id, integration_id')
         .eq('detection_id', body.detectionId)
         .eq('user_id', userId)
         .eq('status', 'running')
         .maybeSingle()
       try { await sendEvents(sessionId, [interrupt()]) } catch { /* best effort */ }
-      if (duplicate) {
+      if (duplicate && duplicate.integration_id === body.integrationId) {
         return json({
           runId: duplicate.id,
           sessionId: duplicate.anthropic_session_id,

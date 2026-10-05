@@ -8,7 +8,7 @@ import { DetectionActionPlan } from '../../components/settings/environment-wizar
 export const DetectionActionPlanPage: React.FC = () => {
   const navigate = useNavigate();
   const { profile, isLoading } = useEnvironmentProfile();
-  const [includeMyLab, setIncludeMyLab] = useState(false);
+  const [includeMyLab, setIncludeMyLab] = useState(true);
   const scope = includeMyLab ? 'all' as const : 'production' as const;
 
   if (isLoading) {

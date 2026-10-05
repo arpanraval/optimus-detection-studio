@@ -30,7 +30,10 @@ END $$;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS "vector" WITH SCHEMA extensions;
 
-SET search_path TO public, extensions, pg_catalog;
+-- pg_catalog stays first (the Postgres default). Listing it last made unqualified gen_random_uuid()
+-- bind to the pgcrypto copy in "extensions", while migrations and the live project bind to the core
+-- function, so a fresh install and an upgraded database printed different column defaults.
+SET search_path TO pg_catalog, public, extensions;
 
 -- ============================================================
 -- Sequences
@@ -1142,12 +1145,12 @@ ALTER TABLE public.detection_embeddings ADD CONSTRAINT detection_embeddings_pkey
 ALTER TABLE public.detection_finetune_runs ADD CONSTRAINT detection_finetune_runs_pkey PRIMARY KEY (id);
 ALTER TABLE public.detection_finetune_runs ADD CONSTRAINT detection_finetune_runs_window_days_check CHECK (((window_days >= 1) AND (window_days <= 30)));
 ALTER TABLE public.detection_finetune_runs ADD CONSTRAINT detection_finetune_runs_status_check CHECK ((status = ANY (ARRAY['running'::text, 'completed'::text, 'failed'::text, 'cancelled'::text])));
-ALTER TABLE public.detection_finetune_runs ADD CONSTRAINT detection_finetune_runs_provider_check CHECK ((provider = 'defender_xdr'::text));
+ALTER TABLE public.detection_finetune_runs ADD CONSTRAINT detection_finetune_runs_provider_check CHECK ((provider = ANY (ARRAY['defender_xdr'::text, 'sentinel'::text])));
 ALTER TABLE public.detection_packs ADD CONSTRAINT detection_packs_pack_type_check CHECK ((pack_type = ANY (ARRAY['tactic'::text, 'technology'::text, 'threat_actor'::text, 'campaign'::text, 'ransomware'::text, 'custom'::text, 'siem_ready'::text, 'use_case'::text])));
 ALTER TABLE public.detection_packs ADD CONSTRAINT detection_packs_pkey PRIMARY KEY (id);
 ALTER TABLE public.detection_patterns ADD CONSTRAINT detection_patterns_pkey PRIMARY KEY (id);
 ALTER TABLE public.detection_patterns ADD CONSTRAINT detection_patterns_unique UNIQUE (user_id, detection_id);
-ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_provider_check CHECK ((provider = ANY (ARRAY['defender_xdr'::text, 'crowdstrike'::text])));
+ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_provider_check CHECK ((provider = ANY (ARRAY['defender_xdr'::text, 'crowdstrike'::text, 'sentinel'::text])));
 ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_pkey PRIMARY KEY (id);
 ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'success'::text, 'query_error'::text, 'connection_error'::text, 'timeout'::text, 'permission_denied'::text, 'cancelled'::text])));
 ALTER TABLE public.detection_preflight_runs ADD CONSTRAINT detection_preflight_runs_window_days_check CHECK (((window_days >= 1) AND (window_days <= 90)));
@@ -1454,7 +1457,7 @@ CREATE INDEX idx_mitre_technique_data_sources_technique ON public.mitre_techniqu
 CREATE INDEX idx_deployment_history_user_id ON public.deployment_history USING btree (user_id);
 CREATE INDEX idx_deployment_history_integration_id ON public.deployment_history USING btree (integration_id);
 CREATE INDEX idx_deployment_history_detection_id ON public.deployment_history USING btree (detection_id);
-CREATE UNIQUE INDEX idx_active_deployment ON public.deployment_history USING btree (detection_id, integration_id) WHERE ((action = 'create'::text) AND (status = 'success'::text));
+CREATE UNIQUE INDEX idx_deployment_create_identity ON public.deployment_history USING btree (detection_id, integration_id, vendor_rule_id) WHERE ((action = 'create'::text) AND (status = 'success'::text));
 CREATE INDEX idx_integrations_user_id ON public.integrations USING btree (user_id);
 CREATE INDEX idx_integrations_provider ON public.integrations USING btree (provider);
 CREATE INDEX idx_integration_credentials_integration_id ON public.integration_credentials USING btree (integration_id);
@@ -2685,6 +2688,18 @@ AS $function$
         SELECT array_agg(DISTINCT val ORDER BY val)
         FROM detections, unnest("associatedCVEs") val
         WHERE library_type = p_library_type AND val IS NOT NULL AND val != ''
+      ), '{}'),
+
+    -- Query languages actually present in this library. The filter panel unions these with the
+    -- curated QUERY_LANGUAGES list so a value written by an importer or an older client is
+    -- still findable, instead of the panel offering options that match nothing while the real
+    -- rules are unreachable.
+    'query_languages',
+      COALESCE((
+        SELECT array_agg(DISTINCT "queryLanguage" ORDER BY "queryLanguage")
+        FROM detections
+        WHERE library_type = p_library_type
+          AND "queryLanguage" IS NOT NULL AND "queryLanguage" != ''
       ), '{}')
   );
 $function$;
@@ -9879,3 +9894,1769 @@ BEGIN
   END LOOP;
 END
 $backup_lockdown$;
+
+-- Native SIEM library (20260914153559)
+-- Native SIEM inventory. All operational writes are performed by the authorized backend.
+ALTER TABLE public.detections ADD COLUMN IF NOT EXISTS native_provenance jsonb;
+ALTER TABLE public.integrations ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+
+CREATE TABLE public.siem_sync_runs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  integration_id uuid NOT NULL REFERENCES public.integrations(id) ON DELETE RESTRICT,
+  actor_id uuid NOT NULL REFERENCES auth.users(id),
+  provider_scope text NOT NULL,
+  status text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','complete','partial','failed','cancelled')),
+  phase text NOT NULL DEFAULT 'discovery' CHECK (phase IN ('discovery','hydration')),
+  cursor_offset integer NOT NULL DEFAULT 0,
+  -- Opaque continuation cursor for providers that page by URL/token rather than by integer
+  -- offset (Sentinel/Defender's nextLink, Chronicle's pageToken). cursor_offset stays the home
+  -- for offset/page-number providers (CrowdStrike, Splunk, Elastic); this column is simply
+  -- never written for them, so their behaviour is unchanged.
+  cursor_token text,
+  discovery_complete boolean NOT NULL DEFAULT false,
+  lease_token uuid,
+  lease_expires_at timestamptz,
+  next_attempt_at timestamptz NOT NULL DEFAULT now(),
+  attempts integer NOT NULL DEFAULT 0,
+  error_message text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  heartbeat_at timestamptz,
+  completed_at timestamptz,
+  kind text NOT NULL DEFAULT 'legacy_import' CHECK (kind IN ('legacy_import','inventory','refresh_tracked','import_selection')),
+  protocol_version integer NOT NULL DEFAULT 1,
+  source_run_id uuid REFERENCES public.siem_sync_runs(id),
+  idempotency_key text
+);
+-- One active run per connection AND kind, so an inventory job and an import job may run at once.
+CREATE UNIQUE INDEX siem_sync_one_active ON public.siem_sync_runs(integration_id, kind) WHERE status IN ('queued','running');
+CREATE INDEX siem_sync_due ON public.siem_sync_runs(next_attempt_at) WHERE status IN ('queued','running');
+CREATE UNIQUE INDEX siem_import_idempotency ON public.siem_sync_runs(integration_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
+
+CREATE TABLE public.siem_sync_items (
+  run_id uuid NOT NULL REFERENCES public.siem_sync_runs(id) ON DELETE CASCADE,
+  vendor_rule_id text NOT NULL CHECK (length(vendor_rule_id) > 0),
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','imported','linked','unchanged','changed','ignored','unsupported','ambiguous','failed','observed','skipped','cancelled','changed_since_preview')),
+  error_message text,
+  frozen_content_hash text,
+  detection_id text REFERENCES public.detections(id) ON DELETE SET NULL,
+  PRIMARY KEY (run_id, vendor_rule_id)
+);
+
+CREATE TABLE public.siem_rule_bindings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  detection_id text NOT NULL REFERENCES public.detections(id) ON DELETE RESTRICT,
+  integration_id uuid NOT NULL REFERENCES public.integrations(id) ON DELETE RESTRICT,
+  provider text NOT NULL CHECK (provider = ANY (ARRAY['crowdstrike','splunk','sentinel','elastic','defender_xdr','chronicle'])),
+  provider_scope text NOT NULL,
+  vendor_rule_id text NOT NULL CHECK (length(vendor_rule_id) > 0),
+  selected_query_id text NOT NULL,
+  query_language text NOT NULL CHECK (query_language = ANY (ARRAY['SPL','KQL','Kuery','Sigma','EQL','ESQL','CQL','SQL','YARA','YARA-L','Lucene','Carbon Black','Datadog','Elasticsearch DSL'])),
+  binding_status text NOT NULL DEFAULT 'active' CHECK (binding_status IN ('active','detached','ignored','tombstone')),
+  availability text NOT NULL DEFAULT 'present' CHECK (availability IN ('present','missing','unknown')),
+  observed_enabled boolean,
+  desired_content jsonb NOT NULL,
+  baseline_snapshot_id uuid,
+  latest_remote_snapshot_id uuid,
+  first_seen_at timestamptz NOT NULL DEFAULT now(),
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  last_sync_run_id uuid REFERENCES public.siem_sync_runs(id),
+  UNIQUE (integration_id, provider_scope, vendor_rule_id),
+  UNIQUE (id, detection_id)
+);
+CREATE INDEX siem_binding_detection ON public.siem_rule_bindings(detection_id);
+ALTER TABLE public.deployment_history ADD COLUMN IF NOT EXISTS native_binding_id uuid REFERENCES public.siem_rule_bindings(id);
+ALTER TABLE public.siem_sync_items ADD COLUMN binding_id uuid REFERENCES public.siem_rule_bindings(id) ON DELETE SET NULL;
+ALTER TABLE public.siem_rule_bindings ADD COLUMN pending_operation_id uuid REFERENCES public.deployment_history(id);
+
+CREATE TABLE public.siem_rule_snapshots (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  binding_id uuid NOT NULL REFERENCES public.siem_rule_bindings(id) ON DELETE RESTRICT,
+  adapter_version text NOT NULL,
+  content_hash text NOT NULL,
+  raw_hash text NOT NULL,
+  content jsonb NOT NULL,
+  raw_payload jsonb NOT NULL,
+  observed_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(binding_id, adapter_version, content_hash, raw_hash),
+  UNIQUE(binding_id, id)
+);
+ALTER TABLE public.siem_rule_bindings ADD CONSTRAINT siem_baseline_owner
+  FOREIGN KEY (id, baseline_snapshot_id) REFERENCES public.siem_rule_snapshots(binding_id, id) DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE public.siem_rule_bindings ADD CONSTRAINT siem_latest_owner
+  FOREIGN KEY (id, latest_remote_snapshot_id) REFERENCES public.siem_rule_snapshots(binding_id, id) DEFERRABLE INITIALLY DEFERRED;
+
+CREATE TABLE public.siem_local_revisions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  detection_id text NOT NULL REFERENCES public.detections(id) ON DELETE RESTRICT,
+  content jsonb NOT NULL,
+  binding_contents jsonb NOT NULL DEFAULT '{}',
+  actor_id uuid,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX siem_revision_detection ON public.siem_local_revisions(detection_id, created_at DESC);
+
+CREATE TABLE public.siem_rule_events (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  binding_id uuid NOT NULL REFERENCES public.siem_rule_bindings(id) ON DELETE RESTRICT,
+  actor_id uuid,
+  action text NOT NULL,
+  detail jsonb NOT NULL DEFAULT '{}',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Revoke Supabase default grants as well as enabling RLS. Clients cannot forge observations or checkpoints.
+ALTER TABLE public.siem_sync_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.siem_sync_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.siem_rule_bindings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.siem_rule_snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.siem_local_revisions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.siem_rule_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.siem_sync_runs, public.siem_sync_items, public.siem_rule_bindings,
+  public.siem_rule_snapshots, public.siem_local_revisions, public.siem_rule_events FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.siem_sync_runs, public.siem_sync_items, public.siem_rule_bindings,
+  public.siem_rule_snapshots, public.siem_local_revisions, public.siem_rule_events TO authenticated;
+GRANT ALL ON public.siem_sync_runs, public.siem_sync_items, public.siem_rule_bindings,
+  public.siem_rule_snapshots, public.siem_local_revisions, public.siem_rule_events TO service_role;
+CREATE POLICY siem_runs_read ON public.siem_sync_runs FOR SELECT TO authenticated USING
+  (EXISTS (SELECT 1 FROM public.integrations i WHERE i.id = integration_id AND i.user_id = auth.uid()));
+CREATE POLICY siem_items_read ON public.siem_sync_items FOR SELECT TO authenticated USING
+  (EXISTS (SELECT 1 FROM public.siem_sync_runs r WHERE r.id = run_id));
+CREATE POLICY siem_bindings_read ON public.siem_rule_bindings FOR SELECT TO authenticated USING
+  (EXISTS (SELECT 1 FROM public.integrations i WHERE i.id = integration_id AND i.user_id = auth.uid()));
+CREATE POLICY siem_snapshots_read ON public.siem_rule_snapshots FOR SELECT TO authenticated USING
+  (EXISTS (SELECT 1 FROM public.siem_rule_bindings b WHERE b.id = binding_id));
+CREATE POLICY siem_revisions_read ON public.siem_local_revisions FOR SELECT TO authenticated USING
+  (EXISTS (SELECT 1 FROM public.siem_rule_bindings b WHERE b.detection_id = siem_local_revisions.detection_id));
+CREATE POLICY siem_events_read ON public.siem_rule_events FOR SELECT TO authenticated USING
+  (EXISTS (SELECT 1 FROM public.siem_rule_bindings b WHERE b.id = binding_id));
+
+CREATE OR REPLACE FUNCTION public.siem_can_import(p_actor uuid, p_integration uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM integrations i JOIN profiles p ON p.id = i.user_id
+    WHERE i.id = p_integration AND i.user_id = p_actor AND i.archived_at IS NULL
+      AND i.provider = ANY (ARRAY['crowdstrike','splunk','sentinel','elastic','defender_xdr','chronicle'])
+      AND coalesce(p.status,'active') <> 'deactivated'
+      AND ((p.role IN ('owner','admin','lead') OR coalesce(p.permission_overrides->'granted','[]'::jsonb) ? 'integrations:import')
+           AND NOT coalesce(p.permission_overrides->'revoked','[]'::jsonb) ? 'integrations:import')
+      AND ((p.role IN ('owner','admin','lead','analyst') OR coalesce(p.permission_overrides->'granted','[]'::jsonb) ? 'detection:create')
+           AND NOT coalesce(p.permission_overrides->'revoked','[]'::jsonb) ? 'detection:create')
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.siem_can_edit(p_actor uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY INVOKER SET search_path=public AS $$
+  SELECT EXISTS (SELECT 1 FROM profiles p WHERE p.id=p_actor AND coalesce(p.status,'active')<>'deactivated'
+    AND (((p.role IN ('owner','admin','lead','analyst') OR coalesce(p.permission_overrides->'granted','[]'::jsonb) ? 'detection:edit_own')
+      AND NOT coalesce(p.permission_overrides->'revoked','[]'::jsonb) ? 'detection:edit_own')
+    OR ((p.role IN ('owner','admin','lead') OR coalesce(p.permission_overrides->'granted','[]'::jsonb) ? 'detection:edit_any')
+      AND NOT coalesce(p.permission_overrides->'revoked','[]'::jsonb) ? 'detection:edit_any')));
+$$;
+REVOKE ALL ON FUNCTION public.siem_can_edit(uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_can_edit(uuid) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.siem_start_sync(p_actor uuid, p_integration uuid, p_scope text)
+RETURNS public.siem_sync_runs LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE r siem_sync_runs;
+BEGIN
+  IF NOT siem_can_import(p_actor, p_integration) THEN RAISE EXCEPTION 'Native import permission denied'; END IF;
+  PERFORM 1 FROM integrations WHERE id = p_integration FOR UPDATE;
+  IF EXISTS (SELECT 1 FROM deployment_history WHERE integration_id=p_integration AND native_binding_id IS NOT NULL
+    AND status='in_progress' AND started_at > now()-interval '90 seconds') THEN RAISE EXCEPTION 'Production operation in progress'; END IF;
+  UPDATE deployment_history SET status='failed',error_message='Operation interrupted; sync required to verify production',
+    completed_at=now() WHERE integration_id=p_integration AND native_binding_id IS NOT NULL AND status='in_progress';
+  IF EXISTS (SELECT 1 FROM siem_rule_bindings WHERE integration_id = p_integration AND provider_scope <> p_scope) THEN
+    RAISE EXCEPTION 'Connection scope changed; create a new connection';
+  END IF;
+  SELECT * INTO r FROM siem_sync_runs WHERE integration_id = p_integration AND status IN ('queued','running');
+  IF FOUND THEN RETURN r; END IF;
+  INSERT INTO siem_sync_runs(integration_id,actor_id,provider_scope) VALUES(p_integration,p_actor,p_scope) RETURNING * INTO r;
+  RETURN r;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.siem_claim_sync()
+RETURNS SETOF public.siem_sync_runs LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE rid uuid;
+BEGIN
+  SELECT id INTO rid FROM siem_sync_runs WHERE status IN ('queued','running') AND next_attempt_at <= now()
+    AND (lease_expires_at IS NULL OR lease_expires_at < now()) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1;
+  IF rid IS NULL THEN RETURN; END IF;
+  RETURN QUERY UPDATE siem_sync_runs SET status='running', lease_token=gen_random_uuid(),
+    lease_expires_at=now()+interval '45 seconds', heartbeat_at=now() WHERE id=rid RETURNING *;
+END;
+$$;
+
+-- One transaction checks the lease, imports all results and advances the durable checkpoint.
+-- The one query language each provider's adapter emits, for commit paths that adopt content into
+-- the library without being told a language by the caller. Provider identity always comes from
+-- the connection (integrations.provider), never from a vendor payload.
+CREATE OR REPLACE FUNCTION public.siem_provider_query_language(p_provider text)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path=public AS $$
+  SELECT CASE p_provider
+    WHEN 'crowdstrike' THEN 'CQL'
+    WHEN 'splunk' THEN 'SPL'
+    WHEN 'sentinel' THEN 'KQL'
+    WHEN 'elastic' THEN 'EQL'
+    WHEN 'defender_xdr' THEN 'KQL'
+    WHEN 'chronicle' THEN 'YARA-L'
+    ELSE NULL
+  END;
+$$;
+
+-- The per-rule language, when the vendor payload carries a valid one (e.g. an Elastic rule's own
+-- 'kuery'/'lucene'/'eql'/'esql'), falling back to siem_provider_query_language() only when the
+-- payload has no language or one outside QUERY_LANGUAGES (src/constants.ts:5-20). Validating here
+-- keeps a single malformed rule from writing a value the CHECK constraint would reject mid-import.
+-- Matched case-INSENSITIVELY, returning the canonical spelling. Vendors name their languages in
+-- their own casing -- Elastic's rules carry 'kuery'/'lucene'/'eql'/'esql' lowercase -- while the
+-- column is CHECK-constrained to the app's canonical set. An exact-match-only test silently failed
+-- every lowercase vendor value through to the provider default, which is the very bug this fix
+-- exists to remove. A value that matches nothing still falls back to the provider default.
+CREATE OR REPLACE FUNCTION public.siem_rule_query_language(p_provider text, p_content jsonb)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path=public AS $$
+  SELECT coalesce(
+    (SELECT canonical
+       FROM unnest(ARRAY['SPL','KQL','Kuery','Sigma','EQL','ESQL','CQL','SQL',
+         'YARA','YARA-L','Lucene','Carbon Black','Datadog','Elasticsearch DSL']) AS canonical
+      WHERE lower(canonical) = lower(p_content ->> 'language')
+      LIMIT 1),
+    siem_provider_query_language(p_provider));
+$$;
+
+-- Native ATT&CK IDs are evidence from provider configuration, never inferred from query text.
+CREATE OR REPLACE FUNCTION public.siem_native_attack_metadata(p_content jsonb)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY INVOKER SET search_path=public AS $$
+  WITH ids AS (
+    SELECT DISTINCT match[1] AS id FROM regexp_matches(
+      jsonb_build_array(p_content#>'{config,technique}', p_content#>'{config,techniques}',
+        p_content#>'{config,mitreTechniques}', p_content#>'{config,threat}',
+        p_content#>'{config,action.correlationsearch.annotations}', p_content#>'{config,fields,mitre_attack}')::text,
+      '(T[0-9]{4}(?:\.[0-9]{3})?)', 'g') AS match
+  ), techniques AS (
+    SELECT o.stix_id,o.name FROM mitre_objects o JOIN ids ON ids.id=o.mitre_id
+      WHERE o.type='attack-pattern'
+  ), tactics AS (
+    SELECT DISTINCT o.name FROM mitre_objects o
+      WHERE o.type='x-mitre-tactic' AND (
+        o.stix_id IN (SELECT mt.tactic_stix_id FROM mitre_technique_tactics mt JOIN techniques t ON t.stix_id=mt.technique_stix_id)
+        OR o.mitre_id=p_content#>>'{config,tactic}'
+        OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(
+            CASE WHEN jsonb_typeof(p_content#>'{config,tactics}')='array' THEN p_content#>'{config,tactics}' ELSE '[]'::jsonb END) AS x
+          WHERE regexp_replace(lower(o.name),'[^a-z]','','g')=regexp_replace(lower(x),'[^a-z]','','g')))
+  )
+  SELECT jsonb_build_object('ids',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM ids),'[]'::jsonb),
+    'techniques',coalesce((SELECT jsonb_agg(name ORDER BY name) FROM techniques),'[]'::jsonb),
+    'tactics',coalesce((SELECT jsonb_agg(name ORDER BY name) FROM tactics),'[]'::jsonb));
+$$;
+REVOKE ALL ON FUNCTION public.siem_native_attack_metadata(jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_native_attack_metadata(jsonb) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.siem_commit_chunk(p_run uuid, p_lease uuid, p_ids text[], p_next integer,
+  p_discovery_complete boolean, p_results jsonb, p_next_token text DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE r siem_sync_runs; item jsonb; b siem_rule_bindings; snap uuid; d detections;
+  qid text; did text; candidates text[]; c jsonb; outcome text; old_hash text; prov text; qlang text; attack jsonb;
+BEGIN
+  SELECT * INTO r FROM siem_sync_runs WHERE id=p_run FOR UPDATE;
+  IF NOT FOUND OR r.status <> 'running' OR r.lease_token IS DISTINCT FROM p_lease OR r.lease_expires_at <= now() THEN
+    RAISE EXCEPTION 'Sync lease expired';
+  END IF;
+  IF NOT siem_can_import(r.actor_id,r.integration_id) THEN RAISE EXCEPTION 'Native import permission revoked'; END IF;
+  SELECT provider INTO prov FROM integrations WHERE id=r.integration_id;
+  IF r.phase='discovery' THEN
+    INSERT INTO siem_sync_items(run_id,vendor_rule_id) SELECT r.id, unnest(p_ids) ON CONFLICT DO NOTHING;
+    UPDATE siem_sync_runs SET cursor_offset=p_next, cursor_token=p_next_token, discovery_complete=p_discovery_complete,
+      phase=CASE WHEN p_discovery_complete THEN 'hydration' ELSE 'discovery' END WHERE id=r.id;
+  ELSE
+    FOR item IN SELECT value FROM jsonb_array_elements(p_results) LOOP
+      IF NOT EXISTS (SELECT 1 FROM siem_sync_items WHERE run_id=r.id AND vendor_rule_id=item->>'id' AND status='pending') THEN CONTINUE; END IF;
+      IF item ? 'error' THEN
+        UPDATE siem_sync_items SET status=coalesce(item->>'status','failed'), error_message=item->>'error'
+          WHERE run_id=r.id AND vendor_rule_id=item->>'id';
+        -- A read that did not complete says nothing about production. Keeping the last
+        -- 'present' shows a confident, stale answer; 'missing' would be a lie. Only a failed
+        -- READ gets 'unknown' -- a rule we read but could not normalise ('unsupported') is
+        -- still present, and last_seen_at is deliberately not advanced either way.
+        IF coalesce(item->>'status','failed') = 'failed' THEN
+          UPDATE siem_rule_bindings SET availability='unknown'
+           WHERE integration_id=r.integration_id AND provider_scope=r.provider_scope
+             AND vendor_rule_id=item->>'id' AND binding_status='active';
+        END IF;
+        CONTINUE;
+      END IF;
+      c := item->'content';
+      -- Per-rule language first (e.g. an Elastic rule's own 'kuery'/'lucene'/'eql'/'esql'),
+      -- falling back to the provider default only when the payload has none or an invalid one.
+      qlang := siem_rule_query_language(prov, c);
+    attack := siem_native_attack_metadata(c);
+      SELECT * INTO b FROM siem_rule_bindings WHERE integration_id=r.integration_id AND provider_scope=r.provider_scope AND vendor_rule_id=item->>'id' FOR UPDATE;
+      outcome := 'unchanged';
+      IF FOUND AND b.binding_status <> 'active' THEN
+        UPDATE siem_sync_items SET status='ignored' WHERE run_id=r.id AND vendor_rule_id=item->>'id';
+        CONTINUE;
+      END IF;
+      IF b.id IS NULL THEN
+        -- A real, current deployment establishes scope. Legacy external_id alone does not.
+        SELECT array_agg(DISTINCT h.detection_id) INTO candidates FROM deployment_history h
+          JOIN detections x ON x.id=h.detection_id
+          WHERE h.integration_id=r.integration_id AND h.vendor_rule_id=item->>'id' AND h.status='success'
+          AND x.user_id=r.actor_id AND h.action <> 'delete'
+          AND NOT EXISTS (SELECT 1 FROM deployment_history later WHERE later.integration_id=h.integration_id
+            AND later.vendor_rule_id=h.vendor_rule_id AND later.status='success' AND later.created_at>h.created_at AND later.action='delete');
+        IF cardinality(candidates)>1 OR (coalesce(cardinality(candidates),0)=0 AND EXISTS
+          (SELECT 1 FROM detections WHERE user_id=r.actor_id AND external_id=item->>'id' AND native_provenance IS NULL)) THEN
+          UPDATE siem_sync_items SET status='ambiguous',error_message='Existing library rule needs explicit connection matching'
+            WHERE run_id=r.id AND vendor_rule_id=item->>'id'; CONTINUE;
+        END IF;
+        did := candidates[1]; qid := NULL;
+        IF did IS NOT NULL THEN
+          SELECT * INTO d FROM detections WHERE id=did FOR UPDATE;
+          SELECT q->>'id' INTO qid FROM jsonb_array_elements(d.queries) q WHERE q->>'language'=qlang
+            AND q->>'query'=c->>'query' LIMIT 1;
+          IF qid IS NULL THEN
+            UPDATE siem_sync_items SET status='ambiguous',error_message='Existing deployment query differs; review linkage before importing'
+              WHERE run_id=r.id AND vendor_rule_id=item->>'id'; CONTINUE;
+          END IF;
+          outcome := 'linked';
+        ELSE
+          did := gen_random_uuid()::text; qid := gen_random_uuid()::text;
+          INSERT INTO detections(id,user_id,version,name,description,status,"detectionType",severity,"logSource",technology,
+            "testedAndValidated","queryLanguage","detectionQuery","updatedDate",queries,library_type,promotion_status,review_status,
+            source,external_id,tags,native_provenance,"mitreAttackIds","mitreTechniques","mitreTactics")
+          VALUES(did,r.actor_id,1,c->>'name',c->>'description',CASE WHEN c->>'enabled'='true' THEN 'Production' ELSE 'Draft' END,'Detection',c->>'severity','','',false,qlang,c->>'query',now(),
+            jsonb_build_array(jsonb_build_object('id',qid,'language',qlang,'query',c->>'query','isPrimary',true,'createdDate',now(),'updatedDate',now())),
+            'production','none','none','native_siem',item->>'id',ARRAY['native-siem',prov],
+            jsonb_build_object('kind','native_siem','provider',prov,'connection_name',
+              (SELECT name FROM integrations WHERE id=r.integration_id),'imported_at',now()), ARRAY(SELECT jsonb_array_elements_text(attack->'ids')),
+      ARRAY(SELECT jsonb_array_elements_text(attack->'techniques')), ARRAY(SELECT jsonb_array_elements_text(attack->'tactics')));
+          SELECT * INTO d FROM detections WHERE id=did;
+          outcome := 'imported';
+        END IF;
+        INSERT INTO siem_rule_bindings(detection_id,integration_id,provider,provider_scope,vendor_rule_id,selected_query_id,query_language,desired_content)
+          VALUES(did,r.integration_id,prov,r.provider_scope,item->>'id',qid,qlang,c) RETURNING * INTO b;
+        INSERT INTO siem_local_revisions(detection_id,content,binding_contents,actor_id) VALUES(did,to_jsonb(d),jsonb_build_object(b.id::text,c),r.actor_id);
+        INSERT INTO siem_rule_events(binding_id,actor_id,action) VALUES(b.id,r.actor_id,outcome);
+      END IF;
+      SELECT content_hash INTO old_hash FROM siem_rule_snapshots WHERE id=b.latest_remote_snapshot_id;
+      INSERT INTO siem_rule_snapshots(binding_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+        VALUES(b.id,item->>'adapter',item->>'hash',item->>'raw_hash',c,item->'raw') ON CONFLICT DO NOTHING;
+      SELECT id INTO snap FROM siem_rule_snapshots WHERE binding_id=b.id AND adapter_version=item->>'adapter'
+        AND content_hash=item->>'hash' AND raw_hash=item->>'raw_hash';
+      -- Only adoption establishes a baseline. For a binding that already existed, this run is an
+      -- observation, and an observation is not a reconciliation decision.
+      UPDATE siem_rule_bindings SET latest_remote_snapshot_id=snap,
+        baseline_snapshot_id=CASE WHEN outcome IN ('imported','linked')
+                                  THEN coalesce(baseline_snapshot_id,snap) ELSE baseline_snapshot_id END,
+        availability='present', observed_enabled=(c->>'enabled')::boolean,last_seen_at=now(),last_sync_run_id=r.id,
+        pending_operation_id=NULL WHERE id=b.id;
+      IF outcome='unchanged' AND old_hash IS DISTINCT FROM item->>'hash' THEN outcome:='changed'; END IF;
+      UPDATE siem_sync_items SET status=outcome,error_message=NULL WHERE run_id=r.id AND vendor_rule_id=item->>'id';
+    END LOOP;
+    IF NOT EXISTS (SELECT 1 FROM siem_sync_items WHERE run_id=r.id AND status='pending') THEN
+      IF EXISTS (SELECT 1 FROM siem_sync_items WHERE run_id=r.id AND status IN ('failed','unsupported','ambiguous')) THEN
+        UPDATE siem_sync_runs SET status='partial',completed_at=now() WHERE id=r.id;
+      ELSE
+        UPDATE siem_sync_runs SET status='complete',completed_at=now() WHERE id=r.id;
+        UPDATE siem_rule_bindings SET availability='missing',pending_operation_id=NULL WHERE integration_id=r.integration_id AND provider_scope=r.provider_scope
+          AND binding_status='active' AND NOT EXISTS (SELECT 1 FROM siem_sync_items WHERE run_id=r.id AND vendor_rule_id=siem_rule_bindings.vendor_rule_id);
+      END IF;
+    END IF;
+  END IF;
+  UPDATE siem_sync_runs SET lease_token=NULL,lease_expires_at=NULL,heartbeat_at=now(),attempts=0,error_message=NULL WHERE id=r.id;
+END;
+$$;
+
+CREATE SCHEMA IF NOT EXISTS siem_private;
+REVOKE ALL ON SCHEMA siem_private FROM PUBLIC, anon, authenticated;
+CREATE OR REPLACE FUNCTION siem_private.guard_binding() RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path=public AS $$
+BEGIN
+  IF NEW.provider IS DISTINCT FROM (SELECT provider FROM integrations WHERE id=NEW.integration_id) OR
+    (SELECT count(*) FROM detections d, jsonb_array_elements(d.queries) q WHERE d.id=NEW.detection_id
+      AND q->>'id'=NEW.selected_query_id) <> 1 OR
+    (SELECT count(*) FROM detections d, jsonb_array_elements(d.queries) q WHERE d.id=NEW.detection_id AND d.library_type='production'
+      AND q->>'id'=NEW.selected_query_id AND q->>'language'=NEW.query_language AND length(trim(q->>'query'))>0) <> 1 THEN
+    RAISE EXCEPTION 'Invalid SIEM query binding';
+  END IF;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION siem_private.guard_binding() FROM PUBLIC,anon,authenticated;
+CREATE TRIGGER siem_binding_query BEFORE INSERT OR UPDATE OF detection_id,selected_query_id,query_language,provider,integration_id
+  ON public.siem_rule_bindings FOR EACH ROW EXECUTE FUNCTION siem_private.guard_binding();
+-- Trigger privilege is needed to enforce bindings even when a shared-library editor cannot SELECT them.
+CREATE OR REPLACE FUNCTION siem_private.guard_detection() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
+DECLARE b siem_rule_bindings;
+BEGIN
+  IF auth.uid() IS NULL AND current_setting('role',true) NOT IN ('service_role','none') THEN RAISE EXCEPTION 'Authentication required'; END IF;
+  FOR b IN SELECT * FROM siem_rule_bindings WHERE detection_id=OLD.id AND binding_status='active' LOOP
+    IF NEW.library_type <> 'production' OR (SELECT count(*) FROM jsonb_array_elements(NEW.queries) q WHERE q->>'id'=b.selected_query_id) <> 1 OR
+      (SELECT count(*) FROM jsonb_array_elements(NEW.queries) q WHERE q->>'id'=b.selected_query_id
+      AND q->>'language'=b.query_language AND length(trim(q->>'query'))>0) <> 1 THEN
+      RAISE EXCEPTION 'Reassign or detach the SIEM binding before removing its selected query';
+    END IF;
+  END LOOP;
+  IF EXISTS (SELECT 1 FROM siem_rule_bindings WHERE detection_id=OLD.id) AND
+    (NEW.version IS DISTINCT FROM OLD.version OR NEW.queries IS DISTINCT FROM OLD.queries OR NEW.name IS DISTINCT FROM OLD.name OR NEW.description IS DISTINCT FROM OLD.description OR NEW.severity IS DISTINCT FROM OLD.severity) THEN
+    NEW.version := greatest(NEW.version,OLD.version+1);
+    INSERT INTO siem_local_revisions(detection_id,content,binding_contents,actor_id) VALUES(NEW.id,to_jsonb(NEW),
+      coalesce((SELECT jsonb_object_agg(id::text,desired_content) FROM siem_rule_bindings WHERE detection_id=NEW.id),'{}'),auth.uid());
+  END IF;
+  IF NEW.status='Archived' AND OLD.status IS DISTINCT FROM 'Archived' THEN
+    UPDATE siem_rule_bindings SET binding_status='tombstone' WHERE detection_id=OLD.id AND binding_status='active';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION siem_private.guard_detection() FROM PUBLIC, anon, authenticated;
+CREATE TRIGGER siem_detection_revision BEFORE UPDATE ON public.detections FOR EACH ROW EXECUTE FUNCTION siem_private.guard_detection();
+
+REVOKE ALL ON FUNCTION public.siem_can_import(uuid,uuid), public.siem_start_sync(uuid,uuid,text), public.siem_claim_sync(),
+  public.siem_commit_chunk(uuid,uuid,text[],integer,boolean,jsonb,text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_can_import(uuid,uuid), public.siem_start_sync(uuid,uuid,text), public.siem_claim_sync(),
+  public.siem_commit_chunk(uuid,uuid,text[],integer,boolean,jsonb,text) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.siem_accept_remote(p_actor uuid,p_binding uuid,p_snapshot uuid,p_version integer,p_hash text)
+RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path=public AS $$
+DECLARE b siem_rule_bindings; d detections; c jsonb;
+BEGIN
+  SELECT * INTO b FROM siem_rule_bindings WHERE id=p_binding FOR UPDATE;
+  IF NOT FOUND OR NOT siem_can_import(p_actor,b.integration_id) OR b.binding_status<>'active' THEN RAISE EXCEPTION 'Binding access denied'; END IF;
+  SELECT * INTO d FROM detections WHERE id=b.detection_id FOR UPDATE;
+  IF d.user_id IS DISTINCT FROM p_actor OR NOT siem_can_edit(p_actor) THEN RAISE EXCEPTION 'Only an authorized detection owner can accept production changes'; END IF;
+  IF d.version IS DISTINCT FROM p_version OR b.latest_remote_snapshot_id IS DISTINCT FROM p_snapshot OR b.pending_operation_id IS NOT NULL
+    OR b.availability<>'present' THEN RAISE EXCEPTION 'Review is stale'; END IF;
+  SELECT content INTO c FROM siem_rule_snapshots WHERE id=p_snapshot AND binding_id=b.id AND content_hash=p_hash;
+  IF c IS NULL THEN RAISE EXCEPTION 'Review is stale'; END IF;
+  UPDATE siem_rule_bindings SET desired_content=c WHERE id=b.id;
+  UPDATE detections SET name=c->>'name',description=c->>'description',severity=c->>'severity',"updatedDate"=now(),version=version+1,
+    queries=(SELECT jsonb_agg(CASE WHEN q->>'id'=b.selected_query_id THEN q || jsonb_build_object('query',c->>'query','updatedDate',now()) ELSE q END)
+      FROM jsonb_array_elements(queries) q),
+    "detectionQuery"=CASE WHEN EXISTS (SELECT 1 FROM jsonb_array_elements(queries) q WHERE q->>'id'=b.selected_query_id AND (q->>'isPrimary')::boolean)
+      THEN c->>'query' ELSE "detectionQuery" END
+    WHERE id=d.id;
+  UPDATE siem_rule_bindings SET baseline_snapshot_id=p_snapshot,desired_content=c WHERE id=b.id;
+  INSERT INTO siem_rule_events(binding_id,actor_id,action,detail) VALUES(b.id,p_actor,'accepted_remote',jsonb_build_object('snapshot_id',p_snapshot));
+END $$;
+
+CREATE OR REPLACE FUNCTION public.siem_begin_deployment(p_actor uuid,p_binding uuid,p_version integer,p_hash text,p_content jsonb,p_action text)
+RETURNS uuid LANGUAGE plpgsql SECURITY INVOKER SET search_path=public AS $$
+DECLARE b siem_rule_bindings; d detections; p profiles; op uuid;
+BEGIN
+  SELECT * INTO b FROM siem_rule_bindings WHERE id=p_binding;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Binding not found'; END IF;
+  PERFORM 1 FROM integrations WHERE id=b.integration_id FOR UPDATE;
+  SELECT * INTO b FROM siem_rule_bindings WHERE id=p_binding FOR UPDATE;
+  IF NOT siem_can_import(p_actor,b.integration_id) OR b.binding_status<>'active' OR b.availability<>'present' THEN RAISE EXCEPTION 'Binding access denied'; END IF;
+  SELECT * INTO p FROM profiles WHERE id=p_actor;
+  IF coalesce(p.permission_overrides->'revoked','[]'::jsonb) ? 'integrations:sync' OR
+    NOT (p.role IN ('owner','admin','lead') OR coalesce(p.permission_overrides->'granted','[]'::jsonb) ? 'integrations:sync') THEN RAISE EXCEPTION 'Deploy permission denied'; END IF;
+  SELECT * INTO d FROM detections WHERE id=b.detection_id FOR UPDATE;
+  IF d.user_id IS DISTINCT FROM p_actor OR NOT siem_can_edit(p_actor) THEN RAISE EXCEPTION 'Authorized detection owner required'; END IF;
+  IF d.library_type<>'production' OR d.status NOT IN ('Review','Testing','Production') THEN RAISE EXCEPTION 'Review this detection before deploying'; END IF;
+  IF b.pending_operation_id IS NOT NULL OR EXISTS(SELECT 1 FROM siem_sync_runs WHERE integration_id=b.integration_id AND status IN ('queued','running')) THEN RAISE EXCEPTION 'Sync or production operation in progress'; END IF;
+  IF d.version IS DISTINCT FROM p_version OR NOT EXISTS(SELECT 1 FROM siem_rule_snapshots WHERE id=b.latest_remote_snapshot_id AND content_hash=p_hash)
+    OR (p_action='update' AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(d.queries) q WHERE q->>'id'=b.selected_query_id AND q->>'query'=p_content->>'query' AND q->>'language'=b.query_language)) THEN RAISE EXCEPTION 'Review is stale'; END IF;
+  IF p_action NOT IN ('update','enable','disable','delete') THEN RAISE EXCEPTION 'Unsupported operation'; END IF;
+  INSERT INTO deployment_history(user_id,integration_id,detection_id,native_binding_id,action,status,vendor_rule_id,query_language,deployed_query,rule_config,detection_version,started_at,response)
+    VALUES(p_actor,b.integration_id,d.id,b.id,p_action,'in_progress',b.vendor_rule_id,b.query_language,p_content->>'query',p_content,p_version,now(),jsonb_build_object('verification','pending')) RETURNING id INTO op;
+  UPDATE siem_rule_bindings SET pending_operation_id=op WHERE id=b.id;
+  RETURN op;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.siem_save_local(p_actor uuid,p_binding uuid,p_version integer,p_content jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path=public AS $$
+DECLARE b siem_rule_bindings; d detections;
+BEGIN
+  SELECT * INTO b FROM siem_rule_bindings WHERE id=p_binding FOR UPDATE;
+  IF NOT FOUND OR NOT siem_can_import(p_actor,b.integration_id) OR b.binding_status<>'active' THEN RAISE EXCEPTION 'Binding access denied'; END IF;
+  SELECT * INTO d FROM detections WHERE id=b.detection_id FOR UPDATE;
+  IF d.user_id IS DISTINCT FROM p_actor OR NOT siem_can_edit(p_actor) OR d.version IS DISTINCT FROM p_version OR b.pending_operation_id IS NOT NULL THEN RAISE EXCEPTION 'Local revision changed or access denied'; END IF;
+  IF p_content->>'language' <> b.query_language OR length(trim(p_content->>'query'))=0 OR length(trim(p_content->>'name'))=0
+    OR p_content->>'severity' NOT IN ('Critical','High','Medium','Low','Informational','Unknown') THEN RAISE EXCEPTION 'Invalid local rule'; END IF;
+  UPDATE siem_rule_bindings SET desired_content=p_content WHERE id=b.id;
+  UPDATE detections SET name=p_content->>'name',description=p_content->>'description',severity=p_content->>'severity',
+    version=version+1,"updatedDate"=now(),
+    queries=(SELECT jsonb_agg(CASE WHEN q->>'id'=b.selected_query_id THEN q || jsonb_build_object('query',p_content->>'query','updatedDate',now()) ELSE q END)
+      FROM jsonb_array_elements(queries) q),
+    "detectionQuery"=CASE WHEN EXISTS (SELECT 1 FROM jsonb_array_elements(queries) q WHERE q->>'id'=b.selected_query_id AND (q->>'isPrimary')::boolean)
+      THEN p_content->>'query' ELSE "detectionQuery" END WHERE id=d.id;
+  INSERT INTO siem_rule_events(binding_id,actor_id,action) VALUES(b.id,p_actor,'saved_local_revision');
+END $$;
+REVOKE ALL ON FUNCTION public.siem_save_local(uuid,uuid,integer,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_save_local(uuid,uuid,integer,jsonb) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.siem_finish_deployment(p_operation uuid,p_actor uuid,p_content jsonb,p_raw jsonb,p_hash text,p_raw_hash text,p_adapter text)
+RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path=public AS $$
+DECLARE op deployment_history; b siem_rule_bindings; snap uuid;
+BEGIN
+  SELECT * INTO op FROM deployment_history WHERE id=p_operation AND user_id=p_actor AND status='in_progress' FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Operation no longer active'; END IF;
+  SELECT * INTO b FROM siem_rule_bindings WHERE id=op.native_binding_id AND pending_operation_id=op.id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Operation superseded'; END IF;
+  IF p_content IS NOT NULL THEN
+    INSERT INTO siem_rule_snapshots(binding_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+      VALUES(b.id,p_adapter,p_hash,p_raw_hash,p_content,p_raw) ON CONFLICT DO NOTHING;
+    SELECT id INTO snap FROM siem_rule_snapshots WHERE binding_id=b.id AND adapter_version=p_adapter AND content_hash=p_hash AND raw_hash=p_raw_hash;
+    UPDATE siem_rule_bindings SET baseline_snapshot_id=snap,latest_remote_snapshot_id=snap,desired_content=p_content,
+      observed_enabled=(p_content->>'enabled')::boolean,last_seen_at=now(),pending_operation_id=NULL WHERE id=b.id;
+  ELSE
+    UPDATE siem_rule_bindings SET availability='missing',pending_operation_id=NULL WHERE id=b.id;
+  END IF;
+  UPDATE deployment_history SET status='success',completed_at=now(),response=jsonb_build_object('verification','verified'),detection_hash=p_hash WHERE id=op.id;
+  INSERT INTO siem_rule_events(binding_id,actor_id,action,detail) VALUES(b.id,p_actor,op.action,jsonb_build_object('deployment_id',op.id,'verification','verified'));
+END $$;
+
+CREATE OR REPLACE FUNCTION public.siem_fail_deployment(p_operation uuid,p_actor uuid,p_uncertain boolean,p_error text)
+RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path=public AS $$
+DECLARE op deployment_history;
+BEGIN
+  UPDATE deployment_history SET status='failed',completed_at=now(),error_message=p_error,
+    response=jsonb_build_object('verification',CASE WHEN p_uncertain THEN 'unverified' ELSE 'not_applied' END)
+    WHERE id=p_operation AND user_id=p_actor AND status='in_progress' RETURNING * INTO op;
+  IF FOUND THEN
+    UPDATE siem_rule_bindings SET pending_operation_id=CASE WHEN p_uncertain THEN p_operation ELSE NULL END
+      WHERE id=op.native_binding_id AND pending_operation_id=p_operation;
+  END IF;
+END $$;
+-- An explicit reconciliation decision, for a link whose query differs from production.
+-- siem_link_existing leaves baseline_snapshot_id NULL in that case, which the comparison now
+-- reports as 'no_baseline' rather than refusing to open. Two decisions can resolve it:
+-- siem_accept_remote (take production's version, overwriting the library copy), or this one --
+-- keep the library version and record that it was reconciled against this production revision.
+-- Both set the baseline; only accept_remote changes content. Guards mirror siem_accept_remote.
+CREATE OR REPLACE FUNCTION public.siem_reconcile_baseline(p_actor uuid, p_binding uuid, p_snapshot uuid,
+  p_version integer, p_hash text)
+RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE b siem_rule_bindings; d detections;
+BEGIN
+  SELECT * INTO b FROM siem_rule_bindings WHERE id = p_binding FOR UPDATE;
+  IF NOT FOUND OR NOT siem_can_import(p_actor, b.integration_id) OR b.binding_status <> 'active' THEN
+    RAISE EXCEPTION 'Binding access denied';
+  END IF;
+  SELECT * INTO d FROM detections WHERE id = b.detection_id FOR UPDATE;
+  IF d.user_id IS DISTINCT FROM p_actor OR NOT siem_can_edit(p_actor) THEN
+    RAISE EXCEPTION 'Only an authorized detection owner can reconcile this rule';
+  END IF;
+  IF d.version IS DISTINCT FROM p_version OR b.latest_remote_snapshot_id IS DISTINCT FROM p_snapshot
+     OR b.pending_operation_id IS NOT NULL OR b.availability <> 'present' THEN
+    RAISE EXCEPTION 'Review is stale';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM siem_rule_snapshots
+                  WHERE id = p_snapshot AND binding_id = b.id AND content_hash = p_hash) THEN
+    RAISE EXCEPTION 'Review is stale';
+  END IF;
+
+  -- Content is untouched on purpose: the user is keeping the library version and agreeing that
+  -- this is the production revision they diverged from. The comparison then reads 'local_changed'.
+  UPDATE siem_rule_bindings SET baseline_snapshot_id = p_snapshot WHERE id = b.id;
+  INSERT INTO siem_rule_events(binding_id, actor_id, action, detail)
+  VALUES(b.id, p_actor, 'reconciled_baseline', jsonb_build_object('snapshot_id', p_snapshot));
+END $$;
+REVOKE ALL ON FUNCTION public.siem_reconcile_baseline(uuid,uuid,uuid,integer,text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_reconcile_baseline(uuid,uuid,uuid,integer,text) TO service_role;
+
+REVOKE ALL ON FUNCTION public.siem_accept_remote(uuid,uuid,uuid,integer,text),
+  public.siem_begin_deployment(uuid,uuid,integer,text,jsonb,text), public.siem_finish_deployment(uuid,uuid,jsonb,jsonb,text,text,text),
+  public.siem_fail_deployment(uuid,uuid,boolean,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_accept_remote(uuid,uuid,uuid,integer,text),
+  public.siem_begin_deployment(uuid,uuid,integer,text,jsonb,text), public.siem_finish_deployment(uuid,uuid,jsonb,jsonb,text,text,text),
+  public.siem_fail_deployment(uuid,uuid,boolean,text) TO service_role;
+
+-- Reuse the existing installation's Vault dispatcher secrets. Fresh installs can configure them later.
+CREATE OR REPLACE FUNCTION public.siem_disconnect(p_actor uuid,p_integration uuid)
+RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path=public AS $$
+DECLARE p profiles;
+BEGIN
+  PERFORM 1 FROM integrations WHERE id=p_integration AND user_id=p_actor FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Connection access denied'; END IF;
+  SELECT * INTO p FROM profiles WHERE id=p_actor;
+  IF p.status='deactivated' OR coalesce(p.permission_overrides->'revoked','[]'::jsonb) ? 'integrations:configure' OR
+    NOT (p.role IN ('owner','admin') OR coalesce(p.permission_overrides->'granted','[]'::jsonb) ? 'integrations:configure') THEN RAISE EXCEPTION 'Configure permission required'; END IF;
+  IF EXISTS (SELECT 1 FROM deployment_history WHERE integration_id=p_integration AND native_binding_id IS NOT NULL
+    AND status='in_progress' AND started_at > now()-interval '90 seconds') THEN RAISE EXCEPTION 'Production operation in progress'; END IF;
+  UPDATE integrations SET archived_at=now(),is_default=false,status='disabled',config=config-'_dev_credentials' WHERE id=p_integration;
+  DELETE FROM integration_credentials WHERE integration_id=p_integration;
+  UPDATE siem_sync_runs SET status='cancelled',completed_at=now(),lease_token=NULL,lease_expires_at=NULL
+    WHERE integration_id=p_integration AND status IN ('queued','running');
+END $$;
+REVOKE ALL ON FUNCTION public.siem_disconnect(uuid,uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_disconnect(uuid,uuid) TO service_role;
+
+-- Native SIEM retention schedule and worker health
+-- Milestone 4: operational readiness.
+--
+-- siem_prune_remote_snapshots has existed since 20260915132000 but nothing ever called it, so the
+-- retention policy was a function, not a policy: every observation of every rule accumulated
+-- forever. This schedules it, records each run's outcome so a silent failure is visible, and gives
+-- operators a way to see a stalled job -- the exit gate for this milestone is that they can
+-- identify and recover one.
+
+-- Outcome log. Deliberately holds counts and error text only: no rule content, no vendor payloads,
+-- no credentials. Retention that leaks what it pruned would defeat its own purpose.
+CREATE TABLE IF NOT EXISTS public.siem_maintenance_runs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  task text NOT NULL CHECK (task IN ('snapshot_retention')),
+  started_at timestamptz NOT NULL DEFAULT now(),
+  finished_at timestamptz,
+  connections_processed integer NOT NULL DEFAULT 0,
+  connections_failed integer NOT NULL DEFAULT 0,
+  snapshots_removed integer NOT NULL DEFAULT 0,
+  error_message text
+);
+CREATE INDEX IF NOT EXISTS siem_maintenance_runs_recent
+  ON public.siem_maintenance_runs(task, started_at DESC);
+
+ALTER TABLE public.siem_maintenance_runs ENABLE ROW LEVEL SECURITY;
+-- No policy for authenticated on purpose: these rows span every connection in the installation,
+-- so there is no owner to scope them to. Operators read them as service_role.
+REVOKE ALL ON public.siem_maintenance_runs FROM PUBLIC, anon, authenticated;
+GRANT ALL ON public.siem_maintenance_runs TO service_role;
+
+-- Prunes superseded catalog observations across every connection, one connection at a time.
+--
+-- A failure on one connection must not abort the rest: the loop records it and carries on, and the
+-- run is reported as partially failed rather than silently half-done. p_keep is passed through to
+-- siem_prune_remote_snapshots, which already refuses to touch the snapshot a catalog row points
+-- at, any snapshot belonging to a rule with a pending import, or any binding snapshot.
+CREATE OR REPLACE FUNCTION public.siem_run_retention(p_keep integer DEFAULT 5)
+RETURNS public.siem_maintenance_runs
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE run siem_maintenance_runs; conn record; removed integer; total integer := 0;
+  ok integer := 0; bad integer := 0; last_error text;
+BEGIN
+  INSERT INTO siem_maintenance_runs(task) VALUES('snapshot_retention') RETURNING * INTO run;
+
+  FOR conn IN SELECT id FROM integrations
+    WHERE provider = ANY (ARRAY['crowdstrike','splunk','sentinel','elastic','defender_xdr','chronicle']) LOOP
+    BEGIN
+      removed := siem_prune_remote_snapshots(conn.id, p_keep);
+      total := total + coalesce(removed, 0);
+      ok := ok + 1;
+    EXCEPTION WHEN OTHERS THEN
+      -- SQLERRM only: a vendor payload must never reach this table.
+      bad := bad + 1;
+      last_error := SQLERRM;
+    END;
+  END LOOP;
+
+  UPDATE siem_maintenance_runs
+     SET finished_at = now(), connections_processed = ok, connections_failed = bad,
+         snapshots_removed = total, error_message = last_error
+   WHERE id = run.id
+  RETURNING * INTO run;
+  RETURN run;
+END $$;
+REVOKE ALL ON FUNCTION public.siem_run_retention(integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_run_retention(integer) TO service_role;
+
+-- What an operator needs to answer "is anything stuck, and what do I do about it".
+--
+-- A job holds a 45-second lease (siem_claim_sync) and is requeued by the worker's fenced catch on
+-- failure. The states that need a human are: a run whose lease expired without the worker coming
+-- back, and a run that has exhausted its attempts. Both are invisible in the product UI, which
+-- only ever shows the LATEST run for a connection.
+CREATE OR REPLACE VIEW public.siem_worker_health WITH (security_invoker = true) AS
+SELECT r.id AS run_id, r.integration_id, i.name AS connection_name, r.kind, r.status, r.phase,
+       r.attempts, r.created_at, r.heartbeat_at, r.next_attempt_at, r.error_message,
+       (SELECT count(*) FROM siem_sync_items s WHERE s.run_id = r.id AND s.status = 'pending') AS pending_items,
+       CASE
+         WHEN r.status = 'running' AND r.lease_expires_at IS NOT NULL AND r.lease_expires_at <= now()
+           THEN 'lease expired; the dispatcher will reclaim it, or retry the import'
+         WHEN r.status = 'failed'
+           THEN 'gave up after repeated failures; retry the import to resume its pending rules'
+         WHEN r.status = 'queued' AND r.next_attempt_at > now()
+           THEN 'backing off before the next attempt'
+         ELSE 'healthy'
+       END AS diagnosis
+  FROM siem_sync_runs r
+  JOIN integrations i ON i.id = r.integration_id
+ WHERE r.status IN ('queued', 'running', 'failed');
+REVOKE ALL ON public.siem_worker_health FROM PUBLIC, anon;
+GRANT SELECT ON public.siem_worker_health TO authenticated, service_role;
+
+-- Nightly, off the minute the sync dispatcher runs. Plain SQL with no vendor calls, so it is a
+-- direct function call like ai_usage_rollup rather than a round trip through the Edge Function.
+-- Guarded the same way native-siem-sync is: a database without pg_cron (a fresh clone, or the CI
+-- Postgres image) must still apply this file cleanly.
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname='pg_cron') THEN
+    PERFORM cron.schedule('native-siem-retention','17 3 * * *',
+      $job$ SELECT public.siem_run_retention(5) $job$);
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname='pg_cron') AND EXISTS (SELECT 1 FROM pg_extension WHERE extname='pg_net')
+    AND to_regclass('vault.decrypted_secrets') IS NOT NULL THEN
+    PERFORM cron.schedule('native-siem-sync','* * * * *',$job$
+      SELECT net.http_post(
+        url := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name='tr_supabase_url') || '/functions/v1/integration-ops',
+        headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' ||
+          (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name='tr_service_role_key')),
+        body := '{"action":"native_sync_tick"}'::jsonb
+      ) WHERE EXISTS (SELECT 1 FROM public.siem_sync_runs WHERE status IN ('queued','running'))
+        AND (SELECT count(*) FROM vault.decrypted_secrets WHERE name IN ('tr_supabase_url','tr_service_role_key'))=2;
+    $job$);
+  END IF;
+END $$;
+
+-- Native SIEM library deletion
+-- Library deletion is local only. Existing detection DELETE RLS authorizes the row;
+-- private trigger cleanup handles operational tables unavailable to ordinary editors.
+CREATE OR REPLACE FUNCTION siem_private.delete_library_rule()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+DECLARE connection_id uuid;
+BEGIN
+  IF auth.uid() IS NULL AND current_setting('role',true) NOT IN ('service_role','none') THEN
+    RAISE EXCEPTION 'Authentication required';
+  END IF;
+  FOR connection_id IN SELECT DISTINCT integration_id FROM siem_rule_bindings WHERE detection_id=OLD.id ORDER BY integration_id LOOP
+    PERFORM 1 FROM integrations WHERE id=connection_id FOR UPDATE;
+    IF EXISTS(SELECT 1 FROM siem_sync_runs WHERE integration_id=connection_id AND status IN ('queued','running')) THEN
+      RAISE EXCEPTION 'Rules are being fetched from this SIEM. Wait for the fetch to finish, then delete the library copy.';
+    END IF;
+  END LOOP;
+  PERFORM 1 FROM siem_rule_bindings WHERE detection_id=OLD.id FOR UPDATE;
+  IF EXISTS(SELECT 1 FROM siem_rule_bindings WHERE detection_id=OLD.id AND pending_operation_id IS NOT NULL) THEN
+    RAISE EXCEPTION 'This rule has an unfinished SIEM operation. Fetch its latest SIEM state before deleting the library copy.';
+  END IF;
+  -- Keep actual deployment records (including remote identity), but unlink import tracking.
+  UPDATE deployment_history SET native_binding_id=NULL WHERE native_binding_id IN
+    (SELECT id FROM siem_rule_bindings WHERE detection_id=OLD.id);
+  UPDATE siem_rule_bindings SET baseline_snapshot_id=NULL,latest_remote_snapshot_id=NULL WHERE detection_id=OLD.id;
+  DELETE FROM siem_rule_events WHERE binding_id IN (SELECT id FROM siem_rule_bindings WHERE detection_id=OLD.id);
+  DELETE FROM siem_rule_snapshots WHERE binding_id IN (SELECT id FROM siem_rule_bindings WHERE detection_id=OLD.id);
+  DELETE FROM siem_local_revisions WHERE detection_id=OLD.id;
+  DELETE FROM siem_rule_bindings WHERE detection_id=OLD.id;
+  RETURN OLD;
+END $$;
+REVOKE ALL ON FUNCTION siem_private.delete_library_rule() FROM PUBLIC,anon,authenticated;
+CREATE TRIGGER siem_delete_library_rule BEFORE DELETE ON public.detections
+  FOR EACH ROW EXECUTE FUNCTION siem_private.delete_library_rule();
+
+-- Native SIEM inventory catalog (20260915120000)
+-- Observation catalog: what exists in the connected SIEM, recorded without creating any
+-- library detection. Adoption into the library happens only in an import_selection job.
+CREATE TABLE public.siem_remote_rules (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  integration_id uuid NOT NULL REFERENCES public.integrations(id) ON DELETE RESTRICT,
+  provider text NOT NULL CHECK (provider = ANY (ARRAY['crowdstrike','splunk','sentinel','elastic','defender_xdr','chronicle'])),
+  provider_scope text NOT NULL,
+  vendor_rule_id text NOT NULL CHECK (length(vendor_rule_id) > 0),
+  rule_family text NOT NULL DEFAULT 'correlation',
+  display_name text NOT NULL DEFAULT '',
+  observed_enabled boolean,
+  availability text NOT NULL DEFAULT 'unknown' CHECK (availability IN ('present','missing','unknown')),
+  normalization_error text,
+  match_candidate_count integer NOT NULL DEFAULT 0,
+  latest_snapshot_id uuid,
+  first_seen_at timestamptz NOT NULL DEFAULT now(),
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  last_complete_run_id uuid REFERENCES public.siem_sync_runs(id),
+  UNIQUE (integration_id, provider_scope, vendor_rule_id),
+  UNIQUE (id, integration_id)
+);
+CREATE INDEX siem_remote_rules_connection ON public.siem_remote_rules(integration_id, display_name);
+ALTER TABLE public.siem_sync_items ADD COLUMN remote_rule_id uuid REFERENCES public.siem_remote_rules(id) ON DELETE SET NULL;
+
+CREATE TABLE public.siem_remote_rule_snapshots (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  remote_rule_id uuid NOT NULL REFERENCES public.siem_remote_rules(id) ON DELETE CASCADE,
+  adapter_version text NOT NULL,
+  content_hash text NOT NULL,
+  raw_hash text NOT NULL,
+  content jsonb NOT NULL,
+  raw_payload jsonb NOT NULL,
+  observed_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (remote_rule_id, adapter_version, content_hash, raw_hash),
+  UNIQUE (remote_rule_id, id)
+);
+ALTER TABLE public.siem_remote_rules ADD CONSTRAINT siem_remote_latest_owner
+  FOREIGN KEY (id, latest_snapshot_id)
+  REFERENCES public.siem_remote_rule_snapshots(remote_rule_id, id) DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE public.siem_sync_items ADD COLUMN observed_snapshot_id uuid REFERENCES public.siem_remote_rule_snapshots(id) ON DELETE SET NULL;
+
+ALTER TABLE public.siem_remote_rules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.siem_remote_rule_snapshots ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.siem_remote_rules, public.siem_remote_rule_snapshots
+  FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.siem_remote_rules, public.siem_remote_rule_snapshots TO authenticated;
+GRANT ALL ON public.siem_remote_rules, public.siem_remote_rule_snapshots TO service_role;
+CREATE POLICY siem_remote_rules_read ON public.siem_remote_rules FOR SELECT TO authenticated USING
+  (EXISTS (SELECT 1 FROM public.integrations i WHERE i.id = integration_id AND i.user_id = auth.uid()));
+CREATE POLICY siem_remote_snapshots_read ON public.siem_remote_rule_snapshots FOR SELECT TO authenticated USING
+  (EXISTS (SELECT 1 FROM public.siem_remote_rules r WHERE r.id = remote_rule_id));
+
+-- Task 12: resolve ambiguous match_needed rows (mirrors migration 20260915140000).
+-- One row per (candidate detection, compatible CQL query). Evidence is restricted to a current
+-- successful deployment against this exact vendor rule, or a legacy external_id match on a
+-- non-native detection — a matching display name alone is never evidence.
+-- Legacy projections used Splunk saved-search names and Elastic saved-object IDs.
+-- These aliases are candidate evidence only: linking still requires explicit selection,
+-- detection ownership, a compatible selected query and the reviewed catalog snapshot.
+CREATE OR REPLACE FUNCTION public.siem_legacy_rule_id(p_provider text,p_raw jsonb)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path=public AS $$
+  SELECT CASE p_provider WHEN 'splunk' THEN p_raw->>'name' WHEN 'elastic' THEN p_raw->>'id' ELSE NULL END;
+$$;
+REVOKE ALL ON FUNCTION public.siem_legacy_rule_id(text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_legacy_rule_id(text,jsonb) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.siem_match_candidates(p_actor uuid, p_integration uuid, p_vendor_rule_id text)
+RETURNS TABLE(detection_id text, detection_name text, evidence text, query_id text, query_language text,
+  query_text text, detection_version integer)
+LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = public AS $$
+DECLARE prov text; qlang text; rule_content jsonb; rule_raw jsonb; legacy_id text;
+BEGIN
+  IF NOT (siem_can_import(p_actor, p_integration) AND siem_can_edit(p_actor)) THEN
+    RETURN;
+  END IF;
+  SELECT provider INTO prov FROM integrations WHERE id = p_integration;
+  SELECT s.content,s.raw_payload INTO rule_content,rule_raw
+    FROM siem_remote_rules rr
+    JOIN siem_remote_rule_snapshots s ON s.id = rr.latest_snapshot_id
+   WHERE rr.integration_id = p_integration AND rr.vendor_rule_id = p_vendor_rule_id
+   ORDER BY rr.last_seen_at DESC LIMIT 1;
+  qlang := siem_rule_query_language(prov, coalesce(rule_content, '{}'::jsonb));
+  legacy_id := siem_legacy_rule_id(prov,rule_raw);
+  RETURN QUERY
+  WITH deployed AS (
+    SELECT DISTINCT h.detection_id
+      FROM deployment_history h
+      JOIN detections x ON x.id = h.detection_id
+     WHERE h.integration_id = p_integration AND h.vendor_rule_id IN (p_vendor_rule_id,legacy_id)
+       AND h.status = 'success' AND h.action <> 'delete' AND x.user_id = p_actor
+       AND NOT EXISTS (
+         SELECT 1 FROM deployment_history later
+          WHERE later.integration_id = h.integration_id AND later.vendor_rule_id = h.vendor_rule_id
+            AND later.status = 'success' AND later.action = 'delete' AND later.created_at > h.created_at)
+  ),
+  legacy AS (
+    SELECT d.id AS detection_id
+      FROM detections d
+     WHERE d.user_id = p_actor AND (d.external_id = p_vendor_rule_id OR (d.external_id=legacy_id AND d.source=prov)) AND d.native_provenance IS NULL
+       AND d.id NOT IN (SELECT deployed.detection_id FROM deployed)
+  ),
+  evidenced AS (
+    SELECT deployed.detection_id, 'Deployment history matches this connection; verify the remote scope'::text AS evidence FROM deployed
+    UNION ALL
+    SELECT legacy.detection_id, 'Legacy external ID matches'::text FROM legacy
+  )
+  SELECT d.id, d.name, e.evidence, q ->> 'id', q ->> 'language', q ->> 'query', d.version
+    FROM evidenced e
+    JOIN detections d ON d.id = e.detection_id AND d.user_id = p_actor AND d.library_type = 'production'
+    CROSS JOIN LATERAL jsonb_array_elements(d.queries) q
+   WHERE q ->> 'language' = qlang AND length(trim(q ->> 'query')) > 0;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.siem_match_candidates(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_match_candidates(uuid, uuid, text) TO service_role;
+
+-- Links an already-authored library detection to a CrowdStrike rule as its native binding,
+-- without rewriting the detection's own provenance. The adoption is recorded as a
+-- siem_rule_events row, not as a change to source/external_id/user_id/native_provenance.
+CREATE OR REPLACE FUNCTION public.siem_link_existing(
+  p_actor uuid, p_integration uuid, p_vendor_rule_id text, p_detection text,
+  p_query_id text, p_detection_version integer, p_snapshot uuid)
+RETURNS public.siem_rule_bindings
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE
+  d detections;
+  rr siem_remote_rules;
+  rrs siem_remote_rule_snapshots;
+  qtext text;
+  qcount integer;
+  b siem_rule_bindings;
+  new_snap uuid;
+  evidence text;
+  prov text;
+  qlang text;
+BEGIN
+  IF NOT (siem_can_import(p_actor, p_integration) AND siem_can_edit(p_actor)) THEN
+    RAISE EXCEPTION 'Linking this rule needs permission to import from this connection and edit the target rule';
+  END IF;
+
+  SELECT provider INTO prov FROM integrations WHERE id = p_integration FOR UPDATE;
+
+  -- Pinned to the exact catalog row the snapshot belongs to, not just (integration, vendor_rule_id):
+  -- the table's real uniqueness is (integration_id, provider_scope, vendor_rule_id), and this
+  -- avoids needing provider_scope as a separate input. Fetched up front (not just before the
+  -- insert) because the rule's own snapshot content is now also what determines qlang.
+  SELECT * INTO rr FROM siem_remote_rules
+   WHERE integration_id = p_integration AND vendor_rule_id = p_vendor_rule_id
+     AND id = (SELECT remote_rule_id FROM siem_remote_rule_snapshots WHERE id = p_snapshot)
+   FOR UPDATE;
+  IF NOT FOUND OR rr.latest_snapshot_id IS DISTINCT FROM p_snapshot THEN
+    RAISE EXCEPTION 'The rule changed in the SIEM. Fetch rules again.';
+  END IF;
+  SELECT * INTO rrs FROM siem_remote_rule_snapshots WHERE id = p_snapshot AND remote_rule_id = rr.id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'The rule changed in the SIEM. Fetch rules again.';
+  END IF;
+  qlang := siem_rule_query_language(prov, rrs.content);
+
+  SELECT * INTO d FROM detections WHERE id = p_detection FOR UPDATE;
+  IF NOT FOUND OR d.user_id <> p_actor OR d.version <> p_detection_version THEN
+    RAISE EXCEPTION 'The library rule changed. Reopen the match and try again.';
+  END IF;
+
+  SELECT count(*), max(q ->> 'query') INTO qcount, qtext
+    FROM jsonb_array_elements(d.queries) q
+   WHERE q ->> 'id' = p_query_id AND q ->> 'language' = qlang AND length(trim(q ->> 'query')) > 0;
+  IF qcount <> 1 THEN
+    RAISE EXCEPTION 'Choose the query this rule corresponds to';
+  END IF;
+
+  -- A matching name alone never authorises a link: re-derive evidence server-side rather than
+  -- trusting that the caller only offers detections siem_match_candidates actually returned.
+  IF EXISTS (
+    SELECT 1 FROM deployment_history h
+     WHERE h.integration_id = p_integration AND h.vendor_rule_id IN (p_vendor_rule_id,siem_legacy_rule_id(prov,rrs.raw_payload))
+       AND h.detection_id = p_detection AND h.status = 'success' AND h.action <> 'delete'
+       AND NOT EXISTS (
+         SELECT 1 FROM deployment_history later
+          WHERE later.integration_id = h.integration_id AND later.vendor_rule_id = h.vendor_rule_id
+            AND later.status = 'success' AND later.action = 'delete' AND later.created_at > h.created_at)
+  ) THEN
+    evidence := 'Deployed to this connection as this rule';
+  ELSIF (d.external_id = p_vendor_rule_id OR (d.external_id=siem_legacy_rule_id(prov,rrs.raw_payload) AND d.source=prov)) AND d.native_provenance IS NULL THEN
+    evidence := 'Legacy external ID matches';
+  END IF;
+  IF evidence IS NULL THEN
+    RAISE EXCEPTION 'This rule is not an eligible match for the selected library rule';
+  END IF;
+
+  BEGIN
+    INSERT INTO siem_rule_bindings(
+      detection_id, integration_id, provider, provider_scope, vendor_rule_id,
+      selected_query_id, query_language, desired_content)
+    VALUES(p_detection, p_integration, prov, rr.provider_scope, p_vendor_rule_id,
+      p_query_id, qlang, rrs.content)
+    RETURNING * INTO b;
+  EXCEPTION WHEN unique_violation THEN
+    RAISE EXCEPTION 'This rule is already linked to a library rule.';
+  END;
+
+  -- Insert the copied snapshot after the binding exists, then point both snapshot FKs at it in
+  -- one UPDATE — the binding's snapshot FKs are DEFERRABLE INITIALLY DEFERRED, so this ordering
+  -- is safe within the transaction.
+  INSERT INTO siem_rule_snapshots(binding_id, adapter_version, content_hash, raw_hash, content, raw_payload)
+    VALUES(b.id, rrs.adapter_version, rrs.content_hash, rrs.raw_hash, rrs.content, rrs.raw_payload)
+  RETURNING id INTO new_snap;
+
+  UPDATE siem_rule_bindings
+     SET latest_remote_snapshot_id = new_snap,
+         -- No agreed baseline is invented: only set when the chosen query already matches the
+         -- observed remote query. Otherwise NULL, surfaced by the UI as "Baseline not established".
+         baseline_snapshot_id = CASE WHEN qtext = (rrs.content ->> 'query') THEN new_snap ELSE NULL END,
+         observed_enabled = rr.observed_enabled, availability = rr.availability, last_seen_at = now()
+   WHERE id = b.id
+  RETURNING * INTO b;
+
+  -- The existing rule's identity is untouched: no update to detections.source, external_id,
+  -- user_id or native_provenance. The adoption is recorded only as this event.
+  INSERT INTO siem_rule_events(binding_id, actor_id, action, detail)
+  VALUES(b.id, p_actor, 'linked_existing',
+    jsonb_build_object('evidence', evidence, 'source', d.source, 'vendor_rule_id', p_vendor_rule_id));
+
+  RETURN b;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.siem_link_existing(uuid, uuid, text, text, text, integer, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_link_existing(uuid, uuid, text, text, text, integer, uuid) TO service_role;
+
+-- Task 12 fix (mirrors migration 20260915141000). "Import as a separate rule" IS the user
+-- resolving the ambiguity: clear the candidate count so the ordinary, unmodified import path
+-- (siem_start_import, applied and unchanged) sees the rule as not_in_library and can adopt it.
+-- Keyed on the catalog row's own primary key, not (integration_id, vendor_rule_id): that pair
+-- is not unique on its own -- the real constraint is (integration_id, provider_scope,
+-- vendor_rule_id) -- and a non-STRICT SELECT INTO against it would silently take an arbitrary
+-- matching row if a connection ever held two provider scopes sharing a vendor_rule_id.
+CREATE OR REPLACE FUNCTION public.siem_dismiss_match_candidates(p_actor uuid, p_integration uuid,
+  p_remote_rule_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE rr siem_remote_rules;
+BEGIN
+  IF NOT siem_can_import(p_actor, p_integration) THEN RAISE EXCEPTION 'Native import permission denied'; END IF;
+  IF NOT siem_can_edit(p_actor) THEN RAISE EXCEPTION 'Native import permission denied'; END IF;
+  SELECT * INTO rr FROM siem_remote_rules
+   WHERE id = p_remote_rule_id AND integration_id = p_integration FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Fetch rules from CrowdStrike before importing'; END IF;
+  IF EXISTS (SELECT 1 FROM siem_rule_bindings
+              WHERE integration_id = p_integration AND provider_scope = rr.provider_scope
+                AND vendor_rule_id = rr.vendor_rule_id) THEN
+    RAISE EXCEPTION 'This rule is already linked to a library rule.';
+  END IF;
+  UPDATE siem_remote_rules SET match_candidate_count = 0 WHERE id = rr.id;
+END $$;
+REVOKE ALL ON FUNCTION public.siem_dismiss_match_candidates(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_dismiss_match_candidates(uuid, uuid, uuid) TO service_role;
+
+-- The ONE definition of a rule's relationship to the library. SQL owns it; the browser
+-- reads the computed column. Order matters: an adopted rule is "already in library" even
+-- if a later adapter version can no longer normalise it.
+CREATE OR REPLACE FUNCTION public.siem_inventory_relationship(
+  p_binding_status text, p_normalization_error text, p_match_candidate_count integer)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path = public AS $$
+  SELECT CASE
+    WHEN p_binding_status = 'active' THEN 'already_in_library'
+    WHEN p_binding_status IS NOT NULL THEN 'archived_in_library'
+    WHEN p_normalization_error IS NOT NULL THEN 'unsupported'
+    WHEN coalesce(p_match_candidate_count, 0) > 0 THEN 'match_needed'
+    ELSE 'not_in_library' END;
+$$;
+
+CREATE VIEW public.siem_inventory_rows WITH (security_invoker = true) AS
+SELECT r.id, r.integration_id, r.provider_scope, r.vendor_rule_id, r.rule_family, r.display_name,
+       r.observed_enabled, r.availability, r.normalization_error, r.match_candidate_count,
+       r.latest_snapshot_id, r.last_seen_at, r.first_seen_at,
+       b.id AS binding_id, b.binding_status, b.detection_id,
+       public.siem_inventory_relationship(b.binding_status, r.normalization_error,
+         r.match_candidate_count) AS relationship
+  FROM public.siem_remote_rules r
+  LEFT JOIN public.siem_rule_bindings b
+    ON b.integration_id = r.integration_id
+   AND b.provider_scope = r.provider_scope
+   AND b.vendor_rule_id = r.vendor_rule_id;
+REVOKE ALL ON public.siem_inventory_rows FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.siem_inventory_rows TO authenticated;
+
+-- Classification counts for the filter chips. STABLE and SECURITY INVOKER so the caller's
+-- RLS applies; the browser calls this directly rather than paying the Edge Function rate limit.
+CREATE OR REPLACE FUNCTION public.siem_inventory_counts(p_integration uuid, p_search text DEFAULT NULL)
+RETURNS TABLE(relationship text, rules bigint) LANGUAGE sql STABLE SECURITY INVOKER
+SET search_path = public AS $$
+  SELECT v.relationship, count(*)
+    FROM siem_inventory_rows v
+   WHERE v.integration_id = p_integration
+     AND (p_search IS NULL OR p_search = ''
+          OR v.display_name ILIKE '%' || p_search || '%'
+          OR v.vendor_rule_id ILIKE '%' || p_search || '%')
+   GROUP BY v.relationship
+  UNION ALL
+  -- Not a relationship: the count the SELECTION BAR needs. The chips answer "what is this rule's
+  -- relationship to the library", so not_in_library is the wrong number there -- a rule the last
+  -- scan could not read, or one since deleted in CrowdStrike, is not_in_library but not
+  -- importable. These are the same three conditions siem_start_import requires to freeze a row.
+  SELECT 'importable', count(*)
+    FROM siem_inventory_rows v
+   WHERE v.integration_id = p_integration
+     AND (p_search IS NULL OR p_search = ''
+          OR v.display_name ILIKE '%' || p_search || '%'
+          OR v.vendor_rule_id ILIKE '%' || p_search || '%')
+     AND v.relationship = 'not_in_library'
+     AND v.availability = 'present'
+     AND v.latest_snapshot_id IS NOT NULL;
+$$;
+REVOKE ALL ON FUNCTION public.siem_inventory_relationship(text,text,integer) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.siem_inventory_counts(uuid,text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.siem_inventory_relationship(text,text,integer) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.siem_inventory_counts(uuid,text) TO authenticated, service_role;
+
+-- Backfill catalog identities from rules already adopted, so the inventory does not appear
+-- empty on the migration boundary. Observed state comes from the binding's own last
+-- observation; availability stays 'unknown' because this backfill read nothing from the
+-- vendor. It creates no detection and fabricates no successful import. A real fetch fills
+-- in display names, snapshots and availability.
+INSERT INTO public.siem_remote_rules(integration_id, provider, provider_scope, vendor_rule_id,
+  display_name, observed_enabled, availability, first_seen_at, last_seen_at)
+SELECT b.integration_id, b.provider, b.provider_scope, b.vendor_rule_id,
+       coalesce(d.name, b.vendor_rule_id), b.observed_enabled, 'unknown', b.first_seen_at, b.last_seen_at
+  FROM public.siem_rule_bindings b
+  LEFT JOIN public.detections d ON d.id = b.detection_id
+ON CONFLICT (integration_id, provider_scope, vendor_rule_id) DO NOTHING;
+
+-- Inventory jobs observe production. They never create a detection or a binding.
+CREATE OR REPLACE FUNCTION public.siem_start_inventory(p_actor uuid, p_integration uuid, p_scope text)
+RETURNS public.siem_sync_runs LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE r siem_sync_runs;
+BEGIN
+  IF NOT siem_can_import(p_actor, p_integration) THEN RAISE EXCEPTION 'Native import permission denied'; END IF;
+  PERFORM 1 FROM integrations WHERE id = p_integration FOR UPDATE;
+  IF EXISTS (SELECT 1 FROM siem_rule_bindings WHERE integration_id = p_integration AND provider_scope <> p_scope)
+     OR EXISTS (SELECT 1 FROM siem_remote_rules WHERE integration_id = p_integration AND provider_scope <> p_scope) THEN
+    RAISE EXCEPTION 'Connection scope changed; create a new connection';
+  END IF;
+  SELECT * INTO r FROM siem_sync_runs
+    WHERE integration_id = p_integration AND kind = 'inventory' AND status IN ('queued','running');
+  IF FOUND THEN RETURN r; END IF;
+  INSERT INTO siem_sync_runs(integration_id, actor_id, provider_scope, kind, protocol_version)
+    VALUES(p_integration, p_actor, p_scope, 'inventory', 2) RETURNING * INTO r;
+  RETURN r;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.siem_commit_inventory_chunk(p_run uuid, p_lease uuid, p_ids text[],
+  p_next integer, p_discovery_complete boolean, p_results jsonb, p_next_token text DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE r siem_sync_runs; item jsonb; rr siem_remote_rules; snap uuid; cand integer; prov text;
+BEGIN
+  SELECT * INTO r FROM siem_sync_runs WHERE id = p_run FOR UPDATE;
+  IF NOT FOUND OR r.status <> 'running' OR r.kind <> 'inventory'
+     OR r.lease_token IS DISTINCT FROM p_lease OR r.lease_expires_at <= now() THEN
+    RAISE EXCEPTION 'Sync lease expired';
+  END IF;
+  IF NOT siem_can_import(r.actor_id, r.integration_id) THEN RAISE EXCEPTION 'Native import permission revoked'; END IF;
+  SELECT provider INTO prov FROM integrations WHERE id = r.integration_id;
+
+  IF r.phase = 'discovery' THEN
+    INSERT INTO siem_sync_items(run_id, vendor_rule_id) SELECT r.id, unnest(p_ids) ON CONFLICT DO NOTHING;
+    UPDATE siem_sync_runs SET cursor_offset = p_next, cursor_token = p_next_token, discovery_complete = p_discovery_complete,
+      phase = CASE WHEN p_discovery_complete THEN 'hydration' ELSE 'discovery' END WHERE id = r.id;
+  ELSE
+    FOR item IN SELECT value FROM jsonb_array_elements(p_results) LOOP
+      IF NOT EXISTS (SELECT 1 FROM siem_sync_items
+                      WHERE run_id = r.id AND vendor_rule_id = item->>'id' AND status = 'pending') THEN
+        CONTINUE;
+      END IF;
+
+      -- Reset per item: snap is only assigned inside the content branch below, and an item
+      -- without content must not inherit the previous iteration's snapshot.
+      snap := NULL;
+
+      -- Candidate evidence is computed once here, not per page render.
+      SELECT count(DISTINCT h.detection_id) INTO cand FROM deployment_history h
+        JOIN detections x ON x.id = h.detection_id
+       WHERE h.integration_id = r.integration_id AND h.vendor_rule_id IN (item->>'id',siem_legacy_rule_id(prov,item->'raw'))
+         AND h.status = 'success' AND h.action <> 'delete' AND x.user_id = r.actor_id
+         AND NOT EXISTS (SELECT 1 FROM deployment_history later
+                          WHERE later.integration_id = h.integration_id
+                            AND later.vendor_rule_id = h.vendor_rule_id
+                            AND later.status = 'success' AND later.action = 'delete'
+                            AND later.created_at > h.created_at);
+      IF cand = 0 AND EXISTS (SELECT 1 FROM detections
+                               WHERE user_id = r.actor_id AND (external_id = item->>'id' OR (external_id=siem_legacy_rule_id(prov,item->'raw') AND source=prov))
+                                 AND native_provenance IS NULL) THEN
+        cand := 1;
+      END IF;
+
+      INSERT INTO siem_remote_rules(integration_id, provider, provider_scope, vendor_rule_id, rule_family,
+        display_name, observed_enabled, availability, normalization_error, match_candidate_count, last_seen_at)
+      VALUES(r.integration_id, prov, r.provider_scope, item->>'id',
+        coalesce(item->>'family','correlation'), coalesce(item->>'name', item->>'id'),
+        CASE WHEN item ? 'enabled' THEN (item->>'enabled')::boolean ELSE NULL END,
+        'present', CASE WHEN item->>'status' = 'failed' THEN NULL ELSE item->>'error' END, cand, now())
+      ON CONFLICT (integration_id, provider_scope, vendor_rule_id) DO UPDATE SET
+        rule_family = excluded.rule_family,
+        display_name = CASE WHEN item ? 'name' THEN excluded.display_name ELSE siem_remote_rules.display_name END,
+        observed_enabled = excluded.observed_enabled,
+        availability = CASE WHEN item->>'status' = 'failed' THEN siem_remote_rules.availability ELSE 'present' END,
+        normalization_error = CASE WHEN item->>'status' = 'failed' THEN siem_remote_rules.normalization_error ELSE excluded.normalization_error END,
+        match_candidate_count = excluded.match_candidate_count, last_seen_at = now()
+      RETURNING * INTO rr;
+
+      -- The same observation the catalog just recorded, applied to the tracked binding. Without
+      -- this the inventory table and the rule's own comparison disagree about the rule the user
+      -- is looking at. desired_content and baseline_snapshot_id are deliberately untouched:
+      -- local edits and agreed baselines are decisions, not observations.
+      IF item->>'status' IS DISTINCT FROM 'failed' THEN
+        UPDATE siem_rule_bindings SET availability='present',
+          observed_enabled=CASE WHEN item ? 'enabled' THEN (item->>'enabled')::boolean ELSE observed_enabled END,
+          last_seen_at=now(), last_sync_run_id=r.id
+         WHERE integration_id=r.integration_id AND provider_scope=r.provider_scope
+           AND vendor_rule_id=item->>'id' AND binding_status='active';
+      ELSE
+        UPDATE siem_rule_bindings SET availability='unknown'
+         WHERE integration_id=r.integration_id AND provider_scope=r.provider_scope
+           AND vendor_rule_id=item->>'id' AND binding_status='active';
+      END IF;
+
+      IF item ? 'content' THEN
+        INSERT INTO siem_remote_rule_snapshots(remote_rule_id, adapter_version, content_hash, raw_hash,
+          content, raw_payload)
+          VALUES(rr.id, item->>'adapter', item->>'hash', item->>'raw_hash', item->'content', item->'raw')
+          ON CONFLICT DO NOTHING;
+        SELECT id INTO snap FROM siem_remote_rule_snapshots
+          WHERE remote_rule_id = rr.id AND adapter_version = item->>'adapter'
+            AND content_hash = item->>'hash' AND raw_hash = item->>'raw_hash';
+        UPDATE siem_remote_rules SET latest_snapshot_id = snap WHERE id = rr.id;
+      END IF;
+
+      -- 'observed' (not 'unchanged') keeps job-outcome vocabulary distinct from library
+      -- membership: an inventory scan never claims something was imported.
+      -- The worker distinguishes "we read it but cannot normalise it" ('unsupported', a
+      -- permanent property of the rule) from "CrowdStrike did not return it" ('failed', a
+      -- transient read outcome). Only the latter blocks absence inference, so the hint is
+      -- allowlisted rather than trusted verbatim.
+      -- remote_rule_id / observed_snapshot_id are what make a completed run a reviewable
+      -- artifact: siem_start_import freezes content from the snapshot THIS run saw, never from
+      -- whatever the catalog happens to hold at submit time.
+      UPDATE siem_sync_items
+         SET status = CASE
+               WHEN item->>'status' IN ('failed','unsupported') THEN item->>'status'
+               WHEN item ? 'error' THEN 'unsupported'
+               ELSE 'observed' END,
+             error_message = item->>'error',
+             remote_rule_id = rr.id,
+             observed_snapshot_id = coalesce(snap, siem_sync_items.observed_snapshot_id)
+       WHERE run_id = r.id AND vendor_rule_id = item->>'id';
+    END LOOP;
+
+    IF NOT EXISTS (SELECT 1 FROM siem_sync_items WHERE run_id = r.id AND status = 'pending') THEN
+      -- Status and absence-inference are two different questions. Status reflects whether
+      -- every item got a definite answer of any kind (matches legacy siem_commit_chunk's
+      -- status IN ('failed','unsupported','ambiguous') reading of "partial").
+      UPDATE siem_sync_runs
+         SET status = CASE WHEN EXISTS (SELECT 1 FROM siem_sync_items
+                                         WHERE run_id = r.id AND status IN ('failed','unsupported'))
+                            THEN 'partial' ELSE 'complete' END,
+             completed_at = now()
+       WHERE id = r.id;
+      -- Absence is a separate question from status. A rule we read but could not normalise
+      -- ('unsupported') is still a definite answer that it exists, so it must not block the
+      -- inference -- otherwise one permanently unsupported rule family would stop this
+      -- connection from ever noticing a deleted rule. A 'failed' item is not a definite
+      -- answer, so it does block it.
+      IF r.discovery_complete AND NOT EXISTS (SELECT 1 FROM siem_sync_items
+                                               WHERE run_id = r.id AND status = 'failed') THEN
+        UPDATE siem_remote_rules SET availability = 'missing'
+         WHERE integration_id = r.integration_id AND provider_scope = r.provider_scope
+           AND NOT EXISTS (SELECT 1 FROM siem_sync_items
+                            WHERE run_id = r.id AND vendor_rule_id = siem_remote_rules.vendor_rule_id);
+        UPDATE siem_remote_rules SET last_complete_run_id = r.id
+         WHERE integration_id = r.integration_id AND provider_scope = r.provider_scope;
+        -- Absence is only knowable from a job that enumerates production. refresh_tracked probes
+        -- known ids one by one and pre-queues an item for each, so it can never observe that
+        -- something is gone; a complete, failure-free discovery can.
+        UPDATE siem_rule_bindings SET availability = 'missing', pending_operation_id = NULL
+         WHERE integration_id = r.integration_id AND provider_scope = r.provider_scope
+           AND binding_status = 'active'
+           AND NOT EXISTS (SELECT 1 FROM siem_sync_items
+                            WHERE run_id = r.id AND vendor_rule_id = siem_rule_bindings.vendor_rule_id);
+      END IF;
+    END IF;
+  END IF;
+  UPDATE siem_sync_runs SET lease_token = NULL, lease_expires_at = NULL, heartbeat_at = now(),
+    attempts = 0, error_message = NULL WHERE id = r.id;
+END $$;
+
+REVOKE ALL ON FUNCTION public.siem_start_inventory(uuid,uuid,text),
+  public.siem_commit_inventory_chunk(uuid,uuid,text[],integer,boolean,jsonb,text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_start_inventory(uuid,uuid,text),
+  public.siem_commit_inventory_chunk(uuid,uuid,text[],integer,boolean,jsonb,text) TO service_role;
+
+-- Re-observe rules already tracked in the library. Creates no detections: every queued id
+-- already has an active binding.
+CREATE OR REPLACE FUNCTION public.siem_start_refresh(p_actor uuid, p_integration uuid, p_scope text)
+RETURNS public.siem_sync_runs LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE r siem_sync_runs;
+BEGIN
+  IF NOT siem_can_import(p_actor, p_integration) THEN RAISE EXCEPTION 'Native import permission denied'; END IF;
+  PERFORM 1 FROM integrations WHERE id = p_integration FOR UPDATE;
+  IF EXISTS (SELECT 1 FROM siem_rule_bindings WHERE integration_id = p_integration AND provider_scope <> p_scope) THEN
+    RAISE EXCEPTION 'Connection scope changed; create a new connection';
+  END IF;
+  SELECT * INTO r FROM siem_sync_runs
+    WHERE integration_id = p_integration AND kind = 'refresh_tracked' AND status IN ('queued','running');
+  IF FOUND THEN RETURN r; END IF;
+  INSERT INTO siem_sync_runs(integration_id, actor_id, provider_scope, kind, protocol_version, phase,
+    discovery_complete)
+    VALUES(p_integration, p_actor, p_scope, 'refresh_tracked', 2, 'hydration', true) RETURNING * INTO r;
+  INSERT INTO siem_sync_items(run_id, vendor_rule_id)
+    SELECT r.id, b.vendor_rule_id FROM siem_rule_bindings b
+     WHERE b.integration_id = p_integration AND b.provider_scope = p_scope AND b.binding_status = 'active';
+  RETURN r;
+END $$;
+REVOKE ALL ON FUNCTION public.siem_start_refresh(uuid,uuid,text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_start_refresh(uuid,uuid,text) TO service_role;
+
+-- Import jobs. Selection is frozen at submission into siem_sync_items; the worker adopts
+-- only what was frozen, and only if production still matches what the user reviewed.
+CREATE OR REPLACE FUNCTION public.siem_start_import(p_actor uuid, p_integration uuid, p_source_run uuid,
+  p_ids text[], p_exclude text[], p_all_matching boolean, p_idempotency text,
+  p_search text DEFAULT NULL, p_relationship text DEFAULT NULL)
+RETURNS public.siem_sync_runs LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE r siem_sync_runs; source siem_sync_runs; frozen integer;
+BEGIN
+  IF NOT siem_can_import(p_actor, p_integration) THEN RAISE EXCEPTION 'Native import permission denied'; END IF;
+  IF p_idempotency IS NULL OR length(trim(p_idempotency)) = 0 THEN
+    RAISE EXCEPTION 'An import request key is required';
+  END IF;
+  PERFORM 1 FROM integrations WHERE id = p_integration FOR UPDATE;
+
+  -- Repeating a submitted request returns the same job.
+  SELECT * INTO r FROM siem_sync_runs
+    WHERE integration_id = p_integration AND idempotency_key = p_idempotency;
+  IF FOUND THEN RETURN r; END IF;
+
+  SELECT * INTO source FROM siem_sync_runs WHERE id = p_source_run AND integration_id = p_integration;
+  IF NOT FOUND OR source.kind <> 'inventory' THEN
+    RAISE EXCEPTION 'Fetch rules from CrowdStrike before importing';
+  END IF;
+  IF p_all_matching AND (source.status <> 'complete' OR NOT source.discovery_complete) THEN
+    RAISE EXCEPTION 'Importing every matching rule needs a completed check. Select the rules you can see instead.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM siem_sync_runs WHERE integration_id = p_integration
+               AND kind = 'import_selection' AND status IN ('queued','running')) THEN
+    RAISE EXCEPTION 'An import is already running for this connection';
+  END IF;
+
+  INSERT INTO siem_sync_runs(integration_id, actor_id, provider_scope, kind, protocol_version, phase,
+    discovery_complete, source_run_id, idempotency_key)
+    VALUES(p_integration, p_actor, source.provider_scope, 'import_selection', 2, 'hydration', true,
+           source.id, p_idempotency)
+    RETURNING * INTO r;
+
+  -- Freeze the identities and the exact content the user reviewed. Driving off the SOURCE RUN's
+  -- items (not the catalog) is what binds the import to that scan: an identity the run never
+  -- observed cannot be selected at all, by explicit id or by "all matching".
+  --
+  -- Relationship is deliberately read live from siem_inventory_rows rather than frozen: whether a
+  -- rule is already in the library is a question about NOW, and re-importing something adopted
+  -- since the scan would duplicate it. Content is the opposite -- it must be the reviewed
+  -- revision -- so the hash comes from src.observed_snapshot_id.
+  INSERT INTO siem_sync_items(run_id, vendor_rule_id, remote_rule_id, observed_snapshot_id,
+    frozen_content_hash, status, error_message)
+  SELECT r.id, v.vendor_rule_id, v.id, src.observed_snapshot_id, s.content_hash,
+         CASE WHEN v.relationship = 'not_in_library' AND s.content_hash IS NOT NULL
+                   AND v.availability = 'present' AND src.status = 'observed'
+              THEN 'pending' ELSE 'skipped' END,
+         CASE WHEN v.relationship = 'not_in_library' AND s.content_hash IS NOT NULL
+                   AND v.availability = 'present' AND src.status = 'observed' THEN NULL
+              WHEN v.relationship = 'already_in_library' THEN 'Already in library'
+              WHEN v.relationship = 'archived_in_library' THEN 'Archived in library'
+              WHEN v.relationship = 'match_needed' THEN 'Match needed'
+              WHEN v.relationship = 'unsupported' THEN coalesce(v.normalization_error, 'Not supported')
+              WHEN v.availability <> 'present' THEN 'No longer in CrowdStrike'
+              ELSE 'This rule has not been read from CrowdStrike yet' END
+    FROM siem_sync_items src
+    JOIN siem_inventory_rows v ON v.id = src.remote_rule_id
+    LEFT JOIN siem_remote_rule_snapshots s ON s.id = src.observed_snapshot_id
+   WHERE src.run_id = source.id
+     AND v.integration_id = p_integration
+     AND v.provider_scope = source.provider_scope
+     -- The same predicate the table and the counts use, so "all N matching" imports exactly the
+     -- N the user was shown.
+     AND (p_relationship IS NULL OR p_relationship = 'all' OR v.relationship = p_relationship)
+     AND (p_search IS NULL OR p_search = ''
+          OR v.display_name ILIKE '%' || p_search || '%'
+          OR v.vendor_rule_id ILIKE '%' || p_search || '%')
+     AND (CASE WHEN p_all_matching
+               THEN NOT (v.vendor_rule_id = ANY(coalesce(p_exclude, '{}')))
+               ELSE v.vendor_rule_id = ANY(coalesce(p_ids, '{}')) END)
+  ON CONFLICT DO NOTHING;
+
+  SELECT count(*) INTO frozen FROM siem_sync_items WHERE run_id = r.id AND status = 'pending';
+  IF frozen = 0 THEN
+    UPDATE siem_sync_runs SET status = 'complete', completed_at = now(),
+      error_message = 'None of the selected rules can be imported right now' WHERE id = r.id
+      RETURNING * INTO r;
+  END IF;
+  RETURN r;
+END $$;
+REVOKE ALL ON FUNCTION public.siem_start_import(uuid,uuid,uuid,text[],text[],boolean,text,text,text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_start_import(uuid,uuid,uuid,text[],text[],boolean,text,text,text) TO service_role;
+-- Executes a frozen import selection in bounded chunks. Adoption creates the detection,
+-- binding, first local revision, remote snapshot and import event in one transaction -- the
+-- same set siem_commit_chunk creates today -- but content always comes from the frozen catalog
+-- snapshot recorded at submission (Task 7), never from what the worker reads live.
+
+CREATE OR REPLACE FUNCTION public.siem_commit_import_chunk(p_run uuid, p_lease uuid, p_results jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE r siem_sync_runs; item jsonb; b siem_rule_bindings; d detections; snap uuid;
+  did text; qid text; c jsonb; frozen_hash text; prov text; qlang text; attack jsonb;
+BEGIN
+  SELECT * INTO r FROM siem_sync_runs WHERE id = p_run FOR UPDATE;
+  IF NOT FOUND OR r.status <> 'running' OR r.kind <> 'import_selection'
+     OR r.lease_token IS DISTINCT FROM p_lease OR r.lease_expires_at <= now() THEN
+    RAISE EXCEPTION 'Sync lease expired';
+  END IF;
+  IF NOT siem_can_import(r.actor_id, r.integration_id) THEN RAISE EXCEPTION 'Native import permission revoked'; END IF;
+  SELECT provider INTO prov FROM integrations WHERE id = r.integration_id;
+
+  FOR item IN SELECT value FROM jsonb_array_elements(p_results) LOOP
+    IF NOT EXISTS (SELECT 1 FROM siem_sync_items
+                    WHERE run_id = r.id AND vendor_rule_id = item->>'id' AND status = 'pending') THEN
+      CONTINUE;
+    END IF;
+
+    IF item ? 'error' THEN
+      UPDATE siem_sync_items SET status = 'failed', error_message = item->>'error'
+       WHERE run_id = r.id AND vendor_rule_id = item->>'id';
+      CONTINUE;
+    END IF;
+
+    SELECT frozen_content_hash INTO frozen_hash FROM siem_sync_items
+     WHERE run_id = r.id AND vendor_rule_id = item->>'id';
+    IF item->>'hash' IS DISTINCT FROM frozen_hash THEN
+      UPDATE siem_sync_items SET status = 'changed_since_preview',
+        error_message = 'Production changed after you reviewed this rule. Fetch rules again and reselect it.'
+       WHERE run_id = r.id AND vendor_rule_id = item->>'id';
+      CONTINUE;
+    END IF;
+
+    c := item->'content';
+    -- Per-rule language first, falling back to the provider default only when the payload has
+    -- none or an invalid one -- see siem_rule_query_language.
+    qlang := siem_rule_query_language(prov, c);
+    attack := siem_native_attack_metadata(c);
+
+    -- A binding for this identity may have appeared since submission (another run, another
+    -- actor). Adopting again would duplicate the detection.
+    SELECT * INTO b FROM siem_rule_bindings
+     WHERE integration_id = r.integration_id AND provider_scope = r.provider_scope
+       AND vendor_rule_id = item->>'id' FOR UPDATE;
+    IF FOUND THEN
+      UPDATE siem_sync_items SET status = 'linked', detection_id = b.detection_id, binding_id = b.id,
+        error_message = NULL WHERE run_id = r.id AND vendor_rule_id = item->>'id';
+      CONTINUE;
+    END IF;
+
+    -- Set initial lifecycle from the observed vendor state; unknown/disabled stays Draft.
+    -- Subsequent refreshes update the binding, not local workflow status or pending edits.
+    did := gen_random_uuid()::text; qid := gen_random_uuid()::text;
+    INSERT INTO detections(id,user_id,version,name,description,status,"detectionType",severity,"logSource",technology,
+      "testedAndValidated","queryLanguage","detectionQuery","updatedDate",queries,library_type,promotion_status,review_status,
+      source,external_id,tags,native_provenance,"mitreAttackIds","mitreTechniques","mitreTactics")
+    VALUES(did,r.actor_id,1,c->>'name',c->>'description',CASE WHEN c->>'enabled'='true' THEN 'Production' ELSE 'Draft' END,'Detection',c->>'severity','','',false,qlang,c->>'query',now(),
+      jsonb_build_array(jsonb_build_object('id',qid,'language',qlang,'query',c->>'query','isPrimary',true,'createdDate',now(),'updatedDate',now())),
+      'production','none','none','native_siem',item->>'id',ARRAY['native-siem',prov],
+      jsonb_build_object('kind','native_siem','provider',prov,'connection_name',
+        (SELECT name FROM integrations WHERE id=r.integration_id),'imported_at',now()), ARRAY(SELECT jsonb_array_elements_text(attack->'ids')),
+      ARRAY(SELECT jsonb_array_elements_text(attack->'techniques')), ARRAY(SELECT jsonb_array_elements_text(attack->'tactics')));
+    SELECT * INTO d FROM detections WHERE id=did;
+    INSERT INTO siem_rule_bindings(detection_id,integration_id,provider,provider_scope,vendor_rule_id,selected_query_id,query_language,desired_content)
+      VALUES(did,r.integration_id,prov,r.provider_scope,item->>'id',qid,qlang,c) RETURNING * INTO b;
+    INSERT INTO siem_local_revisions(detection_id,content,binding_contents,actor_id) VALUES(did,to_jsonb(d),jsonb_build_object(b.id::text,c),r.actor_id);
+    -- Unlike siem_commit_chunk (which derives outcome from prior state), a chunk that reaches
+    -- this point has already established there is no existing binding, so the action is always
+    -- 'imported'.
+    INSERT INTO siem_rule_events(binding_id,actor_id,action) VALUES(b.id,r.actor_id,'imported');
+
+    INSERT INTO siem_rule_snapshots(binding_id,adapter_version,content_hash,raw_hash,content,raw_payload)
+      VALUES(b.id,item->>'adapter',item->>'hash',item->>'raw_hash',c,item->'raw') ON CONFLICT DO NOTHING;
+    SELECT id INTO snap FROM siem_rule_snapshots WHERE binding_id=b.id AND adapter_version=item->>'adapter'
+      AND content_hash=item->>'hash' AND raw_hash=item->>'raw_hash';
+    UPDATE siem_rule_bindings SET latest_remote_snapshot_id=snap, baseline_snapshot_id=coalesce(baseline_snapshot_id,snap),
+      availability='present', observed_enabled=(c->>'enabled')::boolean, last_seen_at=now(), last_sync_run_id=r.id
+     WHERE id=b.id;
+
+    UPDATE siem_sync_items SET status = 'imported', detection_id = did, binding_id = b.id, error_message = NULL
+     WHERE run_id = r.id AND vendor_rule_id = item->>'id';
+  END LOOP;
+
+  IF NOT EXISTS (SELECT 1 FROM siem_sync_items WHERE run_id = r.id AND status = 'pending') THEN
+    UPDATE siem_sync_runs SET status = CASE WHEN EXISTS (SELECT 1 FROM siem_sync_items
+        WHERE run_id = r.id AND status IN ('failed','changed_since_preview')) THEN 'partial' ELSE 'complete' END,
+      completed_at = now() WHERE id = r.id;
+  END IF;
+
+  UPDATE siem_sync_runs SET lease_token = NULL, lease_expires_at = NULL, heartbeat_at = now(),
+    attempts = 0, error_message = NULL WHERE id = r.id;
+END $$;
+
+-- Cancellation stops unclaimed work only; anything already adopted is left exactly as it is.
+CREATE OR REPLACE FUNCTION public.siem_cancel_import(p_actor uuid, p_run uuid)
+RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE r siem_sync_runs;
+BEGIN
+  SELECT * INTO r FROM siem_sync_runs WHERE id = p_run FOR UPDATE;
+  IF NOT FOUND OR r.kind <> 'import_selection' THEN RAISE EXCEPTION 'Import job not found'; END IF;
+  IF NOT siem_can_import(p_actor, r.integration_id) THEN RAISE EXCEPTION 'Native import permission denied'; END IF;
+  IF r.status NOT IN ('queued','running') THEN RAISE EXCEPTION 'This import has already finished'; END IF;
+
+  UPDATE siem_sync_items SET status = 'cancelled', error_message = NULL
+   WHERE run_id = r.id AND status = 'pending';
+
+  UPDATE siem_sync_runs SET status = 'cancelled', completed_at = now(),
+    lease_token = NULL, lease_expires_at = NULL WHERE id = r.id;
+END $$;
+
+-- Retry resets only failed items. changed_since_preview needs a fresh inventory check and a
+-- new selection; silently re-adopting it would import content the user never reviewed.
+CREATE OR REPLACE FUNCTION public.siem_retry_import(p_actor uuid, p_run uuid)
+RETURNS public.siem_sync_runs LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE r siem_sync_runs; resumable integer;
+BEGIN
+  SELECT * INTO r FROM siem_sync_runs WHERE id = p_run FOR UPDATE;
+  IF NOT FOUND OR r.kind <> 'import_selection' THEN RAISE EXCEPTION 'Import job not found'; END IF;
+  IF NOT siem_can_import(p_actor, r.integration_id) THEN RAISE EXCEPTION 'Native import permission denied'; END IF;
+
+  -- A run that exhausted its transient retries is 'failed' with its unprocessed items still
+  -- 'pending'. Resetting only 'failed' items reported "No failed rules to retry" and stranded the
+  -- whole remaining selection. changed_since_preview stays out: it needs a fresh check and a new
+  -- selection, because silently re-adopting it would import content the user never reviewed.
+  UPDATE siem_sync_items SET status = 'pending', error_message = NULL
+   WHERE run_id = r.id AND status = 'failed';
+  SELECT count(*) INTO resumable FROM siem_sync_items WHERE run_id = r.id AND status = 'pending';
+  IF resumable = 0 THEN RAISE EXCEPTION 'No rules left to retry'; END IF;
+
+  -- A partial run no longer blocks a fresh import_selection start (siem_start_import's
+  -- concurrency check only sees 'queued'/'running'), so a second import may already be live
+  -- for this connection by the time this one is retried. Requeuing into that collision would
+  -- otherwise surface the raw siem_sync_one_active unique-constraint error to the user.
+  IF EXISTS (SELECT 1 FROM siem_sync_runs WHERE integration_id = r.integration_id
+               AND kind = 'import_selection' AND status IN ('queued','running') AND id <> r.id) THEN
+    RAISE EXCEPTION 'An import is already running for this connection';
+  END IF;
+
+  UPDATE siem_sync_runs SET status = 'queued', next_attempt_at = now(), attempts = 0,
+    completed_at = NULL, error_message = NULL, lease_token = NULL, lease_expires_at = NULL
+    WHERE id = r.id
+    RETURNING * INTO r;
+  RETURN r;
+END $$;
+
+REVOKE ALL ON FUNCTION public.siem_commit_import_chunk(uuid,uuid,jsonb),
+  public.siem_cancel_import(uuid,uuid), public.siem_retry_import(uuid,uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_commit_import_chunk(uuid,uuid,jsonb),
+  public.siem_cancel_import(uuid,uuid), public.siem_retry_import(uuid,uuid) TO service_role;
+
+-- Prune superseded catalog observations. Never touches a snapshot the catalog still points at,
+-- and never touches binding snapshots, which baselines and deployment history reference.
+CREATE OR REPLACE FUNCTION public.siem_prune_remote_snapshots(p_integration uuid, p_keep integer DEFAULT 5)
+RETURNS integer LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE removed integer;
+BEGIN
+  IF p_keep < 1 THEN RAISE EXCEPTION 'Keep at least one observation per rule'; END IF;
+  WITH ranked AS (
+    SELECT s.id, row_number() OVER (PARTITION BY s.remote_rule_id ORDER BY s.observed_at DESC) AS position
+      FROM siem_remote_rule_snapshots s
+      JOIN siem_remote_rules r ON r.id = s.remote_rule_id
+     WHERE r.integration_id = p_integration
+       AND s.id IS DISTINCT FROM r.latest_snapshot_id
+       AND NOT EXISTS (SELECT 1 FROM siem_sync_items i
+                        WHERE i.remote_rule_id = r.id AND i.status = 'pending')
+  )
+  DELETE FROM siem_remote_rule_snapshots s USING ranked
+   WHERE s.id = ranked.id AND ranked.position > p_keep;
+  GET DIAGNOSTICS removed = ROW_COUNT;
+  RETURN removed;
+END $$;
+REVOKE ALL ON FUNCTION public.siem_prune_remote_snapshots(uuid,integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.siem_prune_remote_snapshots(uuid,integer) TO service_role;
+
+-- Pack deployment durable queue (20260917192759)
+-- All queue mutations go through the authenticated Edge API and service-only transactions.
+ALTER TABLE public.pack_deploy_jobs
+  ADD COLUMN IF NOT EXISTS request_key uuid,
+  ADD COLUMN IF NOT EXISTS lease_token uuid,
+  ADD COLUMN IF NOT EXISTS lease_expires_at timestamptz,
+  ADD COLUMN IF NOT EXISTS next_attempt_at timestamptz NOT NULL DEFAULT now();
+CREATE UNIQUE INDEX IF NOT EXISTS pack_deploy_request_key ON public.pack_deploy_jobs(created_by, request_key);
+ALTER TABLE public.pack_deploy_job_items
+  ADD COLUMN IF NOT EXISTS payload jsonb,
+  ADD COLUMN IF NOT EXISTS write_started boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS retryable boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS needs_reconciliation boolean NOT NULL DEFAULT false;
+ALTER TABLE public.deployment_history ADD COLUMN IF NOT EXISTS pack_item_id uuid REFERENCES public.pack_deploy_job_items(id);
+CREATE INDEX IF NOT EXISTS deployment_history_pack_item ON public.deployment_history(pack_item_id);
+
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.pack_deploy_jobs,
+  public.pack_deploy_job_items FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.pack_deploy_jobs, public.pack_deploy_job_items TO authenticated;
+DROP POLICY IF EXISTS "Users can create deploy jobs" ON public.pack_deploy_jobs;
+DROP POLICY IF EXISTS "Users can update their own deploy jobs" ON public.pack_deploy_jobs;
+DROP POLICY IF EXISTS "Users can insert their own deploy job items" ON public.pack_deploy_job_items;
+
+-- Old jobs have no reviewed snapshot and must not be silently replayed after migration.
+UPDATE public.pack_deploy_job_items SET status='failed', retryable=false,
+  error_message='Legacy job: queue a new deployment to review current rules'
+WHERE job_id IN (SELECT id FROM public.pack_deploy_jobs WHERE status IN ('queued','running'))
+  AND status IN ('pending','running');
+UPDATE public.pack_deploy_jobs SET status='failed', completed_at=now(), current_detection_id=NULL,
+  error_message='Legacy job: queue a new deployment to review current rules',
+  failed_count=(SELECT count(*) FROM public.pack_deploy_job_items i WHERE i.job_id=pack_deploy_jobs.id AND i.status='failed')
+WHERE status IN ('queued','running');
+
+CREATE OR REPLACE FUNCTION public.pack_deploy_recount(p_job uuid) RETURNS void
+LANGUAGE plpgsql SECURITY INVOKER SET search_path=public AS $$
+DECLARE s integer; f integer; k integer; outstanding integer;
+BEGIN
+  SELECT count(*) FILTER(WHERE status='succeeded'),count(*) FILTER(WHERE status='failed'),
+    count(*) FILTER(WHERE status='skipped'),count(*) FILTER(WHERE status IN ('pending','running'))
+    INTO s,f,k,outstanding FROM pack_deploy_job_items WHERE job_id=p_job;
+  UPDATE pack_deploy_jobs SET succeeded_count=s,failed_count=f,skipped_count=k,
+    status=CASE WHEN status='cancelled' THEN status WHEN outstanding>0 THEN status
+      WHEN f>0 AND s>0 THEN 'partial' WHEN f>0 THEN 'failed' ELSE 'succeeded' END,
+    completed_at=CASE WHEN outstanding=0 OR status='cancelled' THEN coalesce(completed_at,now()) ELSE NULL END,
+    current_detection_id=CASE WHEN outstanding=0 OR status='cancelled' THEN NULL ELSE current_detection_id END
+    WHERE id=p_job;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.pack_deploy_create(p_actor uuid,p_integration uuid,p_pack uuid,
+  p_request uuid,p_config jsonb,p_items jsonb) RETURNS uuid
+LANGUAGE plpgsql SECURITY INVOKER SET search_path=public AS $$
+DECLARE jid uuid;
+BEGIN
+  IF p_request IS NULL OR jsonb_typeof(p_items)<>'array' OR jsonb_array_length(p_items) NOT BETWEEN 1 AND 1000
+    THEN RAISE EXCEPTION 'Invalid deployment request'; END IF;
+  PERFORM 1 FROM integrations WHERE id=p_integration AND user_id=p_actor AND status='connected' FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Connected integration not found'; END IF;
+  SELECT id INTO jid FROM pack_deploy_jobs WHERE created_by=p_actor AND request_key=p_request;
+  IF FOUND THEN RETURN jid; END IF;
+  IF EXISTS(SELECT 1 FROM pack_deploy_jobs WHERE integration_id=p_integration AND
+    (status IN ('queued','running') OR lease_expires_at>now())) THEN
+    RAISE EXCEPTION 'A pack deployment is already active on this connection'; END IF;
+  IF EXISTS(SELECT 1 FROM jsonb_array_elements(p_items) x LEFT JOIN detections d ON d.id=x->>'detection_id'
+    WHERE d.id IS NULL OR d.user_id<>p_actor) THEN RAISE EXCEPTION 'Detection access denied'; END IF;
+  INSERT INTO pack_deploy_jobs(pack_id,integration_id,created_by,request_key,rule_config,total_items)
+    VALUES(p_pack,p_integration,p_actor,p_request,p_config,jsonb_array_length(p_items)) RETURNING id INTO jid;
+  INSERT INTO pack_deploy_job_items(job_id,detection_id,detection_name,status,error_message,payload)
+    SELECT jid,x->>'detection_id',x->>'detection_name',
+      CASE WHEN x->>'reason' IS NULL THEN 'pending' ELSE 'skipped' END,x->>'reason',x->'payload'
+      FROM jsonb_array_elements(p_items) x;
+  PERFORM pack_deploy_recount(jid);
+  RETURN jid;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.pack_deploy_claim(p_job uuid DEFAULT NULL) RETURNS jsonb
+LANGUAGE plpgsql SECURITY INVOKER SET search_path=public AS $$
+DECLARE j pack_deploy_jobs; i pack_deploy_job_items;
+BEGIN
+  SELECT * INTO j FROM pack_deploy_jobs WHERE (p_job IS NULL OR id=p_job)
+    AND status IN ('queued','running') AND next_attempt_at<=now()
+    AND (lease_expires_at IS NULL OR lease_expires_at<now())
+    ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+  -- A worker can live for 400 seconds. The ten-minute lease outlives it. Never replay an uncertain write.
+  UPDATE pack_deploy_job_items SET status=CASE WHEN write_started THEN 'failed' ELSE 'pending' END,
+    needs_reconciliation=write_started,retryable=NOT write_started,
+    error_message=CASE WHEN write_started THEN 'Worker interrupted after dispatch. Check the SIEM before deploying this rule again.' ELSE NULL END
+    WHERE job_id=j.id AND status='running';
+  -- Recover a committed result if the worker died after integration-ops recorded success.
+  UPDATE pack_deploy_job_items recovered SET status='succeeded',needs_reconciliation=false,retryable=false,
+    error_message=NULL,vendor_rule_id=h.vendor_rule_id
+    FROM deployment_history h WHERE recovered.job_id=j.id AND recovered.needs_reconciliation
+      AND h.pack_item_id=recovered.id AND h.status='success' AND h.vendor_rule_id IS NOT NULL;
+  PERFORM pack_deploy_recount(j.id);
+  SELECT * INTO i FROM pack_deploy_job_items WHERE job_id=j.id AND status='pending' ORDER BY id LIMIT 1;
+  IF NOT FOUND THEN
+    UPDATE pack_deploy_jobs SET lease_token=NULL,lease_expires_at=NULL,current_detection_id=NULL WHERE id=j.id;
+    RETURN NULL;
+  END IF;
+  UPDATE pack_deploy_jobs SET status='running',lease_token=gen_random_uuid(),lease_expires_at=now()+interval '10 minutes',
+    started_at=coalesce(started_at,now()),current_detection_id=i.detection_id WHERE id=j.id RETURNING * INTO j;
+  UPDATE pack_deploy_job_items SET status='running',attempted_at=now(),retry_count=retry_count+1,
+    write_started=false,error_message=NULL WHERE id=i.id RETURNING * INTO i;
+  RETURN jsonb_build_object('job',to_jsonb(j),'item',to_jsonb(i));
+END $$;
+
+CREATE OR REPLACE FUNCTION public.pack_deploy_begin_write(p_job uuid,p_item uuid,p_lease uuid) RETURNS jsonb
+LANGUAGE plpgsql SECURITY INVOKER SET search_path=public AS $$
+DECLARE j pack_deploy_jobs; i pack_deploy_job_items;
+BEGIN
+  SELECT * INTO j FROM pack_deploy_jobs WHERE id=p_job FOR UPDATE;
+  IF j.id IS NULL OR j.status<>'running' OR j.lease_token IS DISTINCT FROM p_lease OR j.lease_expires_at<=now()
+    THEN RAISE EXCEPTION 'Deployment lease is no longer active'; END IF;
+  UPDATE pack_deploy_job_items SET write_started=true WHERE id=p_item AND job_id=p_job AND status='running'
+    AND NOT write_started RETURNING * INTO i;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Item already dispatched or no longer active'; END IF;
+  RETURN jsonb_build_object('job',to_jsonb(j),'item',to_jsonb(i));
+END $$;
+
+CREATE OR REPLACE FUNCTION public.pack_deploy_finish(p_job uuid,p_item uuid,p_lease uuid,p_result jsonb) RETURNS boolean
+LANGUAGE plpgsql SECURITY INVOKER SET search_path=public AS $$
+DECLARE j pack_deploy_jobs; i pack_deploy_job_items; next_status text; delay_seconds integer;
+BEGIN
+  SELECT * INTO j FROM pack_deploy_jobs WHERE id=p_job FOR UPDATE;
+  IF j.id IS NULL OR j.lease_token IS DISTINCT FROM p_lease OR j.lease_expires_at<=now() THEN RETURN false; END IF;
+  SELECT * INTO i FROM pack_deploy_job_items WHERE id=p_item AND job_id=p_job;
+  IF NOT FOUND THEN RETURN false; END IF;
+  next_status := p_result->>'status';
+  IF next_status NOT IN ('succeeded','failed','skipped') THEN RAISE EXCEPTION 'Invalid item outcome'; END IF;
+  IF next_status='succeeded' AND nullif(p_result->>'vendorRuleId','') IS NULL THEN RAISE EXCEPTION 'Missing vendor rule identity'; END IF;
+  IF next_status='failed' AND coalesce((p_result->>'retryable')::boolean,false) AND
+    NOT coalesce((p_result->>'uncertain')::boolean,false) AND i.retry_count<3 AND j.status<>'cancelled' THEN
+    next_status := 'pending';
+  END IF;
+  UPDATE pack_deploy_job_items SET status=next_status,vendor_rule_id=p_result->>'vendorRuleId',
+    error_message=p_result->>'error',retryable=coalesce((p_result->>'retryable')::boolean,false),
+    needs_reconciliation=coalesce((p_result->>'uncertain')::boolean,false) WHERE id=p_item;
+  delay_seconds := CASE WHEN next_status='pending' THEN greatest(5,least(300,coalesce((p_result->>'retryAfter')::integer,30))) ELSE 0 END;
+  UPDATE pack_deploy_jobs SET status=CASE WHEN status='cancelled' THEN status ELSE 'queued' END,
+    lease_token=NULL,lease_expires_at=NULL,current_detection_id=NULL,
+    next_attempt_at=now()+make_interval(secs=>delay_seconds) WHERE id=p_job;
+  PERFORM pack_deploy_recount(p_job);
+  RETURN true;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.pack_deploy_control(p_actor uuid,p_job uuid,p_action text) RETURNS void
+LANGUAGE plpgsql SECURITY INVOKER SET search_path=public AS $$
+DECLARE j pack_deploy_jobs;
+BEGIN
+  PERFORM 1 FROM integrations WHERE id=(SELECT integration_id FROM pack_deploy_jobs WHERE id=p_job AND created_by=p_actor) FOR UPDATE;
+  SELECT * INTO j FROM pack_deploy_jobs WHERE id=p_job AND created_by=p_actor FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Deployment job not found'; END IF;
+  IF p_action='cancel' THEN
+    IF j.status NOT IN ('queued','running') THEN RETURN; END IF;
+    UPDATE pack_deploy_jobs SET status='cancelled',completed_at=now(),current_detection_id=NULL WHERE id=p_job;
+    UPDATE pack_deploy_job_items SET status='skipped',error_message='Cancelled before deployment'
+      WHERE job_id=p_job AND status='pending';
+    UPDATE pack_deploy_job_items SET status='failed',needs_reconciliation=write_started,retryable=false,
+      error_message=CASE WHEN write_started THEN 'Cancelled during deployment. The in-flight request may still finish; check the SIEM.'
+        ELSE 'Cancelled before deployment' END WHERE job_id=p_job AND status='running';
+  ELSIF p_action='retry' THEN
+    IF j.status NOT IN ('failed','partial') OR j.lease_expires_at>now() THEN RAISE EXCEPTION 'Job is not ready to retry'; END IF;
+    IF EXISTS(SELECT 1 FROM pack_deploy_jobs WHERE integration_id=j.integration_id AND id<>j.id AND
+      (status IN ('queued','running') OR lease_expires_at>now())) THEN RAISE EXCEPTION 'Another pack deployment is active'; END IF;
+    UPDATE pack_deploy_job_items SET status='pending',retry_count=0,error_message=NULL,write_started=false
+      WHERE job_id=p_job AND status='failed' AND retryable AND NOT needs_reconciliation AND payload IS NOT NULL;
+    IF NOT FOUND THEN RAISE EXCEPTION 'No safely retryable items. Review the item errors and queue a new deployment.'; END IF;
+    UPDATE pack_deploy_jobs SET status='queued',completed_at=NULL,error_message=NULL,next_attempt_at=now(),
+      lease_token=NULL,lease_expires_at=NULL,current_detection_id=NULL WHERE id=p_job;
+  ELSE RAISE EXCEPTION 'Unknown job action'; END IF;
+  PERFORM pack_deploy_recount(p_job);
+END $$;
+
+REVOKE ALL ON FUNCTION public.pack_deploy_recount(uuid),public.pack_deploy_create(uuid,uuid,uuid,uuid,jsonb,jsonb),
+  public.pack_deploy_claim(uuid),public.pack_deploy_begin_write(uuid,uuid,uuid),
+  public.pack_deploy_finish(uuid,uuid,uuid,jsonb),public.pack_deploy_control(uuid,uuid,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.pack_deploy_recount(uuid),public.pack_deploy_create(uuid,uuid,uuid,uuid,jsonb,jsonb),
+  public.pack_deploy_claim(uuid),public.pack_deploy_begin_write(uuid,uuid,uuid),
+  public.pack_deploy_finish(uuid,uuid,uuid,jsonb),public.pack_deploy_control(uuid,uuid,text) TO service_role;
+
+-- The latest successful lifecycle action describes remote presence. Failed updates do not delete rules.
+CREATE OR REPLACE VIEW public.v_pack_deployment_status WITH (security_invoker=true) AS
+WITH latest_attempt AS (
+  SELECT DISTINCT ON(detection_id,integration_id) * FROM deployment_history ORDER BY detection_id,integration_id,created_at DESC,id DESC
+), latest_success AS (
+  SELECT DISTINCT ON(detection_id,integration_id) * FROM deployment_history WHERE status='success'
+    ORDER BY detection_id,integration_id,created_at DESC,id DESC
+), targets AS (
+  SELECT DISTINCT pd.pack_id,dh.integration_id FROM pack_detections pd JOIN deployment_history dh ON dh.detection_id=pd.detection_id
+)
+SELECT t.pack_id,t.integration_id,count(DISTINCT pd.detection_id) AS total_detections,
+  count(DISTINCT pd.detection_id) FILTER(WHERE s.action IN ('create','update','enable','disable')) AS deployed_count,
+  count(DISTINCT pd.detection_id) FILTER(WHERE a.status='failed') AS failed_count,
+  max(a.created_at) AS last_deployed_at
+FROM targets t JOIN pack_detections pd ON pd.pack_id=t.pack_id
+LEFT JOIN latest_attempt a ON a.detection_id=pd.detection_id AND a.integration_id=t.integration_id
+LEFT JOIN latest_success s ON s.detection_id=pd.detection_id AND s.integration_id=t.integration_id
+GROUP BY t.pack_id,t.integration_id;
+
+-- Existing installations already use these Vault values for Threat Research. No JWTs are persisted.
+CREATE OR REPLACE FUNCTION public.pack_deploy_ready() RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE configured boolean; scheduled boolean;
+BEGIN
+  IF to_regclass('vault.decrypted_secrets') IS NULL OR to_regclass('cron.job') IS NULL OR
+    NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='net') THEN RETURN false; END IF;
+  EXECUTE 'SELECT count(*)=2 FROM vault.decrypted_secrets WHERE name IN (''tr_supabase_url'',''tr_service_role_key'') AND length(decrypted_secret)>0' INTO configured;
+  EXECUTE 'SELECT EXISTS(SELECT 1 FROM cron.job WHERE jobname=''pack-deploy-dispatcher'' AND active)' INTO scheduled;
+  RETURN configured AND scheduled;
+END $$;
+REVOKE ALL ON FUNCTION public.pack_deploy_ready() FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.pack_deploy_ready() TO service_role;
+
+CREATE OR REPLACE FUNCTION public.pack_deploy_dispatch() RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE base_url text; service_key text;
+BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pack_deploy_jobs WHERE status IN ('queued','running')
+    AND next_attempt_at<=now() AND (lease_expires_at IS NULL OR lease_expires_at<now())) THEN RETURN; END IF;
+  IF to_regclass('vault.decrypted_secrets') IS NULL OR NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='net') THEN RETURN; END IF;
+  EXECUTE 'SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name=$1 LIMIT 1' INTO base_url USING 'tr_supabase_url';
+  EXECUTE 'SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name=$1 LIMIT 1' INTO service_key USING 'tr_service_role_key';
+  IF base_url IS NULL OR service_key IS NULL THEN RETURN; END IF;
+  EXECUTE 'SELECT net.http_post(url := $1, headers := $2, body := $3)'
+    USING base_url||'/functions/v1/pack-deploy-worker',
+      jsonb_build_object('Content-Type','application/json','Authorization','Bearer '||service_key),'{"action":"tick"}'::jsonb;
+END $$;
+REVOKE ALL ON FUNCTION public.pack_deploy_dispatch() FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.pack_deploy_dispatch() TO service_role;
+DO $$ BEGIN
+  IF EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='cron') THEN
+    PERFORM cron.schedule('pack-deploy-dispatcher','* * * * *','select public.pack_deploy_dispatch()');
+  END IF;
+END $$;

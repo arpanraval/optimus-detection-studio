@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Icon } from '../Icon';
+import { PackGlyph } from './PackGlyph';
 import { DetectionPack } from '../../types';
 import { useBeforeUnload } from '../../hooks/useBeforeUnload';
 
@@ -18,14 +19,22 @@ const SOURCE_OPTIONS = [
   { value: 'official', label: 'Official', description: 'Official Optimus pack' },
 ];
 
-const PLATFORM_OPTIONS = ['Windows', 'Linux', 'macOS', 'AWS', 'Azure', 'GCP', 'Office 365', 'Kubernetes', 'Network', 'IaaS', 'SaaS', 'Containers'];
+const PLATFORM_OPTIONS = [
+  'Windows',
+  'Linux',
+  'macOS',
+  'AWS',
+  'Azure',
+  'GCP',
+  'Office 365',
+  'Kubernetes',
+  'Network',
+  'IaaS',
+  'SaaS',
+  'Containers',
+];
 
-export const CreatePackModal: React.FC<CreatePackModalProps> = ({
-  isOpen,
-  onClose,
-  onSubmit,
-  editPack,
-}) => {
+export const CreatePackModal: React.FC<CreatePackModalProps> = ({ isOpen, onClose, onSubmit, editPack }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [icon, setIcon] = useState('📦');
@@ -97,7 +106,7 @@ export const CreatePackModal: React.FC<CreatePackModalProps> = ({
   };
 
   const handleRemoveTag = (tagToRemove: string) => {
-    setTags(tags.filter(t => t !== tagToRemove));
+    setTags(tags.filter((t) => t !== tagToRemove));
   };
 
   const handleTagKeyDown = (e: React.KeyboardEvent) => {
@@ -109,7 +118,7 @@ export const CreatePackModal: React.FC<CreatePackModalProps> = ({
 
   const togglePlatform = (platform: string) => {
     if (platforms.includes(platform)) {
-      setPlatforms(platforms.filter(p => p !== platform));
+      setPlatforms(platforms.filter((p) => p !== platform));
     } else {
       setPlatforms([...platforms, platform]);
     }
@@ -120,13 +129,10 @@ export const CreatePackModal: React.FC<CreatePackModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
-      <div 
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       {/* Modal */}
-      <div className="relative w-full max-w-lg bg-surface-container rounded-2xl shadow-2xl border border-outline-variant/20 overflow-hidden">
+      <div className="relative w-full max-w-lg bg-surface-container rounded-2xl shadow-lg border border-outline-variant/20 overflow-hidden">
         {/* Header */}
         <div className="px-6 py-4 border-b border-outline-variant/20 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-on-surface">
@@ -148,18 +154,23 @@ export const CreatePackModal: React.FC<CreatePackModalProps> = ({
             <div className="relative">
               <button
                 type="button"
+                aria-label="Choose pack icon"
+                aria-expanded={showEmojiPicker}
                 onClick={() => setShowEmojiPicker(!showEmojiPicker)}
                 className="w-16 h-16 rounded-xl bg-surface-container-high border border-outline-variant/30 flex items-center justify-center text-3xl hover:border-primary/50 transition-colors"
               >
-                {icon}
+                <PackGlyph value={icon} className="h-8 w-8" />
               </button>
               {showEmojiPicker && (
                 <div className="absolute top-full left-0 mt-2 p-3 bg-surface-container-highest rounded-xl border border-outline-variant/30 shadow-xl z-10 grid grid-cols-8 gap-2">
-                  {EMOJI_OPTIONS.map(emoji => (
+                  {EMOJI_OPTIONS.map((emoji) => (
                     <button
                       key={emoji}
                       type="button"
-                      onClick={() => { setIcon(emoji); setShowEmojiPicker(false); }}
+                      onClick={() => {
+                        setIcon(emoji);
+                        setShowEmojiPicker(false);
+                      }}
                       className={`w-10 h-10 rounded-lg flex items-center justify-center text-xl hover:bg-primary/10 transition-colors ${icon === emoji ? 'bg-primary/20 ring-2 ring-primary' : ''}`}
                     >
                       {emoji}
@@ -201,7 +212,7 @@ export const CreatePackModal: React.FC<CreatePackModalProps> = ({
           <div>
             <label className="block text-sm font-medium text-on-surface-variant mb-2">Source</label>
             <div className="grid grid-cols-3 gap-2">
-              {SOURCE_OPTIONS.map(option => (
+              {SOURCE_OPTIONS.map((option) => (
                 <button
                   key={option.value}
                   type="button"
@@ -223,15 +234,15 @@ export const CreatePackModal: React.FC<CreatePackModalProps> = ({
           <div>
             <label className="block text-sm font-medium text-on-surface-variant mb-2">Platforms</label>
             <div className="flex flex-wrap gap-2">
-              {PLATFORM_OPTIONS.map(platform => (
+              {[...new Set([...PLATFORM_OPTIONS, ...platforms])].map((platform) => (
                 <button
                   key={platform}
                   type="button"
                   onClick={() => togglePlatform(platform)}
                   className={`px-3 py-1.5 text-sm rounded-lg border transition-all ${
                     platforms.includes(platform)
-                      ? 'bg-tertiary/10 border-tertiary text-tertiary'
-                      : 'bg-surface-container-high border-outline-variant/30 text-on-surface-variant hover:border-tertiary/30'
+                      ? 'bg-primary border-primary text-on-primary'
+                      : 'bg-surface-container-high border-outline-variant/30 text-on-surface-variant hover:border-outline-variant/30'
                   }`}
                 >
                   {platform}
@@ -263,7 +274,7 @@ export const CreatePackModal: React.FC<CreatePackModalProps> = ({
             </div>
             {tags.length > 0 && (
               <div className="flex flex-wrap gap-2">
-                {tags.map(tag => (
+                {tags.map((tag) => (
                   <span
                     key={tag}
                     className="inline-flex items-center gap-1.5 px-3 py-1 bg-primary/10 text-primary text-sm rounded-lg"
@@ -295,7 +306,7 @@ export const CreatePackModal: React.FC<CreatePackModalProps> = ({
           <button
             onClick={handleSubmit}
             disabled={!name.trim() || isSubmitting}
-            className="px-6 py-2.5 bg-tertiary text-on-tertiary text-sm font-semibold rounded-xl hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-tertiary/20"
+            className="px-6 py-2.5 bg-primary text-on-primary text-sm font-semibold rounded-xl  disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg "
           >
             {isSubmitting ? (
               <Icon name="spinner" className="w-4 h-4 animate-spin" />

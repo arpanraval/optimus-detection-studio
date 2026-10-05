@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import { getCorsHeaders, handleCorsPreflight } from '../_shared/cors.ts'
+import { compareEnrichments } from '../_shared/enrichmentDiff.ts'
 
 // =============================================================================
 // CONFIGURATION
@@ -56,7 +57,7 @@ interface MispThreatActor {
     'cfr-suspected-state-sponsor'?: string
     'cfr-suspected-victims'?: string[]
     'cfr-target-category'?: string[]
-    'cfr-type-of-incident'?: string
+    'cfr-type-of-incident'?: string | string[]
     synonyms?: string[]
     refs?: string[]
   }
@@ -94,7 +95,7 @@ interface TargetingIntel {
 }
 
 interface EnrichmentRequest {
-  action: 'preview' | 'apply'
+  action: 'check' | 'preview' | 'apply'
   previewHash?: string
 }
 
@@ -118,7 +119,7 @@ function buildAliasIndex(groups: MitreGroup[]): Map<string, { mitreId: string; s
       if (!normalized) continue
 
       const existing = index.get(normalized) || []
-      existing.push({ mitreId: group.mitre_id, stixId: group.stix_id, name: group.name, count: 1 })
+      if (!existing.some(candidate => candidate.stixId === group.stix_id)) existing.push({ mitreId: group.mitre_id, stixId: group.stix_id, name: group.name, count: 1 })
       index.set(normalized, existing)
     }
   }
@@ -254,7 +255,8 @@ function extractTargetingIntel(
 
     // Activity type
     if (!activityType && meta['cfr-type-of-incident']) {
-      activityType = meta['cfr-type-of-incident']
+      const incidents = meta['cfr-type-of-incident']
+      activityType = Array.isArray(incidents) ? incidents.join(', ') : incidents
     }
   }
 
@@ -320,10 +322,22 @@ serve(async (req: Request) => {
 
     const body: EnrichmentRequest = await req.json()
     const { action, previewHash } = body
+    const { data: profile, error: profileError } = await supabase.from('profiles')
+      .select('role, status').eq('id', user.id).single()
+    if (profileError || !profile || !['admin', 'owner'].includes(profile.role) || profile.status !== 'active') {
+      return new Response(JSON.stringify({ error: 'Active admin or owner privileges required' }), {
+        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+    if (!['check', 'preview', 'apply'].includes(action)) {
+      return new Response(JSON.stringify({ error: 'Invalid action' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
 
     // Fetch MISP data from GitHub
     console.log('Fetching MISP Threat Actor data...')
-    const mispResponse = await fetch(MISP_THREAT_ACTOR_URL)
+    const mispResponse = await fetch(MISP_THREAT_ACTOR_URL, { signal: AbortSignal.timeout(30000) })
     if (!mispResponse.ok) {
       throw new Error('Failed to fetch MISP Threat Actor data')
     }
@@ -389,16 +403,21 @@ serve(async (req: Request) => {
       e.intel.origin_country || e.intel.target_countries.length > 0
     ).length
 
-    // Generate preview hash
-    const previewContent = JSON.stringify(enrichments.map(e => ({
-      stixId: e.stixId,
-      intel: e.intel
-    })))
-    const currentHash = await generateHash(previewContent)
+    const diff = await compareEnrichments(enrichments.map(e => ({ ...e, intel: { ...e.intel } })),
+      new Map(mitreGroups.map(group => [group.stix_id, group.data?.targeting_intel ?? null])))
+    const currentHash = diff.previewHash
+    const summary = {
+      totalMitreGroups: mitreGroups.length, totalMispActors: mispActors.length,
+      matchedGroups: matches.size, groupsWithTargeting, unmatchedGroups: unmatched.length,
+      newMatches: diff.newMatches, changedMatches: diff.changedMatches, unchangedMatches: diff.unchangedMatches,
+    }
 
-    if (action === 'preview') {
+    if (action === 'preview' || action === 'check') {
       return new Response(JSON.stringify({
         success: true,
+        hasUpdates: diff.changes.length > 0,
+        previewHash: currentHash,
+        summary,
         preview: {
           previewHash: currentHash,
           timestamp: new Date().toISOString(),
@@ -426,16 +445,22 @@ serve(async (req: Request) => {
       }
 
       if (previewHash !== currentHash) {
-        // Log mismatch but proceed — MISP API can return subtly different data between calls
-        console.warn(`Preview hash mismatch: provided=${previewHash}, current=${currentHash}. Proceeding with current data.`)
+        return new Response(JSON.stringify({ error: 'Preview hash mismatch: source or stored data changed. Check Updates again.' }), {
+          status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
       }
 
+      if (!diff.changes.length) return new Response(JSON.stringify({ success: true, applied: { successCount: 0, errorCount: 0, newMatches: 0, changedMatches: 0 } }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+
       // Get current targeting_intel for rollback
-      const stixIds = enrichments.map(e => e.stixId)
-      const { data: currentData } = await supabase
+      const stixIds = diff.changes.map(e => e.stixId)
+      const { data: currentData, error: snapshotError } = await supabase
         .from('mitre_objects')
         .select('stix_id, data')
         .in('stix_id', stixIds)
+      if (snapshotError) throw snapshotError
 
       const rollbackData: Record<string, any> = {}
       for (const row of currentData || []) {
@@ -447,6 +472,7 @@ serve(async (req: Request) => {
         .from('enrichment_audit')
         .insert({
           enrichment_type: 'misp_targeting_intel',
+          applied_by: user.id,
           preview_hash: previewHash,
           affected_group_ids: stixIds,
           rollback_data: rollbackData,
@@ -465,7 +491,7 @@ serve(async (req: Request) => {
       let successCount = 0
       let errorCount = 0
 
-      for (const enrichment of enrichments) {
+      for (const enrichment of diff.changes) {
         // Update the group's data JSONB with targeting_intel
         const { error: updateError } = await supabase.rpc('update_targeting_intel', {
           p_stix_id: enrichment.stixId,
@@ -481,10 +507,13 @@ serve(async (req: Request) => {
       }
 
       return new Response(JSON.stringify({
-        success: true,
+        success: errorCount === 0,
+        ...(errorCount ? { error: `${errorCount} group updates failed; ${successCount} succeeded. Check Updates to retry remaining changes.` } : {}),
         applied: {
           auditId: auditRecord.id,
-          totalGroups: enrichments.length,
+          totalGroups: diff.changes.length,
+          newMatches: diff.newMatches,
+          changedMatches: diff.changedMatches,
           successCount,
           errorCount,
           groupsWithTargeting

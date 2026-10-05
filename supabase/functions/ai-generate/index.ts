@@ -22,6 +22,7 @@ const MODEL_PROVIDERS: Record<string, Provider> = {
   'gemini-3.6-flash': 'google',
   'gemini-3.5-flash-lite': 'google',
   'gemini-3.1-flash-lite-image': 'google',
+  'gemini-3.8-flash': 'google',
   // OpenAI models
   'gpt-5.6-sol': 'openai',
   'gpt-5.6-terra': 'openai',

@@ -174,7 +174,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                 <div>
                   <p className="text-sm font-medium text-on-surface">Disconnect Integration</p>
                   <p className="text-xs text-on-surface-variant mt-0.5">
-                    Remove this connection and all stored credentials.
+                    Remove stored credentials and disconnect. Imported rules and production history are retained.
                   </p>
                 </div>
                 <Button

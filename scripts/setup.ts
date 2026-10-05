@@ -108,6 +108,7 @@ const SECRET_PROMPTS: { key: string; why: string; required: boolean }[] = [
 ];
 
 const CRON_JOBS: [string, string, string][] = [
+  ['pack-deploy-dispatcher', '* * * * *', 'select public.pack_deploy_dispatch()'],
   ['ai_usage_rollup', '0 2 * * *', 'select public.rollup_ai_usage()'],
   ['threat-research-dispatcher', '* * * * *', 'select public.threat_research_dispatcher()'],
   ['auto-digest-watchdog', '*/5 * * * *', 'select public.auto_digest_watchdog()'],
