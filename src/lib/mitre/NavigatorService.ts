@@ -88,7 +88,7 @@ export class NavigatorService {
   /**
    * Generate a MITRE ATT&CK Navigator Layer JSON object
    */
-  static generateNavigatorLayer(coverage: CoverageMap, name = "Optimus Detection Coverage", description = "Exported from Optimus Detection Studio"): NavigatorLayer {
+  static generateNavigatorLayer(coverage: CoverageMap, name = "Optimus Detection Coverage", description = "Exported from Optimus Detection Studio", attackVersion = '18'): NavigatorLayer {
     const techniques = Object.entries(coverage).map(([mitreId, data]) => {
       const avgQuality = data.detections.length > 0 
         ? Math.round(data.detections.reduce((sum, d) => sum + (d.qualityScore || 0), 0) / data.detections.length)
@@ -113,7 +113,7 @@ export class NavigatorService {
     return {
       name,
       versions: {
-        attack: "18",
+        attack: attackVersion,
         navigator: "5.2.0",
         layer: "4.5"
       },

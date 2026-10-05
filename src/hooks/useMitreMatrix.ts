@@ -1,15 +1,15 @@
-
 import { useState, useEffect } from 'react';
 import { MITREQueryService } from '@/lib/mitre/services';
 import { supabase } from '../lib/supabaseClient';
-import { MitreObject, MITRE_TACTICS } from '@/types/mitre-stix';
+import { MitreObject } from '@/types/mitre-stix';
 import { toError } from '../lib/errors';
 
 // Define a type that includes platforms, as returned by the service
 export type ExtendedMitreObject = MitreObject & { platforms: string[] };
 
 interface MitreMatrixHook {
-  tactics: typeof MITRE_TACTICS;
+  tactics: { name: string; shortname: string }[];
+  version: string | null;
   techniques: ExtendedMitreObject[];
   loading: boolean;
   error: Error | null;
@@ -19,6 +19,10 @@ export function useMitreMatrix(): MitreMatrixHook {
   const [techniques, setTechniques] = useState<ExtendedMitreObject[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [definition, setDefinition] = useState<{
+    version: string | null;
+    tactics: { name: string; shortname: string }[];
+  }>({ version: null, tactics: [] });
 
   useEffect(() => {
     loadTechniques();
@@ -31,8 +35,11 @@ export function useMitreMatrix(): MitreMatrixHook {
     try {
       const queryService = new MITREQueryService(supabase);
       // Fetch ALL techniques. Filtering is done in the UI component.
-      const allTechniques = await queryService.getAllTechniques();
-      
+      const [allTechniques, matrixDefinition] = await Promise.all([
+        queryService.getAllTechniques(),
+        queryService.getMatrixDefinition(),
+      ]);
+
       // Sort techniques by ID to ensure parent/sub-technique order (e.g., T1059, T1059.001)
       const sortedTechniques = allTechniques.sort((a, b) => {
         const idA = a.mitre_id || '';
@@ -41,6 +48,7 @@ export function useMitreMatrix(): MitreMatrixHook {
       });
 
       setTechniques(sortedTechniques);
+      setDefinition(matrixDefinition);
     } catch (err) {
       setError(toError(err));
       console.error('Failed to load MITRE techniques:', err);
@@ -50,9 +58,10 @@ export function useMitreMatrix(): MitreMatrixHook {
   }
 
   return {
-    tactics: MITRE_TACTICS,
+    tactics: definition.tactics,
+    version: definition.version,
     techniques, // Return raw list, component handles grouping
     loading,
-    error
+    error,
   };
 }
