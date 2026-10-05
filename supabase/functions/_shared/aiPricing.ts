@@ -40,6 +40,7 @@ export const MODEL_PRICING: Record<string, ModelRate> = {
   'gemini-3.6-flash':               { provider: 'google',    inputPerMtoken: 1.50,  outputPerMtoken: 7.50,  cachedInputPerMtoken: 0.15 },
   'gemini-3.5-flash-lite':          { provider: 'google',    inputPerMtoken: 0.30,  outputPerMtoken: 2.50,  cachedInputPerMtoken: 0.03 },
   'gemini-3.1-flash-lite-image':    { provider: 'google',    inputPerMtoken: 0.25,  outputPerMtoken: 1.50,  imagePerUnit: 0.0336 },
+  'gemini-3.8-flash':               { provider: 'google',    inputPerMtoken: 1.50,  outputPerMtoken: 7.50,  cachedInputPerMtoken: 0.15 },
   // Current OpenAI models
   'gpt-5.6-sol':                    { provider: 'openai',    inputPerMtoken: 5.00,  outputPerMtoken: 30.00, cachedInputPerMtoken: 0.50 },
   'gpt-5.6-terra':                  { provider: 'openai',    inputPerMtoken: 2.50,  outputPerMtoken: 15.00, cachedInputPerMtoken: 0.25 },

@@ -96,6 +96,13 @@ export const LLM_MODELS: LLMModel[] = [
     description: 'Image generation and editing model',
     capabilities: { chat: false, tools: false, json: false }
   },
+  {
+    id: 'gemini-3.8-flash',
+    name: 'Gemini 3.8 Flash',
+    provider: 'google',
+    description: 'General-purpose Gemini model',
+    capabilities: { chat: true, tools: true, json: true }
+  },
   // OpenAI models
   {
     id: 'gpt-5.6-sol',
