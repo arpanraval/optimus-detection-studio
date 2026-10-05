@@ -200,7 +200,7 @@ jobs:
         # to prevent, a migration whose text drifted from its mirrored copy, was exactly the case
         # nothing ran. Both roads must lead to the same place:
         #   fresh    = empty + supabase/schema.sql                    (already applied above)
-        #   upgraded = the schema deployed BEFORE the SIEM work + every native_siem migration
+        #   upgraded = the schema deployed BEFORE the SIEM work + subsequent SIEM migrations
         # Divergence here means an existing deployment ends up different from a new clone.
         run: |
           set -euo pipefail
@@ -231,10 +231,19 @@ jobs:
           SQL
 
           git show "${BASE_SHA}^:supabase/schema.sql" | psql "$UPGURL" -v ON_ERROR_STOP=1
-          for f in supabase/migrations/*native_siem*.sql; do
+          for f in supabase/migrations/*.sql; do
+            # Include provider-neutral and workflow repairs as well as native_siem files.
+            # Earlier unrelated SIEM migrations are already present in the baseline.
+            name=$(basename "$f")
+            [[ "$name" < "20260914153559_native_siem_library.sql" ]] && continue
+            case "$name" in
+              *siem*.sql|*native_import_observed_status.sql|*pack_deploy*.sql) ;;
+              *) continue ;;
+            esac
             echo "  applying $(basename "$f")"
             psql "$UPGURL" -v ON_ERROR_STOP=1 -f "$f" > /dev/null
           done
+          psql "$UPGURL" -v ON_ERROR_STOP=1 -f supabase/tests/pack-deploy.sql
           psql "$UPGURL" -v ON_ERROR_STOP=1 -tA -f supabase/tests/siem-surface-fingerprint.sql > /tmp/upgraded.txt
 
           if diff -u /tmp/fresh.txt /tmp/upgraded.txt > /tmp/surface.diff; then
@@ -254,3 +263,6 @@ jobs:
 
       - name: Verify native SIEM import selection freeze and idempotency
         run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/tests/native-siem-import.sql
+
+      - name: Verify pack deploy transactions, leases, cancellation and coverage
+        run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/tests/pack-deploy.sql

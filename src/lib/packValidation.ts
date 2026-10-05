@@ -7,6 +7,11 @@
  */
 
 import type { Detection, DetectionPack } from '../types';
+import {
+  DEPLOYABLE_STATUS_NAMES,
+  SIEM_QUERY_LANGUAGES,
+  selectPackQuery,
+} from '../../supabase/functions/_shared/pack-deploy-policy';
 
 // ============================================================================
 // Types
@@ -51,7 +56,31 @@ export interface DuplicationSummary {
 // Pack Validation
 // ============================================================================
 
-const BLOCKED_STATUSES = new Set(['Draft', 'Deprecated', 'Archived']);
+const providerName = (value: string) => {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  const aliases: Record<string, string> = {
+    microsoft_sentinel: 'sentinel',
+    azure_sentinel: 'sentinel',
+    microsoft_defender_xdr: 'defender_xdr',
+  };
+  return aliases[normalized] ?? normalized;
+};
+
+export function packEligibility(pack: Pick<DetectionPack, 'platforms'>, detections: Detection[]) {
+  const providers = (pack.platforms ?? []).map(providerName).filter((name) => SIEM_QUERY_LANGUAGES[name]);
+  const eligible = detections.filter(
+    (d) =>
+      d.library_type === 'production' &&
+      DEPLOYABLE_STATUS_NAMES.includes(d.status) &&
+      (providers.length
+        ? providers.some((provider) => selectPackQuery(d, provider))
+        : d.queries?.some((q) => q.query?.trim()) || d.detectionQuery?.trim()),
+  );
+  return { eligible: eligible.length, ineligible: detections.length - eligible.length, total: detections.length };
+}
 
 /**
  * Validate a pack + its detections. Returns all issues found.
@@ -91,6 +120,15 @@ export function validatePack(pack: DetectionPack, detections: Detection[]): Vali
         detectionName: d.name,
         autoFixKind: 'remove_inactive',
       });
+    } else if (!DEPLOYABLE_STATUS_NAMES.includes(d.status)) {
+      issues.push({
+        severity: 'error',
+        code: 'INELIGIBLE_STATUS',
+        message: 'Deployment requires Production, Testing or Review status',
+        detectionId: d.id,
+        detectionName: d.name,
+        autoFixKind: 'none',
+      });
     }
 
     // Library type
@@ -107,8 +145,7 @@ export function validatePack(pack: DetectionPack, detections: Detection[]): Vali
 
     // Missing query
     const hasQuery =
-      (d.queries && d.queries.length > 0 && d.queries[0].query && d.queries[0].query.trim().length > 0) ||
-      (d.detectionQuery && d.detectionQuery.trim().length > 0);
+      d.queries?.some((q) => q.query?.trim()) || (d.detectionQuery && d.detectionQuery.trim().length > 0);
     if (!hasQuery) {
       issues.push({
         severity: 'error',
@@ -121,12 +158,25 @@ export function validatePack(pack: DetectionPack, detections: Detection[]): Vali
     }
   }
 
-  // Platform mismatch — detections with platforms that don't overlap with pack.platforms
+  // SIEM targets describe query compatibility; telemetry platforms (e.g. Azure) are a different dimension.
   const packPlatforms = pack.platforms || [];
   if (packPlatforms.length > 0) {
+    const providers = packPlatforms.map(providerName).filter((name) => SIEM_QUERY_LANGUAGES[name]);
     const packPlatformSet = new Set(packPlatforms.map((p) => p.toLowerCase()));
     for (const d of detections) {
       const detPlatforms = d.platforms || [];
+      if (providers.length > 0) {
+        if (!providers.some((provider) => selectPackQuery(d, provider)))
+          issues.push({
+            severity: 'warning',
+            code: 'QUERY_LANGUAGE_MISMATCH',
+            message: 'No matching query for the pack’s target SIEM',
+            detectionId: d.id,
+            detectionName: d.name,
+            autoFixKind: 'none',
+          });
+        continue;
+      }
       if (detPlatforms.length === 0) continue; // unknown platforms = don't flag
       const hasOverlap = detPlatforms.some((p) => packPlatformSet.has(p.toLowerCase()));
       if (!hasOverlap) {
@@ -176,10 +226,7 @@ export function validatePack(pack: DetectionPack, detections: Detection[]): Vali
   const infoCount = issues.filter((i) => i.severity === 'info').length;
 
   // Deployable if at least one detection passes all error checks
-  const deployableDetections = detections.filter(
-    (d) => d.library_type === 'production' && !BLOCKED_STATUSES.has(d.status)
-  );
-  const isDeployable = deployableDetections.length > 0;
+  const isDeployable = packEligibility(pack, detections).eligible > 0;
 
   return {
     issues,
@@ -199,12 +246,9 @@ export function validatePack(pack: DetectionPack, detections: Detection[]): Vali
  * Used before multi-pack deploy to show transparency + compute dedup savings.
  */
 export function analyzeDuplicates(
-  packs: Array<{ id: string; name: string; detections: Detection[] }>
+  packs: Array<{ id: string; name: string; detections: Detection[] }>,
 ): DuplicationSummary {
-  const detectionToPacks = new Map<
-    string,
-    { detection: Detection; packIds: string[]; packNames: string[] }
-  >();
+  const detectionToPacks = new Map<string, { detection: Detection; packIds: string[]; packNames: string[] }>();
 
   for (const pack of packs) {
     for (const d of pack.detections) {

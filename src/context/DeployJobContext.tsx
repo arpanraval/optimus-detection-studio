@@ -42,23 +42,11 @@ export const DeployJobProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
       } catch (err) {
         // Non-fatal — user just won't see their in-progress deploy
-        console.debug('Could not resume deploy job:', err);
+        console.warn('Could not resume deploy job:', err);
       }
     };
     resume();
   }, []);
-
-  // Warn user before tab close if a deploy is active
-  useEffect(() => {
-    if (!activeJobId) return;
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue =
-        'A pack deploy is running in the background. It will continue even if you close this tab.';
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [activeJobId]);
 
   return (
     <DeployJobContext.Provider value={{ activeJobId, setActiveJob, clearActiveJob }}>

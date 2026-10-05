@@ -6,6 +6,7 @@ import { CreatePackModal } from './CreatePackModal';
 import { GeneratePacksModal } from './GeneratePacksModal';
 import { Icon } from '../Icon';
 import { Select } from '../ui/Select';
+import { Button } from '../ui/Button';
 import { useToast } from '../../hooks/useToast';
 import { usePermissions } from '../../context/PermissionsContext';
 import { useLibrary } from '../../context/LibraryContext';
@@ -53,7 +54,9 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
 
   const canManagePacks = hasRoleOrHigher('lead');
   const [packStatusMap, setPackStatusMap] = useState<Map<string, { deployed: number; total: number }>>(new Map());
-  const [packIntegrationStatusMap, setPackIntegrationStatusMap] = useState<Map<string, PackCardIntegrationStatus[]>>(new Map());
+  const [packIntegrationStatusMap, setPackIntegrationStatusMap] = useState<Map<string, PackCardIntegrationStatus[]>>(
+    new Map(),
+  );
   const [packBreakdownMap, setPackBreakdownMap] = useState<Map<string, PackCardBreakdown>>(new Map());
 
   // Fetch per-pack rule breakdown (status counts + distinct query languages).
@@ -62,14 +65,17 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
   useEffect(() => {
     if (!packs || packs.length === 0) return;
     const load = async () => {
-      const packIds = packs.map(p => p.id);
+      const packIds = packs.map((p) => p.id);
       const { data } = await supabase
         .from('pack_detections')
         .select('pack_id, detections(id, status, queryLanguage)')
         .in('pack_id', packIds);
 
       const map = new Map<string, PackCardBreakdown>();
-      for (const row of (data || []) as Array<{ pack_id: string; detections: { status?: string; queryLanguage?: string } | null }>) {
+      for (const row of (data || []) as Array<{
+        pack_id: string;
+        detections: { status?: string; queryLanguage?: string } | null;
+      }>) {
         const det = row.detections;
         if (!det) continue;
         const entry = map.get(row.pack_id) ?? { status: {}, languages: [] };
@@ -94,7 +100,7 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
   useEffect(() => {
     if (!packs || packs.length === 0) return;
     const load = async () => {
-      const packIds = packs.map(p => p.id);
+      const packIds = packs.map((p) => p.id);
       const [statusRes, integrationsRes] = await Promise.all([
         supabase
           .from('v_pack_deployment_status')
@@ -104,13 +110,11 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
       ]);
 
       const integrationMap = new Map<string, string>();
-      (integrationsRes.data || []).forEach((i: { id: string; name: string }) =>
-        integrationMap.set(i.id, i.name)
-      );
+      (integrationsRes.data || []).forEach((i: { id: string; name: string }) => integrationMap.set(i.id, i.name));
 
       const aggMap = new Map<string, { deployed: number; total: number }>();
       const perIntegrationMap = new Map<string, PackCardIntegrationStatus[]>();
-      for (const row of (statusRes.data || [])) {
+      for (const row of statusRes.data || []) {
         // Aggregate (max-deployed-per-pack) for the legacy single-dot indicator
         const existing = aggMap.get(row.pack_id);
         if (!existing || row.deployed_count > existing.deployed) {
@@ -138,7 +142,7 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
     const combined = [...(productionDetections || []), ...(developmentDetections || [])];
     // Deduplicate by id
     const seen = new Set<string>();
-    return combined.filter(d => {
+    return combined.filter((d) => {
       if (seen.has(d.id)) return false;
       seen.add(d.id);
       return true;
@@ -148,36 +152,43 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
   // Filter packs by pack_type
   const filteredPacks = useMemo(() => {
     if (packTypeFilter === 'all') return packs;
-    return packs.filter(p => p.pack_type === packTypeFilter);
+    return packs.filter((p) => p.pack_type === packTypeFilter);
   }, [packs, packTypeFilter]);
 
   const handleOpenGenerateModal = useCallback(() => {
     setIsGenerateModalOpen(true);
   }, []);
 
-  const handleGenerateSelected = useCallback(async (candidates: import('../../services/packGeneratorService').PackCandidate[]) => {
-    setIsGenerating(true);
-    try {
-      const { data: userData } = await supabase.auth.getUser();
-      const userId = userData?.user?.id;
-      if (!userId) {
-        showToast('error', 'Error', 'You must be logged in to generate packs.');
-        return;
-      }
+  const handleGenerateSelected = useCallback(
+    async (candidates: import('../../services/packGeneratorService').PackCandidate[]) => {
+      setIsGenerating(true);
+      try {
+        const { data: userData } = await supabase.auth.getUser();
+        const userId = userData?.user?.id;
+        if (!userId) {
+          showToast('error', 'Error', 'You must be logged in to generate packs.');
+          return;
+        }
 
-      const { saved, errors } = await savePacks(candidates, userId);
-      if (errors.length > 0) {
-        showToast('warning', 'Partial Success', `${saved} packs created, ${errors.length} errors.`);
-      } else {
-        showToast('success', 'Packs Generated', `${saved} detection pack${saved !== 1 ? 's' : ''} created from your library.`);
+        const { saved, errors } = await savePacks(candidates, userId);
+        if (errors.length > 0) {
+          showToast('warning', 'Partial Success', `${saved} packs created, ${errors.length} errors.`);
+        } else {
+          showToast(
+            'success',
+            'Packs Generated',
+            `${saved} detection pack${saved !== 1 ? 's' : ''} created from your library.`,
+          );
+        }
+        refetch();
+      } catch (err) {
+        showToast('error', 'Generation Failed', err instanceof Error ? err.message : 'Unknown error');
+      } finally {
+        setIsGenerating(false);
       }
-      refetch();
-    } catch (err) {
-      showToast('error', 'Generation Failed', err instanceof Error ? err.message : 'Unknown error');
-    } finally {
-      setIsGenerating(false);
-    }
-  }, [refetch, showToast]);
+    },
+    [refetch, showToast],
+  );
 
   const handleRegeneratePacks = useCallback(async () => {
     setIsGenerating(true);
@@ -198,14 +209,20 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
       const candidates = generatePacks(allDetections);
       const { saved, errors } = await savePacks(candidates, userId);
 
-      const backupSuffix = versioned > 0
-        ? ` (${versioned} backed up as versions — restore via Versions tab)`
-        : '';
+      const backupSuffix = versioned > 0 ? ` (${versioned} backed up as versions — restore via Versions tab)` : '';
 
       if (errors.length > 0) {
-        showToast('warning', 'Partial Success', `Removed ${deleted} old packs${backupSuffix}. Created ${saved} new packs with ${errors.length} errors.`);
+        showToast(
+          'warning',
+          'Partial Success',
+          `Removed ${deleted} old packs${backupSuffix}. Created ${saved} new packs with ${errors.length} errors.`,
+        );
       } else {
-        showToast('success', 'Packs Regenerated', `Removed ${deleted} old packs${backupSuffix}. Created ${saved} new packs.`);
+        showToast(
+          'success',
+          'Packs Regenerated',
+          `Removed ${deleted} old packs${backupSuffix}. Created ${saved} new packs.`,
+        );
       }
       refetch();
     } catch (err) {
@@ -215,15 +232,11 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
     }
   }, [allDetections, refetch, showToast]);
 
-  const hasAutoGeneratedPacks = useMemo(() =>
-    packs.some(p => (p.tags || []).includes('auto-generated')),
-  [packs]);
+  const hasAutoGeneratedPacks = useMemo(() => packs.some((p) => (p.tags || []).includes('auto-generated')), [packs]);
 
   // Extract unique values for filters
   const sourceOptions = ['community', 'custom', 'official'];
-  const platformOptions = Array.from(
-    new Set((packs || []).flatMap(p => p?.platforms || []))
-  ).sort();
+  const platformOptions = Array.from(new Set((packs || []).flatMap((p) => p?.platforms || []))).sort();
 
   // Calculate aggregate stats
   const stats = useMemo(() => {
@@ -231,8 +244,8 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
     return {
       totalPacks: packsArray.length,
       totalRules: packsArray.reduce((sum, p) => sum + (p.rule_count || 0), 0),
-      totalTechniques: new Set(packsArray.flatMap(p => p.mitre_technique_ids || [])).size,
-      totalPlatforms: new Set(packsArray.flatMap(p => p.platforms || [])).size,
+      totalTechniques: new Set(packsArray.flatMap((p) => p.mitre_technique_ids || [])).size,
+      totalPlatforms: new Set(packsArray.flatMap((p) => p.platforms || [])).size,
     };
   }, [packs]);
 
@@ -284,11 +297,11 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
           Row 2 handles filters + view toggle + result count. */}
       <div className="flex-shrink-0 p-6 md:p-8 space-y-3 bg-background">
         {/* Row 1: Search + primary actions */}
-        <div className="bg-surface-container-high rounded-xl px-3 py-2.5 flex items-center gap-3">
-          <div className="flex-1 relative">
+        <div className="bg-surface-container-high rounded-xl px-3 py-2.5 flex flex-wrap items-center gap-3">
+          <div className="flex-1 min-w-60 relative">
             <Icon
               name="search"
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/50 pointer-events-none"
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant pointer-events-none"
             />
             <input
               type="text"
@@ -301,10 +314,12 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
           </div>
 
           {canManagePacks && hasAutoGeneratedPacks && (
-            <button
+            <Button
               onClick={handleRegeneratePacks}
               disabled={isGenerating}
-              className="flex items-center gap-2 h-10 px-4 bg-surface-container text-on-surface text-sm font-medium rounded-xl hover:bg-surface-container-highest transition-colors disabled:opacity-50"
+              size="md"
+              variant="outlined"
+              color="surface"
             >
               {isGenerating ? (
                 <Icon name="spinner" className="w-4 h-4 animate-spin" />
@@ -312,15 +327,16 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
                 <Icon name="refresh-cw" className="w-4 h-4" />
               )}
               Regenerate
-            </button>
+            </Button>
           )}
 
           {canManagePacks && (
-            <button
+            <Button
               onClick={handleOpenGenerateModal}
               disabled={isGenerating}
-              className="flex items-center gap-2 h-10 px-4 text-white text-sm font-medium rounded-xl transition-all hover:brightness-110 disabled:opacity-50"
-              style={{ backgroundColor: '#4D7C6F' }}
+              size="md"
+              variant="outlined"
+              color="surface"
             >
               {isGenerating ? (
                 <Icon name="spinner" className="w-4 h-4 animate-spin" />
@@ -328,18 +344,14 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
                 <Icon name="zap" className="w-4 h-4" />
               )}
               Generate Packs
-            </button>
+            </Button>
           )}
 
           {canManagePacks && (
-            <button
-              onClick={() => setIsCreateModalOpen(true)}
-              className="flex items-center gap-2 h-10 px-4 text-white text-sm font-medium rounded-xl transition-all hover:brightness-110"
-              style={{ backgroundColor: '#783264' }}
-            >
+            <Button onClick={() => setIsCreateModalOpen(true)} size="md">
               <Icon name="plus" className="w-4 h-4" />
               Create Pack
-            </button>
+            </Button>
           )}
         </div>
 
@@ -364,10 +376,7 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
             placeholder="All Platforms"
             value={filters.platform}
             onChange={(v) => setFilters({ ...filters, platform: v })}
-            options={[
-              { value: '', label: 'All Platforms' },
-              ...platformOptions.map((p) => ({ value: p, label: p })),
-            ]}
+            options={[{ value: '', label: 'All Platforms' }, ...platformOptions.map((p) => ({ value: p, label: p }))]}
           />
 
           <Select
@@ -403,9 +412,9 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
 
           <span className="text-sm text-on-surface-variant">
             <span className="font-semibold text-on-surface">{stats.totalPacks}</span> packs
-            <span className="mx-1.5 text-on-surface-variant/40">·</span>
+            <span className="mx-1.5 text-on-surface-variant">·</span>
             <span className="font-semibold text-on-surface">{stats.totalRules}</span> rules
-            <span className="mx-1.5 text-on-surface-variant/40">·</span>
+            <span className="mx-1.5 text-on-surface-variant">·</span>
             <span className="font-semibold text-on-surface">{stats.totalTechniques}</span> TTPs
           </span>
 
@@ -413,9 +422,7 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
             <button
               onClick={() => setViewMode('grid')}
               className={`p-2 rounded-lg transition-all ${
-                viewMode === 'grid'
-                  ? 'text-white'
-                  : 'text-on-surface-variant hover:text-on-surface'
+                viewMode === 'grid' ? 'text-white' : 'text-on-surface-variant hover:text-on-surface'
               }`}
               style={viewMode === 'grid' ? { backgroundColor: '#783264' } : undefined}
               title="Grid View"
@@ -425,9 +432,7 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
             <button
               onClick={() => setViewMode('list')}
               className={`p-2 rounded-lg transition-all ${
-                viewMode === 'list'
-                  ? 'text-white'
-                  : 'text-on-surface-variant hover:text-on-surface'
+                viewMode === 'list' ? 'text-white' : 'text-on-surface-variant hover:text-on-surface'
               }`}
               style={viewMode === 'list' ? { backgroundColor: '#783264' } : undefined}
               title="List View"
@@ -445,7 +450,7 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
             <div className="relative mb-6">
               <div className="absolute inset-0 bg-primary/10 blur-2xl rounded-full" />
               <div className="relative w-24 h-24 rounded-2xl bg-surface-container flex items-center justify-center border border-outline-variant/30">
-                <Icon name="archive" className="w-12 h-12 text-on-surface-variant/40" />
+                <Icon name="archive" className="w-12 h-12 text-on-surface-variant" />
               </div>
             </div>
             <h2 className="text-2xl font-bold text-on-surface mb-3">No Detection Packs</h2>
@@ -459,7 +464,7 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
                 <button
                   onClick={handleOpenGenerateModal}
                   disabled={isGenerating}
-                  className="flex items-center gap-2 px-8 py-4 bg-[#4D7C6F] text-white font-bold rounded-xl hover:brightness-110 transition-all disabled:opacity-50"
+                  className="flex items-center gap-2 px-8 py-4 bg-[#4D7C6F] text-white font-bold rounded-xl  transition-all disabled:opacity-50"
                 >
                   {isGenerating ? (
                     <Icon name="spinner" className="w-5 h-5 animate-spin" />
@@ -470,7 +475,7 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
                 </button>
                 <button
                   onClick={() => setIsCreateModalOpen(true)}
-                  className="flex items-center gap-2 px-8 py-4 bg-[#783264] text-white font-bold rounded-xl hover:brightness-110 transition-all"
+                  className="flex items-center gap-2 px-8 py-4 bg-[#783264] text-white font-bold rounded-xl  transition-all"
                 >
                   <Icon name="plus" className="w-5 h-5" />
                   Create Manually
@@ -479,7 +484,10 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
             )}
             {(filters.search || filters.source || filters.platform || packTypeFilter !== 'all') && (
               <button
-                onClick={() => { setFilters({ ...filters, search: '', source: '', platform: '' }); setPackTypeFilter('all'); }}
+                onClick={() => {
+                  setFilters({ ...filters, search: '', source: '', platform: '' });
+                  setPackTypeFilter('all');
+                }}
                 className="text-primary hover:underline font-semibold"
               >
                 Clear all filters
@@ -489,7 +497,7 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
         ) : viewMode === 'grid' ? (
           /* Grid View */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
-            {filteredPacks.map(pack => (
+            {filteredPacks.map((pack) => (
               <DetectionPackCard
                 key={pack.id}
                 pack={pack}
@@ -507,25 +515,25 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
             <table className="w-full">
               <thead className="bg-surface-container-high/50 border-b border-outline-variant/30">
                 <tr>
-                  <th className="px-6 py-4 text-left text-[10px] font-black text-on-surface-variant uppercase tracking-widest">
+                  <th className="px-6 py-4 text-left text-[10px] font-semibold text-on-surface-variant uppercase tracking-widest">
                     Pack
                   </th>
-                  <th className="px-6 py-4 text-center text-[10px] font-black text-on-surface-variant uppercase tracking-widest">
+                  <th className="px-6 py-4 text-center text-[10px] font-semibold text-on-surface-variant uppercase tracking-widest">
                     Rules
                   </th>
-                  <th className="px-6 py-4 text-center text-[10px] font-black text-on-surface-variant uppercase tracking-widest">
+                  <th className="px-6 py-4 text-center text-[10px] font-semibold text-on-surface-variant uppercase tracking-widest">
                     TTPs
                   </th>
-                  <th className="px-6 py-4 text-left text-[10px] font-black text-on-surface-variant uppercase tracking-widest">
+                  <th className="px-6 py-4 text-left text-[10px] font-semibold text-on-surface-variant uppercase tracking-widest">
                     Platforms
                   </th>
-                  <th className="px-6 py-4 text-left text-[10px] font-black text-on-surface-variant uppercase tracking-widest">
+                  <th className="px-6 py-4 text-left text-[10px] font-semibold text-on-surface-variant uppercase tracking-widest">
                     Type
                   </th>
-                  <th className="px-6 py-4 text-left text-[10px] font-black text-on-surface-variant uppercase tracking-widest">
+                  <th className="px-6 py-4 text-left text-[10px] font-semibold text-on-surface-variant uppercase tracking-widest">
                     Source
                   </th>
-                  <th className="px-6 py-4 text-left text-[10px] font-black text-on-surface-variant uppercase tracking-widest">
+                  <th className="px-6 py-4 text-left text-[10px] font-semibold text-on-surface-variant uppercase tracking-widest">
                     Updated
                   </th>
                 </tr>
@@ -540,17 +548,19 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
                   >
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-4">
-                        <PackIcon 
+                        <PackIcon
                           packId={pack.id}
                           packName={pack.name}
                           source={pack.source}
                           size="md"
-                          className="group-hover:scale-105 transition-transform"
+                          className=" transition-transform"
                         />
                         <div>
-                          <div className="text-on-surface font-bold group-hover:text-primary transition-colors">{pack.name}</div>
+                          <div className="text-on-surface font-bold group-hover:text-primary transition-colors">
+                            {pack.name}
+                          </div>
                           {pack.description && (
-                            <div className="text-xs text-on-surface-variant/60 line-clamp-1 max-w-md">
+                            <div className="text-xs text-on-surface-variant line-clamp-1 max-w-md">
                               {pack.description}
                             </div>
                           )}
@@ -558,22 +568,25 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
                       </div>
                     </td>
                     <td className="px-6 py-5 text-center">
-                      <span className="text-xl font-mono font-black text-primary">{pack.rule_count}</span>
+                      <span className="text-xl font-mono font-semibold text-primary">{pack.rule_count}</span>
                     </td>
                     <td className="px-6 py-5 text-center">
-                      <span className="text-xl font-mono font-black text-tertiary">
+                      <span className="text-xl font-mono font-semibold text-on-surface-variant">
                         {pack.mitre_technique_ids?.length || 0}
                       </span>
                     </td>
                     <td className="px-6 py-5">
                       <div className="flex flex-wrap gap-1">
-                        {(pack.platforms || []).slice(0, 3).map(p => (
-                          <span key={p} className="px-2 py-0.5 text-[10px] bg-surface-container-high text-on-surface-variant rounded font-medium">
+                        {(pack.platforms || []).slice(0, 3).map((p) => (
+                          <span
+                            key={p}
+                            className="px-2 py-0.5 text-[10px] bg-surface-container-high text-on-surface-variant rounded font-medium"
+                          >
                             {p}
                           </span>
                         ))}
                         {(pack.platforms || []).length > 3 && (
-                          <span className="text-[10px] text-on-surface-variant/50 self-center">
+                          <span className="text-[10px] text-on-surface-variant self-center">
                             +{(pack.platforms || []).length - 3}
                           </span>
                         )}
@@ -581,19 +594,23 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
                     </td>
                     <td className="px-6 py-5">
                       {pack.pack_type ? (
-                        <span className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg bg-secondary/10 text-secondary border border-secondary/20">
+                        <span className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg bg-surface-container-high text-on-surface-variant border border-outline-variant/30">
                           {PACK_TYPE_LABELS[pack.pack_type] || pack.pack_type}
                         </span>
                       ) : (
-                        <span className="text-xs text-on-surface-variant/40">--</span>
+                        <span className="text-xs text-on-surface-variant">--</span>
                       )}
                     </td>
                     <td className="px-6 py-5">
-                      <span className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-lg ${
-                        pack.source === 'community' ? 'bg-primary/10 text-primary' :
-                        pack.source === 'official' ? 'bg-secondary/10 text-secondary' :
-                        'bg-tertiary/10 text-tertiary'
-                      }`}>
+                      <span
+                        className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider rounded-lg ${
+                          pack.source === 'community'
+                            ? 'bg-primary/10 text-primary'
+                            : pack.source === 'official'
+                              ? 'bg-surface-container-high text-on-surface-variant'
+                              : 'bg-surface-container-high text-on-surface-variant'
+                        }`}
+                      >
                         {pack.source}
                       </span>
                     </td>

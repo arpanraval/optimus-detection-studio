@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Icon } from '../Icon';
+import { Button } from '../ui/Button';
 import { usePackDeployJob } from '../../hooks/usePackDeployJob';
 import { cancelJob, retryFailedItems } from '../../lib/packDeployJobService';
 import { useToast } from '../../hooks/useToast';
@@ -15,7 +16,9 @@ interface Props {
 }
 
 export const DeployJobProgressPanel: React.FC<Props> = ({ jobId, onDismiss }) => {
-  const { job, items } = usePackDeployJob(jobId);
+  const { job, items, error, refresh } = usePackDeployJob(jobId);
+  const [busy, setBusy] = useState(false);
+  const actionRef = useRef(false);
   const [collapsed, setCollapsed] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const notifiedRef = useRef(false);
@@ -28,73 +31,103 @@ export const DeployJobProgressPanel: React.FC<Props> = ({ jobId, onDismiss }) =>
       notifiedRef.current = true;
       if (job.succeeded_count === 0 && job.skipped_count > 0) {
         // All items were skipped (e.g., pack of lab-only detections) — nothing failed, but nothing deployed either.
-        showToast('warning', 'Nothing to Deploy', `${job.skipped_count} detection${job.skipped_count !== 1 ? 's' : ''} skipped (lab-only or blocked status)`);
+        showToast(
+          'warning',
+          'Nothing to Deploy',
+          `${job.skipped_count} detection${job.skipped_count !== 1 ? 's' : ''} skipped (lab-only or blocked status)`,
+        );
       } else {
-        showToast('success', 'Deploy Complete', `${job.succeeded_count} rule${job.succeeded_count !== 1 ? 's' : ''} deployed successfully`);
+        showToast(
+          'success',
+          'Deploy Complete',
+          `${job.succeeded_count} rule${job.succeeded_count !== 1 ? 's' : ''} deployed successfully`,
+        );
       }
     } else if (job.status === 'partial') {
       notifiedRef.current = true;
       showToast('warning', 'Deploy Partial', `${job.succeeded_count} succeeded, ${job.failed_count} failed`);
     } else if (job.status === 'failed') {
       notifiedRef.current = true;
-      showToast('error', 'Deploy Failed', 'All detections failed to deploy — click the progress panel to retry');
+      showToast('error', 'Deploy Failed', 'Review the item errors before another deployment');
     } else if (job.status === 'cancelled') {
       notifiedRef.current = true;
       showToast('info', 'Deploy Cancelled', 'Deploy was cancelled');
     }
-  }, [job?.status, showToast, job?.succeeded_count, job?.failed_count, job?.skipped_count]);
+  }, [job, showToast]);
 
-  if (!job) return null;
+  useEffect(() => {
+    notifiedRef.current = false;
+  }, [jobId]);
+
+  if (!job)
+    return error ? (
+      <div role="alert" className="fixed bottom-4 right-4 z-[100] bg-surface p-4">
+        {error}
+        <button onClick={() => void refresh()}>Refresh</button>
+      </div>
+    ) : null;
 
   const processed = job.succeeded_count + job.failed_count + job.skipped_count;
   const pct = job.total_items > 0 ? Math.round((processed / job.total_items) * 100) : 0;
   const isActive = job.status === 'queued' || job.status === 'running';
   const isDone = !isActive;
 
-  const currentItem = items.find(i => i.detection_id === job.current_detection_id);
+  const currentItem = items.find((i) => i.detection_id === job.current_detection_id);
 
-  const handleCancel = async () => {
-    await cancelJob(jobId);
-  };
-
-  const handleRetry = async () => {
-    notifiedRef.current = false;
-    await retryFailedItems(jobId);
-    showToast('info', 'Retrying', `${job.failed_count} failed item${job.failed_count !== 1 ? 's' : ''} queued for retry`);
+  const runAction = async (action: 'cancel' | 'retry') => {
+    if (actionRef.current) return;
+    actionRef.current = true;
+    setBusy(true);
+    try {
+      if (action === 'cancel') await cancelJob(jobId);
+      else {
+        notifiedRef.current = false;
+        await retryFailedItems(jobId);
+      }
+      await refresh();
+    } catch (err) {
+      showToast('error', 'Deployment action failed', err instanceof Error ? err.message : String(err));
+    } finally {
+      actionRef.current = false;
+      setBusy(false);
+    }
   };
 
   const statusColor = isActive
-    ? 'bg-blue-400 animate-pulse'
+    ? 'bg-primary '
     : job.status === 'succeeded'
-    ? 'bg-emerald-400'
-    : job.status === 'partial'
-    ? 'bg-yellow-400'
-    : job.status === 'cancelled'
-    ? 'bg-on-surface-variant/40'
-    : 'bg-red-400';
+      ? 'bg-secondary'
+      : job.status === 'partial'
+        ? 'bg-surface-container-highest'
+        : job.status === 'cancelled'
+          ? 'bg-on-surface-variant/40'
+          : 'bg-error';
 
-  const progressBarColor = job.status === 'failed'
-    ? 'bg-red-400'
-    : job.status === 'partial'
-    ? 'bg-yellow-400'
-    : job.status === 'cancelled'
-    ? 'bg-on-surface-variant/40'
-    : 'bg-primary';
+  const progressBarColor =
+    job.status === 'failed'
+      ? 'bg-error'
+      : job.status === 'partial'
+        ? 'bg-surface-container-highest'
+        : job.status === 'cancelled'
+          ? 'bg-on-surface-variant/40'
+          : 'bg-primary';
 
   const headerText = isActive
     ? 'Deploying Pack'
     : job.status === 'succeeded'
-    ? 'Deploy Complete'
-    : job.status === 'partial'
-    ? 'Deploy Partial'
-    : job.status === 'cancelled'
-    ? 'Deploy Cancelled'
-    : 'Deploy Failed';
+      ? 'Deploy Complete'
+      : job.status === 'partial'
+        ? 'Deployment partially completed'
+        : job.status === 'cancelled'
+          ? 'Deploy Cancelled'
+          : 'Deploy Failed';
 
-  const failedItems = items.filter(i => i.status === 'failed');
+  const failedItems = items.filter((i) => i.status === 'failed');
+  const retryableItems = failedItems.filter((i) => i.retryable && !i.needs_reconciliation);
+  const skippedItems = items.filter((i) => i.status === 'skipped');
 
   return (
-    <div className="fixed bottom-4 right-4 z-[100] w-96 bg-surface-container border border-outline-variant/30 rounded-xl shadow-2xl overflow-hidden">
+    <div className="fixed bottom-4 right-4 z-[100] w-[28rem] max-w-[calc(100vw-2rem)] max-h-[80vh] overflow-auto bg-surface-container border border-outline-variant/30 rounded-xl shadow-lg text-on-surface">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-outline-variant/10">
         <div className={`w-2 h-2 rounded-full ${statusColor}`} />
@@ -107,11 +140,7 @@ export const DeployJobProgressPanel: React.FC<Props> = ({ jobId, onDismiss }) =>
           <Icon name={collapsed ? 'chevron-up' : 'chevron-down'} className="w-3.5 h-3.5 text-on-surface-variant" />
         </button>
         {isDone && (
-          <button
-            onClick={onDismiss}
-            className="p-1 hover:bg-surface-container-high rounded"
-            aria-label="Dismiss"
-          >
+          <button onClick={onDismiss} className="p-1 hover:bg-surface-container-high rounded" aria-label="Dismiss">
             <Icon name="x" className="w-3.5 h-3.5 text-on-surface-variant" />
           </button>
         )}
@@ -119,44 +148,49 @@ export const DeployJobProgressPanel: React.FC<Props> = ({ jobId, onDismiss }) =>
 
       {!collapsed && (
         <div className="px-4 py-3 space-y-3">
+          {(job.detection_packs?.name || job.integrations?.name) && (
+            <div className="text-xs text-on-surface-variant space-y-1">
+              <p className="font-medium text-on-surface">{job.detection_packs?.name}</p>
+              <p>{job.integrations?.name}</p>
+            </div>
+          )}
           {/* Progress bar */}
           <div>
             <div className="flex items-center justify-between text-xs text-on-surface-variant mb-1.5">
-              <span className="tabular-nums">{processed} / {job.total_items}</span>
+              <span className="tabular-nums">
+                {processed} / {job.total_items} processed
+              </span>
               <span className="tabular-nums">{pct}%</span>
             </div>
             <div className="h-1.5 bg-surface rounded-full overflow-hidden">
-              <div
-                className={`h-full transition-all ${progressBarColor}`}
-                style={{ width: `${pct}%` }}
-              />
+              <div className={`h-full transition-all ${progressBarColor}`} style={{ width: `${pct}%` }} />
             </div>
           </div>
 
           {/* Stats grid */}
           <div className="grid grid-cols-4 gap-2 text-xs">
             <div>
-              <div className="font-bold tabular-nums text-emerald-400">{job.succeeded_count}</div>
-              <div className="text-on-surface-variant/60 text-[10px]">Success</div>
+              <div className="font-bold tabular-nums text-on-surface">{job.succeeded_count}</div>
+              <div className="text-on-surface-variant text-[10px]">Success</div>
             </div>
             <div>
-              <div className="font-bold tabular-nums text-red-400">{job.failed_count}</div>
-              <div className="text-on-surface-variant/60 text-[10px]">Failed</div>
+              <div className="font-bold tabular-nums text-error">{job.failed_count}</div>
+              <div className="text-on-surface-variant text-[10px]">Failed</div>
             </div>
             <div>
               <div className="font-bold tabular-nums text-on-surface-variant">{job.skipped_count}</div>
-              <div className="text-on-surface-variant/60 text-[10px]">Skipped</div>
+              <div className="text-on-surface-variant text-[10px]">Skipped</div>
             </div>
             <div>
               <div className="font-bold tabular-nums text-on-surface-variant">{job.total_items - processed}</div>
-              <div className="text-on-surface-variant/60 text-[10px]">Pending</div>
+              <div className="text-on-surface-variant text-[10px]">Pending</div>
             </div>
           </div>
 
           {/* Current item (running only) */}
           {isActive && currentItem && (
             <div className="text-xs text-on-surface-variant truncate">
-              <span className="text-on-surface-variant/60">Deploying: </span>
+              <span className="text-on-surface-variant">Deploying: </span>
               <span className="text-on-surface">{currentItem.detection_name || currentItem.detection_id}</span>
             </div>
           )}
@@ -166,41 +200,75 @@ export const DeployJobProgressPanel: React.FC<Props> = ({ jobId, onDismiss }) =>
             <div>
               <button
                 onClick={() => setShowDetails(!showDetails)}
-                className="text-xs text-red-400 hover:underline flex items-center gap-1"
+                className="text-xs text-error hover:underline flex items-center gap-1"
               >
                 <Icon name={showDetails ? 'chevron-down' : 'chevron-right'} className="w-3 h-3" />
                 {failedItems.length} failed
               </button>
               {showDetails && (
-                <ul className="mt-2 space-y-1 max-h-32 overflow-auto text-[11px]">
-                  {failedItems.map(item => (
+                <ul className="mt-2 space-y-3 max-h-64 overflow-auto text-xs">
+                  {failedItems.map((item) => (
                     <li key={item.id} className="text-on-surface-variant">
                       <span className="text-on-surface font-medium">{item.detection_name || item.detection_id}</span>
-                      {item.error_message && <span className="text-red-400/80"> — {item.error_message}</span>}
+                      {item.error_message && (
+                        <details className="mt-1 text-on-surface-variant break-words">
+                          <summary className="cursor-pointer">
+                            {item.error_message.includes("expected format is 'T####'")
+                              ? 'Sentinel rejected a sub-technique ID; its techniques field requires the parent ID.'
+                              : 'View failure details'}
+                          </summary>
+                          <p className="mt-2 whitespace-pre-wrap">{item.error_message}</p>
+                        </details>
+                      )}
                     </li>
                   ))}
                 </ul>
               )}
             </div>
           )}
+          {isDone && failedItems.length > 0 && retryableItems.length === 0 && (
+            <p className="text-xs text-on-surface-variant leading-relaxed">
+              These failures cannot be retried automatically. Review the failed detections before a new deployment; do
+              not resend successful rules.
+            </p>
+          )}
 
+          {error && (
+            <p role="alert" className="text-xs text-error">
+              {error}
+            </p>
+          )}
+          {job.error_message && <p className="text-xs text-error">{job.error_message}</p>}
+          {skippedItems.length > 0 && (
+            <details className="text-xs">
+              <summary>{skippedItems.length} skipped</summary>
+              <ul>
+                {skippedItems.map((item) => (
+                  <li key={item.id}>
+                    {item.detection_name}: {item.error_message}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
           {/* Actions */}
           <div className="flex items-center gap-2 pt-1">
             {isActive && (
-              <button
-                onClick={handleCancel}
-                className="flex-1 px-3 py-1.5 text-xs font-medium text-on-surface-variant hover:bg-surface rounded transition-colors"
+              <Button
+                disabled={busy}
+                onClick={() => void runAction('cancel')}
+                size="sm"
+                fullWidth
+                variant="outlined"
+                color="surface"
               >
                 Cancel
-              </button>
+              </Button>
             )}
-            {(job.status === 'partial' || job.status === 'failed') && failedItems.length > 0 && (
-              <button
-                onClick={handleRetry}
-                className="flex-1 px-3 py-1.5 text-xs font-medium bg-primary text-on-primary rounded hover:brightness-110 transition-all"
-              >
-                Retry {failedItems.length} Failed
-              </button>
+            {(job.status === 'partial' || job.status === 'failed') && retryableItems.length > 0 && (
+              <Button disabled={busy} onClick={() => void runAction('retry')} size="sm" fullWidth>
+                Retry {retryableItems.length} Failed
+              </Button>
             )}
           </div>
         </div>

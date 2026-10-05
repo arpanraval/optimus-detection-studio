@@ -4,6 +4,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Icon } from '../Icon';
+import { Button } from '../ui/Button';
 import { exportPackAs, downloadExport, ExportFormat } from '../../lib/exporters/packExporters';
 import { useToast } from '../../hooks/useToast';
 import type { Detection, DetectionPack } from '../../types';
@@ -20,26 +21,29 @@ interface FormatOption {
   icon: 'file-text' | 'archive' | 'database' | 'cloud';
 }
 
-const FORMATS: FormatOption[] = [
+export const PACK_EXPORT_FORMATS: FormatOption[] = [
   {
     value: 'json',
     label: 'JSON Bundle',
     description: 'Optimus native format',
-    tooltip: 'Full pack bundle: metadata, detections, MITRE mapping, versioning context. Best for backup or re-import into Optimus.',
+    tooltip:
+      'Full pack bundle: metadata, detections, MITRE mapping, versioning context. Best for backup or re-import into Optimus.',
     icon: 'file-text',
   },
   {
     value: 'sigma',
     label: 'Sigma ZIP',
     description: 'Universal YAML rules',
-    tooltip: 'ZIP of Sigma YAML rules. Note: detections already in Sigma format may carry indentation quirks — review before sharing with third parties.',
+    tooltip:
+      'ZIP of Sigma YAML rules. Note: detections already in Sigma format may carry indentation quirks — review before sharing with third parties.',
     icon: 'archive',
   },
   {
     value: 'splunk',
     label: 'Splunk conf',
     description: 'savedsearches.conf',
-    tooltip: 'Splunk savedsearches.conf file. SPL queries only. No pack metadata; per-rule settings (cron, severity) use app defaults.',
+    tooltip:
+      'Splunk savedsearches.conf file. SPL queries only. No pack metadata; per-rule settings (cron, severity) use app defaults.',
     icon: 'database',
   },
   {
@@ -84,10 +88,12 @@ export const PackExportMenu: React.FC<Props> = ({ pack }) => {
 
   return (
     <div ref={menuRef} className="relative">
-      <button
+      <Button
         onClick={() => setOpen(!open)}
         disabled={exporting !== null}
-        className="px-5 py-3 bg-surface-container text-on-surface text-sm font-bold rounded-xl hover:bg-surface-container-high transition-colors border border-outline-variant/30 flex items-center gap-2 disabled:opacity-50"
+        size="md"
+        variant="outlined"
+        color="surface"
         title="Export pack in various formats"
       >
         {exporting ? (
@@ -102,14 +108,16 @@ export const PackExportMenu: React.FC<Props> = ({ pack }) => {
             <Icon name="chevron-down" className="w-3 h-3" />
           </>
         )}
-      </button>
+      </Button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-64 bg-surface border border-outline-variant/30 rounded-xl shadow-2xl overflow-hidden z-20">
+        <div className="absolute right-0 top-full mt-2 w-64 bg-surface border border-outline-variant/30 rounded-xl shadow-lg overflow-hidden z-20">
           <div className="px-3 py-2 border-b border-outline-variant/10">
-            <div className="text-[10px] font-semibold text-on-surface-variant/60 uppercase tracking-wider">Export Format</div>
+            <div className="text-[10px] font-semibold text-on-surface-variant uppercase tracking-wider">
+              Export Format
+            </div>
           </div>
-          {FORMATS.map((format) => (
+          {PACK_EXPORT_FORMATS.map((format) => (
             <button
               key={format.value}
               onClick={() => handleExport(format.value)}
@@ -119,7 +127,7 @@ export const PackExportMenu: React.FC<Props> = ({ pack }) => {
               <Icon name={format.icon} className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-on-surface">{format.label}</div>
-                <div className="text-xs text-on-surface-variant/60">{format.description}</div>
+                <div className="text-xs text-on-surface-variant">{format.description}</div>
               </div>
             </button>
           ))}
