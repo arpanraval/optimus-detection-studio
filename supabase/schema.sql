@@ -30,7 +30,10 @@ END $$;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS "vector" WITH SCHEMA extensions;
 
-SET search_path TO public, extensions, pg_catalog;
+-- pg_catalog stays first (the Postgres default). Listing it last made unqualified gen_random_uuid()
+-- bind to the pgcrypto copy in "extensions", while migrations and the live project bind to the core
+-- function, so a fresh install and an upgraded database printed different column defaults.
+SET search_path TO pg_catalog, public, extensions;
 
 -- ============================================================
 -- Sequences
