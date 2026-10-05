@@ -73,6 +73,7 @@ import { useBoundedList } from './shared/useBoundedList';
 import { createStixBundle } from '../../lib/threatIntel/stix';
 import { canManageThreatIntelRecord } from '../../lib/threatIntel/access';
 import type { IconName } from '../Icon';
+import { normalizeQueryLanguageForStorage } from '../../lib/queryLanguage';
 
 // =============================================================================
 // TYPES
@@ -477,7 +478,9 @@ export const ThreatIntelReportPage: React.FC = () => {
     const getQueryLanguage = (type: string): string => {
       const { kind, language, recognized } = classifyRuleType(type);
       if (kind !== 'query' || !recognized) return 'Other';
-      return QUERY_LANGUAGE_LABELS[language] ?? 'Other';
+      // These are display labels; normalize so the stored value is a query language.
+      // Snort, Suricata, XQL and Other are not in the vocabulary and are left as they are.
+      return normalizeQueryLanguageForStorage(QUERY_LANGUAGE_LABELS[language] ?? 'Other');
     };
 
     // Try to extract MITRE technique IDs from the rule content itself (for Sigma rules)

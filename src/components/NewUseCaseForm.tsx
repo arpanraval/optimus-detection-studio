@@ -33,6 +33,8 @@ import { MitreTechniqueSearch } from './detection/MitreTechniqueSearch';
 import { DetectionInsightsPanel } from './detection/DetectionInsightsPanel';
 import { ROUTES } from '../router/routes';
 import type { IconName } from './Icon';
+import { refinementTargetIndex } from '../lib/refinementTarget';
+import { normalizeQueryLanguageForStorage } from '../lib/queryLanguage';
 
 interface NewDetectionFormProps {
   onBack?: () => void;
@@ -50,6 +52,7 @@ interface NewDetectionFormProps {
   appliedRefinementKql?: string;
   /** Refined CrowdStrike CQL from the separate NGSIEM finetuning flow. */
   appliedRefinementCql?: string;
+  refinementOriginalQuery?: string;
 }
 
 const statuses = Object.values(Status);
@@ -316,6 +319,7 @@ export const NewUseCaseForm: React.FC<NewDetectionFormProps> = ({
   mitreFramework,
   appliedRefinementKql,
   appliedRefinementCql,
+  refinementOriginalQuery,
 }) => {
   // Use onBack if provided, otherwise use onCancel
   const onBack = onBackProp || onCancel || (() => {});
@@ -624,9 +628,12 @@ export const NewUseCaseForm: React.FC<NewDetectionFormProps> = ({
     appliedRefinementHandled.current = true;
 
     const current = formData.queries ?? [];
-    const kqlIndex = current.findIndex(
-      (q) => q.language && q.language.toUpperCase() === 'KQL',
-    );
+    let kqlIndex: number;
+    try { kqlIndex = refinementTargetIndex(current, 'KQL', refinementOriginalQuery); }
+    catch (error) {
+      showToast('warning', 'Refinement not applied', (error as Error).message);
+      return;
+    }
 
     let nextQueries: DetectionQuery[];
     if (kqlIndex !== -1) {
@@ -665,9 +672,12 @@ export const NewUseCaseForm: React.FC<NewDetectionFormProps> = ({
     appliedCqlRefinementHandled.current = true;
 
     const current = formData.queries ?? [];
-    const cqlIndex = current.findIndex(
-      (query) => query.language && query.language.toUpperCase() === 'CQL',
-    );
+    let cqlIndex: number;
+    try { cqlIndex = refinementTargetIndex(current, 'CQL', refinementOriginalQuery); }
+    catch (error) {
+      showToast('warning', 'Refinement not applied', (error as Error).message);
+      return;
+    }
     let nextQueries: DetectionQuery[];
     if (cqlIndex !== -1) {
       nextQueries = current.map((query, index) =>
@@ -1196,7 +1206,7 @@ Output JSON only, no markdown.`;
       platforms: formData.platforms || [],
       technology: formData.technology || '',
       queries: formData.queries || [],
-      queryLanguage: formData.queryLanguage || 'SPL',
+      queryLanguage: normalizeQueryLanguageForStorage(formData.queryLanguage) || 'SPL',
       detectionQuery: formData.detectionQuery || '',
       queryExplanation: formData.queryExplanation || '',
       mitreAttackIds: formData.mitreAttackIds || [],
