@@ -237,7 +237,7 @@ jobs:
             name=$(basename "$f")
             [[ "$name" < "20260914153559_native_siem_library.sql" ]] && continue
             case "$name" in
-              *siem*.sql|*native_import_observed_status.sql|*pack_deploy*.sql) ;;
+              *siem*.sql|*native_import_observed_status.sql|*pack_deploy*.sql|*sentinelone_import_format.sql) ;;
               *) continue ;;
             esac
             echo "  applying $(basename "$f")"
