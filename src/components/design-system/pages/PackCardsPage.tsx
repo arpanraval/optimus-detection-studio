@@ -121,7 +121,7 @@ function deployPct(entry: MockEntry) {
 const DOSSIER_TAB_COLOR: Record<string, string> = {
   ransomware:   'bg-[#A63D40] text-white',
   threat_actor: 'bg-[#1e3a5f] text-white',
-  campaign:     'bg-[#4a5d23] text-white',
+  campaign:     'bg-[#4D7C6F] text-white',
   technology:   'bg-[#5a4a2a] text-white',
   tactic:       'bg-[#7a3a5f] text-white',
   use_case:     'bg-[#2a5a5a] text-white',
@@ -362,7 +362,7 @@ const PackCardV3Terminal: React.FC<{ entry: MockEntry }> = ({ entry }) => {
 // are secondary annotations above/below.
 
 const SIEM_ARC_COLORS = {
-  full: '#10b981',    // emerald
+  full: '#4D7C6F',    // sage
   partial: '#f59e0b', // amber
   empty: '#3f3f46',   // zinc-700
 };
@@ -409,7 +409,7 @@ const CoverageDonut: React.FC<{ entry: MockEntry; size?: number }> = ({ entry, s
       width={size}
       height={size}
       viewBox="0 0 120 120"
-      className="drop-shadow-[0_0_20px_rgba(16,185,129,0.1)]"
+      className="drop-shadow-[0_0_20px_rgba(77,124,111,0.1)]"
     >
       {/* background track */}
       <circle cx="60" cy="60" r={radius} fill="none" stroke="rgb(63,63,70)" strokeWidth="12" />

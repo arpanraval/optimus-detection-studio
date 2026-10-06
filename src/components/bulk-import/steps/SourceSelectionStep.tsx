@@ -7,6 +7,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useBulkImportContext } from '../../../context/BulkImportContext';
+import { parserFactory } from '../../../services/bulk-import/parsers/ParserFactory';
 import { ImportSourceType, ImportJobConfig, DuplicateStrategy, VendorFormat } from '../../../services/bulk-import/types';
 import { LibraryType } from '../../../types';
 import { LIBRARY_LABELS } from '../../../types/detection';
@@ -104,6 +105,12 @@ const VENDOR_OPTIONS: VendorOption[] = [
     icon: 'crosshair',
   },
   {
+    id: 'sentinelone',
+    label: 'SentinelOne EDR',
+    description: 'S1QL and PowerQuery queries or YAML/JSON rules',
+    icon: 'shield',
+  },
+  {
     id: 'chronicle',
     label: 'Chronicle',
     description: 'Google Chronicle YARA-L rules',
@@ -138,6 +145,7 @@ export function SourceSelectionStep({ preSelectedSource }: SourceSelectionStepPr
   const isOwnerOrAdmin = profile?.role === 'owner' || profile?.role === 'admin';
   const [selectedSource, setSelectedSource] = useState<ImportSourceType>(preSelectedSource || 'zip');
   const [selectedVendor, setSelectedVendor] = useState<'auto' | VendorFormat>('auto');
+  const supportedExtensions = parserFactory.getSupportedExtensions(selectedVendor === 'auto' ? undefined : [selectedVendor]);
   const [targetLibrary, setTargetLibrary] = useState<LibraryType>(LIBRARY_DEVELOPMENT);
   const [duplicateStrategy, setDuplicateStrategy] = useState<DuplicateStrategy>('skip');
   const [files, setFiles] = useState<File[]>([]);
@@ -187,7 +195,7 @@ export function SourceSelectionStep({ preSelectedSource }: SourceSelectionStepPr
         setError(null);
       }
     } else {
-      const supportedExts = ['.yml', '.yaml', '.toml', '.yaral', '.yar', '.kql'];
+      const supportedExts = supportedExtensions;
       setFiles(droppedFiles.filter((f) => supportedExts.some((ext) => f.name.toLowerCase().endsWith(ext))));
       setError(null);
     }
@@ -496,13 +504,13 @@ export function SourceSelectionStep({ preSelectedSource }: SourceSelectionStepPr
                     <p className="font-medium text-on-surface">Drop YAML files here</p>
                     <p className="text-sm text-on-surface-variant mt-1">or click to browse</p>
                   </div>
-                  <p className="text-xs text-on-surface-variant/70">Supports .yml, .yaml, .toml, .yaral, .yar, .kql files</p>
+                  <p className="text-xs text-on-surface-variant/70">Supports {supportedExtensions.join(', ')} files</p>
                 </div>
               )}
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".yml,.yaml,.toml,.yaral,.yar,.kql"
+                accept={supportedExtensions.join(',')}
                 multiple
                 onChange={handleFileSelect}
                 className="hidden"

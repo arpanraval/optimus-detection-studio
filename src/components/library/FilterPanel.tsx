@@ -45,7 +45,7 @@ const unionWithStored = (curated: string[], stored: string[]): string[] => {
   const seen = new Set(curated);
   return [...curated, ...stored.filter(value => value && !seen.has(value)).sort()];
 };
-const SOURCE_OPTIONS = ['custom', 'sigmahq', 'splunk_escu', 'elastic', 'microsoft_sentinel', 'crowdstrike', 'chronicle', 'community', 'native_siem'];
+const SOURCE_OPTIONS = ['custom', 'sigmahq', 'splunk_escu', 'elastic', 'microsoft_sentinel', 'crowdstrike', 'chronicle', 'sentinelone', 'community', 'native_siem'];
 
 /** All filter fields with their static/dynamic options */
 interface FilterFieldDef {

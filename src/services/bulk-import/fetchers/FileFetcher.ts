@@ -1,3 +1,4 @@
+import { getImportExtensions } from '../extensions';
 /**
  * FileFetcher - Handles direct file uploads
  *
@@ -20,7 +21,7 @@ export interface FileFetchOptions {
 
 const DEFAULT_OPTIONS: FileFetchOptions = {
   maxFileSize: 10 * 1024 * 1024, // 10MB per file
-  extensions: ['.yml', '.yaml', '.json', '.toml', '.md', '.kql', '.yaral', '.yar'],
+  extensions: getImportExtensions(),
 };
 
 /**

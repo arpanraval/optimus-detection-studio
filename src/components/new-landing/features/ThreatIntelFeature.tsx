@@ -91,7 +91,7 @@ const REPORTS = [
 ];
 
 function coverageColor(pct: number) {
-  if (pct >= 50) return '#22c55e';
+  if (pct >= 50) return '#4D7C6F';
   if (pct >= 20) return '#f59e0b';
   return '#ef4444';
 }

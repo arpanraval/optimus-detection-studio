@@ -3,6 +3,8 @@ import { DetectionQuery } from '../../../types';
 import { Icon } from '../../Icon';
 import { MonacoCodeEditor } from '../../MonacoCodeEditor';
 import { QUERY_LANGUAGES } from '../../../constants';
+import { normalizeQueryLanguage } from '../../../lib/queryLanguage';
+import { detectSentinelOneLanguage } from '../../../lib/sentinelOne';
 import { generateAIJSON } from '../../../lib/aiService';
 import { useToast } from '../../../hooks/useToast';
 import { AISuggestDropdown, FieldGroup } from '../AISuggestDropdown';
@@ -65,6 +67,8 @@ const LANGUAGE_PATTERNS: Record<string, RegExp[]> = {
  */
 function detectLanguageLocally(query: string): string | null {
   const trimmedQuery = query.trim();
+  const sentinelOne = detectSentinelOneLanguage(trimmedQuery);
+  if (sentinelOne) return sentinelOne;
   
   for (const [language, patterns] of Object.entries(LANGUAGE_PATTERNS)) {
     const matchCount = patterns.filter(p => p.test(trimmedQuery)).length;
@@ -195,7 +199,7 @@ export const MultiQueryEditor: React.FC<MultiQueryEditorProps> = ({ queries, onC
     // Build dynamic JSON schema
     const schemaFields: string[] = [];
     if (!sections || sections.has('languageDetection')) {
-      schemaFields.push('"detectedLanguage": "Sigma" | "SPL" | "KQL" | "YARA" | "EQL" | "SQL" | "Lucene" | "Chronicle YARA-L" | "CrowdStrike" | "Carbon Black" | "Other"');
+      schemaFields.push('"detectedLanguage": "Sigma" | "SPL" | "KQL" | "S1QL" | "S1QL 2.0" | "PowerQuery" | "YARA" | "EQL" | "SQL" | "Lucene" | "Chronicle YARA-L" | "CrowdStrike" | "Carbon Black" | "Other"');
       schemaFields.push('"isMismatch": true | false');
       schemaFields.push('"confidence": "high" | "medium" | "low"');
     }
@@ -236,17 +240,7 @@ Output JSON only (no markdown code blocks):
         const detectedLang = result.detectedLanguage || localDetection;
 
         if (result.isMismatch && detectedLang && detectedLang !== 'Other') {
-          const detectedLower = detectedLang.toLowerCase();
-
-          const matchedLanguage = QUERY_LANGUAGES.find(lang => {
-            const langLower = lang.toLowerCase();
-            return langLower === detectedLower ||
-                   langLower.includes(detectedLower) ||
-                   detectedLower.includes(langLower) ||
-                   (detectedLower === 'kusto' && langLower === 'kql') ||
-                   (detectedLower === 'splunk' && langLower === 'spl') ||
-                   (detectedLower === 'elastic' && langLower === 'eql');
-          });
+          const matchedLanguage = normalizeQueryLanguage(detectedLang);
 
           if (matchedLanguage && matchedLanguage !== activeQuery.language) {
             handleUpdateQuery('language', matchedLanguage);

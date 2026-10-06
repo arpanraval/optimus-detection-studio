@@ -10,7 +10,7 @@ interface Props {
 function tone(pct: number): { color: string; label: string; badgeBg: string; badgeText: string } {
   if (pct >= 1.0) return { color: 'rgb(var(--md-sys-color-error))', label: 'Exceeded',  badgeBg: 'bg-red-500/10',     badgeText: 'text-red-400' };
   if (pct >= 0.8) return { color: 'rgb(245 158 11)',                 label: 'Near limit', badgeBg: 'bg-amber-500/10',  badgeText: 'text-amber-400' };
-  return                 { color: 'rgb(16 185 129)',                  label: 'OK',         badgeBg: 'bg-emerald-500/10', badgeText: 'text-emerald-400' };
+  return                 { color: 'rgb(77 124 111)',                  label: 'OK',         badgeBg: 'bg-emerald-500/10', badgeText: 'text-emerald-400' };
 }
 
 export const BudgetGauge: React.FC<Props> = ({ currentUsd, limitUsd, formatValue = v => `$${v.toFixed(2)}` }) => {

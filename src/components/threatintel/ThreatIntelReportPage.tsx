@@ -140,7 +140,7 @@ const highlightCode = (line: string, ruleType: string): React.ReactNode => {
     table: 'text-primary font-medium',
     comment: 'text-on-surface-variant/60 italic',
     number: 'text-secondary',
-    variable: 'text-[#4D7C6F] dark:text-[#7ee787]',
+    variable: 'text-[#4D7C6F] dark:text-[#6BA594]',
     pipe: 'text-tertiary font-bold',
     hex: 'text-orange-600 dark:text-orange-400',
     regex: 'text-purple-600 dark:text-purple-400',

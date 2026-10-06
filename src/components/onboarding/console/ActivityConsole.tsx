@@ -33,7 +33,7 @@ function getSourceColor(sourceId: string): string {
 
 const levelColors: Record<ConsoleEntryType['level'], { textClass: string; bgClass: string }> = {
   info: { textClass: 'text-on-surface-variant', bgClass: 'bg-surface-container-high' },
-  ok: { textClass: 'text-[#10b981]', bgClass: 'bg-[rgba(16,185,129,0.1)]' },
+  ok: { textClass: 'text-[#4D7C6F]', bgClass: 'bg-[rgba(77,124,111,0.1)]' },
   warn: { textClass: 'text-[#f59e0b]', bgClass: 'bg-[rgba(245,158,11,0.1)]' },
   error: { textClass: 'text-error', bgClass: 'bg-error/10' },
 };

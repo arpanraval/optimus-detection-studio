@@ -181,13 +181,13 @@ export function SourceDetail({
   // Status indicator dot color
   const statusDotClass =
     status === 'complete'
-      ? 'bg-[#10b981]'
+      ? 'bg-[#4D7C6F]'
       : status === 'error'
         ? 'bg-error'
         : processing
           ? 'bg-primary animate-pulse'
           : status === 'ready'
-            ? 'bg-[#10b981]'
+            ? 'bg-[#4D7C6F]'
             : 'bg-outline-variant';
 
   return (

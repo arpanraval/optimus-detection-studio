@@ -26,7 +26,7 @@ interface PreviewTableProps {
 const SEVERITY_STYLES: Record<Severity, { bg: string; text: string }> = {
   [Severity.Critical]: { bg: '#A63D4030', text: '#A63D40' },
   [Severity.High]: { bg: '#D4A84B30', text: '#D4A84B' },
-  [Severity.Medium]: { bg: '#5B8A7230', text: '#5B8A72' },
+  [Severity.Medium]: { bg: '#4D7C6F30', text: '#4D7C6F' },
   [Severity.Low]: { bg: '#6B8E9F30', text: '#6B8E9F' },
   [Severity.Informational]: { bg: '#78326420', text: '#9CA3AF' },
 };

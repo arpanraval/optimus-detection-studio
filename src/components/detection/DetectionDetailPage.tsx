@@ -88,6 +88,8 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
   const [isResolvingMitre, setIsResolvingMitre] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
+  // Bumped after a deploy so the Deployments tab re-reads history even when it is already open.
+  const [deploymentsVersion, setDeploymentsVersion] = useState(0);
   const [showDeployPreview, setShowDeployPreview] = useState(false);
   const [showPreflight, setShowPreflight] = useState(false);
   const { latest: latestPreflight } = useLatestPreflight(detection?.id);
@@ -684,7 +686,15 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
         {activeTab === 'deployments' && (
           <TabErrorBoundary tabName="Deployments">
             <NativeDetectionBindings detectionId={localDetection.id} />
-            <DeploymentHistoryTab detection={localDetection} />
+            <DeploymentHistoryTab
+              key={deploymentsVersion}
+              detection={localDetection}
+              onDeploy={
+                detection.detectionQuery && hasPermission(userRole, 'integrations:sync') && isProductionRule
+                  ? () => setIsDeployModalOpen(true)
+                  : undefined
+              }
+            />
           </TabErrorBoundary>
         )}
         {activeTab === 'decisions' && (
@@ -737,6 +747,7 @@ export const DetectionDetailPage: React.FC<DetectionDetailPageProps> = ({
           onClose={() => setIsDeployModalOpen(false)}
           onDeployed={() => {
             setIsDeployModalOpen(false);
+            setDeploymentsVersion(v => v + 1);
             setActiveTab('deployments');
           }}
           userRole={userRole}

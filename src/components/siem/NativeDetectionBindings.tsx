@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { NativeRuleReview } from './NativeRuleReview';
+import { Icon } from '../Icon';
 import { getProviderMeta } from '@/lib/providerMeta';
 import type { IntegrationProvider } from '@/types';
 
@@ -58,24 +59,31 @@ export function NativeDetectionBindings({ detectionId }: { detectionId: string }
       cancelled = true;
     };
   }, [detectionId]);
+  if (!error && bindings.length === 0) return null;
   return (
-    <div className="space-y-4 mb-5">
+    <div className="space-y-4 mb-4">
       {error && (
-        <p role="alert" className="text-sm text-error">
+        <p role="alert" className="text-sm text-[#A63D40] px-4 py-3 rounded-xl bg-[#A63D40]/5 border border-[#A63D40]/15">
           Could not load production bindings: {error}
         </p>
       )}
       {bindings.map((binding) => {
         const providerName = providerNameOf(binding);
+        const isOpen = expanded === binding.id;
         return (
-        <section key={binding.id} className="rounded-xl border border-outline-variant/20 p-4">
+        <section key={binding.id} className="rounded-2xl overflow-hidden border border-outline-variant/30 bg-surface-container-low">
+          <div className="px-5 py-3">
           <button
             type="button"
-            aria-expanded={expanded === binding.id}
-            onClick={() => setExpanded(expanded === binding.id ? null : binding.id)}
-            className="font-medium text-left"
+            aria-expanded={isOpen}
+            onClick={() => setExpanded(isOpen ? null : binding.id)}
+            className="w-full flex items-center justify-between gap-3 text-left text-sm font-semibold text-on-surface"
           >
             Production comparison · {providerName}
+            <Icon
+              name="chevron-down"
+              className={`w-4 h-4 text-on-surface-variant flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+            />
           </button>
           <dl className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-on-surface-variant">
             <div className="flex items-baseline gap-1.5">
@@ -102,8 +110,11 @@ export function NativeDetectionBindings({ detectionId }: { detectionId: string }
           <p className="mt-1.5 text-[11px] text-on-surface-variant">
             Reflects the last check, not a live reading.
           </p>
-          {expanded === binding.id && (
-            <NativeRuleReview key={binding.id} bindingId={binding.id} providerName={providerName} />
+          </div>
+          {isOpen && (
+            <div className="px-5 py-4 border-t border-outline-variant/30">
+              <NativeRuleReview key={binding.id} bindingId={binding.id} providerName={providerName} />
+            </div>
           )}
         </section>
         );

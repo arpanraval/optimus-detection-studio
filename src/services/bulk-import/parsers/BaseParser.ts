@@ -1,3 +1,4 @@
+import { getImportExtensions } from '../extensions';
 /**
  * BaseParser - Abstract base class for vendor-specific parsers
  *
@@ -42,7 +43,9 @@ export abstract class BaseParser {
    * Get list of file extensions this parser supports
    * @returns Array of extensions like ['.yml', '.yaml']
    */
-  abstract getSupportedExtensions(): string[];
+  getSupportedExtensions(): string[] {
+    return getImportExtensions([this.vendorFormat]);
+  }
 
   /**
    * Extract MITRE ATT&CK data from tags
@@ -152,7 +155,7 @@ export abstract class BaseParser {
    */
   protected generateSourceId(fileName: string): string {
     // Remove extension and clean up
-    const base = fileName.replace(/\.(ya?ml|toml|json|md|kql|yaral|yar)$/i, '');
+    const base = fileName.replace(/\.(ya?ml|toml|json|md|kql|yaral|yar|s1ql|powerquery|pq|txt)$/i, '');
     // Replace special characters with underscores
     return base.replace(/[^a-zA-Z0-9_-]/g, '_');
   }

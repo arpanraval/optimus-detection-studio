@@ -4,8 +4,8 @@ import { FeatureSlide, MockupFrame, FeatureCarousel } from '../shared/FeatureSli
 const ACCENT = '#783264';
 const TEAL = '#4D7C6F';
 const YELLOW = '#ca8a04';
-const GREEN = '#22c55e';
-const COVERED = '#1f5b4b'; // dark green covered cells, as in product
+const GREEN = '#4D7C6F';
+const COVERED = '#2F4B44'; // dark sage covered cells, as in product
 
 /* ------------------------------------------------------------------ */
 /*  Shared tiny components                                             */
@@ -525,7 +525,7 @@ const TechniqueDetailMockup = () => (
           <div className="mono text-[8px] text-on-surface-variant tracking-wider mb-2">GROUPS</div>
           <div className="flex flex-wrap gap-1">
             {['Indrik Spider', 'BlackByte', 'GALLIUM', 'Volt Typhoon', 'APT41', 'Dragonfly'].map((g, i) => {
-              const colors = [`${ACCENT}`, '#ef4444', '#3b82f6', '#f59e0b', '#22c55e', '#8b5cf6'];
+              const colors = [`${ACCENT}`, '#ef4444', '#3b82f6', '#f59e0b', '#4D7C6F', '#8b5cf6'];
               return (
                 <span key={g} className="mono text-[7px] px-1.5 py-0.5 rounded" style={{
                   backgroundColor: `${colors[i]}15`,

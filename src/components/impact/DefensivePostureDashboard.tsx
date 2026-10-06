@@ -218,7 +218,7 @@ function CoverageCard({
   
   // Color based on value
   const getColorClass = () => {
-    if (value >= 70) return { stroke: '#10b981', text: 'text-tertiary', bg: 'bg-tertiary/10' };
+    if (value >= 70) return { stroke: '#4D7C6F', text: 'text-tertiary', bg: 'bg-tertiary/10' };
     if (value >= 40) return { stroke: '#f59e0b', text: 'text-warning', bg: 'bg-warning/10' };
     return { stroke: '#ef4444', text: 'text-error', bg: 'bg-error/10' };
   };

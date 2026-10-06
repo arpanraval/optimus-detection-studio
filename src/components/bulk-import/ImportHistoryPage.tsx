@@ -159,6 +159,10 @@ function getStatusLabel(status: ImportJobStatus | 'reverted'): string {
 
 function getVendorLabel(vendor: string | null): string {
   switch (vendor) {
+    case 'crowdstrike_cql':
+      return 'CrowdStrike';
+    case 'sentinelone':
+      return 'SentinelOne';
     case 'sigma':
       return 'Sigma';
     case 'splunk_escu':
@@ -178,6 +182,9 @@ function getVendorLabel(vendor: string | null): string {
 
 function getVendorIcon(vendor: string | null): IconName {
   switch (vendor) {
+    case 'sentinelone':
+    case 'crowdstrike_cql':
+      return 'shield';
     case 'sigma':
       return 'shield';
     case 'splunk_escu':
@@ -448,7 +455,7 @@ function EmptyState({
 // Supported Sources Info
 function SupportedSources() {
   const sources: { name: string; icon: IconName; color: string; desc: string }[] = [
-    { name: 'Sigma', icon: 'shield', color: '#5B8A72', desc: '3,200+ YAML rules' },
+    { name: 'Sigma', icon: 'shield', color: '#4D7C6F', desc: '3,200+ YAML rules' },
     { name: 'Splunk ESCU', icon: 'zap', color: '#FF6B35', desc: '2,100+ detections' },
     { name: 'Elastic', icon: 'search', color: '#00BFB3', desc: '1,500+ TOML rules' },
     { name: 'Chronicle', icon: 'eye', color: '#4285F4', desc: '800+ YARA-L rules' },

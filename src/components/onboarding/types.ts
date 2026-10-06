@@ -88,7 +88,7 @@ export const OFFICIAL_SOURCES: readonly OfficialSource[] = [
     vendor: 'chronicle',
     format: 'chronicle',
     estimatedRules: 400,
-    color: '#22c55e',
+    color: '#4D7C6F',
   },
   {
     id: 'microsoft-sentinel',

@@ -3,6 +3,7 @@ import { DriftComparator, isPinnedRef, type DriftFetcher, type DriftComparatorDe
 import { sha256Hex } from '../hash';
 import type { ParsedRule, ParseResult, ReconReport, FetchResult } from '../../bulk-import/types';
 import type { DriftSource } from '../types';
+import { ParserFactory } from '../../bulk-import/parsers/ParserFactory';
 
 // --- test doubles -----------------------------------------------------------
 
@@ -341,6 +342,37 @@ describe('DriftComparator.compareSource', () => {
     expect(r.items[0].upstreamRaw).toBe(stubContent);
     // Recovery is reflected in the warnings.
     expect(r.warnings.some((w) => /recovered/i.test(w))).toBe(true);
+  });
+
+  it('matches a vendor-locked SentinelOne txt import on its first automatic drift check', async () => {
+    const factory = new ParserFactory();
+    await factory.initialize();
+    const content = "src.process.name = 'powershell.exe'";
+    const path = 'rules/query.txt';
+    const imported = factory.getParserForFormat('sentinelone')!.parse(content, 'query.txt', path).rule!;
+    const cmp = new DriftComparator({
+      fetcher: makeFetcher([{ path, content }]),
+      parse: (body, name, filePath) => factory.parse(body, name, filePath),
+      compareFields,
+    });
+    const result = await cmp.compareSource({ ...SOURCE, vendor: 'sentinelone' }, {
+      knownBaselines: new Map([await baseline(imported.sourceId, content, { localQuery: content })]),
+      existingDetections: new Map([[imported.sourceId, { detectionQuery: content }]]),
+    });
+    expect(result.counts.removed).toBe(0);
+    expect(result.counts.inSync).toBe(1);
+  });
+
+  it('does not call a present but now-unparseable raw query file removed', async () => {
+    const path = 'rules/query.txt';
+    const cmp = new DriftComparator({ fetcher: makeFetcher([{ path, content: 'now malformed' }]), parse, compareFields });
+    const result = await cmp.compareSource({ ...SOURCE, vendor: 'sentinelone' }, {
+      knownBaselines: new Map([await baseline('query', 'old query', { lastUpstreamPath: path })]),
+      existingDetections: new Map(),
+    });
+    expect(result.counts.removed).toBe(0);
+    expect(result.items[0].upstreamUnparseable).toBe(true);
+    expect(result.items[0].upstreamPath).toBe(path);
   });
 
   it('preserves dismissal for a removed rule (dismissed-removed should not resurface)', async () => {

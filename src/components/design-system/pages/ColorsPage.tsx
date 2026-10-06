@@ -162,9 +162,9 @@ export const ColorsPage: React.FC = () => {
                         <span className="text-black/80 text-sm font-bold">#EAB308</span>
                         <span className="text-black/60 text-[10px] mt-1">Yellow</span>
                     </div>
-                    <div className="w-28 h-28 rounded-2xl shadow-lg flex flex-col items-center justify-center" style={{ backgroundColor: '#10B981' }}>
-                        <span className="text-white text-sm font-bold">#10B981</span>
-                        <span className="text-white/70 text-[10px] mt-1">Emerald</span>
+                    <div className="w-28 h-28 rounded-2xl shadow-lg flex flex-col items-center justify-center" style={{ backgroundColor: '#4D7C6F' }}>
+                        <span className="text-white text-sm font-bold">#4D7C6F</span>
+                        <span className="text-white/70 text-[10px] mt-1">Sage</span>
                     </div>
                 </div>
 
@@ -265,14 +265,14 @@ export const ColorsPage: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Emerald */}
+                    {/* Sage */}
                     <div className="flex items-center gap-5 p-5 bg-surface-container rounded-2xl border border-outline-variant/20">
-                        <div className="w-16 h-16 rounded-xl shadow-md flex-shrink-0" style={{ backgroundColor: '#10B981' }}></div>
+                        <div className="w-16 h-16 rounded-xl shadow-md flex-shrink-0" style={{ backgroundColor: '#4D7C6F' }}></div>
                         <div className="flex-1">
                             <div className="flex items-baseline gap-3 mb-1">
                                 <h4 className="text-xl font-bold text-on-surface">Mitigation</h4>
-                                <span className="text-lg text-emerald-500 font-semibold">Emerald</span>
-                                <span className="text-sm text-on-surface-variant">#10B981</span>
+                                <span className="text-lg text-emerald-500 font-semibold">Sage</span>
+                                <span className="text-sm text-on-surface-variant">#4D7C6F</span>
                             </div>
                             <p className="text-sm text-on-surface-variant mb-2">Mitigation controls and defensive measures. M#### identifiers.</p>
                             <div className="flex flex-wrap gap-2">
@@ -332,8 +332,8 @@ export const ColorsPage: React.FC = () => {
                                 <tr>
                                     <td className="px-4 py-2.5">Mitigation</td>
                                     <td className="px-4 py-2.5 font-mono text-xs">M####</td>
-                                    <td className="px-4 py-2.5"><span className="inline-flex items-center gap-2"><span className="w-3 h-3 rounded bg-emerald-500"></span>Emerald</span></td>
-                                    <td className="px-4 py-2.5 font-mono text-xs">#10B981</td>
+                                    <td className="px-4 py-2.5"><span className="inline-flex items-center gap-2"><span className="w-3 h-3 rounded bg-emerald-500"></span>Sage</span></td>
+                                    <td className="px-4 py-2.5 font-mono text-xs">#4D7C6F</td>
                                 </tr>
                                 <tr>
                                     <td className="px-4 py-2.5">Data Source</td>

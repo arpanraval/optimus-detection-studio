@@ -23,6 +23,7 @@ import {
   EmbeddingStrategy,
 } from '../types';
 import { parserFactory } from '../parsers/ParserFactory';
+import { getImportExtensions } from '../extensions';
 import { validationPipeline, ValidationOptions } from '../validators/ValidationPipeline';
 import { duplicateDetector } from '../validators/DuplicateDetector';
 import { detectionNormalizer, NormalizationOptions } from '../normalizers/DetectionNormalizer';
@@ -126,6 +127,7 @@ export class BulkImportJobManager {
     if (config.sourceType === 'github' && config.sourceUrl) {
       // Use Trees API scan for GitHub
       const report = await this.githubFetcher.scanRepository(config.sourceUrl, {
+        extensions: getImportExtensions(config.vendorFilter ?? (config.vendor && config.vendor !== 'mixed' ? [config.vendor] : undefined)),
         token: config.githubToken,
       });
 
@@ -374,9 +376,11 @@ export class BulkImportJobManager {
 
     const config = this.job!.config;
     let files: FetchedFile[];
+    const extensions = getImportExtensions(config.vendorFilter ?? (config.vendor && config.vendor !== 'mixed' ? [config.vendor] : undefined));
 
     if (config.sourceType === 'zip' && config.sourceZip) {
       const result = await zipFetcher.fetch(config.sourceZip, {
+        extensions,
         onProgress: (current, total, fileName) => {
           this.updateProgress({
             processedFiles: current,
@@ -393,6 +397,7 @@ export class BulkImportJobManager {
       files = result.files;
     } else if (config.sourceType === 'files' && config.sourceFiles) {
       const result = await fileFetcher.fetch(config.sourceFiles, {
+        extensions,
         onProgress: (current, total, fileName) => {
           this.updateProgress({
             processedFiles: current,
@@ -409,6 +414,7 @@ export class BulkImportJobManager {
       files = result.files;
     } else if (config.sourceType === 'github' && config.sourceUrl) {
       const result = await this.githubFetcher.fetch(config.sourceUrl, {
+        extensions,
         token: config.githubToken,
         path: config.githubPath,
         // Folder selection is applied at the tree level so unselected folders are never downloaded.
@@ -938,10 +944,11 @@ export class BulkImportJobManager {
 
       if (error) {
         console.error('Failed to save job to database:', error);
-        // Don't fail the import if we can't save the job record
+        throw new Error(`Import stopped: could not save import history. ${error.message}`);
       }
     } catch (error) {
       console.error('Error saving job to database:', error);
+      throw error;
     }
   }
 
@@ -955,7 +962,7 @@ export class BulkImportJobManager {
       const { error } = await supabase
         .from('bulk_import_jobs')
         .update({
-          status: result.successCount > 0 || result.failureCount === 0 ? 'completed' : 'failed',
+          status: result.successCount > 0 || result.success ? 'completed' : 'failed',
           success_count: result.successCount,
           failure_count: result.failureCount,
           skip_count: result.skipCount,

@@ -9,7 +9,7 @@ import { HeroFlowScene } from './new-landing/hero/HeroFlowScene';
 // ============================================================================
 
 const VENDOR_LOGOS = [
-  { name: 'Splunk', path: '/logos/integrations/splunk.svg', lang: 'SPL', color: 'rgba(16, 185, 129, 0.25)', border: '#10b981' },     // Green
+  { name: 'Splunk', path: '/logos/integrations/splunk.svg', lang: 'SPL', color: 'rgba(77,124,111, 0.25)', border: '#4D7C6F' },     // Green
   { name: 'Microsoft Sentinel', path: '/logos/integrations/sentinel.svg', lang: 'KQL', color: 'rgba(0, 130, 200, 0.25)', border: '#0082c8' }, // Blue
   { name: 'Elastic', path: '/logos/integrations/elastic.svg', lang: 'EQL', color: 'rgba(245, 158, 11, 0.25)', border: '#f59e0b' },     // Amber
   { name: 'CrowdStrike', path: '/logos/integrations/crowdstrike.svg', lang: 'CQL', color: 'rgba(239, 68, 68, 0.25)', border: '#ef4444' },     // Red
@@ -18,8 +18,8 @@ const VENDOR_LOGOS = [
 ];
 
 const IMPORT_SOURCES = [
-  { name: 'Sigma Rules', path: '/logos/integrations/sigma.svg', count: '3,200+ Core rules', color: 'rgba(0, 240, 181, 0.15)' },
-  { name: 'Splunk ESCU', path: '/logos/integrations/splunk.svg', count: '1,100+ Detections', color: 'rgba(16, 185, 129, 0.15)' },
+  { name: 'Sigma Rules', path: '/logos/integrations/sigma.svg', count: '3,200+ Core rules', color: 'rgba(77, 124, 111, 0.15)' },
+  { name: 'Splunk ESCU', path: '/logos/integrations/splunk.svg', count: '1,100+ Detections', color: 'rgba(77,124,111, 0.15)' },
   { name: 'Elastic Rules', path: '/logos/integrations/elastic.svg', count: '900+ Threat alerts', color: 'rgba(245, 158, 11, 0.15)' },
   { name: 'Chronicle Rules', path: '/logos/integrations/chronicle.svg', count: '800+ Log parsers', color: 'rgba(139, 92, 246, 0.15)' },
 ];

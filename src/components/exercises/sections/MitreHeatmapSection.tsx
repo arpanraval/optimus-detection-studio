@@ -29,8 +29,8 @@ interface CellStyle {
 }
 
 const COVERAGE_LEVELS: { min: number; style: CellStyle }[] = [
-  { min: 5, style: { label: '5+', bg: 'bg-[#004D40] text-[#E0F2F1]' } },
-  { min: 3, style: { label: '3-4', bg: 'bg-[#1B5E20] text-[#E8F5E9]' } },
+  { min: 5, style: { label: '5+', bg: 'bg-[#263D37] text-[#F2F7F5]' } },
+  { min: 3, style: { label: '3-4', bg: 'bg-[#4D7C6F] text-[#F2F7F5]' } },
   { min: 1, style: { label: '1-2', bg: 'bg-[#006064] text-[#E0F7FA]' } },
   { min: 0, style: { label: '0 (gap)', bg: 'bg-red-500/15 text-red-400' } },
 ];

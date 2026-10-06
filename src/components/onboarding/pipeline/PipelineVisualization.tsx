@@ -67,8 +67,8 @@ const THEME = {
   onPrimaryContainer: 'rgb(var(--md-sys-color-on-primary-container))',
   outlineVariant: 'rgb(var(--md-sys-color-outline-variant))',
   outlineVariant30: 'rgb(var(--md-sys-color-outline-variant) / 0.3)',
-  success: '#10b981',
-  success70: 'rgba(16,185,129,0.7)',
+  success: '#4D7C6F',
+  success70: 'rgba(77,124,111,0.7)',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -291,7 +291,7 @@ interface DestLabelProps {
 
 function DestLabel({ platform, y, count }: DestLabelProps): React.JSX.Element {
   const hasData = count > 0;
-  const nameFill = hasData ? '#10b981' : THEME.onSurfaceVariant;
+  const nameFill = hasData ? '#4D7C6F' : THEME.onSurfaceVariant;
   const countFill = hasData ? THEME.success70 : THEME.onSurfaceVariant60;
 
   return (
@@ -486,7 +486,7 @@ export default function PipelineVisualization(): React.JSX.Element {
         paths.push({
           id: op.id,
           pathData: op.pathData,
-          color: '#10b981',
+          color: '#4D7C6F',
           active: true,
         });
       }
@@ -587,7 +587,7 @@ export default function PipelineVisualization(): React.JSX.Element {
               } else {
                 status = 'active';
               }
-              return <StreamLine key={path.id} id={path.id} pathData={path.pathData} status={status} color="#10b981" />;
+              return <StreamLine key={path.id} id={path.id} pathData={path.pathData} status={status} color="#4D7C6F" />;
             })}
 
             {/* 3. Source labels — always visible */}
@@ -647,7 +647,7 @@ export default function PipelineVisualization(): React.JSX.Element {
                       cy={y}
                       r={8}
                       fill="none"
-                      stroke="#10b981"
+                      stroke="#4D7C6F"
                       strokeWidth={1.5}
                       opacity={0.6}
                     />
@@ -659,7 +659,7 @@ export default function PipelineVisualization(): React.JSX.Element {
               const y = getSourceY(i, OUTPUT_PLATFORMS.length);
               const count = liveStats.byPlatform[platform] ?? 0;
               const hasData = count > 0;
-              const dotFill = hasData ? '#10b981' : THEME.outlineVariant;
+              const dotFill = hasData ? '#4D7C6F' : THEME.outlineVariant;
               const dotR = hasData ? 5 : 3.5;
               return (
                 <g key={`dot-dest-${platform}`}>
@@ -670,7 +670,7 @@ export default function PipelineVisualization(): React.JSX.Element {
                       cy={y}
                       r={8}
                       fill="none"
-                      stroke="#10b981"
+                      stroke="#4D7C6F"
                       strokeWidth={1}
                       opacity={0.3}
                     />

@@ -9,6 +9,7 @@
  */
 
 import { FetchedFile, FetchResult, ReconReport, RateLimitInfo, GitTreeEntry } from '../types';
+import { getImportExtensions } from '../extensions';
 
 /**
  * Options for GitHub fetching
@@ -51,7 +52,7 @@ interface GitHubRepoInfo {
   defaultBranch: string;
 }
 
-const SUPPORTED_EXTENSIONS = ['.yml', '.yaml', '.json', '.toml', '.yaral', '.yar'];
+const SUPPORTED_EXTENSIONS = getImportExtensions();
 
 /** Patterns to exclude - matched against directory path segments only */
 const DIRECTORY_EXCLUDE_PATTERNS = [
@@ -426,7 +427,7 @@ export class GitHubFetcher {
   /**
    * Scan a GitHub repository to produce a ReconReport (uses Trees API - 1 API call)
    */
-  async scanRepository(url: string, options?: { token?: string; signal?: AbortSignal }): Promise<ReconReport> {
+  async scanRepository(url: string, options?: { token?: string; signal?: AbortSignal; extensions?: string[] }): Promise<ReconReport> {
     const parsed = this.parseUrl(url);
     if (!parsed) {
       return {
@@ -509,7 +510,7 @@ export class GitHubFetcher {
     const matchingFiles = inPath.filter((entry: any) => {
       const filePath = entry.path as string;
       const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase();
-      if (!SUPPORTED_EXTENSIONS.includes(ext)) return false;
+      if (!(options?.extensions ?? SUPPORTED_EXTENSIONS).includes(ext)) return false;
 
       // Check directory segments against exclude patterns
       const segments = filePath.split('/');

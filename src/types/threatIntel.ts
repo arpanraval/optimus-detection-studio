@@ -552,7 +552,7 @@ export function getThreatLevelColor(level: ThreatLevel): string {
 
 export function getConfidenceColor(confidence: 'high' | 'medium' | 'low'): string {
   switch (confidence) {
-    case 'high': return '#16A34A'; // green-600
+    case 'high': return '#4D7C6F'; // sage
     case 'medium': return '#D97706'; // amber-600
     case 'low': return '#DC2626'; // red-600
     default: return '#6B7280';

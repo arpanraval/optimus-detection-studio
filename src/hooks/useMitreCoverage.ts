@@ -90,13 +90,13 @@ export function useMitreCoverage(scope: 'production' | 'all' = 'production') {
     
     // M3 Deep Green Palette - using hex for specific heat map colors, but could use semantic if defined
     // High Coverage (5+): Deepest Emerald/Forest
-    if (count >= 5) return 'bg-[#004D40] text-[#E0F2F1] border-b border-[#00382e] hover:bg-[#00695C] font-bold shadow-inner'; 
+    if (count >= 5) return 'bg-[#263D37] text-[#F2F7F5] border-b border-[#16241F] hover:bg-[#2F4B44] font-bold shadow-inner'; 
     
     // Medium Coverage (3-4): Rich Green
-    if (count >= 3) return 'bg-[#1B5E20] text-[#E8F5E9] border-b border-[#144418] hover:bg-[#2E7D32] font-medium'; 
+    if (count >= 3) return 'bg-[#4D7C6F] text-[#F2F7F5] border-b border-[#395C52] hover:bg-[#436C61] font-medium'; 
     
     // Low Coverage (1-2): Lighter Green/Teal mix for visibility
-    if (count >= 1) return 'bg-[#006064] text-[#E0F7FA] border-b border-[#004D40] hover:bg-[#00838F]'; 
+    if (count >= 1) return 'bg-[#006064] text-[#E0F7FA] border-b border-[#263D37] hover:bg-[#00838F]'; 
     
     // Fallback
     return 'bg-surface-container-lowest';

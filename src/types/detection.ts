@@ -31,7 +31,7 @@ export type ReviewRequestStatus = 'pending' | 'in_progress' | 'approved' | 'reje
 // native_provenance.kind, which already carries this same string plus a free-form `provider`).
 // It is distinct from the legacy single-vendor sources above ('crowdstrike', 'elastic', etc.),
 // which predate that pipeline and do not carry a native_provenance record.
-export type DetectionSource = 'custom' | 'sigmahq' | 'splunk_escu' | 'elastic' | 'microsoft_sentinel' | 'crowdstrike' | 'chronicle' | 'community' | 'native_siem';
+export type DetectionSource = 'custom' | 'sigmahq' | 'splunk_escu' | 'elastic' | 'microsoft_sentinel' | 'crowdstrike' | 'chronicle' | 'sentinelone' | 'community' | 'native_siem';
 
 // ============================================
 // MITRE-LINKED TYPES

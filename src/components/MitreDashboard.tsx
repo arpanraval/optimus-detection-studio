@@ -545,8 +545,8 @@ export const MitreDashboard: React.FC<MitreDashboardProps> = ({
               <div className="flex items-center gap-4 text-[10px] uppercase font-bold text-on-surface-variant tracking-wide">
                     {!importedLayer ? (
                         <>
-                            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-[#004D40]"></span> 5+ Rules</span>
-                            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-[#1B5E20]"></span> 3-4 Rules</span>
+                            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-[#263D37]"></span> 5+ Rules</span>
+                            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-[#4D7C6F]"></span> 3-4 Rules</span>
                             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-[#006064]"></span> 1-2 Rules</span>
                         </>
                     ) : (

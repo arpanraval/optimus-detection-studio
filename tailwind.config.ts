@@ -1,5 +1,23 @@
 import type { Config } from 'tailwindcss';
 
+// The app has one green: sage #4D7C6F. Tailwind's stock green and emerald are
+// remapped onto a sage scale anchored at 500, so every `*-green-*` and
+// `*-emerald-*` utility renders the brand hue. 400 is the established
+// dark-mode companion (#6BA594).
+const sage = {
+  50: '#F2F7F5',
+  100: '#E1EDE9',
+  200: '#C3DBD3',
+  300: '#9DC3B7',
+  400: '#6BA594',
+  500: '#4D7C6F',
+  600: '#436C61',
+  700: '#395C52',
+  800: '#2F4B44',
+  900: '#263D37',
+  950: '#16241F',
+};
+
 export default {
   content: [
     './index.html',
@@ -131,6 +149,9 @@ export default {
         'on-ext-cyan': 'rgb(var(--md-ext-color-on-cyan) / <alpha-value>)',
         'ext-cyan-container': 'rgb(var(--md-ext-color-cyan-container) / <alpha-value>)',
         'on-ext-cyan-container': 'rgb(var(--md-ext-color-on-cyan-container) / <alpha-value>)',
+
+        green: sage,
+        emerald: sage,
 
         // Compat mapping
         'brand-primary': 'rgb(var(--md-sys-color-primary) / <alpha-value>)',
