@@ -1449,7 +1449,7 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                                 <span className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-purple-500"></span><strong>Purple</strong> MITRE/Tags</span>
                                 <span className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-orange-500"></span><strong>Orange</strong> High/Software</span>
                                 <span className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-yellow-500"></span><strong>Yellow</strong> Medium/Warning</span>
-                                <span className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-emerald-500"></span><strong>Emerald</strong> Mitigation</span>
+                                <span className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-emerald-500"></span><strong>Sage</strong> Mitigation</span>
                             </div>
                         </div>
 
@@ -1561,7 +1561,7 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                             </span>
                         </ComponentRow>
 
-                        <ComponentRow label="Mitigation Chips" description="M#### - Security controls (Emerald)">
+                        <ComponentRow label="Mitigation Chips" description="M#### - Security controls (Sage)">
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                                 <Icon name="shield" className="w-3 h-3" />
                                 <span className="font-mono">M1026</span>
@@ -4006,9 +4006,9 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                                 <span className="text-black/80 text-sm font-bold">#EAB308</span>
                                 <span className="text-black/60 text-[10px] mt-1">Yellow</span>
                             </div>
-                            <div className="w-28 h-28 rounded-2xl shadow-lg flex flex-col items-center justify-center" style={{ backgroundColor: '#10B981' }}>
-                                <span className="text-white text-sm font-bold">#10B981</span>
-                                <span className="text-white/70 text-[10px] mt-1">Emerald</span>
+                            <div className="w-28 h-28 rounded-2xl shadow-lg flex flex-col items-center justify-center" style={{ backgroundColor: '#4D7C6F' }}>
+                                <span className="text-white text-sm font-bold">#4D7C6F</span>
+                                <span className="text-white/70 text-[10px] mt-1">Sage</span>
                             </div>
                         </div>
 
@@ -4109,14 +4109,14 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                                 </div>
                             </div>
 
-                            {/* Emerald */}
+                            {/* Sage */}
                             <div className="flex items-center gap-5 p-5 bg-surface-container rounded-2xl border border-outline-variant/20">
-                                <div className="w-16 h-16 rounded-xl shadow-md flex-shrink-0" style={{ backgroundColor: '#10B981' }}></div>
+                                <div className="w-16 h-16 rounded-xl shadow-md flex-shrink-0" style={{ backgroundColor: '#4D7C6F' }}></div>
                                 <div className="flex-1">
                                     <div className="flex items-baseline gap-3 mb-1">
                                         <h4 className="text-xl font-bold text-on-surface">Mitigation</h4>
-                                        <span className="text-lg text-emerald-500 font-semibold">Emerald</span>
-                                        <span className="text-sm text-on-surface-variant">#10B981</span>
+                                        <span className="text-lg text-emerald-500 font-semibold">Sage</span>
+                                        <span className="text-sm text-on-surface-variant">#4D7C6F</span>
                                     </div>
                                     <p className="text-sm text-on-surface-variant mb-2">Mitigation controls and defensive measures. M#### identifiers.</p>
                                     <div className="flex flex-wrap gap-2">
@@ -4176,8 +4176,8 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ initialTab
                                         <tr>
                                             <td className="px-4 py-2.5">Mitigation</td>
                                             <td className="px-4 py-2.5 font-mono text-xs">M####</td>
-                                            <td className="px-4 py-2.5"><span className="inline-flex items-center gap-2"><span className="w-3 h-3 rounded bg-emerald-500"></span>Emerald</span></td>
-                                            <td className="px-4 py-2.5 font-mono text-xs">#10B981</td>
+                                            <td className="px-4 py-2.5"><span className="inline-flex items-center gap-2"><span className="w-3 h-3 rounded bg-emerald-500"></span>Sage</span></td>
+                                            <td className="px-4 py-2.5 font-mono text-xs">#4D7C6F</td>
                                         </tr>
                                         <tr>
                                             <td className="px-4 py-2.5">Data Source</td>

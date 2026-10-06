@@ -143,13 +143,13 @@ export function DestPanelContent({ onCollapse }: DestPanelContentProps): React.J
           {phase !== 'complete' && isLive && (
             <span className="flex items-center gap-0.5">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-[9px]" style={{ color: 'rgba(16,185,129,0.7)' }}>
+              <span className="text-[9px]" style={{ color: 'rgba(77,124,111,0.7)' }}>
                 Live
               </span>
             </span>
           )}
           {phase === 'complete' && (
-            <span className="text-[9px]" style={{ color: 'rgba(16,185,129,0.7)' }}>
+            <span className="text-[9px]" style={{ color: 'rgba(77,124,111,0.7)' }}>
               Done
             </span>
           )}

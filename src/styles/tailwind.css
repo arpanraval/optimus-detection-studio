@@ -220,11 +220,11 @@
   --md-ext-color-amber-container: 254 224 134;
   --md-ext-color-on-amber-container: 86 69 0;
 
-  /* Green — success, validated */
-  --md-ext-color-green: 65 104 53;
+  /* Green — success, validated (brand sage #4D7C6F) */
+  --md-ext-color-green: 77 124 111;
   --md-ext-color-on-green: 255 255 255;
-  --md-ext-color-green-container: 193 239 175;
-  --md-ext-color-on-green-container: 41 79 31;
+  --md-ext-color-green-container: 225 237 233;
+  --md-ext-color-on-green-container: 47 75 68;
 
   /* Teal — coverage, health */
   --md-ext-color-teal: 0 104 119;
@@ -347,11 +347,11 @@
   --md-ext-color-amber-container: 86 69 0;
   --md-ext-color-on-amber-container: 254 224 134;
 
-  /* Green */
-  --md-ext-color-green: 166 211 149;
-  --md-ext-color-on-green: 18 56 10;
-  --md-ext-color-green-container: 41 79 31;
-  --md-ext-color-on-green-container: 193 239 175;
+  /* Green (brand sage, dark companion #6BA594) */
+  --md-ext-color-green: 107 165 148;
+  --md-ext-color-on-green: 22 36 31;
+  --md-ext-color-green-container: 47 75 68;
+  --md-ext-color-on-green-container: 225 237 233;
 
   /* Teal */
   --md-ext-color-teal: 131 210 228;

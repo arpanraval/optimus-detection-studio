@@ -77,9 +77,9 @@ const THEME_COLORS = {
 // Original coverage colors from useMitreCoverage.ts
 const COVERAGE_COLORS = {
   // 5+ detections: Deep Emerald/Forest
-  high: { bg: '#004D40', text: '#E0F2F1' },
+  high: { bg: '#263D37', text: '#F2F7F5' },
   // 3-4 detections: Rich Green
-  medium: { bg: '#1B5E20', text: '#E8F5E9' },
+  medium: { bg: '#4D7C6F', text: '#F2F7F5' },
   // 1-2 detections: Lighter Green/Teal
   low: { bg: '#006064', text: '#E0F7FA' },
 };

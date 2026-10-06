@@ -713,7 +713,7 @@ const PublishQueue: React.FC<PublishQueueProps> = ({ requests, onApprove, onBulk
             <button
               onClick={() => handleBulkActionClick('approve')}
               className="h-8 px-3 text-sm font-medium rounded-lg text-white hover:brightness-110 transition-all inline-flex items-center gap-1.5"
-              style={{ backgroundColor: '#10b981' }}
+              style={{ backgroundColor: '#4D7C6F' }}
             >
               <Icon name="check" className="w-3.5 h-3.5" />
               Approve All ({selectedIds.size})

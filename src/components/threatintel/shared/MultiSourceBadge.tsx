@@ -4,7 +4,7 @@ import React from 'react';
 // Used on TTP cards, IoC rows, and any surface representing "how many vendors
 // reported this item." Keep the visual language consistent everywhere.
 export function corroborationCardClasses(count: number): string {
-  if (count >= 3) return 'bg-emerald-500/[0.08] border-emerald-500/30 shadow-[0_0_8px_rgba(16,185,129,0.08)]';
+  if (count >= 3) return 'bg-emerald-500/[0.08] border-emerald-500/30 shadow-[0_0_8px_rgba(77,124,111,0.08)]';
   if (count >= 2) return 'bg-emerald-500/[0.04] border-emerald-500/20';
   return 'bg-surface-container/50 border-outline-variant/10';
 }

@@ -279,8 +279,8 @@ export function ImportPreCheck({
 function GreenCheck() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0">
-      <circle cx="7" cy="7" r="6" fill="rgba(16,185,129,0.15)" stroke="rgba(16,185,129,0.5)" strokeWidth="1" />
-      <path d="M4 7l2 2 4-4" stroke="rgb(16,185,129)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="7" cy="7" r="6" fill="rgba(77,124,111,0.15)" stroke="rgba(77,124,111,0.5)" strokeWidth="1" />
+      <path d="M4 7l2 2 4-4" stroke="rgb(77,124,111)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

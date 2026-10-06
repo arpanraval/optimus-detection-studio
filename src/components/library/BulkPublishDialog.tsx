@@ -288,7 +288,7 @@ export const BulkPublishDialog: React.FC<BulkPublishDialogProps> = ({
               <div className="flex flex-col items-center py-4">
                 <div
                   className="w-12 h-12 rounded-xl flex items-center justify-center mb-3"
-                  style={{ backgroundColor: publishFailCount === 0 ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)' }}
+                  style={{ backgroundColor: publishFailCount === 0 ? 'rgba(77,124,111,0.15)' : 'rgba(245,158,11,0.15)' }}
                 >
                   <Icon
                     name={publishFailCount === 0 ? 'check-circle' : 'alert-triangle'}

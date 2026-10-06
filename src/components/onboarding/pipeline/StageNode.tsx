@@ -16,7 +16,7 @@
  *
  * Color mapping:
  *   - Active: M3 primary
- *   - Complete: #10b981 (semantic emerald)
+ *   - Complete: #4D7C6F (brand sage)
  *   - Error: M3 error
  *   - Idle: M3 outline-variant / surface-container
  */
@@ -61,10 +61,10 @@ function getStageColors(status: string): StatusColors {
       };
     case 'complete':
       return {
-        stroke: '#10b981',
-        fill: 'rgba(16, 185, 129, 0.08)',
-        text: '#10b981',
-        glow: '#10b981',
+        stroke: '#4D7C6F',
+        fill: 'rgba(77,124,111, 0.08)',
+        text: '#4D7C6F',
+        glow: '#4D7C6F',
       };
     case 'error':
       return {
@@ -264,7 +264,7 @@ export default function StageNode({
             cx={x + radius - 8}
             cy={y - radius + 8}
             r={12}
-            fill="#10b981"
+            fill="#4D7C6F"
           />
           {/* Checkmark path */}
           <path

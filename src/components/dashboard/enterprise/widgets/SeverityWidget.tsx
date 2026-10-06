@@ -7,7 +7,7 @@ const SEVERITY_CONFIG = [
   { key: 'Critical', label: 'Critical', color: 'rgb(220, 38, 38)' },
   { key: 'High', label: 'High', color: 'rgb(234, 88, 12)' },
   { key: 'Medium', label: 'Medium', color: 'rgb(202, 138, 4)' },
-  { key: 'Low', label: 'Low', color: 'rgb(34, 197, 94)' },
+  { key: 'Low', label: 'Low', color: 'rgb(77, 124, 111)' },
   { key: 'Informational', label: 'Info', color: 'rgb(100, 116, 139)' },
 ];
 

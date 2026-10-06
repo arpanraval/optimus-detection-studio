@@ -12,7 +12,7 @@
  *
  * Color mapping:
  *   - Active accent: M3 primary (via color prop)
- *   - Complete: #10b981 (semantic emerald, via color prop)
+ *   - Complete: #4D7C6F (brand sage, via color prop)
  *   - Error: M3 error
  *   - Idle: M3 outline-variant
  *
