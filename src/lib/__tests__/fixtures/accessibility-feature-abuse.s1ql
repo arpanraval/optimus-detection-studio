@@ -1,0 +1,25 @@
+dataSource.name = 'SentinelOne'
+AND dataSource.category = 'security'
+AND (
+  (
+    event.type = 'Registry Value Modified'
+    AND registry.keyPath contains 'Image File Execution Options'
+    AND registry.keyPath matches '\\\\(sethc|utilman|osk|magnify|narrator|displayswitch|atbroker)\\.exe$'
+    AND registry.valueName in:anycase ('Debugger')
+  )
+  OR (
+    event.type in ('File Creation', 'File Modification', 'File Rename')
+    AND tgt.file.path matches '\\\\(sethc|utilman|osk|magnify|narrator|displayswitch|atbroker)\\.exe$'
+  )
+  OR (
+    event.type = 'Process Creation'
+    AND src.process.parent.name in:anycase (
+      'sethc.exe', 'utilman.exe', 'osk.exe', 'magnify.exe',
+      'narrator.exe', 'displayswitch.exe', 'atbroker.exe'
+    )
+    AND src.process.name in:anycase (
+      'cmd.exe', 'powershell.exe', 'powershell_ise.exe', 'pwsh.exe',
+      'cscript.exe', 'wscript.exe', 'taskmgr.exe'
+    )
+  )
+)

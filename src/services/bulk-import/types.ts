@@ -16,7 +16,7 @@ import { QUERY_LANGUAGES } from '../../constants';
 // ============================================
 
 /** Supported vendor formats for import */
-export type VendorFormat = 'sigma' | 'splunk_escu' | 'elastic' | 'kql' | 'crowdstrike_cql' | 'chronicle';
+export type VendorFormat = 'sigma' | 'splunk_escu' | 'elastic' | 'kql' | 'crowdstrike_cql' | 'chronicle' | 'sentinelone';
 
 /** Import source types */
 export type ImportSourceType = 'github' | 'zip' | 'files';
@@ -44,7 +44,7 @@ export interface ParsedRule {
   // Source identification
   sourceId: string; // Original rule ID from vendor
   sourceUrl?: string; // URL to original rule
-  sourceFormat: VendorFormat; // 'sigma' | 'splunk_escu' | 'elastic' | 'kql' | 'crowdstrike_cql' | 'chronicle'
+  sourceFormat: VendorFormat; // 'sigma' | 'splunk_escu' | 'elastic' | 'kql' | 'crowdstrike_cql' | 'chronicle' | 'sentinelone'
   sourceFileName: string; // Original filename
   sourceFilePath?: string; // Full path within archive
 
@@ -582,6 +582,8 @@ export const mapStatus = (vendorStatus: string): Status => {
 /** Maps vendor format to DetectionSource */
 export const mapSource = (format: VendorFormat): DetectionSource => {
   switch (format) {
+    case 'sentinelone':
+      return 'sentinelone';
     case 'sigma':
       return 'sigmahq';
     case 'splunk_escu':

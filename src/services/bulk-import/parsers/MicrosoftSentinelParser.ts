@@ -57,9 +57,6 @@ interface SentinelRule {
 export class MicrosoftSentinelParser extends BaseParser {
   readonly vendorFormat: VendorFormat = 'kql';
 
-  getSupportedExtensions(): string[] {
-    return ['.yml', '.yaml'];
-  }
 
   /**
    * Check if this parser can handle the given file.

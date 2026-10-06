@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Icon } from './Icon';
 import { ModelSelector } from './ModelSelector';
 import { generateAIJSON, DEFAULT_MODEL, getModelById, type AIJsonSchema } from '../lib/aiService';
@@ -6,6 +6,8 @@ import { useToast } from '../hooks/useToast';
 import { normalizeQueryLanguageForStorage } from '../lib/queryLanguage';
 import { useTheme } from '../context/ThemeContext';
 import { Detection } from '../types';
+import { LANGUAGES, buildSystemPrompt, detectLanguageSwitch } from '../lib/aiQueryLanguages';
+import { formatAIQuery } from '../lib/sentinelOneFormatting';
 
 // =============================================================================
 // TYPES
@@ -59,12 +61,14 @@ const SESSIONS_INDEX_KEY = 'optimus_ai_sessions_v5_index';
 const SESSION_PREFIX = 'optimus_ai_session_v5_';
 const MAX_SESSIONS = 50;
 
-const AI_QUERY_RESPONSE_SCHEMA: AIJsonSchema = {
+const queryResponseSchema = (languageId: string): AIJsonSchema => ({
     type: 'object',
     properties: {
         query: {
             type: 'string',
-            description: 'The complete executable detection query. Keep it focused and use only essential inline comments.',
+            description: languageId.startsWith('sentinelone-')
+                ? 'The complete executable detection query, formatted with newlines and without inline comments.'
+                : 'The complete executable detection query. Keep it focused and use only essential inline comments.',
         },
         explanation: {
             type: 'string',
@@ -73,109 +77,7 @@ const AI_QUERY_RESPONSE_SCHEMA: AIJsonSchema = {
     },
     required: ['query', 'explanation'],
     additionalProperties: false,
-};
-
-const LANGUAGES = [
-    { id: 'spl', label: 'Splunk SPL', keywords: ['splunk', 'spl'] },
-    { id: 'kql-sentinel', label: 'Microsoft Sentinel KQL', keywords: ['sentinel', 'kql', 'azure sentinel', 'microsoft sentinel'] },
-    { id: 'kql-defender', label: 'Microsoft Defender XDR KQL', keywords: ['defender', 'mde', 'microsoft defender', 'defender xdr', 'm365 defender', '365 defender'] },
-    { id: 'eql', label: 'Elastic EQL', keywords: ['elastic', 'eql', 'elasticsearch'] },
-    { id: 'sigma', label: 'Sigma', keywords: ['sigma'] },
-    { id: 'yara', label: 'YARA', keywords: ['yara'] },
-    { id: 'yaral', label: 'Chronicle YARA-L', keywords: ['chronicle', 'yara-l', 'yaral', 'google chronicle'] },
-    { id: 'crowdstrike', label: 'CrowdStrike LogScale', keywords: ['crowdstrike', 'logscale', 'falcon', 'humio'] },
-];
-
-// =============================================================================
-// SYSTEM PROMPT
-// =============================================================================
-
-const buildSystemPrompt = (langLabel: string) => `You are an expert Detection Engineer with deep knowledge of adversary tradecraft, attack techniques, and security telemetry across enterprise environments.
-
-MISSION: Create high-fidelity detection queries that catch real attack behaviors with valid, production-ready syntax.
-
-METHODOLOGY - Follow this process internally. Do not include the research process, reasoning, or a checklist in the output:
-
-1. RESEARCH THE ATTACK IN DEPTH
-   - How does this attack actually work at a technical level?
-   - What happens step-by-step when this attack executes?
-   - Example: For LSASS credential theft - understand that attackers need to open a handle to lsass.exe with specific access rights (PROCESS_VM_READ, PROCESS_QUERY_INFORMATION), then read memory regions containing credential material. Tools like Mimikatz use specific API calls (OpenProcess, ReadProcessMemory) with known access right combinations (0x1010, 0x1410).
-   - What variations exist? (Direct memory access vs. minidump, comsvcs.dll abuse, silent process exit, etc.)
-
-2. IDENTIFY DETECTION OPPORTUNITIES
-   - Based on your understanding of how the attack works, what observable artifacts are created?
-   - Which telemetry sources capture these artifacts? (Sysmon, EDR, native OS logs, network)
-   - What is the attacker BEHAVIOR pattern, not just atomic indicators?
-   - Think: What MUST happen for this attack to succeed? Detect that.
-
-3. BUILD DETECTION LOGIC
-   - Detect the attack behavior/pattern, not just specific tool signatures
-   - A good detection catches the technique regardless of which tool is used
-   - Include reasonable filters for legitimate activity, but DO NOT over-tune to avoid false positives at the cost of missing attacks
-   - Consider: If an attacker reads this detection, can they easily bypass it? If yes, make it more robust.
-
-4. GENERATE AND VALIDATE THE QUERY
-   - Write production-ready ${langLabel} syntax
-   - Use the correct schema, field names, and operators for ${langLabel}
-   - Include inline comments explaining the detection logic
-   - VALIDATE: Ensure the query is syntactically correct and will execute without errors
-
-OUTPUT FORMAT (JSON only, no markdown):
-{
-  "query": "The complete, syntactically valid ${langLabel} detection query with inline comments",
-  "explanation": "Brief explanation of the attack behavior being detected and why this approach catches it"
-}
-
-CRITICAL RULES:
-- Output ONLY valid, executable ${langLabel} syntax - verify field names and operators are correct for this platform
-- Return the finished query directly; never output research notes, step-by-step reasoning, alternatives, or a long narrative
-- Keep the query focused on the requested behavior and keep the explanation to 2-3 sentences
-- Detect BEHAVIORS and PATTERNS, not just atomic indicators or tool signatures
-- Prioritize detection coverage - a detection that catches attacks is better than one with zero false positives but easy bypasses
-- Think like an attacker: What would you change to evade this detection? Then improve it.`;
-
-// =============================================================================
-// LANGUAGE DETECTION
-// =============================================================================
-
-const detectLanguageSwitch = (message: string): string | null => {
-    const lowerMsg = message.toLowerCase();
-    
-    // Patterns that indicate language switch request
-    const switchPatterns = [
-        /(?:give|create|write|generate|convert|show|make|build|provide)(?:\s+(?:me|us))?\s+(?:a\s+)?(?:the\s+)?(?:same\s+)?(?:this\s+)?(?:in\s+)?(\w+[\w\s-]*?)(?:\s+(?:query|rule|detection|version|format))?$/i,
-        /(?:in|using|for|to)\s+(\w+[\w\s-]*?)(?:\s+(?:format|syntax|language))?$/i,
-        /(?:convert|translate|change|switch)\s+(?:to|into)\s+(\w+[\w\s-]*)/i,
-        /(\w+[\w\s-]*?)\s+(?:version|format|query|rule|detection)(?:\s+(?:please|pls))?$/i,
-    ];
-
-    for (const pattern of switchPatterns) {
-        const match = lowerMsg.match(pattern);
-        if (match) {
-            const captured = match[1].trim().toLowerCase();
-            for (const lang of LANGUAGES) {
-                if (lang.keywords.some(kw => captured.includes(kw) || kw.includes(captured))) {
-                    return lang.id;
-                }
-            }
-        }
-    }
-
-    // Direct mention check
-    for (const lang of LANGUAGES) {
-        for (const kw of lang.keywords) {
-            if (lowerMsg.includes(kw)) {
-                // Check if it's in context of requesting that language
-                const contextPatterns = ['give', 'create', 'write', 'generate', 'in ', 'using', 'for ', 'convert', 'switch', 'same in', 'version'];
-                if (contextPatterns.some(cp => lowerMsg.includes(cp))) {
-                    return lang.id;
-                }
-            }
-        }
-    }
-
-    return null;
-};
+});
 
 // =============================================================================
 // STYLES
@@ -213,6 +115,9 @@ const highlightCode = (code: string, languageId: string, isDark: boolean): React
         : { keyword: '#cf222e', string: '#0a3069', special: '#0550ae', comment: '#6e7781', text: '#1f2328' };
 
     const keywordPatterns: Record<string, RegExp> = {
+        'sentinelone-s1ql': /\b(AND|OR|NOT|Contains|ContainsCIS|RegExp|In|IS|TRUE|FALSE|Anycase)\b/gi,
+        'sentinelone-s1ql2': /\b(and|or|not|contains|matches|in|anycase|matchcase|true|false)\b/gi,
+        'sentinelone-powerquery': /\b(and|or|not|contains|matches|in|anycase|matchcase|filter|let|group|columns|sort|limit|count|sum|min|max|by|true|false)\b/gi,
         'spl': /\b(search|index|sourcetype|source|host|stats|count|sum|avg|max|min|values|list|table|fields|where|eval|rex|regex|rename|sort|head|tail|top|rare|timechart|chart|by|as|AND|OR|NOT|earliest|latest|span|bin|dedup|transaction|join|lookup|inputlookup|outputlookup|append|appendpipe|return|subsearch|map|foreach|mvexpand|makemv|mvcombine|mvzip|strftime|strptime|now|relative_time|if|case|coalesce|null|isnotnull|isnull|len|substr|replace|match|like|cidrmatch|spath|xml|json|dc|eventstats|streamstats|tstats|datamodel)\b/gi,
         'sigma': /\b(title|id|status|description|author|date|modified|logsource|category|product|service|detection|selection|filter|condition|falsepositives|level|tags|references|fields|name|related|type)\b/gi,
         'yaral': /\b(rule|meta|events|match|outcome|condition|over|window|before|after|and|or|not|nocase|re|strings|any|all|none)\b/gi,
@@ -271,7 +176,10 @@ const loadIndex = (): SessionSummary[] => { try { return JSON.parse(localStorage
 const saveIndex = (s: SessionSummary[]) => localStorage.setItem(SESSIONS_INDEX_KEY, JSON.stringify(s.slice(0, MAX_SESSIONS)));
 const loadSession = (id: string): Session | null => {
     try {
-        const s = JSON.parse(localStorage.getItem(SESSION_PREFIX + id) || 'null');
+        const s: Session | null = JSON.parse(localStorage.getItem(SESSION_PREFIX + id) || 'null');
+        s?.messages.forEach(message => message.codeVersions?.forEach(version => {
+            version.code = formatAIQuery(version.code, version.languageId);
+        }));
         if (s && (!s.model || !getModelById(s.model))) s.model = DEFAULT_MODEL;
         return s;
     } catch { return null; }
@@ -303,11 +211,11 @@ interface CodeBlockProps {
 const CodeBlock: React.FC<CodeBlockProps> = ({ versions, currentIndex, onVersionChange, onCopy, onCreateDraft, isDark }) => {
     const [copied, setCopied] = useState(false);
     const v = versions[currentIndex];
+    const hl = useMemo(() => v ? highlightCode(v.code, v.languageId, isDark) : [], [v, isDark]);
     if (!v) return null;
 
-    const copy = () => { navigator.clipboard.writeText(v.code); setCopied(true); onCopy(); setTimeout(() => setCopied(false), 2000); };
-    const code = v.code.replace(/^```[\w]*\n?/gm, '').replace(/```$/gm, '').trim();
-    const hl = highlightCode(code, v.languageId, isDark);
+    const code = v.code;
+    const copy = () => { navigator.clipboard.writeText(code); setCopied(true); onCopy(); setTimeout(() => setCopied(false), 2000); };
 
     const bg = isDark ? '#0d1117' : '#f6f8fa';
     const hdrBg = isDark ? '#161b22' : '#eaeef2';
@@ -331,7 +239,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ versions, currentIndex, onVersion
                     {onCreateDraft && <button onClick={onCreateDraft} className="p-1 text-on-surface-variant/40 hover:text-tertiary rounded" title="Create Draft"><Icon name="plus" className="w-3.5 h-3.5" /></button>}
                 </div>
             </div>
-            <div className="p-3 overflow-x-auto ai-scroll"><pre className="text-[12px] font-mono leading-[1.6]" style={{ color: isDark ? '#e6edf3' : '#1f2328' }}>{hl}</pre></div>
+            <div className="p-3 overflow-x-auto ai-scroll"><pre className="text-[12px] font-mono leading-[1.6] whitespace-pre-wrap break-words" style={{ color: isDark ? '#e6edf3' : '#1f2328' }}>{hl}</pre></div>
         </div>
     );
 };
@@ -458,12 +366,13 @@ export const AIQueryGenerator: React.FC<AIQueryGeneratorProps> = ({ onCreateDraf
         // query language. Writing it straight into the detection is what put values in the
         // library that the filter could not offer and that deploy could not accept.
         const language = normalizeQueryLanguageForStorage(v.languageId);
+        const query = v.code;
         onCreateDraft({
             name: `AI Generated ${v.languageLabel} Rule`,
             description: msg.content || "Generated by AI Query Generator",
-            detectionQuery: v.code,
+            detectionQuery: query,
             queryLanguage: language,
-            queries: [{ id: generateId(), language, query: v.code, isPrimary: true, createdDate: new Date().toISOString(), updatedDate: new Date().toISOString() }]
+            queries: [{ id: generateId(), language, query, isPrimary: true, createdDate: new Date().toISOString(), updatedDate: new Date().toISOString() }]
         });
         showToast('success', 'Draft Created', 'Opening editor...');
     }, [onCreateDraft, showToast]);
@@ -596,14 +505,15 @@ export const AIQueryGenerator: React.FC<AIQueryGeneratorProps> = ({ onCreateDraf
                 return `AI: ${m.content}`;
             }).join('\n\n');
 
-            const ctx = currentCode ? `\n\nCURRENT ${langLabel} QUERY (refine this):\n${currentCode}` : '';
+            const currentLanguage = lastCodeMsg?.codeVersions?.[lastCodeMsg.currentVersionIndex ?? 0]?.languageLabel;
+            const ctx = currentCode ? `\n\nCURRENT ${currentLanguage || langLabel} QUERY (refine or translate to ${langLabel}):\n${currentCode}` : '';
 
             const prompt = `${sys}\n\n${hist}${ctx}\n\nUser: ${userMsg.content}\n\nGenerate a ${langLabel} detection query:`;
 
             const data = await generateAIJSON<{ query: string; explanation: string }>({
                 prompt,
                 model: session.model,
-                responseSchema: AI_QUERY_RESPONSE_SCHEMA,
+                responseSchema: queryResponseSchema(targetLangId),
                 effort: 'medium',
                 compactOnTruncation: true,
                 signal: abortControllerRef.current.signal,
@@ -617,7 +527,7 @@ export const AIQueryGenerator: React.FC<AIQueryGeneratorProps> = ({ onCreateDraf
 
             const newVersion: CodeVersion | undefined = data.query ? {
                 id: generateId(),
-                code: data.query,
+                code: formatAIQuery(data.query, targetLangId),
                 languageId: targetLangId,
                 languageLabel: langLabel,
                 timestamp: Date.now()

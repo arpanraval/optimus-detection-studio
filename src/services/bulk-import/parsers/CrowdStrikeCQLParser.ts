@@ -33,9 +33,6 @@ interface CrowdStrikeRule {
 export class CrowdStrikeCQLParser extends BaseParser {
   readonly vendorFormat: VendorFormat = 'crowdstrike_cql';
 
-  getSupportedExtensions(): string[] {
-    return ['.yml', '.yaml'];
-  }
 
   /**
    * Check if this parser can handle the given file.

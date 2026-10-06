@@ -55,9 +55,6 @@ export class SigmaParser extends BaseParser {
   /**
    * Supported file extensions for Sigma rules
    */
-  getSupportedExtensions(): string[] {
-    return ['.yml', '.yaml'];
-  }
 
   /**
    * Check if this parser can handle the given file

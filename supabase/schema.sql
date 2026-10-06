@@ -1111,7 +1111,7 @@ ALTER TABLE public.batch_embedding_jobs ADD CONSTRAINT batch_embedding_jobs_pkey
 ALTER TABLE public.batch_embedding_jobs ADD CONSTRAINT batch_embedding_jobs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'submitted'::text, 'running'::text, 'succeeded'::text, 'processing'::text, 'completed'::text, 'failed'::text, 'cancelled'::text])));
 ALTER TABLE public.bulk_import_jobs ADD CONSTRAINT bulk_import_jobs_target_library_check CHECK ((target_library = ANY (ARRAY['development'::text, 'production'::text])));
 ALTER TABLE public.bulk_import_jobs ADD CONSTRAINT bulk_import_jobs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'fetching'::text, 'parsing'::text, 'validating'::text, 'preview'::text, 'inserting'::text, 'completed'::text, 'failed'::text, 'cancelled'::text, 'reverted'::text])));
-ALTER TABLE public.bulk_import_jobs ADD CONSTRAINT bulk_import_jobs_source_vendor_check CHECK ((source_vendor = ANY (ARRAY['sigma'::text, 'splunk_escu'::text, 'elastic'::text, 'kql'::text, 'chronicle'::text, 'mixed'::text])));
+ALTER TABLE public.bulk_import_jobs ADD CONSTRAINT bulk_import_jobs_source_vendor_check CHECK ((source_vendor = ANY (ARRAY['sigma'::text, 'splunk_escu'::text, 'elastic'::text, 'kql'::text, 'chronicle'::text, 'crowdstrike_cql'::text, 'sentinelone'::text, 'mixed'::text])));
 ALTER TABLE public.bulk_import_jobs ADD CONSTRAINT bulk_import_jobs_source_type_check CHECK ((source_type = ANY (ARRAY['github'::text, 'zip'::text, 'files'::text])));
 ALTER TABLE public.bulk_import_jobs ADD CONSTRAINT bulk_import_jobs_pkey PRIMARY KEY (id);
 ALTER TABLE public.bulk_import_jobs ADD CONSTRAINT bulk_import_jobs_duplicate_strategy_check CHECK ((duplicate_strategy = ANY (ARRAY['skip'::text, 'update'::text, 'create_new'::text])));
@@ -9950,7 +9950,7 @@ CREATE TABLE public.siem_rule_bindings (
   provider_scope text NOT NULL,
   vendor_rule_id text NOT NULL CHECK (length(vendor_rule_id) > 0),
   selected_query_id text NOT NULL,
-  query_language text NOT NULL CHECK (query_language = ANY (ARRAY['SPL','KQL','Kuery','Sigma','EQL','ESQL','CQL','SQL','YARA','YARA-L','Lucene','Carbon Black','Datadog','Elasticsearch DSL'])),
+  query_language text NOT NULL CHECK (query_language = ANY (ARRAY['SPL','KQL','Kuery','Sigma','EQL','ESQL','CQL','SQL','YARA','YARA-L','Lucene','Carbon Black','Datadog','Elasticsearch DSL','S1QL','S1QL 2.0','PowerQuery'])),
   binding_status text NOT NULL DEFAULT 'active' CHECK (binding_status IN ('active','detached','ignored','tombstone')),
   availability text NOT NULL DEFAULT 'present' CHECK (availability IN ('present','missing','unknown')),
   observed_enabled boolean,
@@ -10118,7 +10118,7 @@ RETURNS text LANGUAGE sql IMMUTABLE SET search_path=public AS $$
   SELECT coalesce(
     (SELECT canonical
        FROM unnest(ARRAY['SPL','KQL','Kuery','Sigma','EQL','ESQL','CQL','SQL',
-         'YARA','YARA-L','Lucene','Carbon Black','Datadog','Elasticsearch DSL']) AS canonical
+         'YARA','YARA-L','Lucene','Carbon Black','Datadog','Elasticsearch DSL','S1QL','S1QL 2.0','PowerQuery']) AS canonical
       WHERE lower(canonical) = lower(p_content ->> 'language')
       LIMIT 1),
     siem_provider_query_language(p_provider));

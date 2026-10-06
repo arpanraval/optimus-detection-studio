@@ -1,3 +1,4 @@
+import { getImportExtensions } from '../extensions';
 /**
  * ParserFactory - Factory for creating and selecting appropriate parsers
  *
@@ -25,13 +26,15 @@ export class ParserFactory {
     // Define parsers in priority order (most specific first)
     // 1. SplunkESCU: YAML with search: + tags.mitre_attack_id
     // 2. CrowdStrike CQL: YAML with cql: (completely unique field)
-    // 3. Microsoft Sentinel: YAML with requiredDataConnectors / queryFrequency
-    // 4. Elastic: TOML files (unique extension)
-    // 5. Chronicle: YARA-L files (unique extension)
-    // 6. Sigma: YAML with logsource: + detection: (catchall for YAML)
+    // 3. SentinelOne: SentineLabs YAML/JSON or distinctive S1QL / PowerQuery fields
+    // 4. Microsoft Sentinel: YAML with requiredDataConnectors / queryFrequency
+    // 5. Elastic: TOML files (unique extension)
+    // 6. Chronicle: YARA-L files (unique extension)
+    // 7. Sigma: YAML with logsource: + detection: (catchall for YAML)
     const parserImports: Array<{ name: string; loader: () => Promise<BaseParser> }> = [
       { name: 'SplunkESCU', loader: async () => { const m = await import('./SplunkESCUParser'); return new m.SplunkESCUParser(); } },
       { name: 'CrowdStrikeCQL', loader: async () => { const m = await import('./CrowdStrikeCQLParser'); return new m.CrowdStrikeCQLParser(); } },
+      { name: 'SentinelOne', loader: async () => { const m = await import('./SentinelOneParser'); return new m.SentinelOneParser(); } },
       { name: 'MicrosoftSentinel', loader: async () => { const m = await import('./MicrosoftSentinelParser'); return new m.MicrosoftSentinelParser(); } },
       { name: 'Elastic', loader: async () => { const m = await import('./ElasticParser'); return new m.ElasticParser(); } },
       { name: 'Chronicle', loader: async () => { const m = await import('./ChronicleParser'); return new m.ChronicleParser(); } },
@@ -166,13 +169,14 @@ export class ParserFactory {
   /**
    * Get all supported file extensions across all parsers
    */
-  getSupportedExtensions(): string[] {
+  getSupportedExtensions(formats?: VendorFormat[]): string[] {
     // Return defaults if not initialized
     if (!this.initialized) {
-      return ['.yml', '.yaml', '.toml', '.yaral', '.yar', '.kql'];
+      return getImportExtensions(formats);
     }
     const extensions = new Set<string>();
     for (const parser of this.parsers) {
+      if (formats?.length && !formats.includes(parser.vendorFormat)) continue;
       for (const ext of parser.getSupportedExtensions()) {
         extensions.add(ext);
       }
@@ -193,7 +197,7 @@ export class ParserFactory {
    */
   getAvailableFormats(): VendorFormat[] {
     if (!this.initialized) {
-      return ['sigma', 'splunk_escu', 'elastic', 'kql', 'crowdstrike_cql', 'chronicle'];
+      return ['sigma', 'splunk_escu', 'elastic', 'kql', 'crowdstrike_cql', 'chronicle', 'sentinelone'];
     }
     return this.parsers.map((p) => p.vendorFormat);
   }

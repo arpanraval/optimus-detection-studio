@@ -68,9 +68,6 @@ export class SplunkESCUParser extends BaseParser {
   /**
    * Supported file extensions for Splunk ESCU rules
    */
-  getSupportedExtensions(): string[] {
-    return ['.yml', '.yaml'];
-  }
 
   /**
    * Check if this parser can handle the given file

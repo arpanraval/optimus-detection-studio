@@ -110,9 +110,6 @@ export class ElasticParser extends BaseParser {
   /**
    * Supported file extensions for Elastic rules
    */
-  getSupportedExtensions(): string[] {
-    return ['.toml'];
-  }
 
   /**
    * Check if this parser can handle the given file

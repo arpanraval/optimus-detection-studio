@@ -8,6 +8,7 @@
  */
 
 import JSZip from 'jszip';
+import { getImportExtensions } from '../extensions';
 import { FetchedFile, FetchResult } from '../types';
 
 /**
@@ -31,7 +32,7 @@ export interface ZipFetchOptions {
 const DEFAULT_OPTIONS: ZipFetchOptions = {
   maxTotalSize: 100 * 1024 * 1024, // 100MB
   maxFileSize: 10 * 1024 * 1024,   // 10MB per file
-  extensions: ['.yml', '.yaml', '.json', '.toml', '.md', '.kql', '.yaral', '.yar'],
+  extensions: getImportExtensions(),
   excludePatterns: [
     /node_modules/i,
     /__pycache__/i,

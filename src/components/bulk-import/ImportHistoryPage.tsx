@@ -159,6 +159,10 @@ function getStatusLabel(status: ImportJobStatus | 'reverted'): string {
 
 function getVendorLabel(vendor: string | null): string {
   switch (vendor) {
+    case 'crowdstrike_cql':
+      return 'CrowdStrike';
+    case 'sentinelone':
+      return 'SentinelOne';
     case 'sigma':
       return 'Sigma';
     case 'splunk_escu':
@@ -178,6 +182,9 @@ function getVendorLabel(vendor: string | null): string {
 
 function getVendorIcon(vendor: string | null): IconName {
   switch (vendor) {
+    case 'sentinelone':
+    case 'crowdstrike_cql':
+      return 'shield';
     case 'sigma':
       return 'shield';
     case 'splunk_escu':

@@ -225,6 +225,10 @@ export class DetectionNormalizer {
 
     // Infer from query language
     switch (rule.queryLanguage) {
+      case 'S1QL':
+      case 'S1QL 2.0':
+      case 'PowerQuery':
+        return 'SentinelOne';
       case 'SPL':
         return 'Splunk';
       case 'KQL':

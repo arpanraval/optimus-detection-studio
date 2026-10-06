@@ -55,9 +55,6 @@ export class ChronicleParser extends BaseParser {
   /**
    * Supported file extensions for Chronicle rules
    */
-  getSupportedExtensions(): string[] {
-    return ['.yaral', '.yar'];
-  }
 
   /**
    * Check if this parser can handle the given file

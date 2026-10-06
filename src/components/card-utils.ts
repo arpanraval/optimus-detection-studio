@@ -15,11 +15,15 @@ import { Severity, DetectionSource } from '../types';
  * - Yellow: yellow-500 (Medium severity, Warning, Pending)
  * - Purple: purple-500 (Techniques, Development, Tags)
  * - Magenta: #783264 (Primary, Tactics, Detection Strategies)
- * - Emerald: emerald-500 (Mitigations)
+ * - Emerald: emerald-500 (Mitigations) — remapped to the sage scale in tailwind.config.ts
  */
 
 // Source badge configuration - aligned with DS colors
 export const sourceConfig: Record<DetectionSource | string, { label: string; className: string }> = {
+  sentinelone: {
+    label: 'SentinelOne',
+    className: 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/20',
+  },
   sigmahq: {
     label: 'SigmaHQ',
     className: 'bg-[#0284C7]/15 text-[#0284C7] border border-[#0284C7]/20' // Sky Blue

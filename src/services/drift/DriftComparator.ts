@@ -19,6 +19,7 @@ import type {
   FetchResult,
 } from '../bulk-import/types';
 import type { GitHubFetchOptions } from '../bulk-import/fetchers/GitHubFetcher';
+import { getImportExtensions } from '../bulk-import/extensions';
 import type { Detection } from '../../types';
 import { sha256Hex } from './hash';
 import type {
@@ -37,7 +38,7 @@ import type {
 
 export interface DriftFetcher {
   parseUrl(url: string): { owner: string; repo: string; path?: string; branch?: string } | null;
-  scanRepository(url: string, options?: { token?: string }): Promise<ReconReport>;
+  scanRepository(url: string, options?: { token?: string; extensions?: string[] }): Promise<ReconReport>;
   fetch(url: string, options?: GitHubFetchOptions): Promise<FetchResult>;
 }
 
@@ -214,11 +215,12 @@ export class DriftComparator {
 
     // --- Scan the repo tree (1 API call) ---
     progress({ phase: 'scanning', current: 0, total: 0, message: `Scanning ${owner}/${repo}…` });
-    let report = await fetcher.scanRepository(source.sourceUrl, { token: opts.token });
+    const extensions = getImportExtensions([source.vendor]);
+    let report = await fetcher.scanRepository(source.sourceUrl, { token: opts.token, extensions });
 
     // 404 on a specific branch but the repo exists → retry against the default branch.
     if (report.errorStatus === 404 && ref && report.repoInfo) {
-      const fallback = await fetcher.scanRepository(bareRepoUrl(owner, repo), { token: opts.token });
+      const fallback = await fetcher.scanRepository(bareRepoUrl(owner, repo), { token: opts.token, extensions });
       if (!fallback.errorStatus) {
         warnings.push(`Branch "${ref}" no longer exists upstream — checked the default branch "${fallback.repoInfo?.defaultBranch ?? '?'}" instead. Consider re-importing.`);
         report = fallback;
@@ -248,6 +250,7 @@ export class DriftComparator {
     // --- Download the matching files (re-scans the tree internally; cheap) ---
     progress({ phase: 'fetching', current: 0, total: report.matchingFiles, message: `Downloading ${report.matchingFiles} rule files…` });
     const fetchResult = await fetcher.fetch(source.sourceUrl, {
+      extensions,
       token: opts.token,
       onlyPaths: report.filePaths,
       onProgress: (current, total, fileName) =>
@@ -271,6 +274,7 @@ export class DriftComparator {
     const upstreamByExternalId = new Map<string, { rule: ParsedRule; path: string; content: string; blobSha?: string }>();
     /** YAML files we couldn't parse but whose id we recovered via regex (vendor stubs, schema breaks, …). */
     const upstreamUnparseableByExternalId = new Map<string, { path: string; content: string; blobSha?: string }>();
+    const unparseableByPath = new Map<string, { path: string; content: string; blobSha?: string }>();
     let unparseable = 0;
     let unparseableRecovered = 0;
     let idless = 0;
@@ -284,6 +288,7 @@ export class DriftComparator {
       }
       if (!result?.success || !result.rule) {
         unparseable++;
+        unparseableByPath.set(file.path, file);
         // Last-ditch YAML id recovery — keeps relocated/stubbed upstream rules
         // from being misclassified as `upstream_removed`.
         if (isYamlFile(file.name)) {
@@ -337,7 +342,8 @@ export class DriftComparator {
       // with an `upstreamUnparseable` flag so the UI can show a useful message
       // and disable Accept Upstream — *not* upstream_removed.
       if (!upstream) {
-        const stub = upstreamUnparseableByExternalId.get(externalId);
+        const stub = upstreamUnparseableByExternalId.get(externalId) ??
+          (baseline.lastUpstreamPath ? unparseableByPath.get(baseline.lastUpstreamPath) : undefined);
         if (stub) {
           const upstreamHash = await sha256Hex(stub.content);
           counts.changed++;

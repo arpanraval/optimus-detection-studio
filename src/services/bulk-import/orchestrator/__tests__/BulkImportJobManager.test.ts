@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BulkImportJobManager } from '../BulkImportJobManager';
 import { LIBRARY_DEVELOPMENT } from '../../../../constants/library';
 import type { ImportJobConfig } from '../../types';
+import { supabase } from '@/lib/supabaseClient';
+import { batchInserter } from '../../persistence/BatchInserter';
 
 const TREE = [
   { type: 'blob', path: 'rules/community/okta/a.yaral', sha: 'a' },
@@ -58,6 +60,25 @@ describe('BulkImportJobManager fetch stage', () => {
 });
 
 describe('BulkImportJobManager embedding strategy', () => {
+  it('stops before writing detections when import history cannot be saved', async () => {
+    const manager = new BulkImportJobManager();
+    manager.createJob({ ...GITHUB_CONFIG, vendor: 'sentinelone' });
+    const insert = vi.fn().mockResolvedValue({ error: { message: 'source_vendor check violation' } });
+    const update = vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) });
+    const from = vi.spyOn(supabase, 'from').mockReturnValue({ insert, update } as never);
+    const insertDetections = vi.spyOn(batchInserter, 'insertAll');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(manager.executeImport([], 'user')).rejects.toThrow('could not save import history');
+      expect(insertDetections).not.toHaveBeenCalled();
+      expect(from.mock.calls.every(([table]) => table === 'bulk_import_jobs')).toBe(true);
+      expect(update).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed' }));
+    } finally {
+      from.mockRestore();
+      insertDetections.mockRestore();
+      log.mockRestore();
+    }
+  });
   it('uses the strategy from the job config', () => {
     const manager = new BulkImportJobManager();
     manager.createJob({ ...GITHUB_CONFIG, embeddingStrategy: 'batch' });

@@ -31,6 +31,21 @@ const CANONICAL_BY_LOWER = new Map<string, CanonicalQueryLanguage>(
  * notice until someone tried to push to Google SecOps.
  */
 const ALIASES: Record<string, CanonicalQueryLanguage> = {
+  'sentinelone': 'S1QL 2.0',
+  'sentinelone-s1ql': 'S1QL',
+  'sentinelone-s1ql2': 'S1QL 2.0',
+  'sentinelone-powerquery': 'PowerQuery',
+  'sentinelone s1ql': 'S1QL 2.0',
+  'sentinel one': 'S1QL 2.0',
+  's1ql 2': 'S1QL 2.0',
+  's1ql v2': 'S1QL 2.0',
+  's1ql2': 'S1QL 2.0',
+  's1ql v1': 'S1QL',
+  's1ql 1.0': 'S1QL',
+  'sentinelone s1ql 2.0': 'S1QL 2.0',
+  'sentinelone powerquery': 'PowerQuery',
+  'kql-sentinel': 'KQL',
+  'kql-defender': 'KQL',
   // Splunk — importers pass the source file's display label straight through
   'splunk': 'SPL',
   'splunk (spl)': 'SPL',
