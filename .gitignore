@@ -46,6 +46,7 @@ tempcon/
 # Accidental home/profile directories (Windows path resolution artifacts)
 ~/
 %USERPROFILE%/
+%SystemDrive%/
 
 # Bun cache
 .bun/
@@ -93,8 +94,9 @@ scripts/test-api-keys.ts
 # Local tool output and generated artifacts (never commit).
 # - brag-output/: launch-video renders (~1.3 GB); output/: ad-hoc deploy bundles and playwright captures
 # - .playwright-cli/: Playwright CLI console/page logs; .agents/ + skills-lock.json: skill installer state
-/brag-output/
+/brag-output*/
 /output/
 /.playwright-cli/
 /.agents/
 /skills-lock.json
+/artifacts/
