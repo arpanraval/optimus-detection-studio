@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useMemo } from 'react';
 import { useGroupDetail } from '../../hooks/useGroupDetail';
 import { GroupMiniMatrix } from './GroupMiniMatrix';
@@ -62,15 +65,9 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
       return detections.filter(d => d.mitreAttackIds.some(id => groupTechniqueIds.has(id)));
   }, [group, detections]);
 
-  if (loading) {
-    return (
-      <div className="p-8 flex flex-col items-center justify-center h-full bg-background">
-        <Icon name="spinner" className="w-12 h-12 text-primary animate-spin mb-4" />
-        <p className="text-on-surface-variant animate-pulse font-medium font-mono text-sm">
-          LOADING INTELLIGENCE PROFILE...
-        </p>
-      </div>
-    );
+  const initialLoading = useInitialLoading(loading);
+  if (initialLoading) {
+    return <PagePending layout="detail" />;
   }
 
   if (error || !group) {
@@ -95,7 +92,7 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
   const externalRefs = group.data.external_references || [];
   const lastModified = group.data.modified ? new Date(group.data.modified).toLocaleDateString() : 'Unknown';
 
-  return (
+  return <> {loading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="flex flex-col h-full bg-surface-container-low text-on-surface overflow-hidden">
       
       {/* 1. SUPER HEADER */}
@@ -453,5 +450,5 @@ export const GroupDetailPage: React.FC<GroupDetailPageProps> = ({
         </div>
       </div>
     </div>
-  );
+  )} </>;
 };

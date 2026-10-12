@@ -1,3 +1,4 @@
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useDetectionPacks, createPack } from '../../hooks/useDetectionPacks';
 import { DetectionPackCard, type PackCardIntegrationStatus, type PackCardBreakdown } from './DetectionPackCard';
@@ -263,12 +264,7 @@ export const DetectionPacksPage: React.FC<DetectionPacksPageProps> = ({ onSelect
   // Full-page spinner only on the very first load. Once we've rendered packs
   // at least once, keep them visible during filter-triggered refetches.
   if (loading && !hasLoadedOnce) {
-    return (
-      <div className="p-8 flex flex-col items-center justify-center h-full bg-background">
-        <Icon name="spinner" className="w-10 h-10 text-primary animate-spin" />
-        <p className="text-on-surface-variant text-sm mt-4">Loading detection packs...</p>
-      </div>
-    );
+    return <PagePending layout="list" />;
   }
 
   if (error) {

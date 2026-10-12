@@ -1,3 +1,7 @@
+import { PagePending } from '@/components/ui/PagePending';
+import { LoadError } from '@/components/ui/LoadError';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { getLoadingLayout } from './loadingLayouts';
 // Main layout component with Sidebar + Header + Outlet
 import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
@@ -234,10 +238,12 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           </svg>
           <main id="main-content" className="h-full overflow-y-auto scroll-smooth scrollbar-page" role="main">
             <InterruptedImportBanner />
-            <div key={location.pathname} className="animate-page-enter h-full">
-              <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>}>
+            <div key={location.pathname} className="h-full">
+              <ErrorBoundary fallback={<LoadError label="This page could not be opened. Reload to try again." onRetry={() => window.location.reload()} />}>
+              <Suspense fallback={<PagePending layout={getLoadingLayout(location.pathname)} />}>
                 <Outlet />
               </Suspense>
+              </ErrorBoundary>
             </div>
           </main>
           {/* Individual pages handle their own loading/skeleton states */}

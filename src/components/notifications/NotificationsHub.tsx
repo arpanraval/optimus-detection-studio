@@ -1,3 +1,5 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from '../Icon';
@@ -108,11 +110,8 @@ export const NotificationsHub: React.FC<NotificationsHubProps> = ({ onNavigateTo
       </div>
 
       {/* Content — full width */}
-      {isLoading ? (
-        <div className="flex items-center justify-center py-24">
-          <Icon name="spinner" className="w-5 h-5 text-primary animate-spin" />
-        </div>
-      ) : filtered.length === 0 ? (
+      {isLoading && notifications.length > 0 && <LoadingStatus />}
+      {isLoading && notifications.length === 0 ? <PagePending layout="list" /> : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24">
           <div className="w-14 h-14 rounded-2xl bg-surface-container flex items-center justify-center mb-4">
             <Icon name="inbox" className="w-7 h-7 text-on-surface-variant/30" />

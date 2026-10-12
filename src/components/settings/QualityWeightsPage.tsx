@@ -1,3 +1,7 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
+import { Select } from '@/components/ui/Select';
 /**
  * Quality Weights Configuration Page
  *
@@ -168,15 +172,12 @@ export const QualityWeightsPage: React.FC = () => {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary/30"></div>
-      </div>
-    );
+  const initialLoading = useInitialLoading(isLoading);
+  if (initialLoading) {
+    return <PagePending layout="form" />;
   }
 
-  return (
+  return <> {isLoading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="space-y-5">
       {error && (
         <div className="bg-[#A63D40]/10 border border-[#A63D40]/20 rounded-xl p-4 text-sm text-[#A63D40]">
@@ -188,17 +189,15 @@ export const QualityWeightsPage: React.FC = () => {
       <div className="flex items-center justify-between bg-surface-container rounded-2xl border border-outline-variant/10 px-5 py-3">
         <div className="flex items-center gap-3">
           <span className="text-xs font-bold text-on-surface-variant/50 uppercase tracking-wider">Profile</span>
-          <select
+          <Select
             value={activeProfile?.id || ''}
-            onChange={(e) => handleProfileSwitch(e.target.value)}
-            className="px-3 py-1.5 rounded-lg bg-surface-container-highest border border-outline-variant/15 text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40"
-          >
-            {profiles.map(p => (
-              <option key={p.id} value={p.id}>
-                {p.name}{p.is_default ? ' (Default)' : ''}
-              </option>
-            ))}
-          </select>
+            onChange={(nextValue) => handleProfileSwitch(nextValue)}
+            aria-label="Quality profile"
+            size="sm"
+            options={[
+              ...profiles.map((p) => ({ value: p.id, label: [p.name, p.is_default ? ' (Default)' : ''].join('') })),
+            ]}
+          />
           {activeProfile?.description && (
             <span className="text-xs text-on-surface-variant/40 hidden lg:inline">{activeProfile.description}</span>
           )}
@@ -393,7 +392,7 @@ export const QualityWeightsPage: React.FC = () => {
         />
       )}
     </div>
-  );
+  )} </>;
 };
 
 // ============================================

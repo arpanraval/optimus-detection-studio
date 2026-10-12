@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import React, { useState, useMemo, useEffect } from 'react';
 import { Icon } from '../Icon';
 import { Detection } from '../../types';
@@ -265,18 +266,16 @@ export const GeneratePacksModal: React.FC<GeneratePacksModalProps> = ({ isOpen, 
               </div>
 
               {/* Type filter */}
-              <select
+              <Select
                 value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-                className="h-9 px-3 bg-surface-container rounded-lg text-sm text-on-surface border-none focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer"
-              >
-                <option value="all">All Types</option>
-                {availableTypes.map((t) => (
-                  <option key={t} value={t}>
-                    {PACK_TYPE_LABELS[t] || t}
-                  </option>
-                ))}
-              </select>
+                onChange={(nextValue) => setTypeFilter(nextValue)}
+                aria-label="Type"
+                size="sm"
+                options={[
+                  { value: 'all', label: 'All Types' },
+                  ...availableTypes.map((t) => ({ value: t, label: PACK_TYPE_LABELS[t] || t })),
+                ]}
+              />
 
               {/* Selection controls */}
               <div className="flex items-center gap-2 ml-auto text-sm">

@@ -48,7 +48,7 @@ const MitrePlatformsWidget: React.FC<WidgetComponentProps> = () => {
     return (
       <div className="p-4 space-y-2 h-full">
         {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="h-4 rounded bg-surface-container-low/30 animate-pulse" style={{ width: `${80 - i * 6}%` }} />
+          <div key={i} className="h-4 rounded bg-surface-container-low/30 loading-placeholder" style={{ width: `${80 - i * 6}%` }} />
         ))}
       </div>
     );

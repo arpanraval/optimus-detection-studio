@@ -1,5 +1,6 @@
+import { LoadError } from '@/components/ui/LoadError';
 // Main router configuration
-import React, { useState, useEffect, useCallback, useMemo, lazy } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, lazy } from 'react';
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
 import { Session, User } from '@supabase/supabase-js';
 import { Profile } from '../types';
@@ -334,6 +335,18 @@ export const AppRouter: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [pendingAuthAction, setPendingAuthAction] = useState<PendingAuthAction>(initialPendingAction);
   const [showAuth, setShowAuth] = useState(false);
+  const [startupError, setStartupError] = useState<string | null>(null);
+  const authRevision = useRef(0);
+  const activeUser = useRef<string | null>(null);
+  const profileRequest = useRef<{ userId: string; promise: Promise<void> } | null>(null);
+  useEffect(() => {
+    if (!loading) return;
+    const timer = window.setTimeout(() => {
+      setStartupError('Opening Optimus timed out. Check your connection and try again.');
+      setLoading(false);
+    }, 30000);
+    return () => window.clearTimeout(timer);
+  }, [loading]);
 
   const dismissLoader = useCallback(() => {
     setLoading(false);
@@ -345,18 +358,29 @@ export const AppRouter: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const revision = authRevision.current;
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (revision !== authRevision.current) return;
+      if (error) throw error;
+      activeUser.current = session?.user.id ?? null;
       setSession(session);
       if (session) {
         fetchProfile(session.user.id);
       } else {
+        setStartupError(null);
         dismissLoader();
       }
+    }).catch(() => {
+      if (revision !== authRevision.current) return;
+      setStartupError('Couldn’t restore your session. Check your connection and try again.');
+      dismissLoader();
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
+      authRevision.current += 1;
+      activeUser.current = session?.user.id ?? null;
       // Detect PASSWORD_RECOVERY event (from Supabase dashboard reset)
       if (event === 'PASSWORD_RECOVERY') {
         sessionStorage.setItem('ds_pending_auth_action', 'reset-password');
@@ -376,49 +400,50 @@ export const AppRouter: React.FC = () => {
           clearPendingAction();
         }
         setUserProfile(null);
+        setStartupError(null);
         dismissLoader();
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      authRevision.current += 1;
+      activeUser.current = null;
+      profileRequest.current = null;
+      subscription.unsubscribe();
+    };
   }, []);
 
-  const fetchProfile = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (error) {
-        console.error('Error fetching profile:', error);
-      }
-
-      if (data) {
+  const fetchProfile = (userId: string): Promise<void> => {
+    if (profileRequest.current?.userId === userId) return profileRequest.current.promise;
+    const request = { userId, promise: Promise.resolve() };
+    request.promise = (async () => {
+      try {
+        const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
+        if (activeUser.current !== userId || profileRequest.current !== request) return;
+        if (error || !data) throw error ?? new Error('Profile unavailable');
         if (data.status === 'deactivated') {
           await supabase.auth.signOut();
           setUserProfile(null);
           return;
         }
-        // DB-backed password gate: force setup for invited users
-        if (data.password_set === false) {
-          setPendingAuthAction('set-password');
-        }
+        if (data.password_set === false) setPendingAuthAction('set-password');
         setUserProfile(data as Profile);
-
-        // Update last_active_at for activity tracking
-        supabase
-          .from('profiles')
-          .update({ last_active_at: new Date().toISOString() })
-          .eq('id', userId)
-          .then();
+        setStartupError(null);
+        void supabase.from('profiles').update({ last_active_at: new Date().toISOString() }).eq('id', userId).then();
+      } catch (error) {
+        if (activeUser.current === userId && profileRequest.current === request) {
+          console.error('Error fetching profile:', error);
+          setStartupError('Couldn’t load your profile. Check your connection and try again.');
+        }
+      } finally {
+        if (profileRequest.current === request) {
+          profileRequest.current = null;
+          dismissLoader();
+        }
       }
-    } catch (error) {
-      console.error('Error fetching profile:', error);
-    } finally {
-      dismissLoader();
-    }
+    })();
+    profileRequest.current = request;
+    return request.promise;
   };
 
   // Re-fetch profile and clear pending action after password is set
@@ -438,6 +463,10 @@ export const AppRouter: React.FC = () => {
 
   if (loading) {
     return <AppLoader />;
+  }
+
+  if (startupError && !router) {
+    return <ThemeProvider><div className="app-startup"><LoadError label={startupError} onRetry={() => window.location.reload()} /></div></ThemeProvider>;
   }
 
   // Invite or password-recovery flow: user has a session but needs to set a password

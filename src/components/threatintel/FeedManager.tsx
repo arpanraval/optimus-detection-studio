@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState } from 'react';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
@@ -289,15 +292,12 @@ export const FeedManager: React.FC<FeedManagerProps> = ({
     taxii_password: '',
   } : undefined;
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+  const initialLoading = useInitialLoading(isLoading);
+  if (initialLoading) {
+    return <PagePending layout="list" />;
   }
 
-  return (
+  return <> {isLoading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="space-y-4">
       {/* Header actions */}
       <div className="flex items-center justify-between">
@@ -452,7 +452,7 @@ export const FeedManager: React.FC<FeedManagerProps> = ({
         title="Edit Feed"
       />
     </div>
-  );
+  )} </>;
 };
 
 export default FeedManager;

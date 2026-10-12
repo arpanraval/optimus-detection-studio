@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSigmaConverter } from '../hooks/useSigmaConverter';
@@ -667,42 +668,42 @@ export const SigmaConverter: React.FC<SigmaConverterProps> = ({ onCreateDraft })
                         <>
                             <div className="flex-grow flex items-center gap-2 min-w-[150px]">
                                 <div className="relative w-full">
-                                    <select 
-                                        value={selectedBackend}
-                                        onChange={(e) => setSelectedBackend(e.target.value)}
-                                        className="w-full appearance-none bg-surface-container-highest text-on-surface font-bold text-sm py-2 pl-3 pr-8 rounded-lg border-none focus:ring-2 focus:ring-[#784D5B] cursor-pointer transition-colors hover:bg-surface-container-highest/80"
-                                    >
-                                        <optgroup label="SIEM Platforms">
-                                            {backendsByCategory.siem.map(([id, config]) => (
-                                                <option key={id} value={id}>{config.name}</option>
-                                            ))}
-                                        </optgroup>
-                                        <optgroup label="EDR Solutions">
-                                            {backendsByCategory.edr.map(([id, config]) => (
-                                                <option key={id} value={id}>{config.name}</option>
-                                            ))}
-                                        </optgroup>
-                                        <optgroup label="Cloud Platforms">
-                                            {backendsByCategory.cloud.map(([id, config]) => (
-                                                <option key={id} value={id}>{config.name}</option>
-                                            ))}
-                                        </optgroup>
-                                    </select>
-                                    <Icon name="chevron-down" className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none"/>
+                                    <Select
+                                      value={selectedBackend}
+                                      onChange={(nextValue) => setSelectedBackend(nextValue)}
+                                      aria-label="Target platform"
+                                      size="sm"
+                                      className="w-full"
+                                      options={[
+                                        ...backendsByCategory.siem.map(([id, config]) => ({
+                                          value: id,
+                                          label: config.name,
+                                          group: 'SIEM Platforms',
+                                        })),
+                                        ...backendsByCategory.edr.map(([id, config]) => ({
+                                          value: id,
+                                          label: config.name,
+                                          group: 'EDR Solutions',
+                                        })),
+                                        ...backendsByCategory.cloud.map(([id, config]) => ({
+                                          value: id,
+                                          label: config.name,
+                                          group: 'Cloud Platforms',
+                                        })),
+                                      ]}
+                                    />
                                 </div>
                             </div>
 
                             <div className="relative min-w-[120px]">
-                                <select 
-                                    value={selectedFormat}
-                                    onChange={(e) => setSelectedFormat(e.target.value)}
-                                    className="w-full appearance-none bg-surface-container-highest text-on-surface font-bold text-sm py-2 pl-3 pr-8 rounded-lg border-none focus:ring-2 focus:ring-[#784D5B] cursor-pointer transition-colors hover:bg-surface-container-highest/80"
-                                >
-                                    {Object.entries(availableFormats).map(([id, description]) => (
-                                        <option key={id} value={id}>{id}</option>
-                                    ))}
-                                </select>
-                                <Icon name="chevron-down" className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none"/>
+                                <Select
+                                  value={selectedFormat}
+                                  onChange={(nextValue) => setSelectedFormat(nextValue)}
+                                  aria-label="Output format"
+                                  size="sm"
+                                  className="w-full"
+                                  options={[...Object.keys(availableFormats).map((id) => ({ value: id, label: id }))]}
+                                />
                             </div>
 
                             <button

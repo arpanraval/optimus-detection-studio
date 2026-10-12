@@ -1,3 +1,4 @@
+import { Spinner } from '@/components/ui/Spinner';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
@@ -466,7 +467,7 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId, liveJo
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <Spinner className="text-primary" />
       </div>
     );
   }

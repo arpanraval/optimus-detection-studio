@@ -14,7 +14,7 @@ function LoadingSkeleton(): React.ReactElement {
       <div className="space-y-5">
         {Array.from({ length: 2 }).map((_, i) => (
           <div key={i} className="space-y-2">
-            <div className="h-4 w-28 bg-surface-container/50 rounded animate-pulse" />
+            <div className="h-4 w-28 bg-surface-container/50 rounded loading-placeholder" />
             <div className="h-2.5 w-full bg-surface-container/50 rounded animate-pulse" />
           </div>
         ))}

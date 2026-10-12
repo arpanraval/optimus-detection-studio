@@ -1,3 +1,4 @@
+import { Spinner } from '@/components/ui/Spinner';
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '../Icon';
@@ -513,7 +514,7 @@ export const JobTranscript: React.FC<JobTranscriptProps> = ({ job }) => {
   if (isLoading && events.length === 0) {
     return (
       <div className="flex items-center gap-2 px-4 py-3 text-sm text-on-surface-variant">
-        <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <Spinner className="text-primary" />
         Loading transcript…
       </div>
     );

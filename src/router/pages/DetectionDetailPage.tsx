@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { DetectionDetailPage as DetailPage } from '../../components/detection/DetectionDetailPage';
@@ -92,13 +95,9 @@ export const DetectionDetailPage: React.FC = () => {
     navigate(routeHelpers.detectionDetail(detectionId));
   };
 
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-4">
-        <Icon name="spinner" className="w-12 h-12 animate-spin text-primary" />
-        <p className="text-text-secondary font-medium">Loading detection...</p>
-      </div>
-    );
+  const initialLoading = useInitialLoading(loading);
+  if (initialLoading) {
+    return <PagePending layout="detail" />;
   }
 
   if (!detection) {
@@ -116,7 +115,7 @@ export const DetectionDetailPage: React.FC = () => {
     );
   }
 
-  return (
+  return <> {loading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <PageErrorBoundary pageName="Detection Detail" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <DetailPage
         detection={detection}
@@ -131,7 +130,7 @@ export const DetectionDetailPage: React.FC = () => {
         onNavigateToDetection={handleNavigateToDetection}
       />
     </PageErrorBoundary>
-  );
+  )} </>;
 };
 
 export default DetectionDetailPage;

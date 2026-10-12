@@ -1,3 +1,5 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { LoadError } from '@/components/ui/LoadError';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { Detection, LIBRARY_LABELS, LIBRARY_LABELS_SHORT, LibraryType } from '../types';
@@ -657,7 +659,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
     setCurrentLibrary,
     productionDetections,
     developmentDetections,
-    isLoading,
+    isLoading, hasLoaded, loadError, refreshAll,
     userRole,
     submitForPromotion,
     refreshProductionLibrary,
@@ -1291,8 +1293,10 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
             edge — clipping swallows the left/right highlight. Cards clip their own
             content, so nothing else escapes. */}
         <div className="flex-1 min-w-0">
-      {isLoading ? (
-        <div className="space-y-0" role="status" aria-label="Loading detections">
+      {isLoading && hasLoaded && <LoadingStatus />}
+      {loadError && hasLoaded && <LoadError label={loadError} onRetry={() => void refreshAll()} />}
+      {isLoading && !hasLoaded ? (
+        <div className="space-y-0 loading-placeholder-group" role="status" aria-label="Loading detections">
           {viewMode === 'grid' ? (
             <div className={`grid grid-cols-1 gap-5 ${filterPanelOpen ? 'md:grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3' : 'md:grid-cols-2 xl:grid-cols-3'}`}>
               {Array.from({ length: 6 }).map((_, i) => (
@@ -1319,7 +1323,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
             </div>
           )}
         </div>
-      ) : sortedDetections.length === 0 ? (
+      ) : loadError && !hasLoaded ? (<LoadError label={loadError} onRetry={() => void refreshAll()} />) : sortedDetections.length === 0 ? (
         <EmptyLibraryState
           libraryType={currentLibrary}
           isFiltered={isFiltered}
@@ -1458,7 +1462,7 @@ export const UseCaseLibrary: React.FC<DetectionLibraryProps> = ({
       </div>
 
       {/* Pagination Controls */}
-      {!isLoading && sortedDetections.length > 0 && (
+      {hasLoaded && sortedDetections.length > 0 && (
         <PaginationControls
           page={currentPagination.page}
           pageSize={currentPagination.pageSize as PageSize}

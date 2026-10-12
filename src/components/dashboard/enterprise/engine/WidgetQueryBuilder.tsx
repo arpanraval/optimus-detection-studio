@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import React, { useState, useEffect, useMemo } from 'react';
 import type { EngineWidgetConfig, VisualizationType, FilterClause } from './types';
 import {
@@ -293,16 +294,6 @@ function buildQuerySummary(config: EngineWidgetConfig): string {
 // Reusable UI atoms
 // ---------------------------------------------------------------------------
 
-const SelectInput: React.FC<
-  React.SelectHTMLAttributes<HTMLSelectElement> & { children: React.ReactNode }
-> = ({ children, className = '', ...props }) => (
-  <select
-    className={`bg-surface-container border border-outline-variant/20 rounded-lg px-3 py-1.5 text-[13px] text-on-surface focus:outline-none focus:ring-1 focus:ring-primary/40 ${className}`}
-    {...props}
-  >
-    {children}
-  </select>
-);
 
 const TextInput: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = ({
   className = '',
@@ -362,49 +353,48 @@ const FilterRow: React.FC<FilterRowProps> = ({ clause, index, filterLogic, onCha
       )}
       {index === 0 && <span className="w-8 shrink-0" />}
 
-      <SelectInput
+      <Select
         value={clause.field}
-        onChange={e => handleFieldChange(e.target.value)}
-        className="min-w-0"
+        onChange={(nextValue) => handleFieldChange(nextValue)}
         style={{ flex: '0 0 160px' }}
-      >
-        {filterableFields.map(f => (
-          <option key={f.name} value={f.name}>{f.label}</option>
-        ))}
-      </SelectInput>
+        aria-label="Filter field"
+        size="sm"
+        className="min-w-0"
+        options={[...filterableFields.map((f) => ({ value: f.name, label: f.label }))]}
+      />
 
-      <SelectInput
+      <Select
         value={clause.op}
-        onChange={e => handleOperatorChange(e.target.value as FilterClause['op'])}
-        className="shrink-0"
+        onChange={(nextValue) => handleOperatorChange(nextValue as FilterClause['op'])}
         style={{ flex: '0 0 120px' }}
-      >
-        {operators.map(o => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </SelectInput>
+        aria-label="Filter operator"
+        size="sm"
+        className="shrink-0"
+        options={[...operators.map((o) => ({ value: o.value, label: o.label }))]}
+      />
 
       {!unary && (
         fieldDef?.type === 'boolean' ? (
-          <SelectInput
+          <Select
             value={String(clause.value)}
-            onChange={e => onChange(index, { ...clause, value: e.target.value === 'true' })}
+            onChange={(nextValue) => onChange(index, { ...clause, value: nextValue === 'true' })}
+            aria-label="Filter value"
+            size="sm"
             className="flex-1 min-w-0"
-          >
-            <option value="true">True</option>
-            <option value="false">False</option>
-          </SelectInput>
+            options={[
+              { value: 'true', label: 'True' },
+              { value: 'false', label: 'False' },
+            ]}
+          />
         ) : hasKnownValues ? (
-          <SelectInput
+          <Select
             value={String(clause.value)}
-            onChange={e => handleValueChange(e.target.value)}
+            onChange={(nextValue) => handleValueChange(nextValue)}
+            aria-label="Filter value"
+            size="sm"
             className="flex-1 min-w-0"
-          >
-            <option value="">Select...</option>
-            {fieldDef!.values!.map(v => (
-              <option key={v} value={v}>{v}</option>
-            ))}
-          </SelectInput>
+            options={[{ value: '', label: 'Select...' }, ...fieldDef!.values!.map((v) => ({ value: v, label: v }))]}
+          />
         ) : (
           <TextInput
             type={fieldDef?.type === 'number' ? 'number' : 'text'}
@@ -601,11 +591,13 @@ export const WidgetQueryBuilder: React.FC<WidgetQueryBuilderProps> = ({
             <div className="flex items-end gap-3 flex-wrap">
               <div className="flex flex-col">
                 <label className="text-[11px] text-on-surface-variant mb-1">Aggregation</label>
-                <SelectInput value={agg} onChange={e => handleAggregationChange(e.target.value as EngineWidgetConfig['metric']['aggregation'])}>
-                  {AGGREGATION_OPTIONS.map(o => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </SelectInput>
+                <Select
+                  value={agg}
+                  onChange={(nextValue) => handleAggregationChange(nextValue as EngineWidgetConfig['metric']['aggregation'])}
+                  aria-label="Aggregation"
+                  size="sm"
+                  options={[...AGGREGATION_OPTIONS.map((o) => ({ value: o.value, label: o.label }))]}
+                />
               </div>
 
               {agg === 'count' && (
@@ -615,14 +607,13 @@ export const WidgetQueryBuilder: React.FC<WidgetQueryBuilderProps> = ({
               {showField && (
                 <div className="flex flex-col">
                   <label className="text-[11px] text-on-surface-variant mb-1">of Field</label>
-                  <SelectInput
+                  <Select
                     value={config.metric.field === '*' ? (availableFields[0]?.name ?? '') : config.metric.field}
-                    onChange={e => handleMetricFieldChange(e.target.value)}
-                  >
-                    {availableFields.map(f => (
-                      <option key={f.name} value={f.name}>{f.label}</option>
-                    ))}
-                  </SelectInput>
+                    onChange={(nextValue) => handleMetricFieldChange(nextValue)}
+                    aria-label="Metric field"
+                    size="sm"
+                    options={[...availableFields.map((f) => ({ value: f.name, label: f.label }))]}
+                  />
                 </div>
               )}
             </div>
@@ -674,25 +665,27 @@ export const WidgetQueryBuilder: React.FC<WidgetQueryBuilderProps> = ({
           <div className="space-y-3">
             <div className="text-[10px] font-bold text-on-surface-variant/40 uppercase tracking-wider">Group By</div>
             <div className="flex items-end gap-3 flex-wrap">
-              <SelectInput
+              <Select
                 value={config.groupBy ?? ''}
-                onChange={e => handleGroupByChange(e.target.value)}
-              >
-                <option value="">No grouping (single value)</option>
-                {getGroupableFields().map(f => (
-                  <option key={f.name} value={f.name}>{f.label}</option>
-                ))}
-              </SelectInput>
+                onChange={(nextValue) => handleGroupByChange(nextValue)}
+                aria-label="Grouping"
+                size="sm"
+                options={[
+                  { value: '', label: 'No grouping (single value)' },
+                  ...getGroupableFields().map((f) => ({ value: f.name, label: f.label })),
+                ]}
+              />
 
               {isDateGroupBy && (
-                <SelectInput
+                <Select
                   value={config.dateGranularity ?? 'month'}
-                  onChange={e => setConfig(c => ({ ...c, dateGranularity: e.target.value as EngineWidgetConfig['dateGranularity'] }))}
-                >
-                  {GRANULARITY_OPTIONS.map(o => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </SelectInput>
+                  onChange={(nextValue) =>
+                    setConfig((c) => ({ ...c, dateGranularity: nextValue as EngineWidgetConfig['dateGranularity'] }))
+                  }
+                  aria-label="Date granularity"
+                  size="sm"
+                  options={[...GRANULARITY_OPTIONS.map((o) => ({ value: o.value, label: o.label }))]}
+                />
               )}
             </div>
           </div>

@@ -51,7 +51,7 @@ const MitreOverviewStatsWidget: React.FC<WidgetComponentProps> = () => {
       <div className="p-4 grid grid-cols-6 gap-4 h-full items-center">
         {Array.from({ length: 6 }).map((_, i) => (
           <div key={i} className="flex flex-col items-center gap-1">
-            <div className="w-12 h-8 rounded bg-surface-container-low/30 animate-pulse" />
+            <div className="w-12 h-8 rounded bg-surface-container-low/30 loading-placeholder" />
             <div className="w-16 h-3 rounded bg-surface-container-low/30 animate-pulse" />
           </div>
         ))}

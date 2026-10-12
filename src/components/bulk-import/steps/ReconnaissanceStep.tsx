@@ -1,3 +1,4 @@
+import { Spinner } from '@/components/ui/Spinner';
 /**
  * ReconnaissanceStep - Pre-import analysis step
  * Scans the source to show file counts, estimated rules, and rate limit status
@@ -113,10 +114,7 @@ export function ReconnaissanceStep() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4" style={{ backgroundColor: `${BRAND_COLOR}20` }}>
             <div className="relative">
               <div className="w-10 h-10 border-4 border-surface-variant rounded-full" />
-              <div
-                className="absolute top-0 left-0 w-10 h-10 border-4 rounded-full animate-spin border-t-transparent"
-                style={{ borderColor: BRAND_COLOR, borderTopColor: 'transparent' }}
-              />
+              <Spinner className="text-primary" />
             </div>
           </div>
           <h3 className="text-xl font-semibold text-on-surface">Scanning Source...</h3>

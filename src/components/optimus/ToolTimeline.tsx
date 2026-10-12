@@ -1,3 +1,4 @@
+import { Spinner } from '@/components/ui/Spinner';
 /**
  * Tool Timeline Component
  * Displays tool execution progress with subtle, professional design
@@ -68,7 +69,7 @@ export const ToolTimeline: React.FC<Props> = ({ tools, isComplete }) => {
         <div key={index} className="flex items-center gap-3">
           {/* Status indicator */}
           {tool.status === 'running' ? (
-            <span className="w-3 h-3 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            <Spinner className="text-primary" />
           ) : tool.status === 'completed' ? (
             <span className="w-2 h-2 rounded-full bg-green-500" />
           ) : (

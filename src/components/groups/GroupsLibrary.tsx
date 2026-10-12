@@ -1,3 +1,7 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
+import { Select } from '@/components/ui/Select';
 import React, { useState, useRef, useEffect } from 'react';
 import { useGroups, Group, GroupFilters } from '../../hooks/useGroups';
 import { GroupCard } from './GroupCard';
@@ -56,15 +60,9 @@ export const GroupsLibrary: React.FC<GroupsLibraryProps> = ({ onSelectGroup }) =
     });
   };
 
-  if (loading) {
-    return (
-      <div className="p-8 flex flex-col items-center justify-center h-full bg-background">
-        <Icon name="spinner" className="w-12 h-12 text-primary animate-spin mb-4" />
-        <p className="text-on-surface-variant animate-pulse font-medium font-mono text-sm">
-          LOADING THREAT GROUPS...
-        </p>
-      </div>
-    );
+  const initialLoading = useInitialLoading(loading);
+  if (initialLoading) {
+    return <PagePending layout="list" />;
   }
 
   if (error) {
@@ -86,7 +84,7 @@ export const GroupsLibrary: React.FC<GroupsLibraryProps> = ({ onSelectGroup }) =
     );
   }
 
-  return (
+  return <> {loading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="flex flex-col h-full">
       {/* Content Area with integrated toolbar */}
       <div className="flex-1 overflow-auto p-4 custom-scrollbar">
@@ -238,17 +236,18 @@ export const GroupsLibrary: React.FC<GroupsLibraryProps> = ({ onSelectGroup }) =
             </div>
 
             {/* Sort */}
-            <select
+            <Select
               value={filters.sortBy}
-              onChange={(e) => setFilters({ ...filters, sortBy: e.target.value as any })}
-              className="px-2 py-1 bg-transparent text-on-surface-variant/70 text-xs
-                       focus:outline-none cursor-pointer hover:text-on-surface"
-            >
-              <option value="name">Name</option>
-              <option value="technique_count">TTPs</option>
-              <option value="software_count">Tools</option>
-              <option value="modified">Modified</option>
-            </select>
+              onChange={(nextValue) => setFilters({ ...filters, sortBy: nextValue as any })}
+              aria-label="Sort by"
+              size="sm"
+              options={[
+                { value: 'name', label: 'Name' },
+                { value: 'technique_count', label: 'TTPs' },
+                { value: 'software_count', label: 'Tools' },
+                { value: 'modified', label: 'Modified' },
+              ]}
+            />
 
             <button
               onClick={() => setFilters({ ...filters, sortOrder: filters.sortOrder === 'asc' ? 'desc' : 'asc' })}
@@ -403,5 +402,5 @@ export const GroupsLibrary: React.FC<GroupsLibraryProps> = ({ onSelectGroup }) =
         )}
       </div>
     </div>
-  );
+  )} </>;
 };

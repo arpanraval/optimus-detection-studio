@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { ROUTES, routeHelpers } from '../../router/routes';
@@ -941,15 +944,12 @@ export const ThreatIntelLibraryPage: React.FC = () => {
     }));
   }, []);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full bg-background">
-        <Icon name="spinner" className="w-10 h-10 text-primary animate-spin" />
-      </div>
-    );
+  const initialLoading = useInitialLoading(loading);
+  if (initialLoading) {
+    return <PagePending layout="list" />;
   }
 
-  return (
+  return <> {loading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="flex flex-col h-full bg-surface-container-low overflow-hidden">
 
       {/* ========== HEADER ========== */}
@@ -1363,7 +1363,7 @@ export const ThreatIntelLibraryPage: React.FC = () => {
         />
       )}
     </div>
-  );
+  )} </>;
 };
 
 export default ThreatIntelLibraryPage;

@@ -1,3 +1,4 @@
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useProfileIntelligence, SIEM_TO_QUERY_LANGUAGES, type ProfileIntelligence } from '../../../hooks/useProfileIntelligence';
@@ -247,39 +248,10 @@ export const DetectionActionPlanContent: React.FC<DetectionActionPlanProps & {
     return <div role="alert" className="p-6 text-error">{feasibility.error || intel.error}</div>;
   }
 
-  if (isLoading) {
-    return (
-      <div className="h-full overflow-y-auto bg-background scrollbar-page">
-        <div className="px-6 lg:px-10 py-8 max-w-[1400px] mx-auto">
-          {/* Skeleton hero */}
-          <div className="rounded-2xl p-8 mb-8" style={{ backgroundColor: 'rgb(var(--md-sys-color-surface-container-high))' }}>
-            <div className="flex items-center gap-10">
-              <div className="w-36 h-36 rounded-full bg-surface-container animate-pulse flex-shrink-0" />
-              <div className="flex-1 space-y-3">
-                <div className="h-6 w-64 bg-surface-container rounded animate-pulse" />
-                <div className="h-4 w-96 bg-surface-container rounded animate-pulse" />
-                <div className="flex gap-8 mt-4">
-                  {[1, 2, 3].map(i => (
-                    <div key={i} className="space-y-2">
-                      <div className="h-8 w-16 bg-surface-container rounded animate-pulse" />
-                      <div className="h-3 w-20 bg-surface-container rounded animate-pulse" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-          {/* Skeleton sections */}
-          {[1, 2, 3].map(i => (
-            <div key={i} className="h-48 rounded-2xl bg-surface-container-high/50 animate-pulse mb-6" style={{ opacity: 1 - i * 0.2 }} />
-          ))}
-        </div>
-      </div>
-    );
-  }
+  if (isLoading) return <PagePending layout="dashboard" />;
 
   return (
-    <div className="h-full overflow-y-auto bg-background scrollbar-page animate-page-enter">
+    <div className="h-full overflow-y-auto bg-background scrollbar-page ">
       <div className="px-6 lg:px-10 py-8 max-w-[1400px] mx-auto">
 
         {/* ═══════════════════════════════════════════

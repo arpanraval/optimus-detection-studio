@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import React, { useMemo, useState } from 'react';
 import { Icon } from '../../Icon';
 import type { ReportDetection } from '../types';
@@ -133,52 +134,41 @@ export const DetectionsTable: React.FC<Props> = ({ detections }) => {
           />
         </div>
 
-        <select
+        <Select
           value={sourceFilter}
-          onChange={(e) => setSourceFilter(e.target.value)}
-          className="px-3 py-2 rounded-lg text-sm bg-surface-container border border-outline-variant/10
-            text-on-surface focus:outline-none focus:border-primary/50"
-        >
-          <option value="all">All Sources</option>
-          {uniqueSources.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
+          onChange={(nextValue) => setSourceFilter(nextValue)}
+          aria-label="Source"
+          size="sm"
+          options={[{ value: 'all', label: 'All Sources' }, ...uniqueSources.map((s) => ({ value: s, label: s }))]}
+        />
 
-        <select
+        <Select
           value={langFilter}
-          onChange={(e) => setLangFilter(e.target.value)}
-          className="px-3 py-2 rounded-lg text-sm bg-surface-container border border-outline-variant/10
-            text-on-surface focus:outline-none focus:border-primary/50"
-        >
-          <option value="all">All Languages</option>
-          {uniqueLangs.map((l) => (
-            <option key={l} value={l}>{l}</option>
-          ))}
-        </select>
+          onChange={(nextValue) => setLangFilter(nextValue)}
+          aria-label="Language"
+          size="sm"
+          options={[{ value: 'all', label: 'All Languages' }, ...uniqueLangs.map((l) => ({ value: l, label: l }))]}
+        />
 
-        <select
+        <Select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-2 rounded-lg text-sm bg-surface-container border border-outline-variant/10
-            text-on-surface focus:outline-none focus:border-primary/50"
-        >
-          <option value="all">All Statuses</option>
-          {uniqueStatuses.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
+          onChange={(nextValue) => setStatusFilter(nextValue)}
+          aria-label="Status"
+          size="sm"
+          options={[{ value: 'all', label: 'All Statuses' }, ...uniqueStatuses.map((s) => ({ value: s, label: s }))]}
+        />
 
-        <select
+        <Select
           value={attributionFilter}
-          onChange={(e) => setAttributionFilter(e.target.value as 'all' | 'direct' | 'indirect')}
-          className="px-3 py-2 rounded-lg text-sm bg-surface-container border border-outline-variant/10
-            text-on-surface focus:outline-none focus:border-primary/50"
-        >
-          <option value="all">All Attribution</option>
-          <option value="direct">Direct Only</option>
-          <option value="indirect">Indirect Only</option>
-        </select>
+          onChange={(nextValue) => setAttributionFilter(nextValue as 'all' | 'direct' | 'indirect')}
+          aria-label="Attribution"
+          size="sm"
+          options={[
+            { value: 'all', label: 'All Attribution' },
+            { value: 'direct', label: 'Direct Only' },
+            { value: 'indirect', label: 'Indirect Only' },
+          ]}
+        />
       </div>
 
       {/* Table */}

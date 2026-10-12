@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { ROUTES } from '../routes';
@@ -11,19 +14,16 @@ export const DetectionActionPlanPage: React.FC = () => {
   const [includeMyLab, setIncludeMyLab] = useState(true);
   const scope = includeMyLab ? 'all' as const : 'production' as const;
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full" />
-      </div>
-    );
+  const initialLoading = useInitialLoading(isLoading);
+  if (initialLoading) {
+    return <PagePending layout="dashboard" />;
   }
 
   if (!profile) {
     return <Navigate to={ROUTES.ENVIRONMENT_PROFILE} replace />;
   }
 
-  return (
+  return <> {isLoading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <PageErrorBoundary pageName="Detection Action Plan" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <DetectionActionPlan
         profile={profile}
@@ -32,7 +32,7 @@ export const DetectionActionPlanPage: React.FC = () => {
         onEditProfile={() => navigate(ROUTES.ENVIRONMENT_PROFILE)}
       />
     </PageErrorBoundary>
-  );
+  )} </>;
 };
 
 export default DetectionActionPlanPage;

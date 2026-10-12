@@ -63,7 +63,7 @@ const ReadinessBadgeWidget: React.FC<WidgetComponentProps> = ({ config }) => {
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             {supaLoading ? (
-              <div className="w-12 h-6 bg-primary/10 rounded animate-pulse" />
+              <div className="w-12 h-6 bg-primary/10 rounded loading-placeholder" />
             ) : (
               <>
                 <AnimatedNumber value={readiness} duration={1400} className="text-5xl font-brand font-bold text-on-surface" />

@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from '../Icon';
@@ -237,13 +240,9 @@ export function SiemLandingPage() {
   }, [fetchData]);
 
   // -- Loading state --
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-32 gap-3">
-        <Icon name="loader" className="w-6 h-6 text-primary animate-spin" />
-        <p className="text-sm text-on-surface-variant/60">Loading SIEM integrations...</p>
-      </div>
-    );
+  const initialLoading = useInitialLoading(loading);
+  if (initialLoading) {
+    return <PagePending layout="list" />;
   }
 
   // -- Error state --
@@ -294,7 +293,7 @@ export function SiemLandingPage() {
   }
 
   // -- Main grid --
-  return (
+  return <> {loading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="space-y-6">
       <PageHeader onConnect={() => navigate('/settings/integrations')} />
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -308,7 +307,7 @@ export function SiemLandingPage() {
         ))}
       </div>
     </div>
-  );
+  )} </>;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,3 +1,5 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { Icon } from '../../components/Icon';
@@ -185,7 +187,7 @@ export function ThreatResearchPage() {
     });
   }, [sessions, search, statusFilter]);
 
-  if (permissionsLoading) return null;
+  if (permissionsLoading) return <PagePending layout="list" />;
   if (!hasRole('owner')) return <Navigate to="/" replace />;
 
   const hasFilter = search.trim().length > 0 || statusFilter !== 'all';
@@ -264,12 +266,8 @@ export function ThreatResearchPage() {
       )}
 
       <div className="flex-1 overflow-auto px-6 py-6">
-        {loading ? (
-          <div className="flex items-center justify-center py-16 text-sm text-on-surface-variant">
-            <Icon name="loader" size={20} className="mr-2 animate-spin text-primary" />
-            Loading sessions...
-          </div>
-        ) : error ? (
+        {loading && sessions.length > 0 && <LoadingStatus />}
+        {loading && sessions.length === 0 ? <PagePending layout="list" /> : error ? (
           <div className="rounded-2xl bg-error/10 ring-1 ring-inset ring-error/30 p-6 text-on-surface">
             <div className="flex items-start gap-3">
               <Icon name="alert-triangle" size={20} className="mt-0.5 flex-shrink-0 text-error" />

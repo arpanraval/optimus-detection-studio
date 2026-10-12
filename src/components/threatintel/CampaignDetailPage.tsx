@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
@@ -446,15 +449,9 @@ export const CampaignDetailPage: React.FC = () => {
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-          <p className="text-sm text-on-surface-variant">Loading story...</p>
-        </div>
-      </div>
-    );
+  const initialLoading = useInitialLoading(loading);
+  if (initialLoading) {
+    return <PagePending layout="detail" />;
   }
 
   if (!campaign) {
@@ -469,7 +466,7 @@ export const CampaignDetailPage: React.FC = () => {
   const sevTone = getSeverityTone(campaign.severity);
   const relevanceHigh = campaign.relevance_score >= 3;
 
-  return (
+  return <> {loading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="flex flex-col h-full bg-surface-container-low overflow-hidden">
 
       {/* ========== HEADER ========== */}
@@ -1019,7 +1016,7 @@ export const CampaignDetailPage: React.FC = () => {
         </div>
       )}
     </div>
-  );
+  )} </>;
 };
 
 export default CampaignDetailPage;

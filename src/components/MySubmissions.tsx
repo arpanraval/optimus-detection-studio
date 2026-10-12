@@ -1,3 +1,5 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useEffect, useCallback } from 'react';
 import { Icon } from './Icon';
 import { supabase } from '../lib/supabaseClient';
@@ -234,11 +236,8 @@ export const MySubmissions: React.FC<MySubmissionsProps> = ({
 
       {/* Submissions List */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-20">
-            <Icon name="spinner" className="w-8 h-8 text-primary animate-spin" />
-          </div>
-        ) : submissions.length === 0 ? (
+        {isLoading && submissions.length > 0 && <LoadingStatus />}
+      {isLoading && submissions.length === 0 ? <PagePending layout="list" /> : submissions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="p-4 bg-surface-container rounded-full mb-4">
               <Icon name="inbox" className="w-8 h-8 text-on-surface-variant/50" />

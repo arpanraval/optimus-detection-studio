@@ -1,3 +1,6 @@
+import { PagePending } from '@/components/ui/PagePending';
+import { Spinner } from '@/components/ui/Spinner';
+import { Select } from '@/components/ui/Select';
 import React, { useState, useEffect } from 'react';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
@@ -267,7 +270,7 @@ export const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ userId
   const hasMfa = mfaFactors.length > 0;
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-6 animate-page-enter">
+    <div className="max-w-6xl mx-auto px-6 py-6 ">
       {/* ───── Identity hero — full-width header card ───────────────────── */}
       <div className="flex items-center gap-4 px-5 py-4 rounded-xl border border-outline-variant/30 bg-surface-container-low shadow-sm mb-6">
         <div className={`w-14 h-14 rounded-full ${avatar.bg} flex items-center justify-center flex-shrink-0`}>
@@ -319,11 +322,7 @@ export const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ userId
         {/* Section content column */}
         <div className="min-w-0 space-y-5">
           {/* Loading state */}
-          {isLoading && (
-            <div className="flex items-center justify-center py-16 rounded-xl border border-outline-variant/30 bg-surface-container-low">
-              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-          )}
+          {isLoading && <PagePending layout="form" />}
 
           {/* PROFILE */}
           {!isLoading && activeSection === 'profile' && (
@@ -349,17 +348,14 @@ export const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ userId
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-on-surface mb-1.5">Timezone</label>
-                    <select
+                    <Select
                       value={timezone}
-                      onChange={(e) => setTimezone(e.target.value)}
-                      className="w-full h-10 px-4 rounded-xl bg-surface-container-high border border-outline-variant/40 text-sm text-on-surface focus:outline-none focus:border-[#783264] focus:ring-2 focus:ring-[#783264]/20 transition-all appearance-none cursor-pointer"
-                    >
-                      {COMMON_TIMEZONES.map((tz) => (
-                        <option key={tz} value={tz}>
-                          {tz.replace(/_/g, ' ')}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(nextValue) => setTimezone(nextValue)}
+                      aria-label="Timezone"
+                      size="md"
+                      className="w-full"
+                      options={[...COMMON_TIMEZONES.map((tz) => ({ value: tz, label: tz.replace(/_/g, ' ') }))]}
+                    />
                   </div>
                 </div>
               </Card>
@@ -493,7 +489,7 @@ export const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ userId
                 description="Add an extra layer of security with an authenticator app"
                 trailing={
                   mfaLoading ? (
-                    <div className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    <Spinner className="text-primary" />
                   ) : (
                     <span
                       className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
@@ -594,7 +590,7 @@ export const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ userId
 
       {/* ───── Floating save bar (Profile only) ─────────────────────────── */}
       {isProfileDirty && activeSection === 'profile' && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 animate-page-enter">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 ">
           <div className="flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-surface-container-highest border border-outline-variant/40 shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
             <span className="text-xs text-on-surface-variant">Unsaved changes</span>
             <button

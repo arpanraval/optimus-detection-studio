@@ -12,7 +12,7 @@ export function useBoardKeyboardShortcuts(actions: BoardShortcutActions) {
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     const target = e.target as HTMLElement;
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return;
-    if (target.isContentEditable) return;
+    if (target.isContentEditable || target.closest('[role="combobox"]')) return;
 
     switch (e.key) {
       case 'm': e.preventDefault(); actions.toggleMyWork(); break;

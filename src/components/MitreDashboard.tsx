@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useMitreMatrix, ExtendedMitreObject } from '../hooks/useMitreMatrix';
 import { useMitreCoverage } from '../hooks/useMitreCoverage';
@@ -333,16 +336,12 @@ export const MitreDashboard: React.FC<MitreDashboardProps> = ({
     return techniques.find(t => t.mitre_id === selectedTechnique);
   };
 
-  if (loading) {
-    return (
-      <div className="p-8 flex flex-col items-center justify-center h-full bg-background">
-        <Icon name="spinner" className="w-10 h-10 text-primary animate-spin mb-4" />
-        <p className="text-on-surface-variant text-sm font-medium">Loading ATT&CK Matrix...</p>
-      </div>
-    );
+  const initialLoading = useInitialLoading(loading);
+  if (initialLoading) {
+    return <PagePending layout="matrix" />;
   }
 
-  return (
+  return <> {loading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="flex flex-col h-full overflow-hidden relative bg-background">
       
       {/* Header Toolbar */}
@@ -576,5 +575,5 @@ export const MitreDashboard: React.FC<MitreDashboardProps> = ({
         />
       )}
     </div>
-  );
+  )} </>;
 };

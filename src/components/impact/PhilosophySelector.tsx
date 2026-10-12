@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import React, { useState } from 'react';
 import {
   ShieldExclamationIcon,
@@ -95,18 +96,13 @@ export function PhilosophySelector({
     return (
       <div className={`flex items-center gap-2 ${className}`}>
         <span className="text-sm text-text-secondary">Philosophy:</span>
-        <select
+        <Select
           value={value}
-          onChange={(e) => onChange(e.target.value as DetectionPhilosophy)}
-          className="px-3 py-1.5 rounded-lg border border-border bg-surface text-text-primary text-sm
-            focus:outline-none focus:ring-2 focus:ring-primary/50"
-        >
-          {philosophyOptions.map(opt => (
-            <option key={opt.id} value={opt.id}>
-              {opt.name}
-            </option>
-          ))}
-        </select>
+          onChange={(nextValue) => onChange(nextValue as DetectionPhilosophy)}
+          aria-label="Detection philosophy"
+          size="sm"
+          options={[...philosophyOptions.map((opt) => ({ value: opt.id, label: opt.name }))]}
+        />
         <button
           onClick={() => setShowInfo(!showInfo)}
           className="p-1 text-text-tertiary hover:text-text-secondary transition-colors"

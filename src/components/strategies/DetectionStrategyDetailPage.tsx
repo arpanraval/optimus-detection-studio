@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { useStrategyAnalytics, Analytic } from '../../hooks/useDetectionStrategies';
@@ -93,15 +96,9 @@ export const DetectionStrategyDetailPage: React.FC<DetectionStrategyDetailPagePr
     onCreateDetection(prefill);
   };
 
-  if (loading) {
-    return (
-      <div className="h-full flex items-center justify-center bg-background">
-        <div className="text-center">
-          <Icon name="spinner" className="w-8 h-8 animate-spin text-primary mx-auto mb-3" />
-          <p className="text-sm text-on-surface-variant">Loading detection strategy...</p>
-        </div>
-      </div>
-    );
+  const initialLoading = useInitialLoading(loading);
+  if (initialLoading) {
+    return <PagePending layout="detail" />;
   }
 
   if (error || !strategy) {
@@ -122,7 +119,7 @@ export const DetectionStrategyDetailPage: React.FC<DetectionStrategyDetailPagePr
     );
   }
 
-  return (
+  return <> {loading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
       <div className="flex-shrink-0 px-6 lg:px-8 py-5 border-b border-outline-variant/10">
@@ -345,7 +342,7 @@ export const DetectionStrategyDetailPage: React.FC<DetectionStrategyDetailPagePr
         </div>
       </div>
     </div>
-  );
+  )} </>;
 };
 
 // Analytic Detail Card Component

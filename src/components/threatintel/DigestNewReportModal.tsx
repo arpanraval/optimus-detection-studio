@@ -1,3 +1,5 @@
+import { Spinner } from '@/components/ui/Spinner';
+import { Select } from '@/components/ui/Select';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
@@ -623,18 +625,19 @@ export const DigestNewReportModal: React.FC<Props> = ({ isOpen, onClose, onCompl
               {/* Model Selector */}
               <div>
                 <label className="block text-xs font-medium text-on-surface-variant mb-1.5">AI Model</label>
-                <select
+                <Select
                   value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  className="w-full px-3 py-2.5 bg-surface-container-high border border-outline-variant/30 rounded-lg
-                           text-on-surface text-sm focus:outline-none focus:border-primary/50 cursor-pointer"
-                >
-                  {LLM_MODELS.filter(m => m.capabilities.json).map(m => (
-                    <option key={m.id} value={m.id}>
-                      {m.name} ({m.provider})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(nextValue) => setModel(nextValue)}
+                  aria-label="Model"
+                  size="md"
+                  className="w-full"
+                  options={[
+                    ...LLM_MODELS.filter((m) => m.capabilities.json).map((m) => ({
+                      value: m.id,
+                      label: `${m.name} (${m.provider})`,
+                    })),
+                  ]}
+                />
                 <p className="text-[10px] text-on-surface-variant/60 mt-1">
                   {LLM_MODELS.find(m => m.id === model)?.description}
                 </p>
@@ -715,7 +718,7 @@ export const DigestNewReportModal: React.FC<Props> = ({ isOpen, onClose, onCompl
                           <Icon name="check" className="w-5 h-5" />
                         ) : isActive ? (
                           <div className="relative">
-                            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            <Spinner className="text-primary" />
                           </div>
                         ) : (
                           <span className="text-sm font-semibold">{i + 1}</span>

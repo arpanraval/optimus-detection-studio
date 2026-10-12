@@ -1,3 +1,7 @@
+import { PagePending } from '@/components/ui/PagePending';
+import { LoadError } from '@/components/ui/LoadError';
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { Spinner } from '@/components/ui/Spinner';
 import React, { useState } from 'react';
 import { Icon } from '../../Icon';
 import { Button } from '../../ui/Button';
@@ -19,7 +23,7 @@ function scopeLabel(b: BudgetWithCurrent): string {
 }
 
 export const BudgetsTab: React.FC = () => {
-  const { budgets, isLoading, deleteBudget, updateBudget } = useAiBudgets();
+  const { budgets, isLoading, error, refetch, deleteBudget, updateBudget } = useAiBudgets();
   const [editing, setEditing] = useState<BudgetWithCurrent | 'new' | null>(null);
   const [overriding, setOverriding] = useState<BudgetWithCurrent | null>(null);
 
@@ -34,11 +38,11 @@ export const BudgetsTab: React.FC = () => {
           </Button>
         }
       >
-        {isLoading ? (
-          <div className="flex items-center justify-center h-32">
-            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
-          </div>
-        ) : budgets.length === 0 ? (
+        {isLoading && budgets.length > 0 && <LoadingStatus />}
+        {error && <LoadError onRetry={() => void refetch()} />}
+        {isLoading && budgets.length === 0 ? (
+          <PagePending layout="list" />
+        ) : error && budgets.length === 0 ? null : budgets.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <Icon name="shield" className="w-8 h-8 text-on-surface-variant/20 mb-3" />
             <p className="text-sm text-on-surface-variant/40">No budgets configured</p>

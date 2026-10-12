@@ -1,3 +1,7 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
+import { Select } from '@/components/ui/Select';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMitigations, Mitigation } from '../../hooks/useMitigations';
@@ -17,15 +21,9 @@ export const MitigationsLibrary: React.FC<MitigationsLibraryProps> = ({
   const { mitigations, loading, error, filters, setFilters, stats } = useMitigations();
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
-  if (loading) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <div className="text-center">
-          <Icon name="spinner" className="w-8 h-8 animate-spin text-primary mx-auto mb-3" />
-          <p className="text-sm text-on-surface-variant">Loading mitigations...</p>
-        </div>
-      </div>
-    );
+  const initialLoading = useInitialLoading(loading);
+  if (initialLoading) {
+    return <PagePending layout="list" />;
   }
 
   if (error) {
@@ -40,7 +38,7 @@ export const MitigationsLibrary: React.FC<MitigationsLibraryProps> = ({
     );
   }
 
-  return (
+  return <> {loading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
       <div className="flex-shrink-0 px-6 lg:px-8 py-5 border-b border-outline-variant/10">
@@ -98,21 +96,23 @@ export const MitigationsLibrary: React.FC<MitigationsLibraryProps> = ({
               />
             </div>
 
-            <select
+            <Select
               value={`${filters.sortBy}-${filters.sortOrder}`}
-              onChange={(e) => {
-                const [sortBy, sortOrder] = e.target.value.split('-') as [typeof filters.sortBy, typeof filters.sortOrder];
+              onChange={(nextValue) => {
+                const [sortBy, sortOrder] = nextValue.split('-') as [typeof filters.sortBy, typeof filters.sortOrder];
                 setFilters({ ...filters, sortBy, sortOrder });
               }}
-              className="px-4 py-2.5 bg-surface-container rounded-xl border border-outline-variant/10 text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30"
-            >
-              <option value="impact_score-desc">Impact Score (High → Low)</option>
-              <option value="technique_count-desc">Most Techniques</option>
-              <option value="technique_count-asc">Least Techniques</option>
-              <option value="name-asc">Name (A-Z)</option>
-              <option value="name-desc">Name (Z-A)</option>
-              <option value="modified-desc">Recently Modified</option>
-            </select>
+              aria-label="Sort by"
+              size="md"
+              options={[
+                { value: 'impact_score-desc', label: 'Impact Score (High → Low)' },
+                { value: 'technique_count-desc', label: 'Most Techniques' },
+                { value: 'technique_count-asc', label: 'Least Techniques' },
+                { value: 'name-asc', label: 'Name (A-Z)' },
+                { value: 'name-desc', label: 'Name (Z-A)' },
+                { value: 'modified-desc', label: 'Recently Modified' },
+              ]}
+            />
           </div>
         </div>
       </div>
@@ -152,7 +152,7 @@ export const MitigationsLibrary: React.FC<MitigationsLibraryProps> = ({
         </div>
       </div>
     </div>
-  );
+  )} </>;
 };
 
 // Card component for grid view

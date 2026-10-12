@@ -1,4 +1,7 @@
 import React, { useState } from 'react';
+import { PagePending } from '@/components/ui/PagePending';
+import { LoadError } from '@/components/ui/LoadError';
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
 import { useMyAiUsage, type MyUsageWindow } from '../../hooks/useMyAiUsage';
 import { CostCenterTile } from '../cost-center/charts/CostCenterTile';
 import { MetricStat } from '../cost-center/charts/MetricStat';
@@ -12,11 +15,15 @@ const SERIES: StackedSeries[] = [{ key: 'cost', label: 'Spend', color: 'rgb(var(
 
 export const MyAiUsagePage: React.FC = () => {
   const [w, setW] = useState<MyUsageWindow>({ days: 30 });
-  const { totalCostUsd, totalCalls, byFeature, byDay, myBudget } = useMyAiUsage(w);
+  const { totalCostUsd, totalCalls, byFeature, byDay, myBudget, isLoading, hasLoaded, error, refetch } = useMyAiUsage(w);
   const fmtUsd = (v: number) => `$${v.toFixed(2)}`;
 
+  if (isLoading && !hasLoaded) return <PagePending layout="dashboard" />;
+  if (error && !hasLoaded) return <LoadError onRetry={() => void refetch()} />;
   return (
     <div className="max-w-5xl mx-auto px-4 py-4 space-y-5">
+      {isLoading && <LoadingStatus />}
+      {error && <LoadError label="Couldn’t refresh usage. Showing previously loaded values." onRetry={() => void refetch()} />}
       {/* Window picker */}
       <div className="flex items-center gap-1 bg-surface-container border border-outline-variant/15 rounded-lg p-0.5 w-fit">
         {WINDOWS.map(opt => (

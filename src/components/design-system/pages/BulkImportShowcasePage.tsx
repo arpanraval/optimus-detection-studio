@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import React, { useState, useEffect, useRef } from 'react';
 import { DesignSystemPage, Section } from '../shared';
 import { Icon } from '../../Icon';
@@ -497,10 +498,13 @@ function IntelSourceStep() {
         <div className="mt-5 flex items-center gap-4 p-3 rounded-xl bg-surface-variant/10 border border-outline-variant/15">
           <div className="flex items-center gap-2 flex-1">
             <span className="text-[10px] text-on-surface-variant font-medium">Vendor:</span>
-            <select value={vendor} onChange={e => setVendor(e.target.value)}
-              className="text-xs bg-transparent border border-outline-variant/30 rounded-lg px-2 py-1 text-on-surface">
-              {VENDORS.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}
-            </select>
+            <Select
+              value={vendor}
+              onChange={(nextValue) => setVendor(nextValue)}
+              aria-label="Vendor"
+              size="sm"
+              options={[...VENDORS.map((v) => ({ value: v.id, label: v.label }))]}
+            />
           </div>
           <div className="flex items-center gap-2 flex-1">
             <span className="text-[10px] text-on-surface-variant font-medium">Library:</span>

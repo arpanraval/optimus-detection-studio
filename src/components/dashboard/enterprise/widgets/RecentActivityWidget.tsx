@@ -60,7 +60,7 @@ const RecentActivityWidget: React.FC<WidgetComponentProps> = ({ config, onNaviga
     return (
       <div className="p-5 h-full">
         <span className="text-[11px] font-brand font-bold text-on-surface uppercase tracking-wider">Recent Activity</span>
-        <div className="mt-3 space-y-3">{[1, 2, 3].map(i => <div key={i} className="h-4 bg-surface-container rounded animate-pulse" />)}</div>
+        <div className="mt-3 space-y-3">{[1, 2, 3].map(i => <div key={i} className="h-4 bg-surface-container rounded loading-placeholder" />)}</div>
       </div>
     );
   }

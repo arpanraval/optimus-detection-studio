@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useEffect, useCallback } from 'react';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
@@ -110,16 +113,9 @@ export const IntegrationDetail: React.FC<IntegrationDetailProps> = ({
   };
 
   // Loading state
-  if (loading) {
-    return (
-      <div className="h-full overflow-y-auto scrollbar-page">
-        <div className="max-w-[1200px] mx-auto px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-center py-20">
-            <Icon name="loader" className="w-6 h-6 animate-spin text-on-surface-variant" />
-          </div>
-        </div>
-      </div>
-    );
+  const initialLoading = useInitialLoading(loading);
+  if (initialLoading) {
+    return <PagePending layout="detail" />;
   }
 
   // Error / not found
@@ -149,7 +145,7 @@ export const IntegrationDetail: React.FC<IntegrationDetailProps> = ({
   const badge = STATUS_BADGE_CONFIG[displayStatus];
   const latency = testResult?.latency_ms || integration.last_test_result?.latency_ms;
 
-  return (
+  return <> {loading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="h-full overflow-y-auto scrollbar-page">
       <div className="max-w-[1200px] mx-auto px-6 lg:px-8 py-6">
         <Breadcrumb
@@ -287,5 +283,5 @@ export const IntegrationDetail: React.FC<IntegrationDetailProps> = ({
         )}
       </div>
     </div>
-  );
+  )} </>;
 };

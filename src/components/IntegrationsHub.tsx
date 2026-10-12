@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from './Icon';
@@ -326,19 +329,12 @@ export const IntegrationsHub: React.FC = () => {
     loadData();
   };
 
-  if (loading) {
-    return (
-      <div className="h-full overflow-y-auto scrollbar-page">
-        <div className="max-w-[1400px] mx-auto px-6 lg:px-8 py-8">
-          <div className="flex items-center justify-center py-20">
-            <Icon name="loader" className="w-6 h-6 animate-spin text-on-surface-variant" />
-          </div>
-        </div>
-      </div>
-    );
+  const initialLoading = useInitialLoading(loading);
+  if (initialLoading) {
+    return <PagePending layout="list" />;
   }
 
-  return (
+  return <> {loading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="h-full overflow-y-auto scrollbar-page">
       <div className="max-w-[1400px] mx-auto px-6 lg:px-8 py-8">
 
@@ -468,5 +464,5 @@ export const IntegrationsHub: React.FC = () => {
         );
       })()}
     </div>
-  );
+  )} </>;
 };

@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import React, { useState } from 'react';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
@@ -377,15 +378,14 @@ const FieldRenderer: React.FC<{
     return (
       <div>
         <label className="block text-xs font-medium text-on-surface-variant mb-1">{field.label}</label>
-        <select
+        <Select
           value={String(value || '')}
-          onChange={e => onChange(e.target.value)}
-          className="w-full px-3 py-2 bg-surface-container-high border border-outline-variant/20 rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
-        >
-          {field.options?.map(opt => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
-        </select>
+          onChange={(nextValue) => onChange(nextValue)}
+          aria-label={field.label}
+          size="sm"
+          className="w-full"
+          options={[...(field.options?.map((opt) => ({ value: opt.value, label: opt.label })) ?? [])]}
+        />
       </div>
     );
   }

@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 /**
  * ImportHistoryPage - View past bulk imports with rollback capability
  * Clean, modern UI with proper empty states and visual hierarchy
@@ -599,16 +602,12 @@ export function ImportHistoryPage() {
 
   const handleStartImport = () => navigate(ROUTES.BULK_IMPORT);
 
-  if (isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <Icon name="loader" className="w-8 h-8 animate-spin" style={{ color: COLORS.brand }} />
-        <p className="mt-4 text-sm text-on-surface-variant">Loading import history...</p>
-      </div>
-    );
+  const initialLoading = useInitialLoading(isLoading);
+  if (initialLoading) {
+    return <PagePending layout="list" />;
   }
 
-  return (
+  return <> {isLoading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="space-y-6 px-6 py-4 max-w-[1600px] mx-auto">
       {/* Rollback confirmation dialog */}
       <ConfirmDialog
@@ -705,5 +704,5 @@ export function ImportHistoryPage() {
         </div>
       )}
     </div>
-  );
+  )} </>;
 }

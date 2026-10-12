@@ -70,7 +70,7 @@ const StrategyGapTableWidget: React.FC<WidgetComponentProps> = ({ onNavigate }) 
     return (
       <div className="p-4 space-y-2">
         {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="h-5 rounded bg-surface-container-low/30 animate-pulse" />
+          <div key={i} className="h-5 rounded bg-surface-container-low/30 loading-placeholder" />
         ))}
       </div>
     );

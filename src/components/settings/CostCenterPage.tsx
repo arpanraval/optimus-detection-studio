@@ -1,7 +1,8 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
 import React, { useState, useMemo } from 'react';
 import { Icon } from '../Icon';
-import { useAiUsage } from '../../hooks/useAiUsage';
-import { useAiBudgets } from '../../hooks/useAiBudgets';
+import { AiUsageContext, useAiUsageData, useAiUsageResult } from '../../hooks/useAiUsage';
+import { AiBudgetsContext, useAiBudgets } from '../../hooks/useAiBudgets';
 import { OverviewTab } from './cost-center/OverviewTab';
 import { UsageTab } from './cost-center/UsageTab';
 import { BudgetsTab } from './cost-center/BudgetsTab';
@@ -39,16 +40,14 @@ export const CostCenterPage: React.FC = () => {
   const [preset, setPreset] = useState<TimePreset>('30d');
   const range = useMemo(() => presetToRange(preset), [preset]);
 
-  // Headline-only rollup for the toolbar chip. The Overview tab fetches its
-  // own data for charts; this duplicate hook call is fine because both share
-  // Supabase's request dedupe.
-  const overviewData = useAiUsage({ startDate: range.startDate, endDate: range.endDate }, 'feature');
+  const usageData = useAiUsageData(range);
+  const overviewData = useAiUsageResult(usageData, 'feature');
   const budgetsData = useAiBudgets();
 
   const nearLimitCount = budgetsData.budgets.filter(b => b.pct_used >= 0.8 && b.pct_used < 1).length;
 
   return (
-    <div className="h-full flex flex-col">
+    <AiUsageContext.Provider value={usageData}><AiBudgetsContext.Provider value={budgetsData}><div className="h-full flex flex-col">
       {/* ===== Toolbar ===== */}
       <div className="flex-shrink-0 px-5 py-3 border-b border-outline-variant/10 bg-surface-container-low/40 backdrop-blur-sm">
         <div className="flex flex-wrap items-center gap-3">
@@ -84,11 +83,11 @@ export const CostCenterPage: React.FC = () => {
               <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary" />
             </span>
             <span className="text-[11px] font-medium tabular-nums text-on-surface-variant">
-              {overviewData.totalCalls.toLocaleString()} calls
+              {!overviewData.hasLoaded ? '—' : overviewData.totalCalls.toLocaleString()} calls
             </span>
             <span className="text-on-surface-variant/20">·</span>
             <span className="text-[11px] font-bold tabular-nums text-on-surface">
-              ${overviewData.totalCostUsd.toFixed(2)}
+              {!overviewData.hasLoaded ? '—' : '$' + overviewData.totalCostUsd.toFixed(2)}
             </span>
           </div>
         </div>
@@ -119,13 +118,14 @@ export const CostCenterPage: React.FC = () => {
       </div>
 
       {/* ===== Tab content ===== */}
-      <div key={activeTab} className="flex-1 overflow-y-auto p-5 animate-page-enter">
+      {usageData.isLoading && usageData.hasLoaded && <LoadingStatus />}
+      <div key={activeTab} className="flex-1 overflow-y-auto p-5">
         {activeTab === 'overview' && <OverviewTab range={range} />}
         {activeTab === 'usage'    && <UsageTab range={range} />}
         {activeTab === 'budgets'  && <BudgetsTab />}
         {activeTab === 'failures' && <FailuresTab range={range} />}
       </div>
-    </div>
+    </div></AiBudgetsContext.Provider></AiUsageContext.Provider>
   );
 };
 

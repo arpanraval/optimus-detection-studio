@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { PagePending } from '@/components/ui/PagePending';
+import { Select } from '@/components/ui/Select';
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from '../Icon';
@@ -97,23 +100,18 @@ export const ReportHistoryPage: React.FC = () => {
             className="w-full pl-9 pr-3 py-2 rounded-lg bg-surface-container border border-outline/10 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary/40"
           />
         </div>
-        <select
+        <Select
           value={typeFilter}
-          onChange={e => setTypeFilter(e.target.value)}
-          className="px-3 py-2 rounded-lg bg-surface-container border border-outline/10 text-sm text-on-surface focus:outline-none focus:border-primary/40"
-        >
-          {REPORT_TYPE_OPTIONS.map(opt => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
-        </select>
+          onChange={(nextValue) => setTypeFilter(nextValue)}
+          aria-label="Type"
+          size="sm"
+          options={[...REPORT_TYPE_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))]}
+        />
       </div>
 
       {/* Loading */}
-      {loading && (
-        <div className="flex items-center justify-center py-16">
-          <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        </div>
-      )}
+      {loading && reports.length > 0 && <LoadingStatus />}
+      {loading && reports.length === 0 && <PagePending layout="list" />}
 
       {/* Error */}
       {error && !loading && (
@@ -140,7 +138,7 @@ export const ReportHistoryPage: React.FC = () => {
       )}
 
       {/* Report list */}
-      {!loading && !error && reports.length > 0 && (
+      {reports.length > 0 && (
         <div className="bg-surface-container rounded-xl border border-outline/10 overflow-hidden">
           {/* Table header */}
           <div className="grid grid-cols-[1fr_120px_100px_100px_100px_auto] gap-4 px-4 py-3 border-b border-outline/10 text-xs font-medium text-on-surface-variant uppercase tracking-wider">

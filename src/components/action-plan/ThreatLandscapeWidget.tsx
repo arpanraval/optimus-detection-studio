@@ -43,7 +43,7 @@ export const ThreatLandscapeWidget: React.FC<Props> = ({ groups, sectorLabel, lo
         <div className="h-3 w-40 bg-surface-container rounded animate-pulse mb-4" />
         <div className="space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-12 bg-surface-container/50 rounded-lg animate-pulse" style={{ opacity: 1 - i * 0.15 }} />
+            <div key={i} className="h-12 bg-surface-container/50 rounded-lg loading-placeholder" style={{ opacity: 1 - i * 0.15 }} />
           ))}
         </div>
       </div>

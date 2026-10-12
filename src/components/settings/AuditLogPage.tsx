@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { PagePending } from '@/components/ui/PagePending';
+import { Select } from '@/components/ui/Select';
 /**
  * Audit Log Viewer
  *
@@ -112,7 +115,7 @@ export const AuditLogPage: React.FC = () => {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // Close dropdowns on outside click
@@ -273,16 +276,16 @@ export const AuditLogPage: React.FC = () => {
           </div>
 
           {/* Entity Type */}
-          <select
+          <Select
             value={entityType}
-            onChange={e => setEntityType(e.target.value)}
-            className="px-3 py-1.5 rounded-lg bg-surface-container border border-outline-variant/15 text-xs text-on-surface focus:outline-none focus:ring-1 focus:ring-outline-variant/30"
-          >
-            <option value="">All entities</option>
-            {ENTITY_TYPES.map(t => (
-              <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
-            ))}
-          </select>
+            onChange={(nextValue) => setEntityType(nextValue)}
+            aria-label="Entity type"
+            size="sm"
+            options={[
+              { value: '', label: 'All entities' },
+              ...ENTITY_TYPES.map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
+            ]}
+          />
 
           {/* Actions Dropdown */}
           <div className="relative" ref={actionRef}>
@@ -372,11 +375,8 @@ export const AuditLogPage: React.FC = () => {
 
       {/* Results */}
       <div className="flex-1 overflow-y-auto">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-32">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-on-surface-variant/30"></div>
-          </div>
-        ) : events.length === 0 ? (
+        {isLoading && events.length > 0 && <LoadingStatus />}
+      {isLoading && events.length === 0 ? <PagePending layout="list" /> : events.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24">
             <div className="w-14 h-14 rounded-2xl bg-surface-container flex items-center justify-center mb-4">
               <Icon name="shield" className="w-7 h-7 text-on-surface-variant/20" />

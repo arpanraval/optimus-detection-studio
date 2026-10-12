@@ -95,7 +95,7 @@ function LoadingSkeleton(): React.ReactElement {
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
-            className="h-20 bg-surface-container/50 rounded-xl animate-pulse"
+            className="h-20 bg-surface-container/50 rounded-xl loading-placeholder"
             style={{ opacity: 1 - i * 0.15 }}
           />
         ))}

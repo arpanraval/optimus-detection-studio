@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { Icon } from '../Icon';
@@ -616,12 +619,9 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
   // LOADING (after all hooks — Rules of Hooks)
   // ─────────────────────────────────────────────────────────────
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-[40vh]">
-        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+  const initialLoading = useInitialLoading(isLoading);
+  if (initialLoading) {
+    return <PagePending layout="form" />;
   }
 
   // Map last-run tone to a single CSS color class. Brand tokens only —
@@ -635,8 +635,8 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
     : lastRunTone === 'neutral' ? 'bg-on-surface-variant/60'
     : 'bg-outline-variant';
 
-  return (
-    <div className="max-w-7xl mx-auto px-6 py-6 animate-page-enter">
+  return <> {isLoading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
+    <div className="max-w-7xl mx-auto px-6 py-6 ">
       {/* Page header — title + supporting subtitle + primary action.
           The previous version started straight with status text which
           read as a notification, not a page. Title gives the page an
@@ -1196,7 +1196,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
       {/* FLOATING SAVE BAR                                      */}
       {/* ═══════════════════════════════════════════════════════ */}
       {hasUnsavedChanges && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-page-enter">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 ">
           <div className="flex items-center gap-4 px-5 py-3 rounded-2xl bg-surface-container-highest border border-outline-variant/20 shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
             <span className="text-sm text-on-surface">
               <span className="font-bold tabular-nums">{changeCount}</span>
@@ -1220,7 +1220,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
         </div>
       )}
     </div>
-  );
+  )} </>;
 };
 
 export default AutoDigestSettingsPage;

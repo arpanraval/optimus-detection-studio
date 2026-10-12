@@ -1,3 +1,5 @@
+import { PagePending } from '@/components/ui/PagePending';
+import { LoadError } from '@/components/ui/LoadError';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Icon } from '../Icon';
 import { useLibrary } from '../../context/LibraryContext';
@@ -101,7 +103,7 @@ export const AdminApprovalQueue: React.FC<AdminApprovalQueueProps> = ({
   const [reviewRequests, setReviewRequests] = useState<DetectionReview[]>([]);
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
 
-  const { pendingRequests, approvePromotion: approveRequest, bulkApproveRequests, refreshPendingRequests } = useLibrary();
+  const { pendingRequests, pendingRequestsLoading, pendingRequestsError, approvePromotion: approveRequest, bulkApproveRequests, refreshPendingRequests } = useLibrary();
   const { startReview, getPendingReviews } = useReview();
 
   // Fetch pending reviews
@@ -304,14 +306,14 @@ export const AdminApprovalQueue: React.FC<AdminApprovalQueueProps> = ({
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {mode === 'publish' && (
+        {mode === 'publish' && (pendingRequestsLoading && pendingRequests.length === 0 ? <PagePending /> : pendingRequestsError ? <LoadError label={pendingRequestsError} onRetry={() => void refreshPendingRequests()} /> : (
           <PublishQueue
             requests={pendingRequests}
             onApprove={approveRequest}
             onBulkApprove={bulkApproveRequests}
             onNavigate={onNavigateToDetection}
           />
-        )}
+        ))}
 
         {mode === 'review' && (
           <ReviewQueue

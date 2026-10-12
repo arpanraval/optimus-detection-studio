@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../ui/Button';
@@ -188,25 +189,20 @@ export function NewResearchModal({ open, onClose }: NewResearchModalProps) {
             Write detections for
             {siemRequired && <span className="ml-1 text-error">*</span>}
           </label>
-          <select
+          <Select
             id="tr-siem"
             value={siem || profileSiem}
-            onChange={e => setSiem(e.target.value)}
+            onChange={(nextValue) => setSiem(nextValue)}
             disabled={submitting || profileLoading}
             required={siemRequired}
             aria-describedby="tr-siem-help"
-            className="w-full rounded-2xl border border-outline-variant bg-surface px-4 py-2.5 text-sm text-on-surface transition-all focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/15 disabled:opacity-50"
-          >
-            {/* Empty option only when we genuinely don't know — an
-                unselectable placeholder next to a real profile value would
-                invite clearing a good default. */}
-            {!profileSiem && <option value="">Select your SIEM…</option>}
-            {SIEM_OPTIONS.map(o => (
-              <option key={o.platform} value={o.platform}>
-                {o.platform} — {o.language}
-              </option>
-            ))}
-          </select>
+            size="md"
+            className="w-full"
+            options={[
+              ...(!profileSiem ? [{ value: '', label: 'Select your SIEM…' }] : []),
+              ...SIEM_OPTIONS.map((o) => ({ value: o.platform, label: [o.platform, '—', o.language].join('') })),
+            ]}
+          />
           <div id="tr-siem-help" className="mt-2 text-xs text-on-surface-variant">
             {profileLoading
               ? 'Checking your environment profile…'

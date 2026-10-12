@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
@@ -446,16 +447,13 @@ function SigmaConvertSection({ query }: { query: string }) {
 
   return (
     <div className="mt-2 flex items-center gap-2">
-      <select
+      <Select
         value={target}
-        onChange={e => setTarget(e.target.value)}
-        className="rounded-md border border-outline-variant bg-surface px-2 py-1 text-xs text-on-surface"
+        onChange={(nextValue) => setTarget(nextValue)}
         aria-label="Convert target"
-      >
-        {SIGMA_CONVERT_TARGETS.map(t => (
-          <option key={t.id} value={t.id}>{t.label}</option>
-        ))}
-      </select>
+        size="sm"
+        options={[...SIGMA_CONVERT_TARGETS.map((t) => ({ value: t.id, label: t.label }))]}
+      />
       <Button variant="outlined" size="sm" onClick={() => setRunning(true)}>
         <Icon name="file-code" size={12} />
         Convert &amp; Copy

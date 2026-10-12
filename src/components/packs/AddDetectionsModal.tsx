@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import React, { useState, useMemo, useEffect } from 'react';
 import { Icon } from '../Icon';
 import { Detection, LibraryType } from '../../types';
@@ -258,42 +259,36 @@ export const AddDetectionsModal: React.FC<AddDetectionsModalProps> = ({
                 className="w-full pl-10 pr-4 py-2.5 bg-surface-container-high border border-outline-variant/30 rounded-lg text-sm text-on-surface placeholder-on-surface-variant/50 focus:outline-none focus:border-primary"
               />
             </div>
-            <select
+            <Select
               value={severityFilter}
-              onChange={(e) => setSeverityFilter(e.target.value)}
-              className="px-3 py-2.5 bg-surface-container-high border border-outline-variant/30 rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary"
-            >
-              <option value="">All Severities</option>
-              {filterOptions.severities.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-            <select
+              onChange={(nextValue) => setSeverityFilter(nextValue)}
+              aria-label="Severity"
+              size="md"
+              options={[
+                { value: '', label: 'All Severities' },
+                ...filterOptions.severities.map((s) => ({ value: s, label: s })),
+              ]}
+            />
+            <Select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-3 py-2.5 bg-surface-container-high border border-outline-variant/30 rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary"
-            >
-              <option value="">All Statuses</option>
-              {filterOptions.statuses.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-            <select
+              onChange={(nextValue) => setStatusFilter(nextValue)}
+              aria-label="Status"
+              size="md"
+              options={[
+                { value: '', label: 'All Statuses' },
+                ...filterOptions.statuses.map((s) => ({ value: s, label: s })),
+              ]}
+            />
+            <Select
               value={technologyFilter}
-              onChange={(e) => setTechnologyFilter(e.target.value)}
-              className="px-3 py-2.5 bg-surface-container-high border border-outline-variant/30 rounded-lg text-sm text-on-surface focus:outline-none focus:border-primary"
-            >
-              <option value="">All Technologies</option>
-              {filterOptions.technologies.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
+              onChange={(nextValue) => setTechnologyFilter(nextValue)}
+              aria-label="Technology"
+              size="md"
+              options={[
+                { value: '', label: 'All Technologies' },
+                ...filterOptions.technologies.map((t) => ({ value: t, label: t })),
+              ]}
+            />
           </div>
         </div>
 

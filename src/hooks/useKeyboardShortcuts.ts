@@ -55,6 +55,7 @@ export function useKeyboardShortcuts() {
         target.tagName === 'INPUT' ||
         target.tagName === 'TEXTAREA' ||
         target.tagName === 'SELECT' ||
+        !!target.closest('[role="combobox"]') ||
         target.isContentEditable;
 
       for (const shortcut of shortcuts) {

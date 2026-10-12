@@ -106,8 +106,8 @@ export function RulePreviewDialog({
         {!content && !error && (
           <div role="status" className="space-y-2">
             <span className="sr-only">Loading rule</span>
-            <div className="h-4 w-1/3 animate-pulse rounded bg-surface-container-high" />
-            <div className="h-24 animate-pulse rounded bg-surface-container-high" />
+            <div className="h-4 w-1/3 loading-placeholder rounded bg-surface-container-high" />
+            <div className="h-24 loading-placeholder rounded bg-surface-container-high" />
           </div>
         )}
         {content && (

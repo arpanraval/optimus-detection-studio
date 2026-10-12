@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useMemo } from 'react';
 import { Icon } from './Icon';
 import { Role, Profile, UserInvitation } from '../types';
@@ -212,7 +215,7 @@ export const UserManagementPage: React.FC = () => {
     }, [invitations]);
 
     return (
-        <div className="h-full overflow-y-auto bg-background scrollbar-page animate-page-enter">
+        <div className="h-full overflow-y-auto bg-background scrollbar-page ">
             {/* FULL WIDTH - no max-w constraint */}
             <div className="px-8 py-8">
 
@@ -416,7 +419,8 @@ const UsersTable: React.FC<{
     getLastActive: (u: Profile) => string; canManageUsers: boolean; currentUserId: string | null;
     selectedIds: Set<string>; onToggleSelect: (id: string) => void; onToggleAll: (userIds: string[]) => void;
 }> = ({ users, isLoading, changingRoleFor, selectedUserId, sortConfig, onSort, onRoleChange, onSelectUser, onDeactivate, onReactivate, onDelete, onSetPassword, getDisplayName, fmtDate, getLastActive, canManageUsers, currentUserId, selectedIds, onToggleSelect, onToggleAll }) => {
-    if (isLoading) return <div className="flex items-center justify-center py-24"><Icon name="spinner" className="w-8 h-8 animate-spin text-primary/40" /></div>;
+    const initialLoading = useInitialLoading(isLoading);
+  if (initialLoading) return <PagePending layout="list" />;
     if (users.length === 0) return (
         <div className="flex flex-col items-center justify-center py-24 text-center">
             <Icon name="user-circle" className="w-12 h-12 text-on-surface-variant/20 mb-3" />
@@ -433,7 +437,7 @@ const UsersTable: React.FC<{
     const allChecked = users.length > 0 && users.every(u => selectedIds.has(u.id));
     const someChecked = selectedIds.size > 0 && !allChecked;
 
-    return (
+    return <> {isLoading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
         <div className="border border-outline-variant/40 rounded-xl overflow-hidden">
             <table className="w-full table-fixed">
                 <colgroup>
@@ -556,7 +560,7 @@ const UsersTable: React.FC<{
                 </tbody>
             </table>
         </div>
-    );
+    )} </>;
 };
 
 // =============================================================================
@@ -575,7 +579,7 @@ const DetailPanel: React.FC<{
     const isSelf = user.id === currentUserId;
 
     return (
-        <div className="w-[480px] flex-shrink-0 border border-outline-variant/40 rounded-xl bg-surface-container-high flex flex-col overflow-hidden animate-page-enter">
+        <div className="w-[480px] flex-shrink-0 border border-outline-variant/40 rounded-xl bg-surface-container-high flex flex-col overflow-hidden ">
             <div className="p-5 border-b border-outline-variant/20">
                 <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
@@ -719,7 +723,7 @@ const RoleDropdownChevron: React.FC<{
                 title="Change role"
             >
                 {isLoading
-                    ? <Icon name="spinner" className="w-3.5 h-3.5 animate-spin" />
+                    ? <Icon name="spinner" className="w-4 h-4" />
                     : <Icon name="chevron-down" className="w-3.5 h-3.5 text-on-surface-variant/60" />}
             </button>
             {open && (
@@ -760,7 +764,8 @@ const PendingMembersTable: React.FC<{
 }> = ({ profiles, invitationByEmail, isLoading, onResend, onCancel, fmtDate, fmtDateTime, isExpired, getDisplayName }) => {
     const { showToast } = useToast();
 
-    if (isLoading) return <div className="flex items-center justify-center py-24"><Icon name="spinner" className="w-8 h-8 animate-spin text-primary/40" /></div>;
+    const initialLoading = useInitialLoading(isLoading);
+  if (initialLoading) return <PagePending layout="list" />;
     if (profiles.length === 0) return (
         <div className="flex flex-col items-center justify-center py-24 text-center border border-outline-variant/40 rounded-xl">
             <Icon name="mail" className="w-12 h-12 text-on-surface-variant/20 mb-3" />
@@ -776,7 +781,7 @@ const PendingMembersTable: React.FC<{
         }
     };
 
-    return (
+    return <> {isLoading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
         <div className="border border-outline-variant/40 rounded-xl overflow-hidden">
             <table className="w-full">
                 <thead>
@@ -851,7 +856,7 @@ const PendingMembersTable: React.FC<{
                 </tbody>
             </table>
         </div>
-    );
+    )} </>;
 };
 
 export default UserManagementPage;

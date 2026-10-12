@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import React, { useState } from 'react';
 import type { IconName } from '../../Icon';
 import { DesignSystemPage, Section, ComponentRow } from '../shared';
@@ -5,7 +6,6 @@ import { Icon } from '../../Icon';
 
 export const DropdownsPage: React.FC = () => {
     const [selectedDropdown, setSelectedDropdown] = useState('');
-    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
     return (
         <DesignSystemPage
@@ -26,32 +26,14 @@ export const DropdownsPage: React.FC = () => {
 
                 <ComponentRow label="Dropdown Menu" description="Standard dropdown with trigger button">
                     <div className="flex gap-8 items-start">
-                        {/* Trigger Button */}
-                        <div className="relative">
-                            <button
-                                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                                className="flex items-center gap-2 px-4 py-2.5 bg-surface-container border border-outline-variant/30 text-on-surface rounded-xl font-medium text-sm hover:bg-surface-container-high transition-colors"
-                            >
-                                {selectedDropdown || 'Select option'}
-                                <Icon name="chevron-down" className="w-4 h-4 text-on-surface-variant" />
-                            </button>
-                            {isDropdownOpen && (
-                                <div className="absolute top-full left-0 mt-2 w-52 bg-surface-container border border-outline-variant/20 rounded-xl shadow-xl z-50 overflow-hidden py-1">
-                                    {['Production', 'Testing', 'Development', 'Draft'].map((opt, i) => (
-                                        <button
-                                            key={opt}
-                                            onClick={() => { setSelectedDropdown(opt); setIsDropdownOpen(false); }}
-                                            className={`w-full flex items-center justify-between px-4 py-2.5 text-sm transition-colors ${
-                                                i === 0 ? 'bg-[#783264]/10 text-on-surface' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high'
-                                            }`}
-                                        >
-                                            {opt}
-                                            {i === 0 && <Icon name="check" className="w-4 h-4 text-[#783264]" />}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
+                        <Select
+                            aria-label="Status"
+                            value={selectedDropdown}
+                            onChange={setSelectedDropdown}
+                            placeholder="Select option"
+                            className="w-52"
+                            options={['Production', 'Testing', 'Development', 'Draft'].map(value => ({ value, label: value }))}
+                        />
 
                         {/* Static Menu Preview */}
                         <div className="w-52 bg-surface-container border border-outline-variant/20 rounded-xl shadow-xl overflow-hidden py-1">

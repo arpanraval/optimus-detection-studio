@@ -1,4 +1,5 @@
 import React from 'react';
+import { Spinner } from './ui/Spinner';
 import { iconFactories, type IconName } from './icons/iconRegistry';
 
 export type { IconName } from './icons/iconRegistry';
@@ -23,6 +24,10 @@ const missingIconPlaceholder = (
 );
 
 export const Icon: React.FC<IconProps> = ({ name, className = 'w-6 h-6', strokeWidth, size, ...props }) => {
+  // Legacy callers share the same loading glyph while keeping their surrounding layout.
+  if (name === 'spinner' || name === 'loader') {
+    return <div {...props} className={`${className.replace(/\banimate-spin\b/g, '')} inline-flex items-center justify-center`}><Spinner /></div>;
+  }
   // If size is provided, add inline width/height style
   const sizeStyle = size ? { width: size, height: size } : undefined;
 

@@ -65,12 +65,10 @@ const DEFAULT_TIMEOUT_MS = 30000; // 30 seconds
  * Wraps a promise with a timeout to prevent indefinite hanging.
  */
 const withTimeout = <T,>(promise: Promise<T>, ms: number = DEFAULT_TIMEOUT_MS): Promise<T> => {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Operation timed out')), ms)
-    )
-  ]);
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Operation timed out')), ms);
+      promise.then(resolve, reject).finally(() => clearTimeout(timer));
+    });
 };
 
 /**
@@ -337,6 +335,13 @@ interface LibraryContextType {
   productionDetections: Detection[];
   developmentDetections: Detection[];
   isLoading: boolean;
+  hasLoaded: boolean;
+  loadError: string | null;
+  productionLoading: boolean;
+  productionLoaded: boolean;
+  productionError: string | null;
+  pendingRequestsLoading: boolean;
+  pendingRequestsError: string | null;
 
   // Pagination state
   productionPagination: PaginationState;
@@ -442,7 +447,15 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   const [currentLibrary, setCurrentLibraryState] = useState<LibraryType>(LIBRARY_PRODUCTION);
   const [productionDetections, setProductionDetections] = useState<Detection[]>([]);
   const [developmentDetections, setDevelopmentDetections] = useState<Detection[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [productionLoading, setProductionLoading] = useState(true);
+  const [developmentLoading, setDevelopmentLoading] = useState(true);
+  const [productionLoaded, setProductionLoaded] = useState(false);
+  const [developmentLoaded, setDevelopmentLoaded] = useState(false);
+  const [productionError, setProductionError] = useState<string | null>(null);
+  const [developmentError, setDevelopmentError] = useState<string | null>(null);
+  const [pendingRequestsLoading, setPendingRequestsLoading] = useState(userRole === 'admin');
+  const [pendingRequestsError, setPendingRequestsError] = useState<string | null>(null);
   const [pendingRequests, setPendingRequests] = useState<PublishRequest[]>([]);
   const [detectionPacks, setDetectionPacks] = useState<DetectionPack[]>([]);
 
@@ -505,6 +518,13 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
    */
   const productionRequestRef = useRef(0);
   const developmentRequestRef = useRef(0);
+  const readDeadlines = useRef(new Set<number>());
+  useEffect(() => () => {
+    productionRequestRef.current += 1;
+    developmentRequestRef.current += 1;
+    readDeadlines.current.forEach(timer => window.clearTimeout(timer));
+    readDeadlines.current.clear();
+  }, []);
 
   // Current pagination based on active library
   const currentPagination = currentLibrary === LIBRARY_DEVELOPMENT ? developmentPagination : productionPagination;
@@ -521,6 +541,15 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
 
   const refreshProductionLibrary = useCallback(async (page?: number, pageSize?: number, sort?: SortConfig, filters?: ServerFilters) => {
     const requestId = ++productionRequestRef.current;
+    setProductionLoading(true);
+    setProductionError(null);
+    const deadline = window.setTimeout(() => {
+      if (requestId !== productionRequestRef.current) return;
+      productionRequestRef.current += 1;
+      setProductionLoading(false);
+      setProductionError('Loading the production library timed out. Try again.');
+    }, DEFAULT_TIMEOUT_MS);
+    readDeadlines.current.add(deadline);
     const currentPage = page ?? productionPagination.page;
     const currentPageSize = pageSize ?? productionPagination.pageSize;
     const currentSort = sort ?? sortConfig;
@@ -562,6 +591,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       // A newer fetch started while this one was in flight — its answer is the current one.
       if (requestId !== productionRequestRef.current) return;
 
+      setProductionLoaded(true);
       setProductionDetections(rows);
       setProductionPagination(prev => ({
         ...prev,
@@ -572,11 +602,25 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       }));
     } catch (err) {
       logger.error('Error fetching production library:', err);
+      if (requestId === productionRequestRef.current) setProductionError('Couldn’t load the production library.');
+    } finally {
+      window.clearTimeout(deadline);
+      readDeadlines.current.delete(deadline);
+      if (requestId === productionRequestRef.current) setProductionLoading(false);
     }
   }, [userId, productionPagination.page, productionPagination.pageSize, sortConfig, serverFilters]);
 
   const refreshDevelopmentLibrary = useCallback(async (page?: number, pageSize?: number, sort?: SortConfig, filters?: ServerFilters) => {
     const requestId = ++developmentRequestRef.current;
+    setDevelopmentLoading(true);
+    setDevelopmentError(null);
+    const deadline = window.setTimeout(() => {
+      if (requestId !== developmentRequestRef.current) return;
+      developmentRequestRef.current += 1;
+      setDevelopmentLoading(false);
+      setDevelopmentError('Loading the development library timed out. Try again.');
+    }, DEFAULT_TIMEOUT_MS);
+    readDeadlines.current.add(deadline);
     const currentPage = page ?? developmentPagination.page;
     const currentPageSize = pageSize ?? developmentPagination.pageSize;
     const currentSort = sort ?? sortConfig;
@@ -615,6 +659,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
 
       if (requestId !== developmentRequestRef.current) return;
 
+      setDevelopmentLoaded(true);
       setDevelopmentDetections((data as unknown as Detection[]) || []);
       setDevelopmentPagination(prev => ({
         ...prev,
@@ -625,6 +670,11 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       }));
     } catch (err) {
       logger.error('Error fetching development library:', err);
+      if (requestId === developmentRequestRef.current) setDevelopmentError('Couldn’t load the development library.');
+    } finally {
+      window.clearTimeout(deadline);
+      readDeadlines.current.delete(deadline);
+      if (requestId === developmentRequestRef.current) setDevelopmentLoading(false);
     }
   }, [developmentPagination.page, developmentPagination.pageSize, sortConfig, serverFilters]);
 
@@ -640,7 +690,8 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       );
     } catch (err) {
       logger.error('Error refreshing libraries:', err);
-      // Continue even if timeout - partial data is better than none
+      // Each library owns its deadline and request ticket. An older refreshAll
+      // must not invalidate a newer filter/page request that has already completed.
     } finally {
       if (!silent) setIsLoading(false);
     }
@@ -655,6 +706,8 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
   // H1: Enhanced pending requests - fetch submitter profile separately if needed
   const refreshPendingRequests = useCallback(async () => {
     if (userRole !== 'admin') return;
+    setPendingRequestsLoading(true);
+    setPendingRequestsError(null);
     
     try {
       // First, get the promotion requests with detection info only
@@ -698,6 +751,9 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
       setPendingRequests(requestsWithSubmitter);
     } catch (err) {
       logger.error('Error fetching pending requests:', err);
+      setPendingRequestsError('Couldn’t load publish requests.');
+    } finally {
+      setPendingRequestsLoading(false);
     }
   }, [userRole]);
 
@@ -1619,7 +1675,10 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     userId,
     productionDetections,
     developmentDetections,
-    isLoading,
+    isLoading: isLoading || (currentLibrary === LIBRARY_DEVELOPMENT ? developmentLoading : productionLoading),
+    hasLoaded: currentLibrary === LIBRARY_DEVELOPMENT ? developmentLoaded : productionLoaded,
+    loadError: currentLibrary === LIBRARY_DEVELOPMENT ? developmentError : productionError,
+    productionLoading, productionLoaded, productionError, pendingRequestsLoading, pendingRequestsError,
     // Pagination
     productionPagination,
     developmentPagination,
@@ -1677,6 +1736,7 @@ export const LibraryProvider: React.FC<LibraryProviderProps> = ({ children, user
     getFilteredIds,
   }), [
     currentLibrary, userRole, userId, productionDetections, developmentDetections, isLoading,
+    productionLoading, developmentLoading, productionLoaded, developmentLoaded, productionError, developmentError, pendingRequestsLoading, pendingRequestsError,
     productionPagination, developmentPagination, currentPagination, setPage, setPageSize,
     sortConfig, setSort, serverFilters,
     refreshAll, forkToDevelopment, submitForPromotion, submitForPromotionSilent, checkPromotionEligibility,

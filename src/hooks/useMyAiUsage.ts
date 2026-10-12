@@ -3,20 +3,23 @@
 // (past full days) and ai_usage_events (today) into byFeature and byDay
 // series, plus the user's optional user-scoped budget.
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import type { AiUsageDaily, AiUsageEvent, AiBudget } from '../types/costCenter';
 
 export interface MyUsageWindow { days: 7 | 30 | 90 }
 
 export function useMyAiUsage(window: MyUsageWindow = { days: 30 }) {
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const requestId = useRef(0);
   const [error, setError] = useState<Error | null>(null);
   const [rollup, setRollup] = useState<AiUsageDaily[]>([]);
   const [today, setToday] = useState<AiUsageEvent[]>([]);
   const [myBudget, setMyBudget] = useState<{ budget: AiBudget; current: number } | null>(null);
 
   const fetchAll = useCallback(async () => {
+    const ticket = ++requestId.current;
     setIsLoading(true);
     setError(null);
     try {
@@ -49,6 +52,7 @@ export function useMyAiUsage(window: MyUsageWindow = { days: 30 }) {
       ]);
       if (rollupRes.error) throw rollupRes.error;
       if (todayRes.error)  throw todayRes.error;
+      if (ticket !== requestId.current) return;
       setRollup((rollupRes.data ?? []) as AiUsageDaily[]);
       setToday((todayRes.data ?? []) as AiUsageEvent[]);
 
@@ -57,18 +61,20 @@ export function useMyAiUsage(window: MyUsageWindow = { days: 30 }) {
         const { data: cur } = await supabase.rpc('get_current_spend', {
           p_scope: 'user', p_scope_value: user.id, p_period: b.period,
         });
+        if (ticket !== requestId.current) return;
         setMyBudget({ budget: b, current: Number(cur ?? 0) });
       } else {
         setMyBudget(null);
       }
+      setHasLoaded(true);
     } catch (e) {
-      setError(e as Error);
+      if (ticket === requestId.current) setError(e as Error);
     } finally {
-      setIsLoading(false);
+      if (ticket === requestId.current) setIsLoading(false);
     }
   }, [window.days]);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => { void fetchAll(); return () => { requestId.current += 1; }; }, [fetchAll]);
 
   const totals = useMemo(() => {
     let cost = 0, calls = 0;
@@ -105,5 +111,5 @@ export function useMyAiUsage(window: MyUsageWindow = { days: 30 }) {
     };
   }, [rollup, today]);
 
-  return { isLoading, error, ...totals, myBudget, refetch: fetchAll };
+  return { isLoading, hasLoaded, error, ...totals, myBudget, refetch: fetchAll };
 }

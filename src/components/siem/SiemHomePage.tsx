@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from '../Icon';
@@ -198,15 +201,9 @@ export function SiemHomePage({ integrationId }: SiemHomePageProps) {
   // Loading state
   // ---------------------------------------------------------------------------
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm text-on-surface-variant">Loading integration...</span>
-        </div>
-      </div>
-    );
+  const initialLoading = useInitialLoading(loading);
+  if (initialLoading) {
+    return <PagePending layout="detail" />;
   }
 
   // ---------------------------------------------------------------------------
@@ -272,7 +269,7 @@ export function SiemHomePage({ integrationId }: SiemHomePageProps) {
   // Render
   // ---------------------------------------------------------------------------
 
-  return (
+  return <> {loading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="px-4 lg:px-6 py-4 pb-16 space-y-6">
       {/* Breadcrumb */}
       <Breadcrumb
@@ -436,5 +433,5 @@ export function SiemHomePage({ integrationId }: SiemHomePageProps) {
         />
       )}
     </div>
-  );
+  )} </>;
 }

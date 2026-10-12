@@ -2,13 +2,13 @@
 // Admin CRUD for ai_budgets, plus 24h grant overrides. Joins each budget with
 // its current spend via the get_current_spend RPC and any active override row.
 
-import { useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import type { AiBudget, AiBudgetOverride, BudgetWithCurrent } from '../types/costCenter';
 
-export function useAiBudgets() {
+function useAiBudgetsData(enabled = true) {
   const [budgets, setBudgets] = useState<BudgetWithCurrent[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
   const fetchAll = useCallback(async () => {
@@ -55,7 +55,7 @@ export function useAiBudgets() {
     }
   }, []);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => { if (enabled) void fetchAll(); }, [fetchAll, enabled]);
 
   const createBudget = useCallback(
     async (b: Omit<AiBudget, 'id' | 'created_at' | 'updated_at' | 'created_by' | 'enabled'> & { enabled?: boolean }) => {
@@ -98,4 +98,11 @@ export function useAiBudgets() {
   }, [fetchAll]);
 
   return { budgets, isLoading, error, refetch: fetchAll, createBudget, updateBudget, deleteBudget, grantOverride };
+}
+
+export const AiBudgetsContext = createContext<ReturnType<typeof useAiBudgetsData> | null>(null);
+export function useAiBudgets() {
+  const shared = useContext(AiBudgetsContext);
+  const own = useAiBudgetsData(!shared);
+  return shared ?? own;
 }

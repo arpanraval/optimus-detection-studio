@@ -1,3 +1,4 @@
+import { Spinner } from '@/components/ui/Spinner';
 // ============================================================================
 // DASHBOARD TOOLBAR — tabs, edit toggle, undo/redo, add widget, export
 // ============================================================================
@@ -535,7 +536,7 @@ const DashboardToolbar: React.FC<DashboardToolbarProps> = ({ userId }) => {
             >
               {exporting ? (
                 <>
-                  <div className="animate-spin rounded-full h-3 w-3 border-b border-primary" />
+                  <Spinner className="text-primary" />
                   Exporting...
                 </>
               ) : (

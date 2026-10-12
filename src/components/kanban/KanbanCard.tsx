@@ -1,3 +1,4 @@
+import { Spinner } from '@/components/ui/Spinner';
 import React, { useState } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -425,7 +426,7 @@ export const KanbanCard: React.FC<KanbanCardProps> = React.memo(({
               className="w-6 h-6 rounded-lg bg-surface-container-highest/60 text-on-surface-variant/50 flex items-center justify-center flex-shrink-0 opacity-0 group-hover:opacity-100 hover:bg-[#783264]/15 hover:text-[#783264] transition-all"
             >
               {assigning ? (
-                <div className="w-2.5 h-2.5 border border-current border-t-transparent rounded-full animate-spin" />
+                <Spinner className="text-primary" />
               ) : (
                 <Icon name="user-plus" className="w-3 h-3" />
               )}

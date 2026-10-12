@@ -1,3 +1,7 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
+import { Select } from '@/components/ui/Select';
 import React, { useState, useMemo } from 'react';
 import { useDetectionStrategies, DetectionStrategy } from '../../hooks/useDetectionStrategies';
 import { Icon } from '../Icon';
@@ -128,15 +132,9 @@ export const DetectionStrategiesLibrary: React.FC<DetectionStrategiesLibraryProp
     onCreateDetection(prefill);
   };
 
-  if (loading) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <div className="text-center">
-          <Icon name="spinner" className="w-8 h-8 animate-spin text-primary mx-auto mb-3" />
-          <p className="text-sm text-on-surface-variant">Loading detection strategies...</p>
-        </div>
-      </div>
-    );
+  const initialLoading = useInitialLoading(loading);
+  if (initialLoading) {
+    return <PagePending layout="list" />;
   }
 
   if (error) {
@@ -151,7 +149,7 @@ export const DetectionStrategiesLibrary: React.FC<DetectionStrategiesLibraryProp
     );
   }
 
-  return (
+  return <> {loading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
       <div className="flex-shrink-0 px-6 lg:px-8 py-5 border-b border-outline-variant/10">
@@ -221,36 +219,44 @@ export const DetectionStrategiesLibrary: React.FC<DetectionStrategiesLibraryProp
 
             {/* Domain Filter */}
             {availablePlatforms.length > 0 && (
-              <select
+              <Select
                 value={platformFilter}
-                onChange={(e) => setPlatformFilter(e.target.value)}
-                className="px-4 py-2.5 bg-surface-container rounded-xl border border-outline-variant/10 text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30"
-              >
-                <option value="all">All Domains</option>
-                {availablePlatforms.map(p => (
-                  <option key={p} value={p}>{p.replace('enterprise-attack', 'Enterprise').replace('ics-attack', 'ICS').replace('mobile-attack', 'Mobile')}</option>
-                ))}
-              </select>
+                onChange={(nextValue) => setPlatformFilter(nextValue)}
+                aria-label="Domain"
+                size="md"
+                options={[
+                  { value: 'all', label: 'All Domains' },
+                  ...availablePlatforms.map((p) => ({
+                    value: p,
+                    label: p
+                      .replace('enterprise-attack', 'Enterprise')
+                      .replace('ics-attack', 'ICS')
+                      .replace('mobile-attack', 'Mobile'),
+                  })),
+                ]}
+              />
             )}
 
             {/* Sort */}
-            <select
+            <Select
               value={`${sortBy}-${sortOrder}`}
-              onChange={(e) => {
-                const [newSort, newOrder] = e.target.value.split('-') as [SortOption, 'asc' | 'desc'];
+              onChange={(nextValue) => {
+                const [newSort, newOrder] = nextValue.split('-') as [SortOption, 'asc' | 'desc'];
                 setSortBy(newSort);
                 setSortOrder(newOrder);
               }}
-              className="px-4 py-2.5 bg-surface-container rounded-xl border border-outline-variant/10 text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30"
-            >
-              <option value="impact_score-desc">Impact Score (High → Low)</option>
-              <option value="impact_score-asc">Impact Score (Low → High)</option>
-              <option value="analytic_count-desc">Most Analytics</option>
-              <option value="analytic_count-asc">Least Analytics</option>
-              <option value="name-asc">Name (A-Z)</option>
-              <option value="name-desc">Name (Z-A)</option>
-              <option value="technique-asc">Technique (A-Z)</option>
-            </select>
+              aria-label="Sort by"
+              size="md"
+              options={[
+                { value: 'impact_score-desc', label: 'Impact Score (High → Low)' },
+                { value: 'impact_score-asc', label: 'Impact Score (Low → High)' },
+                { value: 'analytic_count-desc', label: 'Most Analytics' },
+                { value: 'analytic_count-asc', label: 'Least Analytics' },
+                { value: 'name-asc', label: 'Name (A-Z)' },
+                { value: 'name-desc', label: 'Name (Z-A)' },
+                { value: 'technique-asc', label: 'Technique (A-Z)' },
+              ]}
+            />
           </div>
         </div>
       </div>
@@ -295,7 +301,7 @@ export const DetectionStrategiesLibrary: React.FC<DetectionStrategiesLibraryProp
         </div>
       </div>
     </div>
-  );
+  )} </>;
 };
 
 // Stat Card Component

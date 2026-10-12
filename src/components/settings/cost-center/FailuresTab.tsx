@@ -1,3 +1,6 @@
+import { PagePending } from '@/components/ui/PagePending';
+import { LoadError } from '@/components/ui/LoadError';
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
 import React from 'react';
 import { useAiUsage } from '../../../hooks/useAiUsage';
 import { CostCenterTile } from '../../cost-center/charts/CostCenterTile';
@@ -5,7 +8,7 @@ import { CostCenterTile } from '../../cost-center/charts/CostCenterTile';
 interface Props { range: { startDate: string; endDate: string } }
 
 export const FailuresTab: React.FC<Props> = ({ range }) => {
-  const { isLoading, breakdown, totalCostUsd, totalCalls } = useAiUsage(
+  const { isLoading, hasLoaded, error, refetch, breakdown, totalCostUsd, totalCalls } = useAiUsage(
     {
       ...range,
       categories: ['failed'],
@@ -16,11 +19,11 @@ export const FailuresTab: React.FC<Props> = ({ range }) => {
 
   return (
     <CostCenterTile title="Failed calls (money lost)" icon="alert-triangle">
-      {isLoading ? (
-        <div className="flex items-center justify-center h-32">
-          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
-        </div>
-      ) : breakdown.length === 0 ? (
+      {isLoading && hasLoaded && <LoadingStatus />}
+      {error && <LoadError onRetry={() => void refetch()} />}
+      {isLoading && !hasLoaded ? (
+        <PagePending layout="list" />
+      ) : error && !hasLoaded ? null : breakdown.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <p className="text-sm text-emerald-400">No failures in this window 🎉</p>
         </div>

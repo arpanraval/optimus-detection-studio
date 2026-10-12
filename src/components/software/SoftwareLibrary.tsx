@@ -1,3 +1,7 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
+import { Select } from '@/components/ui/Select';
 
 import React, { useState } from 'react';
 import { useSoftware, Software } from '../../hooks/useSoftware';
@@ -13,15 +17,9 @@ export const SoftwareLibrary: React.FC<SoftwareLibraryProps> = ({ onSelectSoftwa
   const { software, loading, error, filters, setFilters, stats, refetch } = useSoftware();
   const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards');
 
-  if (loading) {
-    return (
-      <div className="p-8 flex flex-col items-center justify-center h-full bg-background">
-        <Icon name="spinner" className="w-12 h-12 text-secondary animate-spin mb-4" />
-        <p className="text-on-surface-variant animate-pulse font-medium font-mono text-sm">
-          LOADING SOFTWARE CATALOG...
-        </p>
-      </div>
-    );
+  const initialLoading = useInitialLoading(loading);
+  if (initialLoading) {
+    return <PagePending layout="list" />;
   }
 
   if (error) {
@@ -45,7 +43,7 @@ export const SoftwareLibrary: React.FC<SoftwareLibraryProps> = ({ onSelectSoftwa
     );
   }
 
-  return (
+  return <> {loading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="flex flex-col h-full bg-background">
       {/* Header Toolbar */}
       <div className="flex-shrink-0 px-6 py-4 bg-background border-b border-outline-variant/30 shadow-sm">
@@ -131,18 +129,18 @@ export const SoftwareLibrary: React.FC<SoftwareLibraryProps> = ({ onSelectSoftwa
             />
           </div>
 
-          <select
+          <Select
             value={filters.sortBy}
-            onChange={(e) => setFilters({ ...filters, sortBy: e.target.value as any })}
-            className="px-4 py-3 bg-surface-container-high border border-outline-variant/30 rounded-lg 
-                     text-on-surface focus:outline-none focus:border-secondary transition-colors
-                     text-sm cursor-pointer"
-          >
-            <option value="name">Sort by Name</option>
-            <option value="technique_count">Sort by Techniques</option>
-            <option value="group_count">Sort by Groups</option>
-            <option value="modified">Sort by Modified</option>
-          </select>
+            onChange={(nextValue) => setFilters({ ...filters, sortBy: nextValue as any })}
+            aria-label="Sort by"
+            size="md"
+            options={[
+              { value: 'name', label: 'Sort by Name' },
+              { value: 'technique_count', label: 'Sort by Techniques' },
+              { value: 'group_count', label: 'Sort by Groups' },
+              { value: 'modified', label: 'Sort by Modified' },
+            ]}
+          />
 
           <button
             onClick={() =>
@@ -273,5 +271,5 @@ export const SoftwareLibrary: React.FC<SoftwareLibraryProps> = ({ onSelectSoftwa
         )}
       </div>
     </div>
-  );
+  )} </>;
 };

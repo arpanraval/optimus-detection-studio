@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import React, { useEffect, useRef, useState } from 'react';
 
 interface DecisionModalProps {
@@ -100,17 +101,17 @@ export const DecisionModal: React.FC<DecisionModalProps> = ({
               <label htmlFor="decision-quick-reason" className="block text-xs font-medium text-on-surface-variant mb-1.5">
                 What changed?
               </label>
-              <select
+              <Select
                 id="decision-quick-reason"
                 value={quickReason || ''}
-                onChange={(e) => setQuickReason(e.target.value || null)}
-                className="w-full px-3 py-2 bg-surface rounded-lg border border-outline/20 text-sm text-on-surface focus:border-primary focus:outline-none"
-              >
-                <option value="">Select a reason...</option>
-                {QUICK_REASONS.map(r => (
-                  <option key={r.value} value={r.value}>{r.label}</option>
-                ))}
-              </select>
+                onChange={(nextValue) => setQuickReason(nextValue || null)}
+                size="sm"
+                className="w-full"
+                options={[
+                  { value: '', label: 'Select a reason...' },
+                  ...QUICK_REASONS.map((r) => ({ value: r.value, label: r.label })),
+                ]}
+              />
             </div>
           )}
 

@@ -577,9 +577,9 @@ export function SiemHomeRulesTab({ integration }: SiemHomeRulesTabProps) {
     return (
       <div className="space-y-3">
         <div className="flex items-center gap-2 mb-4">
-          <div className="h-8 w-32 bg-surface-container-highest rounded-full animate-pulse" />
-          <div className="h-8 w-32 bg-surface-container-highest rounded-full animate-pulse" />
-          <div className="h-8 w-48 bg-surface-container-highest rounded-lg animate-pulse ml-auto" />
+          <div className="h-8 w-32 bg-surface-container-highest rounded-full loading-placeholder" />
+          <div className="h-8 w-32 bg-surface-container-highest rounded-full loading-placeholder" />
+          <div className="h-8 w-48 bg-surface-container-highest rounded-lg loading-placeholder ml-auto" />
         </div>
         {Array.from({ length: 6 }).map((_, i) => (
           <SkeletonRow key={i} />

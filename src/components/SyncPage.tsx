@@ -1,3 +1,4 @@
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Icon } from './Icon';
 import { Button, EmptyState } from './ui';
@@ -1264,11 +1265,7 @@ export const SyncPage: React.FC = () => {
 
                         {/* Zone 2: FOCUS — 3×2 stat grid, big numbers */}
                         <div className="flex-1 px-8 py-8 border-y border-outline-variant/15">
-                            {isLoading ? (
-                                <div className="flex items-center justify-center h-full py-4">
-                                    <Icon name="spinner" className="w-5 h-5 animate-spin text-on-surface-variant/40" />
-                                </div>
-                            ) : !metadata ? (
+                            {isLoading ? <PagePending layout="list" /> : !metadata ? (
                                 <EmptyState
                                     icon="download"
                                     title="No data synced"

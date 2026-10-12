@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../Icon';
 import type { ThreatResearchEvent, ResearchAgent } from '../../types/threatResearch';
@@ -91,14 +92,16 @@ export function ResearchActivityConsole({ events, open, onToggle }: Props) {
         {/* Filter bar — only visible when there's anything to filter. */}
         {events.length > 0 && (
           <div className="flex items-center gap-2 border-b border-outline-variant px-3 py-2">
-            <select
+            <Select
               value={agentFilter}
-              onChange={(e) => setAgentFilter(e.target.value as ResearchAgent | 'all')}
-              className="rounded-md border border-outline-variant bg-surface px-2 py-1 text-xs text-on-surface focus:border-primary focus:outline-none"
-            >
-              <option value="all">All agents</option>
-              {ALL_AGENTS.map(a => <option key={a} value={a}>{AGENT_LABEL[a]}</option>)}
-            </select>
+              onChange={(nextValue) => setAgentFilter(nextValue as ResearchAgent | 'all')}
+              aria-label="Agent"
+              size="sm"
+              options={[
+                { value: 'all', label: 'All agents' },
+                ...ALL_AGENTS.map((a) => ({ value: a, label: AGENT_LABEL[a] })),
+              ]}
+            />
             <input
               type="text"
               value={textFilter}

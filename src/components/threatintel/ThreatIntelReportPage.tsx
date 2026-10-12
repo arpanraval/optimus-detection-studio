@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { PagePending } from '@/components/ui/PagePending';
+import { Select } from '@/components/ui/Select';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import DOMPurify from 'dompurify';
 import { useParams, useNavigate, Link } from 'react-router-dom';
@@ -1243,12 +1246,8 @@ export const ThreatIntelReportPage: React.FC = () => {
     return counts;
   }, [report?.rules]);
 
-  if (loading || !report || !stats) {
-    return (
-      <div className="flex items-center justify-center h-full bg-background">
-        <Icon name="spinner" className="w-10 h-10 text-primary animate-spin" />
-      </div>
-    );
+  if (!report || !stats) {
+    return <PagePending layout="detail" />;
   }
 
   const mitreMatchCount = (report.mitreMapping?.matchedGroups?.length || 0) +
@@ -1264,6 +1263,7 @@ export const ThreatIntelReportPage: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-surface-container-low overflow-hidden">
+      {loading && <LoadingStatus label="Updating report…" />}
 
       {/* ========== COMPACT HEADER ========== */}
       <div className="flex-shrink-0 bg-background border-b border-outline-variant/30">
@@ -1528,17 +1528,19 @@ export const ThreatIntelReportPage: React.FC = () => {
                   {isEditing && editForm && (
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-on-surface-variant">Threat Level:</span>
-                      <select
+                      <Select
                         value={editForm.threatLevel}
-                        onChange={(e) => setEditForm({ ...editForm, threatLevel: e.target.value as ThreatLevel })}
-                        className="px-2 py-1 text-xs bg-surface-container-low border border-outline-variant/30 rounded-lg text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      >
-                        <option value={ThreatLevel.Critical}>Critical</option>
-                        <option value={ThreatLevel.High}>High</option>
-                        <option value={ThreatLevel.Medium}>Medium</option>
-                        <option value={ThreatLevel.Low}>Low</option>
-                        <option value={ThreatLevel.Informational}>Informational</option>
-                      </select>
+                        onChange={(nextValue) => setEditForm({ ...editForm, threatLevel: nextValue as ThreatLevel })}
+                        aria-label="Threat level"
+                        size="sm"
+                        options={[
+                          { value: ThreatLevel.Critical, label: 'Critical' },
+                          { value: ThreatLevel.High, label: 'High' },
+                          { value: ThreatLevel.Medium, label: 'Medium' },
+                          { value: ThreatLevel.Low, label: 'Low' },
+                          { value: ThreatLevel.Informational, label: 'Informational' },
+                        ]}
+                      />
                     </div>
                   )}
                 </div>

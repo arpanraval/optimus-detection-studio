@@ -1,3 +1,4 @@
+import { Spinner } from '@/components/ui/Spinner';
 import React, { useState, useEffect, useRef } from 'react';
 import { FeatureSlide, MockupFrame, FeatureCarousel } from '../shared/FeatureSlide';
 import { Icon } from '../../Icon';
@@ -247,7 +248,7 @@ export const PipelineMockup = () => {
                 <Icon name="check" className="w-3 h-3" style={{ color: TEAL }} />
               </div>
             ) : i === revealed ? (
-              <div className="w-6 h-6 rounded-full border-2 border-t-transparent animate-spin shrink-0" style={{ borderColor: `${ACCENT} transparent ${ACCENT}40 ${ACCENT}40` }} />
+              <Spinner className="text-primary" />
             ) : (
               <div className="w-6 h-6 rounded-full border border-outline-variant shrink-0" />
             )}

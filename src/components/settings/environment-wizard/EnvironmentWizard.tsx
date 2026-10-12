@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ROUTES } from '../../../router/routes';
@@ -67,12 +70,9 @@ export const EnvironmentWizard: React.FC<EnvironmentWizardProps> = ({ onBack }) 
     }
   }, [saveProfile, draft, navigate]);
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full" />
-      </div>
-    );
+  const initialLoading = useInitialLoading(isLoading);
+  if (initialLoading) {
+    return <PagePending layout="form" />;
   }
 
   const renderStep = () => {
@@ -146,8 +146,8 @@ export const EnvironmentWizard: React.FC<EnvironmentWizardProps> = ({ onBack }) 
 
   const completedCount = stepCompletion.filter(Boolean).length;
 
-  return (
-    <div className="max-w-7xl mx-auto px-6 py-6 animate-page-enter">
+  return <> {isLoading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
+    <div className="max-w-7xl mx-auto px-6 py-6 ">
       {/* Compact action bar — no duplicate page title (AppLayout already renders it) */}
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
@@ -214,7 +214,7 @@ export const EnvironmentWizard: React.FC<EnvironmentWizardProps> = ({ onBack }) 
           </div>
 
           <div className="px-5 pb-5">
-            <div key={currentStep} className="animate-page-enter">
+            <div key={currentStep} className="">
               {renderStep()}
             </div>
 
@@ -237,5 +237,5 @@ export const EnvironmentWizard: React.FC<EnvironmentWizardProps> = ({ onBack }) 
         </aside>
       </div>
     </div>
-  );
+  )} </>;
 };

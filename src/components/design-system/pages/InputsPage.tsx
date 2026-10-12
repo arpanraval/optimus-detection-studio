@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import React, { useState } from 'react';
 import { DesignSystemPage, Section, ComponentRow } from '../shared';
 import { Icon } from '../../Icon';
@@ -199,50 +200,16 @@ export const InputsPage: React.FC = () => {
 
                     <ComponentRow id="input-select" label="Select Dropdown" description="Custom dropdown (DS style)" source="detection-studio" isSelected={selectedComponents.has('input-select')} onToggleSelect={toggleSelection}>
                         <div className="flex gap-6 items-start">
-                            {/* Trigger + Static Menu Preview */}
-                            <div className="relative w-48">
-                                <button className="w-full h-10 px-4 pr-10 rounded-xl text-sm bg-surface-container border border-outline-variant/20 text-on-surface text-left flex items-center hover:bg-surface-container-high transition-colors">
-                                    Select severity
-                                </button>
-                                <Icon name="chevron-down" className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/50 pointer-events-none" />
-                                {/* Dropdown Menu */}
-                                <div className="absolute top-full left-0 mt-2 w-full bg-surface-container border border-outline-variant/20 rounded-xl shadow-xl z-50 overflow-hidden py-1">
-                                    {['Critical', 'High', 'Medium', 'Low'].map((opt, i) => (
-                                        <button
-                                            key={opt}
-                                            className={`w-full flex items-center justify-between px-4 py-2.5 text-sm transition-colors ${
-                                                i === 1 ? 'bg-[#783264]/10 text-on-surface' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high'
-                                            }`}
-                                        >
-                                            {opt}
-                                            {i === 1 && <Icon name="check" className="w-4 h-4 text-[#783264]" />}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                            {/* Filled State */}
-                            <div className="relative w-48">
-                                <button className="w-full h-10 px-4 pr-10 rounded-xl text-sm bg-surface-container border border-outline-variant/20 text-on-surface text-left flex items-center hover:bg-surface-container-high transition-colors">
-                                    High
-                                </button>
-                                <Icon name="chevron-down" className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/50 pointer-events-none" />
-                            </div>
+                            <Select aria-label="Severity" placeholder="Select severity" className="w-48"
+                                options={['Critical', 'High', 'Medium', 'Low'].map(value => ({ value, label: value }))} />
+                            <Select aria-label="Default severity" defaultValue="High" className="w-48"
+                                options={['Critical', 'High', 'Medium', 'Low'].map(value => ({ value, label: value }))} />
                         </div>
                     </ComponentRow>
 
                     <ComponentRow id="input-select-labeled" label="Labeled Select" description="With label and icon" source="detection-studio" isSelected={selectedComponents.has('input-select-labeled')} onToggleSelect={toggleSelection}>
-                        <div className="w-56">
-                            <label className="block text-sm font-medium text-on-surface mb-1.5">
-                                Data Source
-                            </label>
-                            <div className="relative">
-                                <Icon name="database" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/50 z-10" />
-                                <button className="w-full h-10 pl-10 pr-10 rounded-xl text-sm bg-surface-container border border-outline-variant/20 text-on-surface text-left flex items-center hover:bg-surface-container-high transition-colors">
-                                    Sysmon
-                                </button>
-                                <Icon name="chevron-down" className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/50 pointer-events-none" />
-                            </div>
-                        </div>
+                        <Select label="Data Source" leadingIcon="database" defaultValue="Sysmon" className="w-56"
+                            options={['Sysmon', 'Windows Events', 'CloudTrail'].map(value => ({ value, label: value }))} />
                     </ComponentRow>
 
                     <ComponentRow id="input-checkbox" label="Checkbox" description="Boolean selection" source="detection-studio" isSelected={selectedComponents.has('input-checkbox')} onToggleSelect={toggleSelection}>

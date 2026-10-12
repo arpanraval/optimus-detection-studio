@@ -16,6 +16,7 @@ interface AppDataContextType {
   setDetections: React.Dispatch<React.SetStateAction<Detection[]>>;
   mitreFramework: MitreFramework | null;
   isLoading: boolean;
+  loadError: string | null;
   saveDetection: (detection: Detection) => Promise<void>;
   deleteDetection: (id: string) => Promise<void>;
   sanitizeDetection: (data: any) => Detection;
@@ -130,12 +131,21 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({ children, user
   const [detections, setDetections] = useState<Detection[]>([]);
   const [mitreFramework, setMitreFramework] = useState<MitreFramework | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [libraryRefreshTrigger, setLibraryRefreshTrigger] = useState(0);
   const { showToast } = useToast();
 
   const PAGE_SIZE = 1000; // Supabase max rows per request
 
   useEffect(() => {
+    let inactive = false;
+    const controller = new AbortController();
+    const deadline = window.setTimeout(() => {
+      inactive = true;
+      controller.abort();
+      setLoadError('Loading dashboard data timed out. Reload to try again.');
+      setIsLoading(false);
+    }, 30000);
     // Paginate a single-filter query without count: 'exact' to avoid CPU spikes
     const fetchPaginated = async (
       filter: (q: any) => any
@@ -149,7 +159,8 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({ children, user
           supabase.from('detections').select(LIGHTWEIGHT_COLUMNS)
         )
           .order('updatedDate', { ascending: false })
-          .range(offset, offset + PAGE_SIZE - 1);
+          .range(offset, offset + PAGE_SIZE - 1)
+          .abortSignal(controller.signal);
 
         if (error) throw error;
         if (!data || data.length === 0) break;
@@ -182,11 +193,13 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({ children, user
 
     const fetchAllData = async () => {
       setIsLoading(true);
+      setLoadError(null);
       try {
         const [allDetections] = await Promise.all([
           fetchAllDetections(),
           loadMitreFrameworkData(),
         ]);
+        if (inactive) return;
 
         setDetections(allDetections);
         setMitreFramework(getMitreFramework());
@@ -196,13 +209,21 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({ children, user
         // findMatches() gracefully returns empty results if not yet ready.
         attackRuleMapService.initialize();
       } catch (err) {
+        if (inactive) return;
+        setLoadError('Couldn’t load dashboard data. Reload to try again.');
         console.error("Failed to load application data:", err);
         showToast('error', 'Initialization Error', 'Failed to load application data.');
       } finally {
-        setIsLoading(false);
+        window.clearTimeout(deadline);
+        if (!inactive) setIsLoading(false);
       }
     };
     fetchAllData();
+    return () => {
+      inactive = true;
+      controller.abort();
+      window.clearTimeout(deadline);
+    };
   }, []);
 
   const saveDetection = useCallback(async (detection: Detection) => {
@@ -285,12 +306,13 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({ children, user
     setDetections,
     mitreFramework,
     isLoading,
+    loadError,
     saveDetection,
     deleteDetection,
     sanitizeDetection: sanitizeSingleDetection,
     refreshLibrary,
     libraryRefreshTrigger,
-  }), [user, profile, detections, mitreFramework, isLoading,
+  }), [user, profile, detections, mitreFramework, isLoading, loadError,
        saveDetection, deleteDetection, refreshLibrary, libraryRefreshTrigger]);
 
   return (

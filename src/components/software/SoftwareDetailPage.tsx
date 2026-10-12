@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useMemo } from 'react';
 import { useSoftwareDetail } from '../../hooks/useSoftwareDetail';
 import { SoftwareMiniMatrix } from './SoftwareMiniMatrix';
@@ -45,15 +48,9 @@ export const SoftwareDetailPage: React.FC<SoftwareDetailPageProps> = ({
     return { covered, total, percent };
   }, [software, coverage]);
 
-  if (loading) {
-    return (
-      <div className="p-8 flex flex-col items-center justify-center h-full bg-background">
-        <Icon name="spinner" className="w-12 h-12 text-secondary animate-spin mb-4" />
-        <p className="text-on-surface-variant animate-pulse font-medium font-mono text-sm">
-          LOADING SOFTWARE INTELLIGENCE...
-        </p>
-      </div>
-    );
+  const initialLoading = useInitialLoading(loading);
+  if (initialLoading) {
+    return <PagePending layout="detail" />;
   }
 
   if (error || !software) {
@@ -76,7 +73,7 @@ export const SoftwareDetailPage: React.FC<SoftwareDetailPageProps> = ({
   const lastModified = software.data.modified ? new Date(software.data.modified).toLocaleDateString() : 'Unknown';
   const isMalware = software.software_type === 'malware';
 
-  return (
+  return <> {loading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="flex flex-col h-full bg-surface-container-low text-on-surface overflow-hidden">
       
       {/* 1. SUPER HEADER */}
@@ -263,5 +260,5 @@ export const SoftwareDetailPage: React.FC<SoftwareDetailPageProps> = ({
         </div>
       </div>
     </div>
-  );
+  )} </>;
 };

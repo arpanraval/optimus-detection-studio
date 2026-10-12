@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import React, { useState, useEffect, useCallback } from 'react';
 import { Icon } from '../Icon';
 import { supabase } from '../../lib/supabaseClient';
@@ -105,33 +106,37 @@ export function SiemHomeHistoryTab({ integration }: SiemHomeHistoryTabProps) {
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
           <label className="text-xs text-on-surface-variant">Action</label>
-          <select
+          <Select
             value={filterAction}
-            onChange={e => setFilterAction(e.target.value)}
-            className="bg-surface-container-high text-on-surface border border-outline-variant/20 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-          >
-            <option value="all">All</option>
-            <option value="create">Create</option>
-            <option value="update">Update</option>
-            <option value="delete">Delete</option>
-            <option value="enable">Enable</option>
-            <option value="disable">Disable</option>
-          </select>
+            onChange={(nextValue) => setFilterAction(nextValue)}
+            aria-label="Action"
+            size="sm"
+            options={[
+              { value: 'all', label: 'All' },
+              { value: 'create', label: 'Create' },
+              { value: 'update', label: 'Update' },
+              { value: 'delete', label: 'Delete' },
+              { value: 'enable', label: 'Enable' },
+              { value: 'disable', label: 'Disable' },
+            ]}
+          />
         </div>
         <div className="flex items-center gap-2">
           <label className="text-xs text-on-surface-variant">Status</label>
-          <select
+          <Select
             value={filterStatus}
-            onChange={e => setFilterStatus(e.target.value)}
-            className="bg-surface-container-high text-on-surface border border-outline-variant/20 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-          >
-            <option value="all">All</option>
-            <option value="success">Success</option>
-            <option value="failed">Failed</option>
-            <option value="pending">Pending</option>
-            <option value="in_progress">In Progress</option>
-            <option value="rolled_back">Rolled Back</option>
-          </select>
+            onChange={(nextValue) => setFilterStatus(nextValue)}
+            aria-label="Status"
+            size="sm"
+            options={[
+              { value: 'all', label: 'All' },
+              { value: 'success', label: 'Success' },
+              { value: 'failed', label: 'Failed' },
+              { value: 'pending', label: 'Pending' },
+              { value: 'in_progress', label: 'In Progress' },
+              { value: 'rolled_back', label: 'Rolled Back' },
+            ]}
+          />
         </div>
       </div>
 

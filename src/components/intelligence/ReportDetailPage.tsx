@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Icon } from '../Icon';
@@ -252,12 +255,9 @@ export const ReportDetailPage: React.FC = () => {
       }
     : null;
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-24">
-        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+  const initialLoading = useInitialLoading(loading);
+  if (initialLoading) {
+    return <PagePending layout="detail" />;
   }
 
   if (!report) {
@@ -276,7 +276,7 @@ export const ReportDetailPage: React.FC = () => {
   const typeBadge = TYPE_BADGE[report.report_type] || TYPE_BADGE.manual;
   const typeLabel = TYPE_LABEL[report.report_type] || report.report_type;
 
-  return (
+  return <> {loading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
       {/* Back link */}
       <Link to={ROUTES.REPORTS} className="text-sm text-primary hover:underline inline-flex items-center gap-1">
@@ -406,7 +406,7 @@ export const ReportDetailPage: React.FC = () => {
         </div>
       )}
     </div>
-  );
+  )} </>;
 };
 
 export default ReportDetailPage;

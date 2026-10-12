@@ -19,19 +19,19 @@ it('uses app dropdowns and derives Defender category without a shared category p
   const { container } = render(<Form provider="defender_xdr" />);
   expect(container.querySelector('select')).toBeNull();
   expect(screen.getByText("From each detection's MITRE tactics")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Daily' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Every 3 hours' }));
+  fireEvent.click(screen.getByRole('combobox', { name: 'Frequency' }));
+  fireEvent.click(screen.getByRole('option', { name: 'Every 3 hours' }));
   expect(screen.getByRole('status')).toHaveTextContent('"frequency":"3H"');
-  fireEvent.click(screen.getByRole('button', { name: "Use each detection's severity" }));
-  fireEvent.click(screen.getByRole('button', { name: 'High' }));
+  fireEvent.click(screen.getByRole('combobox', { name: 'Severity' }));
+  fireEvent.click(screen.getByRole('option', { name: 'High' }));
   expect(screen.getByRole('status')).toHaveTextContent('"severity":"High"');
   expect(screen.getByRole('status')).not.toHaveTextContent('category');
 });
 
 it('keeps Sentinel lookback aligned when the custom frequency dropdown changes', () => {
   render(<Form provider="sentinel" />);
-  fireEvent.click(screen.getByRole('button', { name: 'Every hour' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Every 12 hours' }));
+  fireEvent.click(screen.getByRole('combobox', { name: 'Query Frequency' }));
+  fireEvent.click(screen.getByRole('option', { name: 'Every 12 hours' }));
   expect(screen.getByRole('status')).toHaveTextContent('"queryFrequency":"PT12H","queryPeriod":"P1D"');
 });
 

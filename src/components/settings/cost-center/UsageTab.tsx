@@ -1,3 +1,7 @@
+import { PagePending } from '@/components/ui/PagePending';
+import { LoadError } from '@/components/ui/LoadError';
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { Select } from '@/components/ui/Select';
 import React, { useState } from 'react';
 import { Icon } from '../../Icon';
 import { useAiUsage, type GroupBy } from '../../../hooks/useAiUsage';
@@ -17,7 +21,7 @@ const GROUP_OPTIONS: { value: GroupBy; label: string }[] = [
 
 export const UsageTab: React.FC<Props> = ({ range }) => {
   const [groupBy, setGroupBy] = useState<GroupBy>('feature');
-  const { isLoading, breakdown, totalCostUsd, totalCalls } = useAiUsage(range, groupBy);
+  const { isLoading, hasLoaded, error, refetch, breakdown, totalCostUsd, totalCalls } = useAiUsage(range, groupBy);
   const resolveUser = useResolveUserLabel();
 
   return (
@@ -25,20 +29,20 @@ export const UsageTab: React.FC<Props> = ({ range }) => {
       title={`Usage by ${groupBy}`}
       icon="list"
       action={
-        <select
+        <Select
           value={groupBy}
-          onChange={e => setGroupBy(e.target.value as GroupBy)}
-          className="text-[11px] bg-surface-container border border-outline-variant/15 rounded-md px-2 py-1 text-on-surface focus:outline-none focus:ring-1 focus:ring-primary/40"
-        >
-          {GROUP_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
+          onChange={(nextValue) => setGroupBy(nextValue as GroupBy)}
+          aria-label="Group usage by"
+          size="sm"
+          options={[...GROUP_OPTIONS.map((o) => ({ value: o.value, label: o.label }))]}
+        />
       }
     >
-      {isLoading ? (
-        <div className="flex items-center justify-center h-32">
-          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
-        </div>
-      ) : breakdown.length === 0 ? (
+      {isLoading && hasLoaded && <LoadingStatus />}
+      {error && <LoadError onRetry={() => void refetch()} />}
+      {isLoading && !hasLoaded ? (
+        <PagePending layout="list" />
+      ) : error && !hasLoaded ? null : breakdown.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <Icon name="inbox" className="w-8 h-8 text-on-surface-variant/20 mb-3" />
           <p className="text-sm text-on-surface-variant/40">No usage in this window</p>

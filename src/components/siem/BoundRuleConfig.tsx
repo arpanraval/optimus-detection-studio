@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import React from 'react';
 import type { RuleContent } from '@/services/nativeSiemService';
 import { applySchedule, schedulingFields } from '../../../supabase/functions/_shared/siem-rule-editing';
@@ -76,15 +77,18 @@ export function BoundRuleConfig({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <label className="block">
           <span className="block text-xs font-medium text-on-surface-variant mb-1">Severity</span>
-          <select
+          <Select
             value={draft.severity}
-            onChange={(event) => set('severity', event.target.value)}
+            onChange={(nextValue) => set('severity', nextValue)}
             disabled={disabled}
-            className={FIELD_CLASS}
-          >
-            {(severities.includes(draft.severity) ? severities : [draft.severity, ...severities])
-              .map((severity) => <option key={severity} value={severity}>{severity}</option>)}
-          </select>
+            aria-label="Severity"
+            size="sm"
+            options={[
+              ...(severities.includes(draft.severity) ? severities : [draft.severity, ...severities]).map(
+                (severity) => ({ value: severity, label: severity }),
+              ),
+            ]}
+          />
         </label>
         {draft.outcomeEditable !== false && <label className="block">
           <span className="block text-xs font-medium text-on-surface-variant mb-1">Outcome</span>
@@ -120,16 +124,20 @@ export function BoundRuleConfig({
         </label>}
         <label className="block">
           <span className="block text-xs font-medium text-on-surface-variant mb-1">Status in {providerName}</span>
-          <select
+          <Select
             value={draft.enabled === null ? 'unknown' : draft.enabled ? 'active' : 'inactive'}
-            onChange={(event) => set('enabled', event.target.value === 'active')}
+            onChange={(nextValue) => set('enabled', nextValue === 'active')}
             disabled={disabled}
-            className={FIELD_CLASS}
-          >
-            {draft.enabled === null && <option value="unknown" disabled>Unknown — preserve current state</option>}
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </select>
+            aria-label="Rule status"
+            size="sm"
+            options={[
+              ...(draft.enabled === null
+                ? [{ value: 'unknown', label: 'Unknown — preserve current state', disabled: true }]
+                : []),
+              { value: 'active', label: 'Active' },
+              { value: 'inactive', label: 'Inactive' },
+            ]}
+          />
         </label>
       </div>
       <p className="text-[11px] text-on-surface-variant">

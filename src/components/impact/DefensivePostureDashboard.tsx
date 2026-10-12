@@ -1,4 +1,7 @@
 import React from 'react';
+import { PagePending } from '@/components/ui/PagePending';
+import { LoadError } from '@/components/ui/LoadError';
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
 import { Icon } from '../Icon';
 import { ScopeToggle } from '../common/ScopeToggle';
 import { useDefensivePosture, TechniqueGap } from '../../hooks/useImpactScores';
@@ -25,13 +28,15 @@ export function DefensivePostureDashboard({
   onBuildDetection,
   className = ''
 }: DefensivePostureDashboardProps) {
-  const { posture, loading, error } = useDefensivePosture(userId, scope);
+  const { posture, loading, error, refetch } = useDefensivePosture(userId, scope);
 
-  if (loading) {
-    return <PostureLoadingSkeleton />;
+  if (loading && !posture) {
+    return <PagePending layout="dashboard" />;
   }
 
-  if (error || !posture) {
+  if (error && !posture) return <LoadError label="Couldn’t load defensive posture." onRetry={refetch} />;
+
+  if (!posture) {
     return (
       <div className="h-full flex flex-col bg-background">
         <div className="flex-shrink-0 px-6 lg:px-8 py-5 border-b border-outline-variant/10">
@@ -64,6 +69,8 @@ export function DefensivePostureDashboard({
 
   return (
     <div className={`h-full flex flex-col bg-background ${className}`}>
+      {loading && <LoadingStatus />}
+      {error && <LoadError label="Couldn’t refresh defensive posture. Showing previously loaded data." onRetry={refetch} />}
       {/* Header */}
       <div className="flex-shrink-0 px-6 lg:px-8 py-5 border-b border-outline-variant/10">
         <div className="max-w-7xl mx-auto">
@@ -380,37 +387,6 @@ function QuickWinCard({
           Create Detection
         </button>
       )}
-    </div>
-  );
-}
-
-/**
- * Loading skeleton
- */
-function PostureLoadingSkeleton() {
-  return (
-    <div className="h-full flex flex-col bg-background">
-      <div className="flex-shrink-0 px-6 lg:px-8 py-5 border-b border-outline-variant/10">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-surface-container-high animate-pulse" />
-            <div>
-              <div className="h-5 w-40 bg-surface-container-high rounded animate-pulse" />
-              <div className="h-4 w-64 bg-surface-container-high rounded animate-pulse mt-2" />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-7xl mx-auto px-6 lg:px-8 py-6 space-y-6">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="bg-surface-container rounded-xl h-32 animate-pulse" />
-            ))}
-          </div>
-          <div className="bg-surface-container rounded-xl h-64 animate-pulse" />
-        </div>
-      </div>
     </div>
   );
 }

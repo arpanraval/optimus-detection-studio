@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import { NewUseCaseForm } from '../../components/NewUseCaseForm';
@@ -183,13 +186,9 @@ export const DetectionFormPage: React.FC<DetectionFormPageProps> = ({ mode }) =>
     navigate(`${ROUTES.BULK_IMPORT}?source=github`);
   };
 
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-4">
-        <Icon name="spinner" className="w-12 h-12 animate-spin text-primary" />
-        <p className="text-text-secondary font-medium">Loading...</p>
-      </div>
-    );
+  const initialLoading = useInitialLoading(loading);
+  if (initialLoading) {
+    return <PagePending layout="form" />;
   }
 
   if (mode === 'edit' && !detection) {
@@ -221,7 +220,7 @@ export const DetectionFormPage: React.FC<DetectionFormPageProps> = ({ mode }) =>
     );
   }
 
-  return (
+  return <> {loading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <PageErrorBoundary pageName="Detection Form" onNavigateHome={() => navigate(ROUTES.HOME)}>
       <NewUseCaseForm
         detectionToEdit={mode === 'edit' ? detection : null}
@@ -236,7 +235,7 @@ export const DetectionFormPage: React.FC<DetectionFormPageProps> = ({ mode }) =>
         refinementOriginalQuery={mode === 'edit' ? refinementOriginalQuery : undefined}
       />
     </PageErrorBoundary>
-  );
+  )} </>;
 };
 
 export default DetectionFormPage;

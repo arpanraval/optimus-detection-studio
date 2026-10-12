@@ -1,3 +1,6 @@
+import { PagePending } from '@/components/ui/PagePending';
+import { LoadError } from '@/components/ui/LoadError';
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Icon } from './Icon';
@@ -27,7 +30,9 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ query: initialQuer
   const { detections } = useAppData();
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [results, setResults] = useState<Results>({ detections: [], techniques: [], groups: [], software: [], campaigns: [] });
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(Boolean(initialQuery.trim()));
+  const [searchError, setSearchError] = useState(false);
+  const [retry, setRetry] = useState(0);
   const mitreService = useRef(new MITREQueryService(supabase));
 
   useEffect(() => {
@@ -35,6 +40,9 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ query: initialQuer
   }, [initialQuery]);
 
   useEffect(() => {
+    let cancelled = false;
+    setIsLoading(Boolean(searchQuery.trim()));
+    setSearchError(false);
     const performSearch = async () => {
       if (!searchQuery.trim()) {
         setResults({ detections: [], techniques: [], groups: [], software: [], campaigns: [] });
@@ -53,6 +61,7 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ query: initialQuer
 
       try {
         const mitreResults = await mitreService.current.search(searchQuery);
+        if (cancelled) return;
         setResults({
           detections: matchedDetections,
           techniques: mitreResults.techniques,
@@ -61,16 +70,18 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ query: initialQuer
           campaigns: mitreResults.campaigns
         });
       } catch (error) {
+        if (cancelled) return;
+        setSearchError(true);
         console.error('Search failed', error);
         setResults({ detections: matchedDetections, techniques: [], groups: [], software: [], campaigns: [] });
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
 
     const debounce = setTimeout(performSearch, 300);
-    return () => clearTimeout(debounce);
-  }, [searchQuery, detections]);
+    return () => { cancelled = true; clearTimeout(debounce); };
+  }, [searchQuery, detections, retry]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -157,15 +168,11 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ query: initialQuer
       )}
 
       {/* Loading state */}
-      {isLoading && (
-        <div className="flex items-center justify-center py-16">
-          <Icon name="spinner" className="w-6 h-6 text-primary animate-spin" />
-          <span className="ml-3 text-on-surface-variant">Searching...</span>
-        </div>
-      )}
+      {isLoading && (totalResults > 0 ? <LoadingStatus label="Updating search results…" /> : <PagePending label="Searching…" />)}
+      {searchError && <LoadError label="Some search results could not be loaded." onRetry={() => setRetry(value => value + 1)} />}
 
       {/* No results */}
-      {!isLoading && searchQuery.trim() && totalResults === 0 && (
+      {!isLoading && !searchError && searchQuery.trim() && totalResults === 0 && (
         <div className="text-center py-16">
           <Icon name="search" className="w-12 h-12 text-on-surface-variant/30 mx-auto mb-4" />
           <p className="text-on-surface-variant text-lg">No results found for "{searchQuery}"</p>
@@ -182,7 +189,7 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ query: initialQuer
       )}
 
       {/* Categorized results */}
-      {!isLoading && sections.map(section => {
+      {sections.map(section => {
         const items = results[section.key];
         if (items.length === 0) return null;
 

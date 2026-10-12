@@ -1,3 +1,4 @@
+import { Spinner } from '@/components/ui/Spinner';
 import React, { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../../lib/supabaseClient';
@@ -179,7 +180,7 @@ export const DetectionActionQueue: React.FC<DetectionActionQueueProps> = ({
     return (
       <div className="rounded-2xl overflow-hidden" style={{ backgroundColor: 'rgb(var(--md-sys-color-surface-container-high))' }}>
         <div className="p-5">
-          <div className="h-4 w-40 bg-surface-container rounded animate-pulse mb-4" />
+          <div className="h-4 w-40 bg-surface-container rounded loading-placeholder mb-4" />
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="h-11 bg-surface-container/50 rounded-lg animate-pulse mb-1" style={{ opacity: 1 - i * 0.15 }} />
           ))}
@@ -413,7 +414,7 @@ export const DetectionActionQueue: React.FC<DetectionActionQueueProps> = ({
                         <td colSpan={7} className="px-5 pb-4 pt-2">
                           {expandLoading ? (
                             <div className="flex items-center gap-2 py-3">
-                              <div className="animate-spin w-4 h-4 border-2 border-ext-teal border-t-transparent rounded-full" />
+                              <Spinner className="text-primary" />
                               <span className="text-[11px] text-outline">Loading...</span>
                             </div>
                           ) : expandedData ? (

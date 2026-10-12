@@ -1,3 +1,5 @@
+import { Skeleton } from '@/components/ui/Skeleton';
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
 // ============================================================================
 // WIDGET CHROME — wrapper providing drag handle, title bar, settings, remove
 // ============================================================================
@@ -110,8 +112,9 @@ const WidgetChrome: React.FC<WidgetChromeProps> = ({ widget, onNavigate }) => {
         <WidgetErrorBoundary widgetId={widget.id}>
           <Suspense
             fallback={
-              <div className="flex items-center justify-center h-full">
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
+              <div className="p-4 space-y-3 h-full">
+                <LoadingStatus label="Loading widget…" spinner={false} />
+                <Skeleton variant="rounded" height="h-24" />
               </div>
             }
           >

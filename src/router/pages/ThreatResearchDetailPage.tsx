@@ -1,3 +1,6 @@
+import { PagePending } from '@/components/ui/PagePending';
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { LoadError } from '@/components/ui/LoadError';
 import React, { useState, useMemo } from 'react';
 import { Navigate, useParams, useNavigate } from 'react-router-dom';
 import { Icon } from '../../components/Icon';
@@ -116,18 +119,13 @@ export function ThreatResearchDetailPage() {
     }
   }, [session?.status, session?.failure_reason]);
 
-  if (permissionsLoading) return null;
+  if (permissionsLoading) return <PagePending layout="detail" />;
   if (!hasRole('owner')) return <Navigate to="/" replace />;
 
-  if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center text-sm text-on-surface-variant">
-        <Icon name="loader" size={20} className="mr-2 animate-spin" />
-        Loading session...
-      </div>
-    );
+  if (loading && !session) {
+    return <PagePending layout="detail" />;
   }
-  if (error) {
+  if (error && !session) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-on-error">
         <Icon name="alert-triangle" size={16} className="mr-2" />
@@ -187,6 +185,8 @@ export function ThreatResearchDetailPage() {
 
   return (
     <div className="flex h-full flex-col">
+      {loading && <LoadingStatus label="Updating research…" />}
+      {error && <LoadError label={error} onRetry={refetch} />}
       <ResearchHeader session={session} view={view} onViewChange={setView} currentPhase={jobs.currentPhase} />
 
       {/* Planner-degraded banner. ext-amber wash matches the design

@@ -73,7 +73,7 @@ export function InventoryTable({
     return (
       <div role="status" className="space-y-3 px-5 py-6">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-12 animate-pulse rounded-lg bg-surface-container-high" />
+          <div key={i} className="h-12 loading-placeholder rounded-lg bg-surface-container-high" />
         ))}
       </div>
     );

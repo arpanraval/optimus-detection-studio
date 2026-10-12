@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { PagePending } from '@/components/ui/PagePending';
+import { Spinner } from '@/components/ui/Spinner';
 import React, { useState, useRef, useCallback } from 'react';
 import { useStateSponsoredReport } from '../../hooks/useStateSponsoredReport';
 import { EMPTY_FILTERS, hasActiveFilters } from './types';
@@ -192,12 +195,7 @@ export const StateSponsoredReportPage: React.FC<Props> = ({ onNavigate }) => {
                 : 'bg-surface-container-highest text-on-surface-variant/40 cursor-not-allowed'
               }`}
           >
-            {loading ? (
-              <>
-                <div className="w-4 h-4 border-2 border-on-primary border-t-transparent rounded-full animate-spin" />
-                Generating...
-              </>
-            ) : (
+            {loading ? <><Spinner /> Running…</> : (
               <>
                 <Icon name="play" className="w-4 h-4" />
                 Run Report
@@ -256,14 +254,7 @@ export const StateSponsoredReportPage: React.FC<Props> = ({ onNavigate }) => {
       </div>
 
       {/* Loading state */}
-      {groupsLoading && (
-        <div className="flex items-center justify-center min-h-[30vh]">
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            <p className="text-on-surface-variant text-sm">Loading filter options...</p>
-          </div>
-        </div>
-      )}
+      {groupsLoading && <PagePending layout="list" />}
 
       {/* Empty state — no report yet */}
       {!groupsLoading && !loading && !error && !report && (
@@ -302,19 +293,10 @@ export const StateSponsoredReportPage: React.FC<Props> = ({ onNavigate }) => {
       )}
 
       {/* Loading overlay while generating */}
-      {loading && (
-        <div className="flex items-center justify-center min-h-[40vh]">
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            <p className="text-on-surface-variant text-sm">
-              Generating threat posture report...
-            </p>
-          </div>
-        </div>
-      )}
+      {loading && (report ? <LoadingStatus label="Generating report…" /> : <PagePending layout="detail" label="Generating report…" />)}
 
       {/* Report sections */}
-      {!loading && !error && report && (
+      {!error && report && (
         <>
           <ExecutiveHeader report={report} onExportPdf={() => generateReportPdf(report)} onExportExcel={() => generateReportExcel(report)} onExportAdvisory={() => generateAdvisoryExcel(report)} />
           <ThreatGroupsTable groups={report.groups} onNavigate={onNavigate} />

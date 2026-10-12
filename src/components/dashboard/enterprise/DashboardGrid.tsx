@@ -7,6 +7,9 @@ import { Responsive, WidthProvider } from 'react-grid-layout/legacy';
 import type { Layout, ResponsiveLayouts as RGLResponsiveLayouts } from 'react-grid-layout/legacy';
 import { useDashboard } from './DashboardContext';
 import WidgetChrome from './WidgetChrome';
+import { PagePending } from '@/components/ui/PagePending';
+import { LoadError } from '@/components/ui/LoadError';
+import { useAppData } from '@/router/AppDataContext';
 import type { ResponsiveLayouts } from './widgets/types';
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
@@ -17,6 +20,7 @@ interface DashboardGridProps {
 
 const DashboardGrid: React.FC<DashboardGridProps> = ({ onNavigate }) => {
   const { state, dispatch, activeDashboard } = useDashboard();
+  const appData = useAppData();
 
   const layouts = useMemo(() => {
     if (!activeDashboard) return { lg: [], md: [], sm: [], xs: [] } as unknown as RGLResponsiveLayouts;
@@ -33,6 +37,12 @@ const DashboardGrid: React.FC<DashboardGridProps> = ({ onNavigate }) => {
     },
     [state.isEditMode, dispatch],
   );
+
+  if (state.isLoading && !activeDashboard) return <PagePending layout="dashboard" />;
+  if (appData.isLoading && appData.detections.length === 0) return <PagePending layout="dashboard" />;
+  if (appData.loadError && appData.detections.length === 0) {
+    return <LoadError label={appData.loadError} onRetry={() => window.location.reload()} />;
+  }
 
   if (!activeDashboard || activeDashboard.widgets.length === 0) {
     return (

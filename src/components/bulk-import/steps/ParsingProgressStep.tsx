@@ -1,3 +1,4 @@
+import { Spinner } from '@/components/ui/Spinner';
 /**
  * ParsingProgressStep - Shows progress during file parsing
  * Uses composite progress calculation, phase indicators, ETA, and rate limit display
@@ -207,10 +208,7 @@ export function ParsingProgressStep() {
         <div className="flex justify-center">
           <div className="relative">
             <div className="w-16 h-16 border-4 border-surface-variant rounded-full" />
-            <div
-              className="absolute top-0 left-0 w-16 h-16 border-4 rounded-full animate-spin border-t-transparent"
-              style={{ borderColor: BRAND_COLOR, borderTopColor: 'transparent' }}
-            />
+            <Spinner className="text-primary" />
           </div>
         </div>
       )}

@@ -1,3 +1,6 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '../Icon';
@@ -114,15 +117,12 @@ export const FeedEntries: React.FC<FeedEntriesProps> = ({
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+  const initialLoading = useInitialLoading(isLoading);
+  if (initialLoading) {
+    return <PagePending layout="list" />;
   }
 
-  return (
+  return <> {isLoading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="space-y-4">
       {/* Filters */}
       <div className="flex items-center gap-3">
@@ -246,7 +246,7 @@ export const FeedEntries: React.FC<FeedEntriesProps> = ({
         </div>
       )}
     </div>
-  );
+  )} </>;
 };
 
 export default FeedEntries;

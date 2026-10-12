@@ -1,3 +1,4 @@
+import { Spinner } from '@/components/ui/Spinner';
 import React, { useMemo } from 'react';
 import { AnimatedNumber } from '../../optimus/AnimatedNumber';
 import { Icon } from '../../Icon';
@@ -252,7 +253,7 @@ const CoverageRing: React.FC<CoverageRingProps> = ({ pct, loading }) => {
         <span className="text-xs font-semibold text-on-surface tabular-nums leading-none">{pct}%</span>
       </div>
       {loading && (
-        <div className="absolute -bottom-1 right-0 animate-spin w-2.5 h-2.5 border-2 border-primary border-t-transparent rounded-full" />
+        <Spinner className="text-primary" />
       )}
     </div>
   );

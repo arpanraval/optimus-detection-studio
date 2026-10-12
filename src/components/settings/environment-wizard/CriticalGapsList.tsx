@@ -104,7 +104,7 @@ export const CriticalGapsList: React.FC<CriticalGapsListProps> = ({
         <div className="h-3 w-28 bg-surface-container rounded animate-pulse mb-5" />
         <div className="space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-10 bg-surface-container/50 rounded-lg animate-pulse" style={{ opacity: 1 - i * 0.15 }} />
+            <div key={i} className="h-10 bg-surface-container/50 rounded-lg loading-placeholder" style={{ opacity: 1 - i * 0.15 }} />
           ))}
         </div>
       </div>

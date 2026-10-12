@@ -1,3 +1,4 @@
+import { Spinner } from '@/components/ui/Spinner';
 import React, { useState, useMemo, useCallback } from 'react';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
@@ -71,7 +72,7 @@ const SkeletonCard: React.FC<{ delay?: number }> = ({ delay = 0 }) => (
 const SkeletonLoading: React.FC<{ providerName: string }> = ({ providerName }) => (
   <div className="space-y-4">
     <div className="flex items-center gap-3 px-1">
-      <div className="w-5 h-5 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+      <Spinner className="text-primary" />
       <span className="text-sm text-on-surface-variant font-medium">
         Fetching detection rules from {providerName}...
       </span>
@@ -704,7 +705,7 @@ export const DetectionManagementTab: React.FC<DetectionManagementTabProps> = ({ 
       {/* Loading overlay on refresh */}
       {loading && fetched && (
         <div className="flex items-center gap-2.5 px-1 text-sm text-on-surface-variant">
-          <div className="w-4 h-4 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+          <Spinner className="text-primary" />
           Refreshing...
         </div>
       )}

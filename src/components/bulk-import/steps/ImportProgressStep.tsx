@@ -1,3 +1,4 @@
+import { Spinner } from '@/components/ui/Spinner';
 /**
  * ImportProgressStep - Shows progress during database import
  * Includes ETA, elapsed time, throughput, and cancel confirmation
@@ -145,10 +146,7 @@ export function ImportProgressStep() {
       <div className="flex justify-center">
         <div className="relative">
           <div className="w-16 h-16 border-4 border-surface-variant rounded-full" />
-          <div
-            className="absolute top-0 left-0 w-16 h-16 border-4 rounded-full animate-spin border-t-transparent"
-            style={{ borderColor: BRAND_COLOR, borderTopColor: 'transparent' }}
-          />
+          <Spinner className="text-primary" />
         </div>
       </div>
 

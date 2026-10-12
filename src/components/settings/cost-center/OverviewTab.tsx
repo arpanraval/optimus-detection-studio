@@ -1,3 +1,5 @@
+import { PagePending } from '@/components/ui/PagePending';
+import { LoadError } from '@/components/ui/LoadError';
 import React, { useMemo } from 'react';
 import { useAiUsage } from '../../../hooks/useAiUsage';
 import { useAiBudgets } from '../../../hooks/useAiBudgets';
@@ -104,8 +106,12 @@ export const OverviewTab: React.FC<Props> = ({ range }) => {
 
   const nearLimit = budgets.filter(b => b.pct_used >= 0.8).length;
 
+  if (byDay.isLoading && !byDay.hasLoaded) return <PagePending layout="dashboard" />;
+  if (byDay.error && !byDay.hasLoaded) return <LoadError onRetry={() => void byDay.refetch()} />;
+
   return (
     <div className="space-y-5">
+      {byDay.error && <LoadError label="Couldn’t refresh usage. Showing previously loaded values." onRetry={() => void byDay.refetch()} />}
       {/* ===== Hero: $ → time saved → ROI ===== */}
       <ImpactHero
         costUsd={byDay.totalCostUsd}

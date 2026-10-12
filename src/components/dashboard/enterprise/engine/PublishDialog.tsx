@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import React, { useState } from 'react';
 import type { EngineWidgetConfig } from './types';
 
@@ -57,15 +58,14 @@ export function PublishDialog({ config, onPublish, onCancel }: PublishDialogProp
 
           <div>
             <label className="text-[10px] font-brand font-bold text-on-surface-variant/60 uppercase tracking-wider">Category</label>
-            <select
+            <Select
               value={category}
-              onChange={e => setCategory(e.target.value)}
-              className="w-full mt-1 px-3 py-2 text-[12px] font-brand bg-surface-container-lowest border border-outline-variant/20 rounded-lg text-on-surface outline-none focus:border-primary transition-colors"
-            >
-              {CATEGORIES.map(c => (
-                <option key={c.value} value={c.value}>{c.label}</option>
-              ))}
-            </select>
+              onChange={(nextValue) => setCategory(nextValue)}
+              aria-label="Category"
+              size="sm"
+              className="w-full mt-1"
+              options={[...CATEGORIES.map((c) => ({ value: c.value, label: c.label }))]}
+            />
           </div>
         </div>
 

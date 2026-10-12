@@ -1,3 +1,4 @@
+import { Spinner } from '@/components/ui/Spinner';
 import React from 'react';
 import { useDetectionDecisions } from '../../hooks/useDetectionDecisions';
 import type { DetectionDecision, DecisionType, QuickReason } from '../../types/intelligence';
@@ -213,7 +214,7 @@ export const DecisionTimeline: React.FC<DecisionTimelineProps> = ({ detectionId 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+        <Spinner className="text-primary" />
       </div>
     );
   }

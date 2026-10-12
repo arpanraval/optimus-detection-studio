@@ -1,3 +1,7 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { useInitialLoading } from '@/hooks/useInitialLoading';
+import { PagePending } from '@/components/ui/PagePending';
+import { Select } from '@/components/ui/Select';
 import { IntegrationLogo } from '../integrations/IntegrationLogo';
 import { getProviderMeta } from '../../lib/providerMeta';
 import { PackGlyph } from './PackGlyph';
@@ -302,18 +306,9 @@ export const DetectionPackDetailPage: React.FC<DetectionPackDetailPageProps> = (
     return colors[status] || colors.Draft;
   };
 
-  if (loading) {
-    return (
-      <div className="p-8 flex flex-col items-center justify-center h-full bg-background">
-        <div className="relative">
-          <div className="absolute inset-0 bg-primary/20 blur-2xl rounded-full " />
-          <Icon name="spinner" className="relative w-16 h-16 text-primary animate-spin" />
-        </div>
-        <p className="text-on-surface-variant  font-bold font-mono text-sm mt-6 tracking-widest">
-          LOADING DETECTION PACK...
-        </p>
-      </div>
-    );
+  const initialLoading = useInitialLoading(loading);
+  if (initialLoading) {
+    return <PagePending layout="detail" />;
   }
 
   if (error || !pack) {
@@ -331,7 +326,7 @@ export const DetectionPackDetailPage: React.FC<DetectionPackDetailPageProps> = (
     );
   }
 
-  return (
+  return <> {loading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
     <div className="flex flex-col h-full bg-surface-container-low text-on-surface overflow-hidden">
       {/* SUPER HEADER - Threat Intel Style */}
       <div className="flex-shrink-0 bg-surface-container-highest border-b border-outline-variant/60 z-20 overflow-hidden relative">
@@ -665,15 +660,17 @@ export const DetectionPackDetailPage: React.FC<DetectionPackDetailPageProps> = (
                   />
                 </div>
                 <div className="flex items-center gap-3">
-                  <select
+                  <Select
                     value={sortField}
-                    onChange={(e) => setSortField(e.target.value as any)}
-                    className="px-4 py-3 bg-surface-container border border-outline-variant/60 rounded-xl text-sm text-on-surface focus:outline-none focus:border-primary cursor-pointer"
-                  >
-                    <option value="name">Sort by Name</option>
-                    <option value="severity">Sort by Severity</option>
-                    <option value="status">Sort by Status</option>
-                  </select>
+                    onChange={(nextValue) => setSortField(nextValue as any)}
+                    aria-label="Sort by"
+                    size="md"
+                    options={[
+                      { value: 'name', label: 'Sort by Name' },
+                      { value: 'severity', label: 'Sort by Severity' },
+                      { value: 'status', label: 'Sort by Status' },
+                    ]}
+                  />
                   <button
                     onClick={() => setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'))}
                     className="p-3 bg-surface-container border border-outline-variant/60 rounded-xl hover:border-primary/50 transition-colors"
@@ -860,7 +857,7 @@ export const DetectionPackDetailPage: React.FC<DetectionPackDetailPageProps> = (
       {/* Note: Deploy progress shows in the global DeployJobProgressPanel (bottom-right). */}
       {/* Detail page status will refresh via the usePackDeploymentStatus hook on next fetch. */}
     </div>
-  );
+  )} </>;
 };
 
 export default DetectionPackDetailPage;

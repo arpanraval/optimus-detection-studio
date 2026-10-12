@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import React, { useState } from 'react';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -84,17 +85,20 @@ export function NativeLocalEditor({
         />}
         <label className="block text-sm">
           Severity
-          <select
-            className="block w-full p-3 rounded-lg bg-surface-container-high mt-1"
+          <Select
             value={form.severity}
-            onChange={(e) => setForm({ ...form, severity: e.target.value })}
-          >
-            {['Unknown', 'Informational', 'Low', 'Medium', 'High', 'Critical']
-              .filter(value => value !== 'Critical' || !['sentinel', 'defender_xdr'].includes(preview.binding.provider))
-              .map((value) => (
-              <option key={value}>{value}</option>
-            ))}
-          </select>
+            onChange={(nextValue) => setForm({ ...form, severity: nextValue })}
+            aria-label="Severity"
+            size="md"
+            className="block w-full mt-1"
+            options={[
+              ...['Unknown', 'Informational', 'Low', 'Medium', 'High', 'Critical']
+                .filter(
+                  (value) => value !== 'Critical' || !['sentinel', 'defender_xdr'].includes(preview.binding.provider),
+                )
+                .map((value) => ({ value: value, label: value })),
+            ]}
+          />
         </label>
       </div>
       {error && (

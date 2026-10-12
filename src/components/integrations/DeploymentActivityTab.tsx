@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import React, { useState, useEffect, useMemo } from 'react';
 import { Icon } from '../Icon';
 import { Button } from '../ui/Button';
@@ -143,48 +144,53 @@ export const DeploymentActivityTab: React.FC<DeploymentActivityTabProps> = ({ in
   }
 
   // Custom styled select to match design system
-  const selectClasses = "h-8 px-3 text-xs font-medium bg-surface-container-high border border-outline-variant/30 rounded-xl text-on-surface focus:outline-none focus:border-outline focus:ring-1 focus:ring-outline/20 transition-all cursor-pointer";
 
   return (
     <div className="space-y-5">
       {/* Filter row */}
       <div className="flex flex-wrap items-center gap-3">
         {!propIntegrationId && (
-          <select
+          <Select
             value={filterProvider}
-            onChange={e => setFilterProvider(e.target.value)}
-            className={selectClasses}
-          >
-            <option value="all">All Providers</option>
-            {availableProviders.map(p => {
-              const meta = getProviderMeta(p as any);
-              return <option key={p} value={p}>{meta?.name || p}</option>;
-            })}
-          </select>
+            onChange={(nextValue) => setFilterProvider(nextValue)}
+            aria-label="Provider"
+            size="sm"
+            options={[
+              { value: 'all', label: 'All Providers' },
+              ...(availableProviders.map((p) => {
+                const meta = getProviderMeta(p as any);
+                return { value: p, label: meta?.name || p };
+              }) ?? []),
+            ]}
+          />
         )}
 
-        <select
+        <Select
           value={filterStatus}
-          onChange={e => setFilterStatus(e.target.value)}
-          className={selectClasses}
-        >
-          <option value="all">All Statuses</option>
-          <option value="success">Success</option>
-          <option value="failed">Failed</option>
-          <option value="pending">Pending</option>
-          <option value="in_progress">In Progress</option>
-        </select>
+          onChange={(nextValue) => setFilterStatus(nextValue)}
+          aria-label="Status"
+          size="sm"
+          options={[
+            { value: 'all', label: 'All Statuses' },
+            { value: 'success', label: 'Success' },
+            { value: 'failed', label: 'Failed' },
+            { value: 'pending', label: 'Pending' },
+            { value: 'in_progress', label: 'In Progress' },
+          ]}
+        />
 
-        <select
+        <Select
           value={filterAction}
-          onChange={e => setFilterAction(e.target.value)}
-          className={selectClasses}
-        >
-          <option value="all">All Actions</option>
-          <option value="create">Create</option>
-          <option value="update">Update</option>
-          <option value="delete">Delete</option>
-        </select>
+          onChange={(nextValue) => setFilterAction(nextValue)}
+          aria-label="Action"
+          size="sm"
+          options={[
+            { value: 'all', label: 'All Actions' },
+            { value: 'create', label: 'Create' },
+            { value: 'update', label: 'Update' },
+            { value: 'delete', label: 'Delete' },
+          ]}
+        />
 
         <div className="ml-auto w-56">
           <Input

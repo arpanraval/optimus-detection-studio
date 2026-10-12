@@ -1,3 +1,7 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { LoadError } from '@/components/ui/LoadError';
+import { PagePending } from '@/components/ui/PagePending';
+import { Select } from '@/components/ui/Select';
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   DndContext,
@@ -64,7 +68,7 @@ function sortDetections(detections: Detection[], sortBy: string): Detection[] {
 }
 
 export const KanbanBoard: React.FC = () => {
-  const { productionDetections, isLoading, bulkUpdateStatus, userId, refreshAll } = useLibrary();
+  const { productionDetections, isLoading, productionLoading, productionLoaded, productionError, bulkUpdateStatus, userId, refreshAll } = useLibrary();
   const { subscribe } = useRealtime();
   const { can, hasRoleOrHigher } = usePermissions();
   const { showToast } = useToast();
@@ -375,19 +379,16 @@ export const KanbanBoard: React.FC = () => {
     setPendingStatusChange(null);
   }, [pendingStatusChange, bulkUpdateStatus]);
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex flex-col items-center gap-3">
-          <div className="animate-spin w-6 h-6 border-2 border-[#783264] border-t-transparent rounded-full" />
-          <span className="text-sm text-on-surface-variant">Loading board...</span>
-        </div>
-      </div>
-    );
+  if ((productionLoading || isLoading) && !productionLoaded) {
+    return <PagePending layout="board" label="Loading detections…" columns={columns} />;
   }
+
+  if (productionError && !productionLoaded) return <LoadError label={productionError} onRetry={() => void refreshAll()} />;
 
   return (
     <div className="flex flex-col h-full">
+      {productionLoading && productionLoaded && <div className="px-6 py-2"><LoadingStatus /></div>}
+      {productionError && <LoadError label={productionError} onRetry={() => void refreshAll()} />}
       {/* Board Toolbar */}
       <div className="flex items-center justify-between px-6 py-3 bg-surface-container-low border-b border-outline-variant/20">
         {/* Left: Stats */}
@@ -440,16 +441,18 @@ export const KanbanBoard: React.FC = () => {
             onLoadView={handleLoadView}
           />
 
-          <select
+          <Select
             value={prefs.sortWithinColumn}
-            onChange={(e) => setPrefs({ sortWithinColumn: e.target.value as typeof prefs.sortWithinColumn })}
-            className="bg-surface-container/50 rounded-xl text-[11px] font-bold text-on-surface-variant border border-outline-variant/15 px-2.5 py-1.5 outline-none focus:border-[#783264]/30 cursor-pointer"
-          >
-            <option value="updated">Sort: Updated</option>
-            <option value="severity">Sort: Severity</option>
-            <option value="quality">Sort: Quality</option>
-            <option value="name">Sort: Name</option>
-          </select>
+            onChange={(nextValue) => setPrefs({ sortWithinColumn: nextValue as typeof prefs.sortWithinColumn })}
+            aria-label="Sort detections"
+            size="sm"
+            options={[
+              { value: 'updated', label: 'Sort: Updated' },
+              { value: 'severity', label: 'Sort: Severity' },
+              { value: 'quality', label: 'Sort: Quality' },
+              { value: 'name', label: 'Sort: Name' },
+            ]}
+          />
 
           <button
             onClick={() => setShowFilters(v => !v)}
@@ -469,17 +472,19 @@ export const KanbanBoard: React.FC = () => {
             )}
           </button>
 
-          <select
+          <Select
             value={prefs.swimlaneGroupBy}
-            onChange={(e) => setPrefs({ swimlaneGroupBy: e.target.value as typeof prefs.swimlaneGroupBy })}
-            className="bg-surface-container/50 rounded-xl text-[11px] font-bold text-on-surface-variant border border-outline-variant/15 px-2.5 py-1.5 outline-none focus:border-[#783264]/30 cursor-pointer"
-          >
-            <option value="none">Swimlanes: Off</option>
-            <option value="assignee">By Assignee</option>
-            <option value="severity">By Severity</option>
-            <option value="source">By Source</option>
-            <option value="mitreTactic">By MITRE Tactic</option>
-          </select>
+            onChange={(nextValue) => setPrefs({ swimlaneGroupBy: nextValue as typeof prefs.swimlaneGroupBy })}
+            aria-label="Group swimlanes"
+            size="sm"
+            options={[
+              { value: 'none', label: 'Swimlanes: Off' },
+              { value: 'assignee', label: 'By Assignee' },
+              { value: 'severity', label: 'By Severity' },
+              { value: 'source', label: 'By Source' },
+              { value: 'mitreTactic', label: 'By MITRE Tactic' },
+            ]}
+          />
 
           <button
             onClick={() => setPrefs({ cardDensity: prefs.cardDensity === 'comfortable' ? 'compact' : 'comfortable' })}

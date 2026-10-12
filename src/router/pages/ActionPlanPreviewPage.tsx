@@ -1,3 +1,5 @@
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { PagePending } from '@/components/ui/PagePending';
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useEnvironmentProfile } from '@/hooks/useEnvironmentProfile';
@@ -162,25 +164,21 @@ export function ActionPlanPreviewPage() {
   const displayedProfile = profile ?? (isLoading || error ? session.profile : null);
   if (!displayedProfile) {
     if (isLoading)
-      return (
-        <div role="status" className="p-8">
-          Loading environment profile…
-        </div>
-      );
+      return <PagePending layout="dashboard" label="Loading environment profile…" />;
     if (error)
       return (
         <div role="alert" className="p-8 text-error">
           Unable to load environment profile: {error}
         </div>
       );
-    return (
+    return <> {isLoading && <div className="px-6 py-2"><LoadingStatus /></div>} {(
       <div className="p-8">
         Set up an environment profile to create your action plan.{' '}
         <Link className="text-primary underline" to={ROUTES.ENVIRONMENT_PROFILE}>
           Set up profile
         </Link>
       </div>
-    );
+    )} </>;
   }
   const scopeKey = JSON.stringify([displayedProfile, includeDevelopment]);
   return (

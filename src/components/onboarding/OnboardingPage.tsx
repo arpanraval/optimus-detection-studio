@@ -1,3 +1,4 @@
+import { Spinner } from '@/components/ui/Spinner';
 /**
  * OnboardingPage
  *
@@ -445,7 +446,7 @@ function OnboardingContent() {
         {preCheckLoading && (
           <div className="absolute inset-0 z-[100] flex items-center justify-center bg-scrim/50 backdrop-blur-sm pointer-events-auto">
             <div className="p-6 rounded-2xl bg-surface-container border border-outline-variant/20 shadow-2xl text-center">
-              <div className="animate-spin w-6 h-6 mx-auto mb-3 border-2 border-primary border-t-transparent rounded-full" />
+              <Spinner className="text-primary" />
               <p className="text-[13px] text-on-surface font-medium">Running duplicate pre-check...</p>
               <p className="text-[11px] text-on-surface-variant mt-1">Analyzing rules against existing library...</p>
             </div>
