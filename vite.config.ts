@@ -125,11 +125,7 @@ export default defineConfig(({ mode }) => {
       target: 'esnext',
       rollupOptions: {
         output: {
-          manualChunks: {
-            'monaco-editor': ['monaco-editor', '@monaco-editor/react'],
-            'recharts': ['recharts'],
-            'export-tools': ['exceljs', 'jspdf', 'jspdf-autotable'],
-          },
+          // Use automatic splitting so runtime helpers cannot pull optional exports into startup.
         },
       },
     },
