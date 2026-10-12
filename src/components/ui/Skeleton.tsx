@@ -53,7 +53,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({
 
   const baseClasses = `
     bg-on-surface/[0.08] dark:bg-on-surface/[0.06]
-    animate-pulse
+    loading-placeholder
     ${variantClasses[variant]}
     ${width || 'w-full'}
     ${height || (variant === 'text' ? 'h-4' : variant === 'circular' ? 'w-10 h-10' : 'h-20')}
@@ -65,7 +65,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({
   }
 
   return (
-    <div className={`flex flex-col ${gap}`} aria-hidden="true" role="status" aria-label="Loading">
+    <div className={`flex flex-col ${gap} loading-placeholder-group`} aria-hidden="true">
       {Array.from({ length: count }).map((_, i) => (
         <div key={i} className={baseClasses} />
       ))}

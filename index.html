@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/loading.css" />
     <!-- Security Headers
          NOTE: style-src requires 'unsafe-inline' because React uses inline styles
          extensively (1079 occurrences across 181 components). Removing it requires
@@ -55,7 +56,9 @@
 </script>
 </head>
   <body class="bg-background text-on-background transition-colors duration-500 ease-standard font-sans antialiased selection:bg-primary-container selection:text-on-primary-container">
-    <div id="root"></div>
+    <div id="root"><div class="app-startup" role="status" aria-label="Opening Optimus…"><div class="app-startup-bars" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div><span aria-hidden="true">OPTIMUS</span><div id="startup-recovery" class="startup-recovery" hidden><p>Opening Optimus is taking longer than expected. Check your connection and try again.</p><button type="button" id="startup-retry">Reload</button></div></div></div>
+    <noscript>Optimus needs JavaScript enabled to run.</noscript>
+    <script src="/startup-recovery.js"></script>
     <script type="module" src="/src/index.tsx"></script>
   </body>
 </html>
