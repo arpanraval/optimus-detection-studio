@@ -1,0 +1,38 @@
+.brand-artwork {
+  display: inline-block;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.brand-artwork > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.brand-artwork > .brand-artwork__light {
+  display: block;
+}
+.brand-artwork > .brand-artwork__dark {
+  display: none;
+}
+.dark .brand-artwork > .brand-artwork__light {
+  display: none;
+}
+.dark .brand-artwork > .brand-artwork__dark {
+  display: block;
+}
+[data-brand-tone='dark'] .brand-artwork > .brand-artwork__light,
+.brand-artwork[data-brand-tone='dark'] > .brand-artwork__light {
+  display: none;
+}
+[data-brand-tone='dark'] .brand-artwork > .brand-artwork__dark,
+.brand-artwork[data-brand-tone='dark'] > .brand-artwork__dark {
+  display: block;
+}
+[data-brand-tone='light'] .brand-artwork > .brand-artwork__light,
+.brand-artwork[data-brand-tone='light'] > .brand-artwork__light {
+  display: block;
+}
+[data-brand-tone='light'] .brand-artwork > .brand-artwork__dark,
+.brand-artwork[data-brand-tone='light'] > .brand-artwork__dark {
+  display: none;
+}

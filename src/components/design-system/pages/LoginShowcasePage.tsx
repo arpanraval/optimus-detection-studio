@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { DesignSystemPage, Section } from '../shared';
 import { Icon } from '../../Icon';
+import { BrandArtwork } from '@/components/brand/BrandArtwork';
 import { useTheme } from '../../../context/ThemeContext';
 
 // ============================================================================
@@ -538,13 +539,6 @@ const FormPanel: React.FC<{ m: ReturnType<typeof useAuthMockup>; prefix: string;
 // BRAND PANEL CONTENT — Shared across variations
 // ============================================================================
 
-// Brand logo style — primary controls blades, tertiary controls outer ring + center
-// Swap: magenta blades, blue outer ring (matching the intended brand look)
-const brandLogoStyle = {
-  '--md-sys-color-primary': '120 50 100',
-  '--md-sys-color-tertiary': '0 80 145',
-} as React.CSSProperties;
-
 const BrandContent: React.FC<{ variant: 'light' | 'dark' }> = ({ variant }) => {
   const isDark = variant === 'dark';
   const headingColor = isDark ? 'text-white' : 'text-gray-900';
@@ -573,13 +567,12 @@ const BrandContent: React.FC<{ variant: 'light' | 'dark' }> = ({ variant }) => {
         }}
         onMouseLeave={() => { turbineState.active = false; }}
       >
-        <div className={`animate-spool-up group-hover:animate-spin-fast ${logoGlow}`} style={brandLogoStyle}>
+        <div className={logoGlow} data-brand-tone={variant}>
           <Icon name="optimus-logo" className="w-28 h-28 xl:w-32 xl:h-32" />
         </div>
       </div>
 
-      <h1 className={`text-4xl xl:text-5xl font-brand font-bold tracking-tight leading-[1] mb-2 ${headingColor}`}>OPTIMUS</h1>
-      <p className="text-sm font-semibold tracking-[0.25em] uppercase mb-10" style={{ color: ACCENT }}>Detection Studio</p>
+      <h1 className="mb-10"><BrandArtwork variant="wordmark" className="h-[72px] w-60" tone={variant} /></h1>
 
       <div className={`w-10 h-px mb-8 ${dividerColor}`} />
 

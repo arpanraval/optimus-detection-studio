@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Icon } from './Icon';
+import { BrandArtwork } from '@/components/brand/BrandArtwork';
 import { useToast } from '../hooks/useToast';
 import { useTheme } from '../context/ThemeContext';
 import { logAuditEvent } from '../lib/audit';
@@ -27,12 +28,6 @@ interface Particle {
 
 // Shared mutable ref: BrandContent sets it, CyberDust reads it
 const turbineState = { active: false, cx: 0, cy: 0 };
-
-// Brand logo style — magenta blades, blue outer ring
-const brandLogoStyle = {
-  '--md-sys-color-primary': '120 50 100',
-  '--md-sys-color-tertiary': '0 80 145',
-} as React.CSSProperties;
 
 // ============================================================================
 // CYBERDUST — Canvas particle system
@@ -369,13 +364,12 @@ const BrandContent: React.FC<{ variant: 'light' | 'dark' }> = ({ variant }) => {
         }}
         onMouseLeave={() => { turbineState.active = false; }}
       >
-        <div className={`animate-spool-up group-hover:animate-spin-fast ${logoGlow}`} style={brandLogoStyle}>
+        <div className={logoGlow} data-brand-tone={variant}>
           <Icon name="optimus-logo" className="w-36 h-36 xl:w-44 xl:h-44" />
         </div>
       </div>
 
-      <h1 className={`text-6xl xl:text-7xl font-brand font-bold tracking-tight leading-[1] mb-3 ${headingColor}`}>OPTIMUS</h1>
-      <p className="text-base font-semibold tracking-[0.3em] uppercase mb-12" style={{ color: ACCENT }}>Detection Studio</p>
+      <h1 className="mb-12"><BrandArtwork variant="wordmark" className="h-24 w-80" tone={variant} /></h1>
 
       <div className={`w-12 h-px mb-10 ${dividerColor}`} />
 
@@ -590,10 +584,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onBack }) => {
 
         {/* Mobile logo */}
         <div className="lg:hidden flex items-center gap-2.5 mb-8 relative z-10">
-          <div style={brandLogoStyle}>
-            <Icon name="optimus-logo" className="w-7 h-7" />
-          </div>
-          <span className={`font-brand font-bold text-xs tracking-widest ${headingColor}`}>OPTIMUS</span>
+          <>
+            <BrandArtwork className="h-12 w-12" />
+            <BrandArtwork variant="wordmark" className="h-10 w-40" />
+          </>
         </div>
 
         {/* Form content — vertically centered */}

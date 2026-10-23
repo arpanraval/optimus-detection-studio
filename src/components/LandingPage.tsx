@@ -1,6 +1,7 @@
 import { Spinner } from '@/components/ui/Spinner';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Icon } from './Icon';
+import { BrandArtwork } from '@/components/brand/BrandArtwork';
 import { PlatformShowcase } from './landing/PlatformShowcase';
 
 // ============================================================================
@@ -10,11 +11,6 @@ import { PlatformShowcase } from './landing/PlatformShowcase';
 const ACCENT = '#783264';
 const BLUE = '#005091';
 const TEAL = '#4D7C6F';
-
-const logoStyle = {
-  '--md-sys-color-primary': '120 50 100',
-  '--md-sys-color-tertiary': '0 80 145',
-} as React.CSSProperties;
 
 const VENDOR_LOGOS = [
   { name: 'Splunk', path: '/logos/integrations/splunk.svg', lang: 'SPL' },
@@ -460,15 +456,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn }) => {
   };
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-white overflow-x-hidden">
+    <div className="min-h-screen bg-[#09090b] text-white overflow-x-hidden" data-brand-tone="dark">
       <LandingStyles />
 
       {/* ━━━ NAV ━━━ */}
       <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? 'bg-[#09090b]/80 backdrop-blur-xl border-b border-white/[0.06]' : ''}`}>
         <div className="w-full px-6 sm:px-10 lg:px-16 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div style={logoStyle}><Icon name="optimus-logo" className="w-7 h-7" /></div>
-            <span className="font-brand font-bold text-sm tracking-[0.2em] text-white/80 hidden sm:block">OPTIMUS</span>
+            <BrandArtwork className="h-14 w-14" tone="dark" />
           </div>
           <div className="flex items-center gap-3">
             <div className="conic-border">
@@ -491,11 +486,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn }) => {
           <svg viewBox="0 0 800 600" className="h-full max-h-[85vh]" preserveAspectRatio="xMidYMid meet" fill="none" style={{ opacity: 0.6 }}>
             <defs>
               <filter id="glow"><feGaussianBlur stdDeviation="2" /></filter>
-              <filter id="hub-glow"><feGaussianBlur stdDeviation="6" result="blur" /><feComposite in="SourceGraphic" in2="blur" operator="over" /></filter>
-              <radialGradient id="blade-gradient" cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stopColor="#8b3d75" />
-                <stop offset="100%" stopColor="#3d1230" />
-              </radialGradient>
             </defs>
 
             {/* ── SOURCES (left side) ── */}
@@ -524,23 +514,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn }) => {
 
             {/* ── TURBINE ENGINE (center) ── */}
             <g transform="translate(430, 300)">
-              <circle r="85" fill="none" stroke={BLUE} strokeWidth="5" />
-              <circle r="76" fill="none" stroke={BLUE} strokeWidth="1" strokeOpacity="0.3" />
-              <g>
-                <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="4s" repeatCount="indefinite" />
-                {Array.from({ length: 16 }).map((_, i) => (
-                  <path
-                    key={i}
-                    d="M0,-7 C10,-7 24,-17 24,-64 C24,-69 19,-69 15,-64 C7,-24 0,-17 0,-7 Z"
-                    fill="url(#blade-gradient)"
-                    transform={`rotate(${i * 22.5})`}
-                    stroke="black"
-                    strokeWidth="0.5"
-                    strokeOpacity="0.2"
-                  />
-                ))}
-              </g>
-              <circle r="19" fill={BLUE} filter="url(#hub-glow)" />
+              <image href="/brand/point-field/mark-dark.svg" x="-100" y="-100" width="200" height="200" />
             </g>
 
             {/* destinations removed */}
@@ -629,7 +603,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn }) => {
       <section className="py-32 sm:py-40 px-6 sm:px-10 lg:px-16">
         <div className="max-w-3xl mx-auto text-center">
           <Reveal>
-            <div style={logoStyle} className="mb-8"><Icon name="optimus-logo" className="w-14 h-14 mx-auto opacity-50" /></div>
+            <div className="mb-8"><Icon name="optimus-logo" className="w-14 h-14 mx-auto opacity-50" /></div>
             <h2 className="font-brand text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-white leading-tight mb-6">
               Your detection program<br />deserves an engine.
             </h2>
@@ -651,8 +625,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn }) => {
       <footer className="border-t border-white/[0.06] py-8 px-6 sm:px-10 lg:px-16">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div style={logoStyle}><Icon name="optimus-logo" className="w-5 h-5 opacity-40" /></div>
-            <span className="mono text-[10px] tracking-[0.2em] text-white/25">OPTIMUS DETECTION STUDIO</span>
+            <BrandArtwork variant="lockup" className="h-14 w-[147px]" tone="dark" />
           </div>
           <span className="mono text-[10px] text-white/15">&copy; 2026</span>
         </div>

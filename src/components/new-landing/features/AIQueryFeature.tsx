@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Icon } from '@/components/Icon';
 import { FeatureSlide, MockupFrame, FeatureCarousel } from '../shared/FeatureSlide';
 
 const ACCENT = '#783264';
@@ -9,15 +10,8 @@ const TEAL = '#4D7C6F';
 /*  Shared sub-components                                              */
 /* ------------------------------------------------------------------ */
 
-/** Small Optimus "O" logo icon used in the chat header */
-const OptimusIcon = () => (
-  <div
-    className="w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-black shrink-0"
-    style={{ backgroundColor: `${ACCENT}30`, color: `${ACCENT}cc` }}
-  >
-    O
-  </div>
-);
+/** Optimus mark used in the chat header */
+const OptimusIcon = () => <Icon name="optimus-logo" className="w-7 h-7 shrink-0" />;
 
 /** Chat header bar matching the real product UI */
 const ChatHeader: React.FC<{

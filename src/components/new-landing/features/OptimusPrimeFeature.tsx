@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Icon } from '@/components/Icon';
 import { FeatureSlide, MockupFrame, FeatureCarousel } from '../shared/FeatureSlide';
 
 const ACCENT = '#783264';
@@ -9,9 +10,7 @@ const SLATE = '#475069';
 
 const AgentHeader: React.FC = () => (
   <div className="flex items-center gap-2.5 mb-5 pb-4 border-b border-outline-variant">
-    {/* Optimus logo placeholder */}
-    <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black"
-      style={{ background: `linear-gradient(135deg, ${ACCENT}, ${ACCENT}99)`, color: '#fff' }}>O</div>
+    <Icon name="optimus-logo" className="w-7 h-7 shrink-0" />
     <span className="text-sm font-bold text-on-surface tracking-tight">Optimus Prime</span>
     <span className="mono text-[8px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 border border-emerald-500/25">Gemini 3 Flash ▸</span>
     <span className="flex items-center gap-1 mono text-[8px] text-emerald-700/80">

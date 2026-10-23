@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Icon } from './Icon';
+import { BrandArtwork } from '@/components/brand/BrandArtwork';
 import './new-landing/tokens/landing.css';
 import { PlatformShowcase } from './new-landing/PlatformShowcase';
 import { HeroFlowScene } from './new-landing/hero/HeroFlowScene';
@@ -135,7 +136,7 @@ export const NewLandingPage: React.FC<{ onSignIn: () => void }> = ({ onSignIn })
   };
 
   return (
-    <div className="landing-root min-h-screen relative">
+    <div className="landing-root min-h-screen relative" data-brand-tone="light">
       <LandingStyles />
 
       {/* Glowing Neon Progress Bar */}
@@ -155,11 +156,7 @@ export const NewLandingPage: React.FC<{ onSignIn: () => void }> = ({ onSignIn })
           }`}
         >
           <div className="flex items-center gap-3 cursor-pointer group">
-            <Icon name="optimus-logo" className="w-8 h-8 text-primary group-hover:rotate-[30deg] group-hover:scale-110 transition-all duration-500" />
-            <div className="flex flex-col leading-none">
-              <span className="font-brand font-black text-sm tracking-[0.25em] text-on-surface uppercase text-gradient-white">OPTIMUS</span>
-              <span className="mono text-[8px] tracking-[0.3em] text-on-surface-variant uppercase mt-1">Detection Studio</span>
-            </div>
+            <BrandArtwork className="h-14 w-14" />
           </div>
           <button
             onClick={onSignIn}
@@ -339,8 +336,7 @@ export const NewLandingPage: React.FC<{ onSignIn: () => void }> = ({ onSignIn })
       <footer className="relative z-10 border-t border-outline-variant/60 py-12 px-6 sm:px-12 bg-surface-container-low">
         <div className="max-w-[1500px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-3">
-            <Icon name="optimus-logo" className="w-6 h-6 text-primary" />
-            <span className="mono text-[10px] font-bold tracking-[0.25em] text-on-surface-variant uppercase">Optimus Detection Studio</span>
+            <BrandArtwork variant="lockup" className="h-16 w-[168px]" />
           </div>
           <span className="mono text-[9px] text-outline tracking-wider font-medium">&copy; 2026 Optimus Detection Studio</span>
         </div>

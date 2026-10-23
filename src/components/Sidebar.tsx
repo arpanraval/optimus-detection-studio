@@ -235,6 +235,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex items-center justify-center pt-3 pb-5">
           <Link
             to={ROUTES.HOME}
+            aria-label="Optimus Detection Studio home"
             className="cursor-pointer group no-underline text-inherit flex items-center justify-center"
             onClick={(e) => { if (!(e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1)) { onNavigate('dashboard'); setExpandedSection(null); } }}
           >

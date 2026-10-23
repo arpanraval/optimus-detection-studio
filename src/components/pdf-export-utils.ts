@@ -5,10 +5,9 @@ import { logger } from '../lib/logger';
 import type { IconName } from './Icon';
 
 // ============================================================================
-// OPTIMUS LOGO - Using public folder approach
-// Place optimus-logo-white.png in /public folder
+// OPTIMUS LOGO - Raster export of the shared dark-surface mark
 // ============================================================================
-const LOGO_PATH = '/optimus-logo-white.png';
+const LOGO_PATH = '/brand/point-field/mark-dark.png';
 
 // ============================================================================
 // DESIGN TOKENS (Matching your M3 theme)

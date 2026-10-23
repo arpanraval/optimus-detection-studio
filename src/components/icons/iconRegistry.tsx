@@ -20,19 +20,7 @@
  *   "just in case"; the compiler flags any removal that was still referenced.
  */
 import React from 'react';
-
-// --- Helper for optimus-logo turbine blades ---
-const createTurbineBlades = () =>
-  Array.from({ length: 14 }).map((_, i) => (
-    <path
-      key={i}
-      d="M12 12 L12 2 C13.5 2 14.5 3.5 14 5 L12 12 Z"
-      fill="currentColor"
-      transform={`rotate(${i * (360 / 14)} 12 12)`}
-      className="text-primary"
-      opacity="0.85"
-    />
-  ));
+import { BrandArtwork } from '@/components/brand/BrandArtwork';
 
 // --- Icon factory type ---
 export type IconFactory = (strokeWidth?: number) => React.ReactNode;
@@ -41,15 +29,7 @@ export type IconFactory = (strokeWidth?: number) => React.ReactNode;
 // BRAND ICONS
 // ============================================================
 export const brandIcons = {
-  'optimus-logo': () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" className="w-full h-full">
-      <circle cx="12" cy="12" r="11" stroke="currentColor" strokeWidth="1.2" className="text-tertiary"/>
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="0.5" className="text-tertiary/50"/>
-      <g>{createTurbineBlades()}</g>
-      <circle cx="12" cy="12" r="3" fill="currentColor" className="text-tertiary z-10"/>
-      <path d="M12 12 L12 9.5 A 2.5 2.5 0 0 1 14.5 12" stroke="rgba(255,255,255,0.5)" strokeWidth="0.5" fill="none" className="z-20" />
-    </svg>
-  ),
+  'optimus-logo': () => <BrandArtwork decorative />,
   matrix: () => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M20,3H4C3.45,3 3,3.45 3,4V20C3,20.55 3.45,21 4,21H20C20.55,21 21,20.55 21,20V4C21,3.45 20.55,3 20,3M20,20H4V4H20V20M5,5H9V9H5V5M10,5H14V9H10V5M15,5H19V9H15V5M5,10H9V14H5V10M10,10H14V14H10V10M15,10H19V14H15V10M5,15H9V19H5V15M10,15H14V19H10V15M15,15H19V19H15V15Z" />
