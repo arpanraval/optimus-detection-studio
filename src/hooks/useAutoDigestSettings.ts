@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useToast } from './useToast';
 import { getAllThreatIntelPromptTemplates } from '../lib/ai/prompts/threat-intel';
+import { useTeamAutoDigest } from './useTeamAutoDigest';
 
 // ============================================
 // TYPES
@@ -78,7 +79,10 @@ export interface CustomFeed {
   last_error: string | null;
 }
 
-export function useAutoDigestSettings(userId: string) {
+export function useAutoDigestSettings(currentUserId: string) {
+  const team = useTeamAutoDigest(currentUserId);
+  const { userId, canManage } = team;
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [settings, setSettings] = useState<AutoDigestSettings | null>(null);
   const [curatedSources, setCuratedSources] = useState<CuratedFeedSource[]>([]);
   const [enabledSourceIds, setEnabledSourceIds] = useState<Set<string>>(new Set());
@@ -94,6 +98,7 @@ export function useAutoDigestSettings(userId: string) {
       .select('*')
       .eq('user_id', userId)
       .maybeSingle();
+    if (error) throw error;
     if (!error) {
       setSettings(data);
     }
@@ -106,6 +111,7 @@ export function useAutoDigestSettings(userId: string) {
       .eq('is_active', true)
       .order('category', { ascending: true })
       .order('name', { ascending: true });
+    if (error) throw error;
     if (!error) {
       setCuratedSources(data || []);
     }
@@ -123,6 +129,7 @@ export function useAutoDigestSettings(userId: string) {
       .eq('is_auto_digest', true)
       .eq('is_enabled', true)
       .not('curated_source_id', 'is', null);
+    if (error) throw error;
     if (!error) {
       const ids = new Set<string>();
       const health = new Map<string, FeedHealth>();
@@ -151,10 +158,12 @@ export function useAutoDigestSettings(userId: string) {
       .eq('is_auto_digest', true)
       .is('curated_source_id', null)
       .order('created_at', { ascending: true });
+    if (error) throw error;
     if (!error) setCustomFeeds((data || []) as CustomFeed[]);
   }, [userId]);
 
   const addCustomFeed = useCallback(async (input: { name: string; url: string; feedType: 'rss' | 'atom' }) => {
+    if (!canManage) return false;
     // Light client-side validation — the DB has its own NOT NULL/CHECK
     // guards, but a friendlier error here is worth the few lines.
     const name = input.name.trim();
@@ -190,9 +199,10 @@ export function useAutoDigestSettings(userId: string) {
     showToast('success', `Added ${name}`);
     await fetchCustomFeeds();
     return true;
-  }, [userId, fetchCustomFeeds, showToast]);
+  }, [canManage, userId, fetchCustomFeeds, showToast]);
 
   const removeCustomFeed = useCallback(async (feedId: string) => {
+    if (!canManage) return false;
     const { error } = await supabase
       .from('threat_intel_feeds')
       .delete()
@@ -206,9 +216,10 @@ export function useAutoDigestSettings(userId: string) {
     showToast('success', 'Source removed');
     await fetchCustomFeeds();
     return true;
-  }, [userId, fetchCustomFeeds, showToast]);
+  }, [canManage, userId, fetchCustomFeeds, showToast]);
 
   const toggleCustomFeed = useCallback(async (feedId: string, nextEnabled: boolean) => {
+    if (!canManage) return;
     const { error } = await supabase
       .from('threat_intel_feeds')
       .update({ is_enabled: nextEnabled })
@@ -220,7 +231,7 @@ export function useAutoDigestSettings(userId: string) {
       return;
     }
     await fetchCustomFeeds();
-  }, [userId, fetchCustomFeeds, showToast]);
+  }, [canManage, userId, fetchCustomFeeds, showToast]);
 
   const fetchRecentJobs = useCallback(async () => {
     const { data, error } = await supabase
@@ -229,12 +240,14 @@ export function useAutoDigestSettings(userId: string) {
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(7);
+    if (error) throw error;
     if (!error) {
       setRecentJobs(data || []);
     }
   }, [userId]);
 
   const saveSettings = useCallback(async (updates: Partial<AutoDigestSettings>): Promise<boolean> => {
+    if (!canManage) return false;
     const { error } = await supabase
       .from('auto_digest_settings')
       .upsert(
@@ -252,9 +265,10 @@ export function useAutoDigestSettings(userId: string) {
     showToast('success', 'Auto-digest settings saved');
     await fetchSettings();
     return true;
-  }, [userId, fetchSettings, showToast]);
+  }, [canManage, userId, fetchSettings, showToast]);
 
   const toggleSource = useCallback(async (source: CuratedFeedSource, enabled: boolean): Promise<boolean> => {
+    if (!canManage) return false;
     // Returns true on success, false on failure. The Save flow needs the
     // boolean to track per-source failures across a batch (so a mid-loop
     // failure doesn't strand earlier successes in the dirty-pending set);
@@ -292,9 +306,10 @@ export function useAutoDigestSettings(userId: string) {
     }
     await fetchEnabledSources();
     return true;
-  }, [userId, fetchEnabledSources, showToast]);
+  }, [canManage, userId, fetchEnabledSources, showToast]);
 
   const triggerManualRun = useCallback(async (): Promise<{ jobId: string } | null> => {
+    if (!canManage) return null;
     // Plan A: send the canonical threat-intel prompt templates with the
     // trigger so the orchestrator (which can't import frontend modules)
     // has them when it picks up the job. The trigger function caches
@@ -345,9 +360,10 @@ export function useAutoDigestSettings(userId: string) {
     }
     await fetchRecentJobs();
     return jobId ? { jobId } : null;
-  }, [userId, showToast, fetchRecentJobs]);
+  }, [canManage, userId, showToast, fetchRecentJobs]);
 
   const cancelJob = useCallback(async (jobId: string): Promise<boolean> => {
+    if (!canManage) return false;
     const { data, error } = await supabase.rpc('cancel_auto_digest_job', {
       p_job_id: jobId,
       p_reason: 'Cancelled by user',
@@ -359,7 +375,7 @@ export function useAutoDigestSettings(userId: string) {
     showToast('info', 'Digest cancellation requested');
     await fetchRecentJobs();
     return true;
-  }, [fetchRecentJobs, showToast]);
+  }, [canManage, fetchRecentJobs, showToast]);
   const refresh = useCallback(async () => {
     await Promise.all([
       fetchSettings(),
@@ -370,15 +386,25 @@ export function useAutoDigestSettings(userId: string) {
   }, [fetchSettings, fetchEnabledSources, fetchCustomFeeds, fetchRecentJobs]);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId) {
+      setSettings(null);
+      setRecentJobs([]);
+      setEnabledSourceIds(new Set());
+      setFeedHealth(new Map());
+      setCustomFeeds([]);
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
+    setLoadError(null);
     Promise.all([
       fetchSettings(),
       fetchCuratedSources(),
       fetchEnabledSources(),
       fetchCustomFeeds(),
       fetchRecentJobs(),
-    ]).finally(() => setIsLoading(false));
+    ]).catch(() => setLoadError('Unable to load the team pipeline. Please try again.'))
+      .finally(() => setIsLoading(false));
   }, [userId, fetchSettings, fetchCuratedSources, fetchEnabledSources, fetchCustomFeeds, fetchRecentJobs]);
 
   // Poll job status while a job is active so the UI can reflect the live state
@@ -388,19 +414,22 @@ export function useAutoDigestSettings(userId: string) {
   useEffect(() => {
     if (!userId || !hasActiveJob) return;
     const interval = setInterval(() => {
-      fetchRecentJobs();
+      fetchRecentJobs().catch(() => setLoadError('Unable to refresh digest activity.'));
     }, 3000);
     return () => clearInterval(interval);
   }, [userId, hasActiveJob, fetchRecentJobs]);
 
   return {
+    teamUserId: userId,
+    canManage,
+    error: team.error || loadError,
     settings,
     curatedSources,
     enabledSourceIds,
     feedHealth,
     customFeeds,
     recentJobs,
-    isLoading,
+    isLoading: team.isLoading || isLoading,
     fetchSettings,
     fetchCuratedSources,
     fetchEnabledSources,

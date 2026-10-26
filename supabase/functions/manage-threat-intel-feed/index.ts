@@ -38,6 +38,24 @@ serve(async (req: Request) => {
 
     const body = await req.json() as Record<string, any>
     const incoming = body.feed && typeof body.feed === 'object' ? body.feed : body
+    const feedId = typeof body.feed_id === 'string' ? body.feed_id : typeof incoming.id === 'string' ? incoming.id : null
+    let existingAutoDigest = false
+    if (feedId) {
+      const { data: existing, error } = await admin.from('threat_intel_feeds')
+        .select('user_id, is_auto_digest').eq('id', feedId).single()
+      if (error || !existing) return corsErrorResponse('Feed not found', req, 404)
+      existingAutoDigest = existing.is_auto_digest === true
+      if (!existingAutoDigest && existing.user_id !== user.id) return corsErrorResponse('Forbidden', req, 403)
+    }
+    const isAutoDigest = existingAutoDigest || incoming.is_auto_digest !== false
+    let feedUserId = user.id
+    if (isAutoDigest) {
+      const { data: profile } = await admin.from('profiles').select('role').eq('id', user.id).single()
+      if (!['owner', 'admin'].includes(profile?.role)) return corsErrorResponse('Only admins can manage team sources', req, 403)
+      const { data: team, error } = await admin.from('auto_digest_team').select('user_id').single()
+      if (error || !team) return corsErrorResponse('Team digest is not configured', req, 409)
+      feedUserId = team.user_id
+    }
     const feedType = incoming.feed_type || 'rss'
     if (!ALLOWED_FEED_TYPES.has(feedType)) return corsErrorResponse('Unsupported feed type', req, 400)
     const validation = validateUrl(String(incoming.url || ''))
@@ -56,7 +74,7 @@ serve(async (req: Request) => {
       url: validation.sanitizedUrl,
       schedule_cron: incoming.schedule_cron || '0 */6 * * *',
       is_enabled: incoming.is_enabled !== false,
-      is_auto_digest: incoming.is_auto_digest !== false,
+      is_auto_digest: isAutoDigest,
       extraction_method: incoming.extraction_method === 'jina_reader' ? 'jina_reader' : 'direct',
       taxii_config: feedType === 'taxii' ? safeMetadata : {},
       taxii_api_root: safeMetadata.api_root,
@@ -64,16 +82,15 @@ serve(async (req: Request) => {
     }
     if (!feedPayload.name) return corsErrorResponse('Feed name is required', req, 400)
 
-    const feedId = typeof body.feed_id === 'string' ? body.feed_id : typeof incoming.id === 'string' ? incoming.id : null
     let saved: Record<string, unknown> | null = null
     if (feedId) {
       const { data, error } = await admin.from('threat_intel_feeds')
-        .update(feedPayload).eq('id', feedId).eq('user_id', user.id).select('*').single()
+        .update(feedPayload).eq('id', feedId).eq('user_id', feedUserId).select('*').single()
       if (error || !data) return corsErrorResponse('Feed update failed', req, 500)
       saved = data
     } else {
       const { data, error } = await admin.from('threat_intel_feeds')
-        .insert({ ...feedPayload, user_id: user.id }).select('*').single()
+        .insert({ ...feedPayload, user_id: feedUserId }).select('*').single()
       if (error || !data) return corsErrorResponse('Feed creation failed', req, 500)
       saved = data
     }
@@ -92,7 +109,7 @@ serve(async (req: Request) => {
       }
       if (!integrationId) {
         const { data: integration, error: integrationError } = await admin.from('integrations').insert({
-          user_id: user.id, provider: 'taxii', name: String(feedPayload.name), category: 'threat_intel',
+          user_id: feedUserId, provider: 'taxii', name: String(feedPayload.name), category: 'threat_intel',
           config: safeMetadata, auth_type: 'credentials', status: 'configured',
         }).select('id').single()
         if (integrationError || !integration) return corsErrorResponse('Credential integration creation failed', req, 500)
@@ -104,7 +121,7 @@ serve(async (req: Request) => {
       }).select('id').single()
       if (credentialError || !credential) return corsErrorResponse('Credential save failed', req, 500)
       const { data: linked, error: linkError } = await admin.from('threat_intel_feeds')
-        .update({ taxii_credential_id: credential.id }).eq('id', saved.id).eq('user_id', user.id).select('*').single()
+        .update({ taxii_credential_id: credential.id }).eq('id', saved.id).eq('user_id', feedUserId).select('*').single()
       if (linkError || !linked) return corsErrorResponse('Credential link failed', req, 500)
       saved = linked
     }

@@ -81,13 +81,20 @@ async function ingestFeedUnified(supabase: any, feed: any, userId: string): Prom
 
     const body = await req.json();
     const { feed_id, all } = body;
+    const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+    const canManageTeam = ['owner', 'admin'].includes(profile?.role);
+    const { data: team } = canManageTeam
+      ? await supabase.from('auto_digest_team').select('user_id').maybeSingle()
+      : { data: null };
 
     // Get feeds to process
     let feedsQuery = supabase
       .from('threat_intel_feeds')
       .select('*')
-      .eq('user_id', user.id)
       .eq('is_enabled', true);
+    feedsQuery = team?.user_id
+      ? feedsQuery.or(`and(user_id.eq.${user.id},is_auto_digest.eq.false),and(user_id.eq.${team.user_id},is_auto_digest.eq.true)`)
+      : feedsQuery.eq('user_id', user.id).eq('is_auto_digest', false);
     if (feed_id) feedsQuery = feedsQuery.eq('id', feed_id);
 
     const { data: feeds, error: feedsError } = await feedsQuery;
@@ -100,7 +107,7 @@ async function ingestFeedUnified(supabase: any, feed: any, userId: string): Prom
       try {
         let newEntries = 0;
 
-        newEntries = await ingestFeedUnified(supabase, feed, user.id);
+        newEntries = await ingestFeedUnified(supabase, feed, feed.user_id);
         totalNew += newEntries;
       } catch (err: any) {
         const errMsg = err.message || 'Unknown error';

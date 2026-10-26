@@ -46,6 +46,16 @@ serve(async (req: Request) => {
     }
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
+    const { data: profile, error: profileError } = await adminClient
+      .from('profiles').select('role').eq('id', user.id).single();
+    if (profileError || !['owner', 'admin'].includes(profile?.role)) {
+      return corsErrorResponse('Only admins can run the team digest', req, 403);
+    }
+    const { data: team, error: teamError } = await adminClient
+      .from('auto_digest_team').select('user_id').single();
+    if (teamError || !team?.user_id) {
+      return corsErrorResponse('The team digest has not been configured', req, 409);
+    }
 
     // Read prompt templates from the body (Plan A: frontend is the canonical
     // source of truth for AI prompts; the orchestrator can't access them
@@ -78,7 +88,7 @@ serve(async (req: Request) => {
           prompt_templates: promptTemplatesFromBody,
           updated_at: new Date().toISOString(),
         })
-        .eq('user_id', user.id);
+        .eq('user_id', team.user_id);
       if (cacheError) {
         // Log but don't fail the trigger — the orchestrator will surface
         // a clear "no templates cached" error if needed.
@@ -87,7 +97,7 @@ serve(async (req: Request) => {
     }
 
     const { data: requestedJob, error: requestError } = await adminClient.rpc('request_auto_digest_job', {
-      p_user_id: user.id,
+      p_user_id: team.user_id,
       p_reason: 'manual',
     });
 

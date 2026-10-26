@@ -15,6 +15,7 @@ interface FeedActivityLogProps {
   /** Shared live list from the settings hook. When provided, this component
    * does not maintain a second stale copy of auto_digest_jobs. */
   liveJobs?: AutoDigestJob[];
+  canManage?: boolean;
 }
 
 type JobStatusTone = 'success' | 'partial' | 'failure' | 'running' | 'pending';
@@ -220,12 +221,13 @@ const JobRow: React.FC<{
   /** False while any run is pending/processing — a second run cannot start. */
   retryEnabled: boolean;
   retrying: boolean;
-}> = ({ job, expanded, onToggle, onRetry, retryEnabled, retrying }) => {
+  canManage: boolean;
+}> = ({ job, expanded, onToggle, onRetry, retryEnabled, retrying, canManage }) => {
   const { tone, label } = jobToneAndLabel(job);
   const dur = jobDuration(job);
   const summary = jobOneLineSummary(job);
   const time = formatTime(job.started_at || job.created_at);
-  const canRetry = RETRYABLE_STATUSES.has(job.status);
+  const canRetry = canManage && RETRYABLE_STATUSES.has(job.status);
 
   const handleCopyId = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
@@ -315,7 +317,7 @@ const JobRow: React.FC<{
 // MAIN COMPONENT
 // =============================================================================
 
-export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId, liveJobs }) => {
+export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId, liveJobs, canManage = false }) => {
   const [historyJobs, setHistoryJobs] = useState<AutoDigestJob[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
@@ -387,7 +389,7 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId, liveJo
   // stranded. The reason lands in result_summary, so a retried run is
   // distinguishable from a scheduled one in this very list.
   const handleRetry = useCallback(async (jobId: string) => {
-    if (!userId || hasActiveJob || retryingJobId) return;
+    if (!canManage || !userId || hasActiveJob || retryingJobId) return;
     setRetryingJobId(jobId);
     setRetryError(null);
     const { error } = await supabase.rpc('request_auto_digest_job', {
@@ -403,7 +405,7 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId, liveJo
     // the existing one rather than creating a second. Refetch either way so
     // the new run appears and the poller takes over from here.
     await fetchJobs();
-  }, [userId, hasActiveJob, retryingJobId, fetchJobs]);
+  }, [canManage, userId, hasActiveJob, retryingJobId, fetchJobs]);
   useEffect(() => {
     // When liveJobs is supplied, useAutoDigestSettings owns the polling and
     // publishes each update to this component. This fallback keeps the
@@ -477,7 +479,9 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId, liveJo
       <div className="flex flex-col items-center justify-center py-16 text-center">
         <Icon name="activity" className="w-7 h-7 text-on-surface-variant/30 mb-3" />
         <p className="text-sm text-on-surface-variant">No runs yet.</p>
-        <p className="text-xs text-on-surface-variant/60 mt-1">Click Run Now above to start the first one.</p>
+        <p className="text-xs text-on-surface-variant/60 mt-1">
+          {canManage ? 'Click Run Now above to start the first one.' : 'An admin can start the first team digest.'}
+        </p>
       </div>
     );
   }
@@ -573,6 +577,7 @@ export const FeedActivityLog: React.FC<FeedActivityLogProps> = ({ userId, liveJo
                       expanded={expandedJobs.has(j.id)}
                       onToggle={() => toggleJob(j.id)}
                       onRetry={() => handleRetry(j.id)}
+                      canManage={canManage}
                       retryEnabled={!hasActiveJob && retryingJobId === null}
                       retrying={retryingJobId === j.id}
                     />

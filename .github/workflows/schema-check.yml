@@ -258,6 +258,9 @@ jobs:
       - name: Verify native SIEM identity, transactions, and private snapshot access
         run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/tests/native-siem.sql
 
+      - name: Verify shared Auto Digest reads and admin-only management
+        run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/tests/team-auto-digest.sql
+
       - name: Verify native SIEM inventory catalog and relationship contract
         run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/tests/native-siem-inventory.sql
 

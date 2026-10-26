@@ -289,6 +289,9 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
   const { showToast } = useToast();
 
   const {
+    teamUserId,
+    canManage,
+    error,
     settings,
     curatedSources,
     enabledSourceIds,
@@ -623,6 +626,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
   if (initialLoading) {
     return <PagePending layout="form" />;
   }
+  if (error) return <div role="alert" className="p-6 text-error">{error}</div>;
 
   // Map last-run tone to a single CSS color class. Brand tokens only —
   // no Tailwind emerald/amber/red. The dot is a small status glyph,
@@ -651,7 +655,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
             Daily intelligence harvest — fetch, classify, rank and digest threat-research articles into your library.
           </p>
         </div>
-        <Button
+        {canManage && <Button
           size="md"
           color="primary"
           leadingIcon="play"
@@ -660,8 +664,11 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
           title={isJobActive ? 'A digest job is already in progress' : 'Run the pipeline now instead of waiting for the next scheduled slot'}
         >
           {isJobActive ? 'Running…' : 'Run Now'}
-        </Button>
+        </Button>}
       </div>
+      <p className="text-sm text-on-surface-variant mb-4">
+        Shared team pipeline. {canManage ? 'Changes apply to everyone.' : 'Admins manage sources, configuration, and runs.'}
+      </p>
 
       {/* Status banner — a rounded info card, not a pill. Holds the
           one-line "what just happened" summary plus the next-run
@@ -711,7 +718,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
           summary on the same row as the action button so the table
           starts immediately. */}
       {activeTab === 'sources' && (
-        <div className="rounded-xl border border-outline-variant/40 bg-surface-container-low overflow-hidden">
+        <fieldset disabled={!canManage} className="min-w-0 rounded-xl border border-outline-variant/40 bg-surface-container-low overflow-hidden">
           <div className="px-4 py-3 flex items-center justify-between gap-4 flex-wrap border-b border-outline-variant/30">
             <p className="text-sm text-on-surface-variant">
               <span className="font-medium text-on-surface tabular-nums">{effectiveEnabled.size}</span>
@@ -800,13 +807,13 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
               </div>
             )}
           </div>
-        </div>
+        </fieldset>
       )}
 
       {/* Add Custom Source modal — minimalist inline modal so we don't
           drag in another dependency for a one-shot dialog. Validates
           inside the hook (URL parse, http/https only). */}
-      {addCustomOpen && (
+      {canManage && addCustomOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
           onClick={() => !customSubmitting && setAddCustomOpen(false)}
@@ -881,7 +888,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
         // discrete cards, not floating form fields. Headings carry
         // visual weight (text-base font-semibold) instead of being
         // tiny uppercase labels.
-        <div className="space-y-6">
+        <fieldset disabled={!canManage} className="min-w-0 space-y-6">
           <section className="rounded-xl border border-outline-variant/40 bg-surface-container-low overflow-hidden">
             <div className="px-6 pt-5 pb-3 border-b border-outline-variant/30">
               <h3 className="text-base font-semibold text-on-surface">Pipeline Settings</h3>
@@ -1129,7 +1136,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
               </section>
             );
           })()}
-        </div>
+        </fieldset>
       )}
 
       {/* ═══════════════════════════════════════════════════════ */}
@@ -1153,7 +1160,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
               would see scheduled cron runs land as "completed with N
               errors" with no obvious explanation. One click on Run Now
               fixes it permanently. */}
-          {settings && settings.is_enabled && !settings.prompt_templates && (
+          {canManage && settings && settings.is_enabled && !settings.prompt_templates && (
             <div className="rounded-lg border border-ext-amber/40 bg-ext-amber-container/20 px-5 py-4 flex items-start gap-3">
               <Icon name="alert-triangle" className="w-5 h-5 text-ext-amber mt-0.5 shrink-0" />
               <div className="flex-1 min-w-0">
@@ -1178,14 +1185,14 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
             </div>
           )}
 
-          {userId ? (
-            <FeedActivityLog userId={userId} liveJobs={recentJobs} />
+          {teamUserId ? (
+            <FeedActivityLog key={teamUserId} userId={teamUserId} liveJobs={recentJobs} canManage={canManage} />
           ) : (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <Icon name="activity" className="w-8 h-8 text-on-surface-variant/20 mb-3" />
               <p className="text-sm text-on-surface-variant/40">No activity yet</p>
               <p className="text-xs text-on-surface-variant/25 mt-1">
-                Enable auto-digest and select sources to get started
+                {canManage ? 'Enable auto-digest and select sources to get started' : 'An admin can configure the shared team pipeline.'}
               </p>
             </div>
           )}
@@ -1195,7 +1202,7 @@ export const AutoDigestSettingsPage: React.FC<AutoDigestSettingsPageProps> = ({ 
       {/* ═══════════════════════════════════════════════════════ */}
       {/* FLOATING SAVE BAR                                      */}
       {/* ═══════════════════════════════════════════════════════ */}
-      {hasUnsavedChanges && (
+      {canManage && hasUnsavedChanges && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 ">
           <div className="flex items-center gap-4 px-5 py-3 rounded-2xl bg-surface-container-highest border border-outline-variant/20 shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
             <span className="text-sm text-on-surface">
