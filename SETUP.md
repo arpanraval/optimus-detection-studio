@@ -138,10 +138,10 @@ tells you exactly what happened at each one:
 1. checks prerequisites (bun, Supabase CLI, psql)
 2. reads `.env.local` and asks for your **database connection string** (the URI from step 2)
 3. links your Supabase project
-4. applies [`supabase/schema.sql`](supabase/schema.sql) — 62 tables, RLS policies,
+4. applies [`supabase/schema.sql`](supabase/schema.sql) — 79 tables, RLS policies,
    functions, triggers, the realtime publication, seed data (CI-verified to
    apply on an empty database)
-5. deploys all **19 edge functions**
+5. deploys all **22 edge functions**
 6. sets your edge-function secrets — prompts for your Gemini / Anthropic keys
    (Enter to skip any) and **auto-generates** `INTEGRATION_ENCRYPTION_KEY`
 7. enables **Threat Research & background automation** — asks for your
