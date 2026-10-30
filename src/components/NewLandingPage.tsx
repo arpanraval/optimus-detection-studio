@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Icon } from './Icon';
 import { BrandArtwork } from '@/components/brand/BrandArtwork';
+import { Icon } from './Icon';
+import { PROJECT_REPOSITORY_URL } from '@/lib/projectLinks';
 import './new-landing/tokens/landing.css';
 import { PlatformShowcase } from './new-landing/PlatformShowcase';
 import { HeroFlowScene } from './new-landing/hero/HeroFlowScene';
@@ -57,14 +58,6 @@ const ScrollReveal: React.FC<{ children: React.ReactNode; className?: string; de
 export const NewLandingPage: React.FC<{ onSignIn: () => void }> = ({ onSignIn }) => {
   const [scrolled, setScrolled] = useState(false);
   const [scrollPercent, setScrollPercent] = useState(0);
-  const [showAccessModal, setShowAccessModal] = useState(false);
-  const [modalShake, setModalShake] = useState(false);
-  
-  const [accessEmail, setAccessEmail] = useState('');
-  const [accessMessage, setAccessMessage] = useState('');
-  const [accessSent, setAccessSent] = useState(false);
-  const [accessError, setAccessError] = useState('');
-  const [accessLoading, setAccessLoading] = useState(false);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -77,63 +70,6 @@ export const NewLandingPage: React.FC<{ onSignIn: () => void }> = ({ onSignIn })
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
-
-  const FREE_DOMAINS = ['gmail.com','yahoo.com','hotmail.com','outlook.com','aol.com','icloud.com','mail.com','protonmail.com','zoho.com','yandex.com','live.com','msn.com','me.com','inbox.com','gmx.com'];
-
-  const validateBusinessEmail = (email: string): string | null => {
-    if (!email) return 'Business email is required';
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'Please enter a valid business email';
-    const domain = email.split('@')[1]?.toLowerCase();
-    if (FREE_DOMAINS.includes(domain)) return 'Please use your official company business email';
-    return null;
-  };
-
-  const handleAccessRequest = async () => {
-    const error = validateBusinessEmail(accessEmail);
-    if (error) { 
-      setAccessError(error); 
-      setModalShake(true);
-      setTimeout(() => setModalShake(false), 500);
-      return; 
-    }
-    setAccessError('');
-    setAccessLoading(true);
-    try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      const res = await fetch(`${supabaseUrl}/functions/v1/demo-request`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': supabaseAnonKey,
-          'Authorization': `Bearer ${supabaseAnonKey}`,
-        },
-        body: JSON.stringify({ email: accessEmail, message: accessMessage }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setAccessError(data.error || 'Something went wrong. Please try again.');
-        setAccessLoading(false);
-        setModalShake(true);
-        setTimeout(() => setModalShake(false), 500);
-        return;
-      }
-    } catch {
-      setAccessError('Network error. Please try again.');
-      setAccessLoading(false);
-      setModalShake(true);
-      setTimeout(() => setModalShake(false), 500);
-      return;
-    }
-    setAccessLoading(false);
-    setAccessSent(true);
-    setTimeout(() => { 
-      setShowAccessModal(false); 
-      setAccessSent(false); 
-      setAccessEmail(''); 
-      setAccessMessage(''); 
-    }, 2800);
-  };
 
   return (
     <div className="landing-root min-h-screen relative" data-brand-tone="light">
@@ -174,7 +110,7 @@ export const NewLandingPage: React.FC<{ onSignIn: () => void }> = ({ onSignIn })
           <ScrollReveal>
             <div className="inline-flex items-center gap-2.5 px-3 py-1.5 rounded-full border border-outline-variant bg-surface-container-low mb-7">
               <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-              <span className="mono text-[9px] font-bold tracking-[0.3em] text-primary uppercase">Detection Studio · Private Beta</span>
+              <span className="mono text-[9px] font-bold tracking-[0.3em] text-primary uppercase">Detection Studio · Open Source</span>
             </div>
           </ScrollReveal>
 
@@ -194,12 +130,12 @@ export const NewLandingPage: React.FC<{ onSignIn: () => void }> = ({ onSignIn })
 
           <ScrollReveal delay={240}>
             <div className="flex flex-wrap gap-4 items-center justify-center mb-12">
-              <button
-                onClick={() => setShowAccessModal(true)}
-                className="btn-primary px-9 py-4 text-sm font-semibold tracking-wide"
+              <a href={PROJECT_REPOSITORY_URL} target="_blank" rel="noopener noreferrer"
+                className="btn-primary px-9 py-4 text-sm font-semibold tracking-wide inline-flex items-center gap-2.5"
               >
-                Request early access
-              </button>
+                <Icon name="github" className="w-4 h-4" aria-hidden="true" />
+                View on GitHub
+              </a>
               <a
                 href="#features"
                 className="btn-outline px-7 py-4 text-sm font-semibold tracking-wide flex items-center gap-2 group"
@@ -322,12 +258,12 @@ export const NewLandingPage: React.FC<{ onSignIn: () => void }> = ({ onSignIn })
             <p className="text-base sm:text-lg text-on-surface-variant leading-relaxed max-w-xl mx-auto mb-12 font-light">
               Centralize your rules, close coverage gaps, and ship detections across every SIEM you run — in one workspace.
             </p>
-            <button
-              onClick={() => setShowAccessModal(true)}
-              className="btn-primary px-12 py-5 text-sm font-semibold tracking-wide"
+            <a href={PROJECT_REPOSITORY_URL} target="_blank" rel="noopener noreferrer"
+              className="btn-primary px-12 py-5 text-sm font-semibold tracking-wide inline-flex items-center gap-2.5"
             >
-              Request early access
-            </button>
+              <Icon name="github" className="w-4 h-4" aria-hidden="true" />
+              View on GitHub
+            </a>
           </ScrollReveal>
         </div>
       </section>
@@ -341,81 +277,6 @@ export const NewLandingPage: React.FC<{ onSignIn: () => void }> = ({ onSignIn })
           <span className="mono text-[9px] text-outline tracking-wider font-medium">&copy; 2026 Optimus Detection Studio</span>
         </div>
       </footer>
-
-      {/* ━━━ ACCESS REQUEST MODAL ━━━ */}
-      {showAccessModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center px-4" onClick={() => setShowAccessModal(false)}>
-          <div className="absolute inset-0 bg-[#040406]/75 backdrop-blur-md" />
-          
-          <div 
-            className={`bento-card max-w-md w-full relative z-10 modal-spring glass-card ${modalShake ? 'shake-effect' : ''}`} 
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="p-8 sm:p-10">
-              <div className="flex items-center justify-between mb-8">
-                <div>
-                  <h3 className="font-brand text-2xl font-bold tracking-tight text-gradient-white">Request early access</h3>
-                  <p className="text-xs text-on-surface-variant mt-1.5">Tell us a bit about your team and we'll be in touch.</p>
-                </div>
-                <button
-                  onClick={() => setShowAccessModal(false)}
-                  className="text-on-surface-variant hover:text-primary transition-colors text-2xl leading-none"
-                >
-                  &times;
-                </button>
-              </div>
-
-              {accessSent ? (
-                <div className="text-center py-10">
-                  <div className="w-16 h-16 rounded-full mx-auto mb-6 flex items-center justify-center bg-tertiary-container border border-tertiary/30">
-                    <Icon name="check" className="w-8 h-8 text-tertiary" />
-                  </div>
-                  <p className="text-xl font-bold text-gradient-white mb-2">Request received.</p>
-                  <p className="text-on-surface-variant text-sm font-light">We'll follow up at <span className="text-on-surface font-medium">{accessEmail}</span> shortly.</p>
-                </div>
-              ) : (
-                <>
-                  <div className="space-y-5">
-                    <div>
-                      <label className="text-xs font-semibold text-on-surface block mb-2">Work email</label>
-                      <input
-                        type="email"
-                        value={accessEmail}
-                        onChange={e => { setAccessEmail(e.target.value); setAccessError(''); }}
-                        onBlur={() => { const err = validateBusinessEmail(accessEmail); if (err) setAccessError(err); }}
-                        placeholder="you@company.com"
-                        className={`w-full px-4 py-3 rounded-xl bg-surface-container-low border text-on-surface text-sm placeholder:text-outline focus:outline-none transition-all ${
-                          accessError
-                            ? 'border-red-500/50 focus:border-red-500 focus:bg-red-500/5'
-                            : 'border-outline-variant focus:border-primary focus:bg-surface-container-high'
-                        }`}
-                      />
-                      {accessError && <p className="text-red-500 text-xs mt-2 font-medium">{accessError}</p>}
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold text-on-surface block mb-2">What are you trying to fix? <span className="text-on-surface-variant font-normal">(optional)</span></label>
-                      <textarea
-                        value={accessMessage}
-                        onChange={e => setAccessMessage(e.target.value)}
-                        placeholder="Your SIEM stack, team size, and what's painful today (e.g. drowning in Sigma rules, coverage gaps, multi-SIEM translation)..."
-                        rows={3}
-                        className="w-full px-4 py-3 rounded-xl bg-surface-container-low border border-outline-variant text-on-surface text-sm placeholder:text-outline focus:outline-none focus:border-primary focus:bg-surface-container-high transition-all resize-none"
-                      />
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleAccessRequest}
-                    disabled={!accessEmail || accessLoading}
-                    className="btn-primary w-full mt-7 py-4 text-sm font-semibold tracking-wide transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {accessLoading ? 'Sending…' : 'Submit request'}
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

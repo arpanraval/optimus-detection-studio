@@ -2,6 +2,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Icon } from './Icon';
 import { BrandArtwork } from '@/components/brand/BrandArtwork';
+import { PROJECT_REPOSITORY_URL } from '@/lib/projectLinks';
 import { PlatformShowcase } from './landing/PlatformShowcase';
 
 // ============================================================================
@@ -399,61 +400,12 @@ interface LandingPageProps { onSignIn: () => void; }
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn }) => {
   const [scrolled, setScrolled] = useState(false);
-  const [showAccessModal, setShowAccessModal] = useState(false);
-  const [accessEmail, setAccessEmail] = useState('');
-  const [accessMessage, setAccessMessage] = useState('');
-  const [accessSent, setAccessSent] = useState(false);
-  const [accessError, setAccessError] = useState('');
-  const [accessLoading, setAccessLoading] = useState(false);
 
   useEffect(() => {
     const h = () => setScrolled(window.scrollY > 20);
     window.addEventListener('scroll', h, { passive: true });
     return () => window.removeEventListener('scroll', h);
   }, []);
-
-  const FREE_DOMAINS = ['gmail.com','yahoo.com','hotmail.com','outlook.com','aol.com','icloud.com','mail.com','protonmail.com','zoho.com','yandex.com','live.com','msn.com','me.com','inbox.com','gmx.com'];
-
-  const validateBusinessEmail = (email: string): string | null => {
-    if (!email) return 'Email is required';
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'Enter a valid email address';
-    const domain = email.split('@')[1]?.toLowerCase();
-    if (FREE_DOMAINS.includes(domain)) return 'Please use your business email address';
-    return null;
-  };
-
-  const handleAccessRequest = async () => {
-    const error = validateBusinessEmail(accessEmail);
-    if (error) { setAccessError(error); return; }
-    setAccessError('');
-    setAccessLoading(true);
-    try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      const res = await fetch(`${supabaseUrl}/functions/v1/demo-request`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': supabaseAnonKey,
-          'Authorization': `Bearer ${supabaseAnonKey}`,
-        },
-        body: JSON.stringify({ email: accessEmail, message: accessMessage }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setAccessError(data.error || 'Something went wrong. Please try again.');
-        setAccessLoading(false);
-        return;
-      }
-    } catch {
-      setAccessError('Network error. Please try again.');
-      setAccessLoading(false);
-      return;
-    }
-    setAccessLoading(false);
-    setAccessSent(true);
-    setTimeout(() => { setShowAccessModal(false); setAccessSent(false); setAccessEmail(''); setAccessMessage(''); }, 3000);
-  };
 
   return (
     <div className="min-h-screen bg-[#09090b] text-white overflow-x-hidden" data-brand-tone="dark">
@@ -542,12 +494,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn }) => {
           <div className="relative inline-block group">
             <div className="absolute -inset-6 rounded-[2rem] blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-700" style={{ background: `radial-gradient(circle, ${ACCENT}, transparent 70%)` }} />
             <div className="conic-border">
-              <button onClick={() => setShowAccessModal(true)}
-                className="cta-shimmer inline-flex items-center gap-4 px-14 py-5 text-base font-black mono tracking-[0.2em] uppercase"
-                style={{ color: ACCENT }}>
-                Request Early Access
-                <span style={{ color: ACCENT }} className="group-hover:translate-x-1 transition-transform duration-300">&rarr;</span>
-              </button>
+              <a href={PROJECT_REPOSITORY_URL} target="_blank" rel="noopener noreferrer"
+                className="cta-shimmer inline-flex items-center gap-3 px-12 py-5 text-base font-bold mono tracking-[0.1em] uppercase text-white/90">
+                <Icon name="github" className="w-5 h-5" aria-hidden="true" />
+                View on GitHub
+                <span className="text-white/60 group-hover:translate-x-1 transition-transform duration-300">&rarr;</span>
+              </a>
             </div>
           </div>
         </div>
@@ -593,7 +545,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn }) => {
               <span>AES-256 ENCRYPTION</span>
               <span>ROW-LEVEL SECURITY</span>
               <span>5-TIER RBAC</span>
-              <span>SOC2-READY AUDIT TRAIL</span>
+              <span>AUDIT TRAIL</span>
             </div>
           </Reveal>
         </div>
@@ -611,11 +563,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn }) => {
               Not spreadsheets. Not scripts. An intelligent platform that manages the full detection lifecycle.
             </p>
             <div className="conic-border inline-block">
-              <button onClick={() => setShowAccessModal(true)}
-                className="cta-shimmer px-10 py-4 text-sm font-bold mono tracking-[0.15em] uppercase transition-all hover:scale-[1.03] hover:bg-white/[0.03]"
-                style={{ color: ACCENT }}>
-                Request Early Access &rarr;
-              </button>
+              <a href={PROJECT_REPOSITORY_URL} target="_blank" rel="noopener noreferrer"
+                className="cta-shimmer inline-flex items-center gap-3 px-10 py-4 text-sm font-bold mono tracking-[0.1em] uppercase text-white/90 transition-all hover:scale-[1.03] hover:bg-white/[0.03]">
+                <Icon name="github" className="w-4 h-4" aria-hidden="true" />
+                View on GitHub
+                <span className="text-white/60">&rarr;</span>
+              </a>
             </div>
           </Reveal>
         </div>
@@ -630,65 +583,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignIn }) => {
           <span className="mono text-[10px] text-white/15">&copy; 2026</span>
         </div>
       </footer>
-
-      {/* ━━━ ACCESS REQUEST MODAL ━━━ */}
-      {showAccessModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center px-4" onClick={() => setShowAccessModal(false)}>
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
-          <div className="conic-border max-w-md w-full" onClick={e => e.stopPropagation()}>
-            <div className="p-8">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="font-brand text-xl font-bold text-white">Request Early Access</h3>
-                <button onClick={() => setShowAccessModal(false)} className="text-white/30 hover:text-white/60 transition-colors text-xl">&times;</button>
-              </div>
-
-              {accessSent ? (
-                <div className="text-center py-8">
-                  <div className="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center" style={{ backgroundColor: `${TEAL}20` }}>
-                    <Icon name="check" className="w-6 h-6" style={{ color: TEAL }} />
-                  </div>
-                  <p className="text-white/70 font-medium mb-1">Request sent!</p>
-                  <p className="text-white/35 text-sm">We'll reach out to <span className="text-white/50">{accessEmail}</span> shortly.</p>
-                </div>
-              ) : (
-                <>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="mono text-[10px] tracking-wider text-white/30 uppercase block mb-2">Business Email *</label>
-                      <input
-                        type="email"
-                        value={accessEmail}
-                        onChange={e => { setAccessEmail(e.target.value); setAccessError(''); }}
-                        onBlur={() => { const err = validateBusinessEmail(accessEmail); if (err) setAccessError(err); }}
-                        placeholder="you@company.com"
-                        className={`w-full px-4 py-3 rounded-lg bg-white/[0.04] border text-white text-sm placeholder:text-white/20 focus:outline-none transition-colors ${accessError ? 'border-red-500/50 focus:border-red-500/70' : 'border-white/[0.08] focus:border-white/20'}`}
-                      />
-                      {accessError && <p className="text-red-400/80 text-xs mt-1.5">{accessError}</p>}
-                    </div>
-                    <div>
-                      <label className="mono text-[10px] tracking-wider text-white/30 uppercase block mb-2">Tell us about your use case</label>
-                      <textarea
-                        value={accessMessage}
-                        onChange={e => setAccessMessage(e.target.value)}
-                        placeholder="e.g. We're a SOC team of 5 managing Splunk and Sentinel..."
-                        rows={3}
-                        className="w-full px-4 py-3 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-white/20 transition-colors resize-none"
-                      />
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleAccessRequest}
-                    disabled={!accessEmail || accessLoading}
-                    className="w-full mt-6 py-3.5 rounded-lg text-sm font-bold mono tracking-wider uppercase transition-all duration-300 hover:brightness-125 disabled:opacity-30 disabled:cursor-not-allowed"
-                    style={{ backgroundColor: ACCENT, color: 'white' }}>
-                    {accessLoading ? 'Sending...' : 'Send Request'}
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
