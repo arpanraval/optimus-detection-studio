@@ -481,7 +481,7 @@ async function handleQueryMitre(supabase: any, params: any) {
   }
 
   // Format results
-  const formattedResults = (results || []).map((r: any) => ({
+  const formattedResults: { stixId: string; mitreId: string; name: string; type: string; description: string; aliases: string[] }[] = (results || []).map((r: any) => ({
     stixId: r.stix_id,
     mitreId: r.mitre_id,
     name: r.name,
@@ -518,7 +518,7 @@ async function handleQueryMitre(supabase: any, params: any) {
         .select('stix_id, mitre_id, name, type')
         .in('stix_id', refIds)
 
-      const refMap = new Map((refObjs || []).map((o: any) => [o.stix_id, o]))
+      const refMap = new Map<string, { name: string }>((refObjs || []).map((o: any) => [o.stix_id, o]))
 
       relationships = rels.map((r: any) => ({
         type: r.relationship_type,
@@ -559,7 +559,7 @@ async function handleGenerateNavigatorLayer(supabase: any, params: any) {
   }
 
   // Build Navigator layer format
-  const techniques = []
+  const techniques: { techniqueID: string; score: number; color: string; comment: string }[] = []
 
   // Get technique coverage details
   const { data: techCoverage } = await supabase

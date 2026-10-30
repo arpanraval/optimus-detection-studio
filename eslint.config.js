@@ -31,6 +31,7 @@ export default tseslint.config(
       '.vercel/**',
       '.playwright-mcp/**',
       'output/**',
+      '.backup-*/**',
       'brag-output*/**',
       'docs/**',
       // Loose scratch files kept out of the app build

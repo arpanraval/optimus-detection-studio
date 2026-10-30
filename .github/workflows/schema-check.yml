@@ -18,6 +18,9 @@ on:
       - 'supabase/migrations/**'
       - 'supabase/tests/**'
       - 'scripts/setup.ts'
+      - 'scripts/setup-*.ts'
+      - 'scripts/setup-migrations.json'
+      - 'scripts/setup-check.ts'
       - '.github/workflows/schema-check.yml'
   pull_request:
     paths:
@@ -25,8 +28,14 @@ on:
       - 'supabase/migrations/**'
       - 'supabase/tests/**'
       - 'scripts/setup.ts'
+      - 'scripts/setup-*.ts'
+      - 'scripts/setup-migrations.json'
+      - 'scripts/setup-check.ts'
       - '.github/workflows/schema-check.yml'
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   apply-on-empty-db:
@@ -260,6 +269,27 @@ jobs:
 
       - name: Verify shared Auto Digest reads and admin-only management
         run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/tests/team-auto-digest.sql
+
+      - name: Verify Chronicle saves, unsupported connections, and watchdog repair
+        run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/tests/setup-integrations.sql
+
+      - name: Verify atomic Vault and cron configuration without custom database settings
+        run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/tests/setup-automation.sql
+
+      - name: Verify signup roles, invitation boundaries, and browser table privileges
+        run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/tests/oss-authorization.sql
+
+      - name: Verify the installer preserves the watchdog on first run and rerun
+        run: |
+          psql "$PGURL" -tA -c "select pg_get_functiondef('public.auto_digest_watchdog()'::regprocedure)" > /tmp/watchdog-before.sql
+          python3 -c 'import json; print("\n".join(json.load(open("scripts/setup-migrations.json"))))' > /tmp/setup-migrations.txt
+          for attempt in 1 2; do
+            while IFS= read -r migration; do
+              psql "$PGURL" -v ON_ERROR_STOP=1 --single-transaction -f "$migration" > /dev/null
+            done < /tmp/setup-migrations.txt
+            psql "$PGURL" -tA -c "select pg_get_functiondef('public.auto_digest_watchdog()'::regprocedure)" > /tmp/watchdog-after.sql
+            diff -u /tmp/watchdog-before.sql /tmp/watchdog-after.sql
+          done
 
       - name: Verify native SIEM inventory catalog and relationship contract
         run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/tests/native-siem-inventory.sql
