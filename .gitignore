@@ -13,8 +13,7 @@ dist-ssr
 
 # Environment files
 .env
-.env.local
-.env.*.local
+.env.*
 !.env.example
 
 # Internal docs (security audits, roadmaps, plans)
