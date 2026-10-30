@@ -415,17 +415,26 @@ export const ThreatIntelProvider: React.FC<ThreatIntelProviderProps> = ({
 
     setIsLoading(true);
     try {
-      // Fetch with ttps to calculate coverage on the fly for reports that don't have it
-      const { data, error } = await withTimeout(
-        supabase
-          .from('threat_intel_reports')
-          .select('id, user_id, name, updated_at, report_title, threat_level, attack_type, attribution, organization, ttp_count, ioc_count, rule_count, coverage_percent, ttps, summary, classification, mitre_mapping, source, source_feed_name, source_article_url, review_status, review_note, relevance_score, feasible_gap_count, infeasible_gap_count, campaign_id')
-          .order('updated_at', { ascending: false })
-          .limit(100),
-        DEFAULT_TIMEOUT_MS
-      );
-
-      if (error) throw error;
+      // Page through every report. This was a single `.limit(100)`, so the
+      // library silently showed the newest 100 and its counts read 100 no
+      // matter how many existed. Pages match PostgREST's max_rows (1000);
+      // `id` breaks updated_at ties so rows can't shift between pages.
+      const pageSize = 1000;
+      const data: any[] = [];
+      for (let from = 0; ; from += pageSize) {
+        const { data: page, error } = await withTimeout(
+          supabase
+            .from('threat_intel_reports')
+            .select('id, user_id, name, updated_at, report_title, threat_level, attack_type, attribution, organization, ttp_count, ioc_count, rule_count, coverage_percent, ttps, summary, classification, mitre_mapping, source, source_feed_name, source_article_url, review_status, review_note, relevance_score, feasible_gap_count, infeasible_gap_count, campaign_id')
+            .order('updated_at', { ascending: false })
+            .order('id', { ascending: true })
+            .range(from, from + pageSize - 1),
+          DEFAULT_TIMEOUT_MS
+        );
+        if (error) throw error;
+        data.push(...(page ?? []));
+        if (!page || page.length < pageSize) break;
+      }
 
       // Fall back to JSONB for cached columns that were null due to a historic
       // field-name mismatch.
