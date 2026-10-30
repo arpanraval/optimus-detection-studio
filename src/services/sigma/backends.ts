@@ -95,7 +95,7 @@ export const SUPPORTED_BACKENDS: Record<string, BackendConfig> = {
   },
   
   crowdstrike_logscale: {
-    id: 'logscale',
+    id: 'log_scale', // the name pysigma-backend-crowdstrike registers
     name: 'CrowdStrike LogScale',
     description: 'CrowdStrike LogScale queries',
     package: 'pysigma-backend-crowdstrike==3.0.0',
@@ -107,7 +107,7 @@ export const SUPPORTED_BACKENDS: Record<string, BackendConfig> = {
   },
   
   carbon_black: {
-    id: 'carbonblack',
+    id: 'carbon_black',
     name: 'VMware Carbon Black',
     description: 'Carbon Black EDR queries',
     package: 'pysigma-backend-carbonblack==0.1.14',
@@ -131,19 +131,20 @@ export const SUPPORTED_BACKENDS: Record<string, BackendConfig> = {
   },
   
   chronicle: {
-    id: 'chronicle',
+    id: 'secops',
     name: 'Google Chronicle (SecOps)',
-    description: 'Google Chronicle YARA-L queries',
+    description: 'Google SecOps UDM search and YARA-L rules',
     package: 'pysigma-backend-secops==1.0.0',
     formats: {
-      default: 'YARA-L rules'
+      default: 'UDM search query',
+      yara_l: 'YARA-L rules'
     },
     pipelines: [],
     category: 'cloud'
   },
   
   opensearch: {
-    id: 'opensearch',
+    id: 'opensearch_lucene',
     name: 'OpenSearch',
     description: 'OpenSearch Lucene queries',
     // Depends on pysigma-backend-elasticsearch unpinned; the latest needs pySigma 1.4+.
