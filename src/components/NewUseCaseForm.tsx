@@ -384,6 +384,10 @@ export const NewUseCaseForm: React.FC<NewDetectionFormProps> = ({
   
   // === SESSION 4: Unsaved changes tracking ===
   const initialFormDataRef = useRef<string>('');
+  // A pre-filled draft (e.g. "Create detection" on a threat-intel rule) exists
+  // only in this form until it is saved. Comparing against the opening
+  // snapshot alone made it look clean, so leaving discarded it without a prompt.
+  const unsavedDraftRef = useRef(!isEditMode && !!initialDraft);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
@@ -410,7 +414,7 @@ export const NewUseCaseForm: React.FC<NewDetectionFormProps> = ({
   useEffect(() => {
     if (initialFormDataRef.current) {
       const currentData = JSON.stringify(formData);
-      setHasUnsavedChanges(currentData !== initialFormDataRef.current);
+      setHasUnsavedChanges(unsavedDraftRef.current || currentData !== initialFormDataRef.current);
     }
   }, [formData]);
 
@@ -1132,6 +1136,7 @@ Output JSON only, no markdown.`;
       // Clear unsaved state BEFORE onSave, which may trigger navigation.
       // This prevents the route blocker from firing during post-save navigation.
       initialFormDataRef.current = JSON.stringify(formData);
+      unsavedDraftRef.current = false;
       setHasUnsavedChanges(false);
       await onSave(detectionToSave);
 
@@ -1300,6 +1305,7 @@ Output JSON only, no markdown.`;
 
   const handleUnsavedDiscard = () => {
     setShowUnsavedDialog(false);
+    unsavedDraftRef.current = false;
     setHasUnsavedChanges(false);
     if (pendingNavigation) {
       pendingNavigation();

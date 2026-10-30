@@ -4,6 +4,8 @@
 // list/load sessions and events, and the leaf save / archive flow.
 
 import { supabase } from './supabaseClient';
+import { createEmptyDetection } from '../types/detection';
+import { DetectionType, Severity, Status } from '../types/enums';
 import type {
   ThreatResearchSession, ThreatResearchEvent,
   GeneratedDetection,
@@ -128,18 +130,34 @@ export async function saveDetectionFromLeaf(
   opportunityId: string,
   detection: GeneratedDetection,
 ): Promise<{ detection_id: string; tree_patched: boolean; tree_patch_error?: string }> {
-  // 1. Insert into the library.
+  // 1. Insert into the library. Starts from createEmptyDetection like every
+  //    other draft path: `detections` has no `query` column and several NOT
+  //    NULL columns without DB defaults (id, version, detectionType, ...), so
+  //    the research shape sent on its own was rejected on every save.
+  const now = new Date().toISOString();
   const { data: inserted, error: insertErr } = await supabase
     .from('detections')
     .insert({
-      user_id: session.user_id,
+      ...createEmptyDetection(session.user_id),
       name: detection.name,
       description: detection.description,
-      query: detection.query,
+      detectionQuery: detection.query,
       queryLanguage: detection.query_language,
+      queries: [{
+        id: crypto.randomUUID(),
+        language: detection.query_language,
+        query: detection.query,
+        isPrimary: true,
+        createdDate: now,
+        updatedDate: now,
+      }],
       mitreAttackIds: detection.mitre_technique_ids,
-      severity: detection.suggested_severity,
-      status: 'Draft',
+      severity: detection.suggested_severity as Severity,
+      detectionType: detection.suggested_detection_type === 'Hunting' ? DetectionType.Hunting : DetectionType.Detection,
+      status: Status.Draft,
+      library_type: 'development',
+      createdDate: now,
+      updatedDate: now,
       research_session_id: session.id,
       research_node_id: `${behaviourId}/${opportunityId}/${detection.id}`,
     })
