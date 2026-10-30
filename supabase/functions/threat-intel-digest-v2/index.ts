@@ -544,7 +544,7 @@ serve(async (req: Request) => {
     if (shouldRunLibrary && findLibrary && ttps.length > 0) {
       console.log('=== Stage 8: Library coverage (DB) ===')
       const libraryResult = await executeStage('library', () =>
-        findLibraryMatches(ttps, mitreMapping, supabaseClient, user.id, options.includeOwnedDevelopmentDetections === true)
+        findLibraryMatches(ttps, mitreMapping, supabaseClient, user.id)
       )
       if (libraryResult.success) {
         const { matches, computed, candidatePoolSize, librarySize } = libraryResult.data!

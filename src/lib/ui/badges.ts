@@ -292,6 +292,14 @@ export const ttpCoverageColors = {
     cardBg: 'bg-[#4D7C6F]/5',
     cardBorder: 'border-[#4D7C6F]/20',
   },
+  // Partial - Amber (a rule checks some, not all, of what the report describes)
+  partial: {
+    bg: 'bg-ext-amber/10',
+    text: 'text-ext-amber',
+    border: 'border-ext-amber/30',
+    cardBg: 'bg-surface-container',
+    cardBorder: 'border-ext-amber/30',
+  },
   // Gap - Neutral (not alarming red, just indicates work needed)
   gap: {
     bg: 'bg-surface-container',

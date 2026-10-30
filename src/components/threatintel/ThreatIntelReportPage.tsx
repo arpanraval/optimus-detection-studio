@@ -70,7 +70,8 @@ import {
 } from '../../lib/ui/badges';
 import { FeasibilityEmptyState } from './FeasibilityEmptyState';
 import { RetryWithModelButton } from './RetryWithModelButton';
-import { StatCard, ThreatLevelIndicator, InlineActionButton, TTPMiniMatrix, TTPTacticList, IoCTable, RuleListSection, MitreMappingsBlock, DEFANGABLE_IOC_TYPES, displayIoCValue, isDisplayedDefanged } from './shared';
+import { StatCard, ThreatLevelIndicator, InlineActionButton, TTPMiniMatrix, TTPTacticList, IoCTable, RuleListSection, MitreMappingsBlock, LibraryStatusBadge, DEFANGABLE_IOC_TYPES, displayIoCValue, isDisplayedDefanged } from './shared';
+import { parseDetectionStatus, statusMaturityRank } from '../../lib/detectionStatus';
 import type { CoveringDetection, TTPLike } from './shared';
 import { useBoundedList } from './shared/useBoundedList';
 import { createStixBundle } from '../../lib/threatIntel/stix';
@@ -239,6 +240,14 @@ const highlightCode = (line: string, ruleType: string): React.ReactNode => {
 };
 
 // Local references for cleaner code
+/** Library Coverage panel order: evidence matches first, context-free last. */
+const LIBRARY_MATCH_RANK: Partial<Record<LibraryMatch['matchType'], number>> = {
+  contextual: 0,
+  partial_context: 1,
+  ttp_match: 2,
+  group_related: 3,
+};
+
 const coveredColor = ttpCoverageColors.covered;
 const gapColor = ttpCoverageColors.gap;
 
@@ -562,7 +571,9 @@ export const ThreatIntelReportPage: React.FC = () => {
     };
 
     sessionStorage.setItem('detectionDraft', JSON.stringify(draft));
-    navigate('/library/detections/new');
+    // A rule lifted from a report is unreviewed, so it starts in the
+    // development library; without the param the form targets production.
+    navigate('/library/detections/new?library=development');
   }, [navigate, report]);
 
   // Open dialog to confirm/edit URL before fetching
@@ -1203,7 +1214,11 @@ export const ThreatIntelReportPage: React.FC = () => {
 
   const getCoveringDetections = useCallback((ttp: TTPLike): CoveringDetection[] => {
     const resolved: CoveringDetection[] = [];
-    for (const id of ttp.existingDetectionIds ?? []) {
+    // A partially covered TTP lists the rules that check part of its evidence.
+    const ids = !ttp.hasExistingDetection && ttp.coverageGrade === 'partial'
+      ? ttp.partialDetectionIds ?? []
+      : ttp.existingDetectionIds ?? [];
+    for (const id of ids) {
       const match = libraryMatchesById.get(id);
       // An unresolvable id is skipped rather than rendered as a dead link; the
       // card states the shortfall against the claimed count instead.
@@ -1213,23 +1228,38 @@ export const ThreatIntelReportPage: React.FC = () => {
           name: match.detectionName,
           status: match.status,
           severity: match.severity,
+          identifiers: match.matchedIdentifiers,
         });
       }
     }
-    return resolved;
+    // Most mature first, so a Production rule is not buried under drafts.
+    return resolved.sort((a, b) => statusMaturityRank(a.status) - statusMaturityRank(b.status));
   }, [libraryMatchesById]);
 
   // G1: the Library Coverage panel rendered every match flat -- 278 on the
   // worst report. Rank before bounding so the visible slice is the strongest
   // evidence rather than whatever order the matcher emitted: technique matches
   // before group-related ones, which is the same distinction the summary line
-  // above the list already draws, then by coverage score.
+  // above the list already draws, then by lifecycle maturity (every stage is
+  // eligible, so drafts must not crowd out deployed rules), then by score.
   const rankedLibraryMatches = useMemo(() => {
-    const rank = (m: LibraryMatch) =>
-      m.matchType === 'ttp_match' || (m.matchedTTPs?.length ?? 0) > 0 ? 0 : 1;
+    const rank = (m: LibraryMatch) => LIBRARY_MATCH_RANK[m.matchType] ?? 4;
     return [...(report?.libraryMatches ?? [])].sort(
-      (a, b) => rank(a) - rank(b) || (b.coverageScore ?? 0) - (a.coverageScore ?? 0),
+      (a, b) => rank(a) - rank(b)
+        || statusMaturityRank(a.status) - statusMaturityRank(b.status)
+        || (b.coverageScore ?? 0) - (a.coverageScore ?? 0),
     );
+  }, [report?.libraryMatches]);
+
+  // How many matches sit at each lifecycle stage, most mature first. Unknown
+  // statuses are counted under their own text rather than folded into a stage.
+  const libraryStatusCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const m of report?.libraryMatches ?? []) {
+      const key = parseDetectionStatus(m.status) ?? m.status ?? 'Unknown';
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort(([a], [b]) => statusMaturityRank(a) - statusMaturityRank(b));
   }, [report?.libraryMatches]);
 
   const boundedLibraryMatches = useBoundedList(rankedLibraryMatches);
@@ -1623,14 +1653,32 @@ export const ThreatIntelReportPage: React.FC = () => {
                 ) : (
                   <div className="space-y-3">
                     {(() => {
-                      const ttpMatches = report.libraryMatches.filter((m: LibraryMatch) => m.matchType === 'ttp_match' || (m.matchedTTPs?.length ?? 0) > 0);
-                      const groupOnlyMatches = report.libraryMatches.filter((m: LibraryMatch) => m.matchType === 'group_related' && (!m.matchedTTPs || m.matchedTTPs.length === 0));
+                      const countOf = (type: LibraryMatch['matchType']) =>
+                        report.libraryMatches.filter((m: LibraryMatch) => m.matchType === type).length;
+                      const contextual = countOf('contextual');
+                      const partial = countOf('partial_context');
+                      const legacy = countOf('ttp_match');
+                      const groupOnly = countOf('group_related');
                       return (
-                        <p className="text-sm text-on-surface-variant mb-4">
-                          <span className="text-[#4D7C6F] font-bold">{report.libraryMatches.length}</span> detection{report.libraryMatches.length !== 1 ? 's' : ''} found
-                          {ttpMatches.length > 0 && <> (<span className="text-purple-600 dark:text-purple-400 font-medium">{ttpMatches.length}</span> via TTP match)</>}
-                          {groupOnlyMatches.length > 0 && <> (<span className="text-primary font-medium">{groupOnlyMatches.length}</span> via threat group)</>}
-                        </p>
+                        <div className="mb-4 space-y-2">
+                          <p className="text-sm text-on-surface-variant">
+                            <span className="text-[#4D7C6F] font-bold">{report.libraryMatches.length}</span> detection{report.libraryMatches.length !== 1 ? 's' : ''} found
+                            {contextual > 0 && <> · <span className="text-[#4D7C6F] font-medium">{contextual}</span> match the evidence</>}
+                            {partial > 0 && <> · <span className="text-ext-amber font-medium">{partial}</span> match part of it</>}
+                            {legacy > 0 && <> · <span className="font-medium">{legacy}</span> by technique only (refresh to re-check)</>}
+                            {groupOnly > 0 && <> · <span className="text-primary font-medium">{groupOnly}</span> via threat group (not counted)</>}
+                          </p>
+                          {/* Every lifecycle stage counts as coverage; this line
+                              says how much of it is actually deployed. */}
+                          <div className="flex flex-wrap items-center gap-1.5" aria-label="Matched detections by status">
+                            {libraryStatusCounts.map(([status, count]) => (
+                              <span key={status} className="inline-flex items-center gap-1">
+                                <LibraryStatusBadge status={status} />
+                                <span className="text-xs font-bold text-on-surface-variant tabular-nums">{count}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
                       );
                     })()}
 
@@ -1648,10 +1696,18 @@ export const ThreatIntelReportPage: React.FC = () => {
                             >
                               {match.detectionName}
                             </Link>
-                            {/* Match Type Badge - Purple for technique-related */}
-                            {match.matchType === 'ttp_match' || (match.matchedTTPs?.length ?? 0) > 0 ? (
-                              <span className={`${badgeSizes.xs} font-bold uppercase tracking-wide inline-flex items-center bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20`}>
-                                TTP Match
+                            {/* Match Type Badge */}
+                            {match.matchType === 'contextual' ? (
+                              <span className={`${badgeSizes.xs} font-bold uppercase tracking-wide inline-flex items-center ${ttpCoverageColors.covered.bg} ${ttpCoverageColors.covered.text} border ${ttpCoverageColors.covered.border}`}>
+                                Matches evidence
+                              </span>
+                            ) : match.matchType === 'partial_context' ? (
+                              <span className={`${badgeSizes.xs} font-bold uppercase tracking-wide inline-flex items-center ${ttpCoverageColors.partial.bg} ${ttpCoverageColors.partial.text} border ${ttpCoverageColors.partial.border}`}>
+                                Partial match
+                              </span>
+                            ) : match.matchType === 'ttp_match' ? (
+                              <span className={`${badgeSizes.xs} font-bold uppercase tracking-wide inline-flex items-center ${ttpCoverageColors.gap.bg} ${ttpCoverageColors.gap.text} border ${ttpCoverageColors.gap.border}`}>
+                                Technique only
                               </span>
                             ) : match.matchType === 'group_related' && match.relatedGroupName ? (
                               <span className={`${badgeSizes.xs} font-bold uppercase tracking-wide inline-flex items-center bg-primary/10 text-primary border border-primary/20`}>
@@ -1659,20 +1715,12 @@ export const ThreatIntelReportPage: React.FC = () => {
                               </span>
                             ) : null}
                             {/* Show group relation badge if detection matches both TTP and group */}
-                            {(match.matchType === 'ttp_match' || (match.matchedTTPs?.length ?? 0) > 0) && match.relatedGroupName && (
+                            {match.matchType !== 'group_related' && match.relatedGroupName && (
                               <span className={`${badgeSizes.xs} font-bold uppercase tracking-wide inline-flex items-center bg-primary/10 text-primary border border-primary/20`}>
                                 + {match.relatedGroupName}
                               </span>
                             )}
-                            {match.status && (
-                              <span className={`${badgeSizes.xs} font-bold uppercase tracking-wide inline-flex items-center ${
-                                match.status === 'active' ? 'bg-[#4D7C6F]/10 text-[#4D7C6F] border border-[#4D7C6F]/20' :
-                                match.status === 'draft' ? 'bg-yellow-500/10 text-yellow-600 border border-yellow-500/20' :
-                                'bg-surface-container-highest text-on-surface-variant border border-outline-variant/20'
-                              }`}>
-                                {match.status}
-                              </span>
-                            )}
+                            <LibraryStatusBadge status={match.status} />
                             {match.severity && (
                               <span className={`${badgeSizes.xs} font-bold uppercase tracking-wide inline-flex items-center ${
                                 match.severity === 'critical' ? 'bg-[#A63D40]/10 text-[#A63D40] border border-[#A63D40]/20' :
@@ -1685,11 +1733,27 @@ export const ThreatIntelReportPage: React.FC = () => {
                             )}
                           </div>
 
+                          {/* The evidence identifiers the rule's logic checks -- the reason it counts */}
+                          {(match.matchedIdentifiers?.length ?? 0) > 0 && (
+                            <p className="text-[11px] text-on-surface-variant mb-1.5 break-words">
+                              <span className="text-[10px] uppercase tracking-wide font-bold mr-1">Checks:</span>
+                              <span className="font-mono">{match.matchedIdentifiers!.join(', ')}</span>
+                            </p>
+                          )}
+
                           {/* Matched TTPs or Group Relation */}
                           <div className="flex flex-wrap gap-1.5">
-                            {(match.matchedTTPs?.length ?? 0) > 0 ? (
+                            {(match.matchedTTPs?.length ?? 0) > 0 || (match.partialTTPs?.length ?? 0) > 0 ? (
                               <>
-                                <span className="text-[10px] text-on-surface-variant uppercase tracking-wide font-bold mr-1">Covers:</span>
+                                <span className="text-[10px] text-on-surface-variant uppercase tracking-wide font-bold mr-1">{(match.matchedTTPs?.length ?? 0) > 0 ? 'Covers:' : 'Partly covers:'}</span>
+                                {(match.matchedTTPs?.length ?? 0) === 0 && (match.partialTTPs || []).slice(0, 8).map((ttpId: string) => (
+                                  <span
+                                    key={ttpId}
+                                    className={`${badgeSizes.xs} font-mono font-bold inline-flex items-center ${ttpCoverageColors.partial.bg} ${ttpCoverageColors.partial.text} border ${ttpCoverageColors.partial.border}`}
+                                  >
+                                    {ttpId}
+                                  </span>
+                                ))}
                                 {(match.matchedTTPs || []).slice(0, 8).map((ttpId: string) => (
                                   <span
                                     key={ttpId}

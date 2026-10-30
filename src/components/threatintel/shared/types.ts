@@ -24,6 +24,10 @@ export interface TTPLike {
    * asserted coverage the reader had no way to check.
    */
   existingDetectionIds?: string[];
+  /** Contextual coverage verdict for this TTP; absent on legacy reports. */
+  coverageGrade?: 'covered' | 'partial' | 'not_covered' | 'not_assessable';
+  /** Rules that check some, but not all, of the evidence's identifiers. */
+  partialDetectionIds?: string[];
   /** Vendor names that mentioned this TTP. Undefined or single-item on digest. */
   sources?: string[];
 }
@@ -40,6 +44,8 @@ export interface CoveringDetection {
   name: string;
   status?: string;
   severity?: string;
+  /** Identifiers from the report evidence that the rule's logic checks. */
+  identifiers?: string[];
 }
 
 export interface IoCLike {

@@ -9,8 +9,10 @@ import type { CoveringDetection, TTPLike } from './types';
 import { VendorChip } from './VendorChip';
 import { MultiSourceBadge, corroborationCardClasses } from './MultiSourceBadge';
 import { InlineActionButton } from './InlineActionButton';
+import { LibraryStatusBadge } from './LibraryStatusBadge';
 
 const coveredColor = ttpCoverageColors.covered;
+const partialColor = ttpCoverageColors.partial;
 const gapColor = ttpCoverageColors.gap;
 
 interface TTPCardProps {
@@ -50,10 +52,16 @@ export const TTPCard: React.FC<TTPCardProps> = ({
   // A single TTP references as many as 238 detections in the corpus, so the
   // reveal is bounded the same way the Library Coverage panel is (G1).
   const boundedCovering = useBoundedList(covering);
-  const claimedCount = ttp.existingDetectionCount ?? 1;
-
   const isCovered = ttp.hasExistingDetection;
-  const coverageStyle = isCovered ? coveredColor : gapColor;
+  // Contextual grades (absent on legacy reports, which keep the old badge).
+  const isPartial = !isCovered && ttp.coverageGrade === 'partial';
+  const isNotAssessable = ttp.coverageGrade === 'not_assessable';
+  const claimedCount = isPartial
+    ? ttp.partialDetectionIds?.length ?? 0
+    : ttp.existingDetectionCount ?? 1;
+  const hasRules = isCovered || isPartial;
+  const ruleBadgeColor = isCovered ? coveredColor : partialColor;
+  const coverageStyle = isCovered ? coveredColor : isPartial ? partialColor : gapColor;
   const metaBadge = ttpMetaBadgeColors.sub;
   const sources = ttp.sources ?? [];
   const sourceCount = sources.length;
@@ -112,33 +120,39 @@ export const TTPCard: React.FC<TTPCardProps> = ({
               {ttp.confidence}
             </span>
           )}
-          {/* Coverage badge — only when covered.
-              Becomes a disclosure control once the covering detections have
-              been resolved (G8). The count is a claim, and it was previously
-              unverifiable: the IDs behind it were stored on every covered TTP
-              and read by nothing. Given C1 -- coverage here means a shared
-              technique tag, not evidence the rule fires -- being able to open
-              the list is the only way a reader can catch a bad match. */}
-          {isCovered && (
+          {/* Coverage badge — covered or partially covered.
+              Becomes a disclosure control once the matching detections have
+              been resolved (G8), so a reader can check every claim. Coverage
+              is contextual: the rule's logic checks the identifiers named in
+              this TTP's evidence, not merely the same technique tag. */}
+          {hasRules && (
             covering.length > 0 ? (
               <button
                 type="button"
                 onClick={() => setShowCovering(v => !v)}
                 aria-expanded={showCovering}
                 aria-controls={panelId}
-                title={showCovering ? 'Hide covering detections' : 'Show which detections cover this technique'}
-                className={`${badgeSizes.xs} font-bold uppercase tracking-wide inline-flex items-center gap-1 ${coveredColor.bg} ${coveredColor.text} border ${coveredColor.border} cursor-pointer hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all`}
+                title={showCovering ? 'Hide matching detections' : 'Show which detections match this evidence'}
+                className={`${badgeSizes.xs} font-bold uppercase tracking-wide inline-flex items-center gap-1 ${ruleBadgeColor.bg} ${ruleBadgeColor.text} border ${ruleBadgeColor.border} cursor-pointer hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all`}
               >
                 <Icon name="shield-check" className="w-3 h-3" />
-                {claimedCount} Rule{claimedCount !== 1 ? 's' : ''}
+                {isPartial && 'Partial · '}{claimedCount} Rule{claimedCount !== 1 ? 's' : ''}
                 <Icon name={showCovering ? 'chevron-up' : 'chevron-down'} className="w-3 h-3" />
               </button>
             ) : (
-              <span className={`${badgeSizes.xs} font-bold uppercase tracking-wide inline-flex items-center gap-1 ${coveredColor.bg} ${coveredColor.text} border ${coveredColor.border}`}>
+              <span className={`${badgeSizes.xs} font-bold uppercase tracking-wide inline-flex items-center gap-1 ${ruleBadgeColor.bg} ${ruleBadgeColor.text} border ${ruleBadgeColor.border}`}>
                 <Icon name="shield-check" className="w-3 h-3" />
-                {claimedCount} Rule{claimedCount !== 1 ? 's' : ''}
+                {isPartial && 'Partial · '}{claimedCount} Rule{claimedCount !== 1 ? 's' : ''}
               </span>
             )
+          )}
+          {isNotAssessable && (
+            <span
+              className={`${badgeSizes.xs} font-bold uppercase tracking-wide inline-flex items-center ${gapColor.bg} ${gapColor.text} border ${gapColor.border}`}
+              title="The report's evidence names no concrete artifact (process, file, command, registry key, event ID) to compare rule logic against, so coverage cannot be judged."
+            >
+              Not assessable
+            </span>
           )}
         </div>
 
@@ -225,11 +239,11 @@ export const TTPCard: React.FC<TTPCardProps> = ({
         </div>
       )}
 
-      {/* Covering detections (G8) — what the badge above is actually claiming */}
-      {isCovered && covering.length > 0 && showCovering && (
+      {/* Matching detections (G8) — what the badge above is actually claiming */}
+      {hasRules && covering.length > 0 && showCovering && (
         <div id={panelId} className="mb-3 rounded-lg border border-outline-variant/20 bg-surface-container-low p-2">
           <p className="text-[10px] uppercase tracking-wide font-bold text-on-surface-variant mb-1.5 px-1">
-            Detections claiming this technique
+            {isPartial ? 'Detections matching part of this evidence' : 'Detections matching this evidence'}
           </p>
           <ul className="space-y-0.5">
             {boundedCovering.visible.map(d => (
@@ -240,11 +254,15 @@ export const TTPCard: React.FC<TTPCardProps> = ({
                   title={d.name}
                 >
                   <span className="truncate flex-1">{d.name}</span>
-                  {d.status && (
-                    <span className="text-[10px] uppercase tracking-wide font-bold text-on-surface-variant/70 flex-shrink-0">
-                      {d.status}
+                  {(d.identifiers?.length ?? 0) > 0 && (
+                    <span
+                      className="hidden sm:inline truncate max-w-[40%] font-mono text-[10px] text-on-surface-variant/70"
+                      title={`Rule checks: ${d.identifiers!.join(', ')}`}
+                    >
+                      {d.identifiers!.join(', ')}
                     </span>
                   )}
+                  <LibraryStatusBadge status={d.status} />
                   <Icon name="arrowRight" className="w-3 h-3 flex-shrink-0 opacity-40" />
                 </Link>
               </li>

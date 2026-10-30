@@ -7,6 +7,7 @@ export { ThreatLevelIndicator } from './ThreatLevelIndicator';
 export { InlineActionButton } from './InlineActionButton';
 export { TTPMiniMatrix, MITRE_TACTICS_ORDER, findTacticIdFromName } from './TTPMiniMatrix';
 export { TTPCard } from './TTPCard';
+export { LibraryStatusBadge } from './LibraryStatusBadge';
 export { TTPTacticList } from './TTPTacticList';
 export { IoCTable, DEFANGABLE_IOC_TYPES, displayIoCValue, isDisplayedDefanged } from './IoCTable';
 export { RuleListSection } from './RuleListSection';

@@ -260,14 +260,28 @@ export interface ExtractedTTP {
   isSubTechnique: boolean;
   parentTechniqueId?: string;
 
-  // Library coverage (populated after MITRE mapping)
+  // Library coverage (populated after MITRE mapping). Contextual: a rule
+  // counts only when its logic checks the identifiers named in `evidence`.
   hasExistingDetection?: boolean;
   existingDetectionCount?: number;
   existingDetectionIds?: string[];
+  coverageGrade?: CoverageGrade;
+  /** Rules that check some, but not all, of the identifiers in the evidence. */
+  partialDetectionIds?: string[];
   provenance?: 'explicit' | 'inferred' | 'validated' | 'rejected' | 'analyst_verified';
   validationState?: 'pending' | 'validated' | 'rejected' | 'analyst_verified';
   evidenceSupported?: boolean;
 }
+
+/**
+ * How well the library covers one TTP, judged against the report's evidence
+ * rather than the technique ID. Mirrors the digest function's CoverageGrade.
+ *   covered         a rule checks every concrete identifier in the evidence
+ *   partial         a rule checks some of them
+ *   not_covered     no rule checks any of them
+ *   not_assessable  the evidence names no concrete identifier to compare against
+ */
+export type CoverageGrade = 'covered' | 'partial' | 'not_covered' | 'not_assessable';
 
 export interface ExtractedIoC {
   id: string;
@@ -377,8 +391,12 @@ export interface SuggestedMitreEntity {
 export interface LibraryMatch {
   detectionId: string;
   detectionName: string;
-  matchType: 'ttp_match' | 'group_related' | 'ioc_coverage' | 'similar_threat';
-  matchedTTPs?: string[];     // Which TTPs this detection covers
+  // 'contextual' / 'partial_context' come from the contextual matcher;
+  // 'ttp_match' is the legacy technique-ID overlap on older reports.
+  matchType: 'contextual' | 'partial_context' | 'ttp_match' | 'group_related' | 'ioc_coverage' | 'similar_threat';
+  matchedTTPs?: string[];     // TTPs whose evidence this detection fully covers
+  partialTTPs?: string[];     // TTPs whose evidence it partly covers
+  matchedIdentifiers?: string[]; // Evidence identifiers the rule's logic checks
   matchedIoCs?: string[];     // Which IoCs this detection covers
   coverageScore: number;      // 0-100
   status: string;             // Detection status

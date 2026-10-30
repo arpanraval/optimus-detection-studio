@@ -27,6 +27,7 @@ export interface DigestOptions {
   extractRules?: boolean;
   mapToMitre?: boolean;
   extractionMethod?: 'direct' | 'jina_reader';
+  /** @deprecated Ignored: every non-retired rule is now eligible for coverage. */
   includeOwnedDevelopmentDetections?: boolean;
   findLibraryMatches?: boolean;
   autoDigest?: boolean;
@@ -181,11 +182,29 @@ export interface ExtractedTTP {
   explanation: string;
   isSubTechnique: boolean;
   parentTechniqueId?: string;
+  /** True only when a rule contextually covers this TTP's evidence
+   *  (coverageGrade 'covered'). Technique overlap alone never sets it. */
   hasExistingDetection?: boolean;
   existingDetectionCount?: number;
   existingDetectionIds?: string[];
+  /** See CoverageGrade. Absent on reports matched before contextual coverage. */
+  coverageGrade?: CoverageGrade;
+  /** Rules that check some, but not all, of the identifiers in the evidence. */
+  partialDetectionIds?: string[];
   evidenceSupported?: boolean;
 }
+
+/**
+ * How well the library covers one TTP, judged against what the report says
+ * the adversary actually did (the evidence quote), not the technique ID.
+ *
+ *   covered         a rule checks every concrete identifier in the evidence
+ *   partial         a rule checks some of them
+ *   not_covered     no rule checks any of them
+ *   not_assessable  the evidence names no concrete identifier (process, file,
+ *                   registry key, event ID...) to compare rule logic against
+ */
+export type CoverageGrade = 'covered' | 'partial' | 'not_covered' | 'not_assessable';
 
 export interface ExtractedIoC {
   id: string;
@@ -266,8 +285,15 @@ export interface TacticCoverage {
 export interface LibraryMatch {
   detectionId: string;
   detectionName: string;
-  matchType: 'ttp_match' | 'group_related';
+  /** 'contextual' covers at least one TTP's evidence fully; 'partial_context'
+   *  only partly. 'ttp_match' is the legacy ID-overlap type on old reports. */
+  matchType: 'contextual' | 'partial_context' | 'group_related' | 'ttp_match';
+  /** TTPs whose evidence this rule fully covers. */
   matchedTTPs: string[];
+  /** TTPs whose evidence this rule partly covers. */
+  partialTTPs?: string[];
+  /** Identifiers from the report evidence that this rule's logic checks. */
+  matchedIdentifiers?: string[];
   coverageScore: number;
   status: string;
   severity: string;
