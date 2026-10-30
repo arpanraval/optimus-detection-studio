@@ -10,6 +10,7 @@ import { usePermissions } from '../context/PermissionsContext';
 import { RoleBadge } from './rbac/RoleBadge';
 import { InviteUserModal } from './rbac/InviteUserModal';
 import { supabase } from '../lib/supabaseClient';
+import { canManageUser, grantableRoles } from '../../supabase/functions/_shared/role-policy';
 
 // =============================================================================
 // AVATAR
@@ -79,7 +80,7 @@ export const UserManagementPage: React.FC = () => {
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     const { showToast } = useToast();
-    const { hasRoleOrHigher, userId: currentUserId } = usePermissions();
+    const { hasRoleOrHigher, userId: currentUserId, userRole } = usePermissions();
     const {
         allUsers, invitations, usersLoading, invitationsLoading,
         inviteUser, changeUserRole, deactivateUser, reactivateUser,
@@ -186,6 +187,10 @@ export const UserManagementPage: React.FC = () => {
     });
 
     const canManageUsers = hasRoleOrHigher('admin');
+    // Owners are handed over in the database, not from this page.
+    const roleOptions = useMemo(() => grantableRoles(userRole).filter(r => r !== 'owner'), [userRole]);
+    const canManageTarget = (u: Profile) =>
+        canManageUsers && u.role !== 'owner' && !!currentUserId && canManageUser({ id: currentUserId, role: userRole }, u);
 
     // A "pending" user has been invited (auth user + profile created by trigger) but
     // has not yet completed setup (password_set is still false). password_set flips
@@ -301,6 +306,7 @@ export const UserManagementPage: React.FC = () => {
                                 onSetPassword={u => setPasswordModal({ userId: u.id, userName: getDisplayName(u), email: u.email || '' })}
                                 getDisplayName={getDisplayName} fmtDate={fmtDate} getLastActive={getLastActive}
                                 canManageUsers={canManageUsers} currentUserId={currentUserId}
+                                canManageTarget={canManageTarget} roleOptions={roleOptions}
                                 selectedIds={selectedIds}
                                 onToggleSelect={(id) => setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; })}
                                 onToggleAll={(ids) => setSelectedIds(prev => { const allSelected = ids.every(id => prev.has(id)); return allSelected ? new Set() : new Set(ids); })}
@@ -334,15 +340,16 @@ export const UserManagementPage: React.FC = () => {
                             onRoleChange={handleRoleChange} onDeactivate={handleDeactivate} onReactivate={handleReactivate}
                             onDelete={() => setDeleteModal({ userId: selectedUser.id, userName: getDisplayName(selectedUser), email: selectedUser.email || '' })}
                             onSetPassword={() => setPasswordModal({ userId: selectedUser.id, userName: getDisplayName(selectedUser), email: selectedUser.email || '' })}
-                            isChangingRole={changingRoleFor === selectedUser.id} canManageUsers={canManageUsers}
-                            currentUserId={currentUserId} getDisplayName={getDisplayName} fmtDate={fmtDate} getLastActive={getLastActive}
+                            isChangingRole={changingRoleFor === selectedUser.id}
+                            canManageTarget={canManageTarget(selectedUser)} roleOptions={roleOptions}
+                            getDisplayName={getDisplayName} fmtDate={fmtDate} getLastActive={getLastActive}
                         />
                     )}
                 </div>
             </div>
 
             {/* MODALS */}
-            <InviteUserModal isOpen={isInviteModalOpen} onClose={() => setIsInviteModalOpen(false)} onInvite={handleInviteUser} isInviting={isInviting} />
+            <InviteUserModal isOpen={isInviteModalOpen} onClose={() => setIsInviteModalOpen(false)} onInvite={handleInviteUser} isInviting={isInviting} roleOptions={roleOptions} />
 
             {passwordModal && (
                 <ModalOverlay onClose={() => setPasswordModal(null)}>
@@ -417,8 +424,9 @@ const UsersTable: React.FC<{
     onReactivate: (id: string) => void; onDelete: (u: Profile) => void; onSetPassword: (u: Profile) => void;
     getDisplayName: (u: Profile) => string; fmtDate: (d: string | null | undefined) => string;
     getLastActive: (u: Profile) => string; canManageUsers: boolean; currentUserId: string | null;
+    canManageTarget: (u: Profile) => boolean; roleOptions: Role[];
     selectedIds: Set<string>; onToggleSelect: (id: string) => void; onToggleAll: (userIds: string[]) => void;
-}> = ({ users, isLoading, changingRoleFor, selectedUserId, sortConfig, onSort, onRoleChange, onSelectUser, onDeactivate, onReactivate, onDelete, onSetPassword, getDisplayName, fmtDate, getLastActive, canManageUsers, currentUserId, selectedIds, onToggleSelect, onToggleAll }) => {
+}> = ({ users, isLoading, changingRoleFor, selectedUserId, sortConfig, onSort, onRoleChange, onSelectUser, onDeactivate, onReactivate, onDelete, onSetPassword, getDisplayName, fmtDate, getLastActive, canManageUsers, currentUserId, canManageTarget, roleOptions, selectedIds, onToggleSelect, onToggleAll }) => {
     const initialLoading = useInitialLoading(isLoading);
   if (initialLoading) return <PagePending layout="list" />;
     if (users.length === 0) return (
@@ -469,8 +477,8 @@ const UsersTable: React.FC<{
                 <tbody>
                     {users.map(user => {
                         const name = getDisplayName(user);
-                        const isOwner = user.role === 'owner';
                         const isSelf = user.id === currentUserId;
+                        const manageable = canManageTarget(user);
                         const selected = selectedUserId === user.id;
                         const deactivated = user.status === 'deactivated';
 
@@ -498,8 +506,9 @@ const UsersTable: React.FC<{
                                     <div className="inline-flex items-center justify-center gap-1.5">
                                         <RoleBadge role={user.role} size="sm" />
                                         <RoleDropdownChevron
-                                            visible={!isOwner && canManageUsers && !isSelf}
+                                            visible={manageable}
                                             currentRole={user.role}
+                                            roleOptions={roleOptions}
                                             isLoading={changingRoleFor === user.id}
                                             onChange={r => onRoleChange(user.id, r)}
                                         />
@@ -536,7 +545,7 @@ const UsersTable: React.FC<{
 
                                 {canManageUsers && (
                                     <td className="px-2 py-2">
-                                        {!isOwner && !isSelf && (
+                                        {manageable && (
                                             <div className="flex items-center justify-center gap-0">
                                                 <button onClick={e => { e.stopPropagation(); onSelectUser(user); }} title="View"
                                                     className="p-1 rounded text-on-surface-variant/40 hover:text-on-surface-variant hover:bg-surface-container-highest transition-colors">
@@ -571,12 +580,10 @@ const DetailPanel: React.FC<{
     user: Profile; onClose: () => void; onRoleChange: (id: string, r: Role) => void;
     onDeactivate: (id: string, n: string) => void; onReactivate: (id: string) => void;
     onDelete: () => void; onSetPassword: () => void; isChangingRole: boolean;
-    canManageUsers: boolean; currentUserId: string | null; getDisplayName: (u: Profile) => string;
+    canManageTarget: boolean; roleOptions: Role[]; getDisplayName: (u: Profile) => string;
     fmtDate: (d: string | null | undefined) => string; getLastActive: (u: Profile) => string;
-}> = ({ user, onClose, onRoleChange, onDeactivate, onReactivate, onDelete, onSetPassword, isChangingRole, canManageUsers, currentUserId, getDisplayName, fmtDate, getLastActive }) => {
+}> = ({ user, onClose, onRoleChange, onDeactivate, onReactivate, onDelete, onSetPassword, isChangingRole, canManageTarget, roleOptions, getDisplayName, fmtDate, getLastActive }) => {
     const name = getDisplayName(user);
-    const isOwner = user.role === 'owner';
-    const isSelf = user.id === currentUserId;
 
     return (
         <div className="w-[480px] flex-shrink-0 border border-outline-variant/40 rounded-xl bg-surface-container-high flex flex-col overflow-hidden ">
@@ -627,11 +634,11 @@ const DetailPanel: React.FC<{
                     </div>
                 </div>
 
-                {canManageUsers && !isOwner && !isSelf && (
+                {canManageTarget && (
                     <div>
                         <p className="text-xs font-semibold text-on-surface-variant/50 uppercase tracking-wider mb-3">Change Role</p>
                         <div className="grid grid-cols-2 gap-2">
-                            {(['admin', 'lead', 'analyst', 'viewer'] as Role[]).map(role => (
+                            {roleOptions.map(role => (
                                 <button key={role} onClick={() => onRoleChange(user.id, role)} disabled={isChangingRole || user.role === role}
                                     className={`h-9 text-sm font-medium rounded-lg transition-all capitalize ${user.role === role ? 'bg-primary-container text-on-primary-container ring-1 ring-primary/40' : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-highest border border-outline-variant/20'} disabled:opacity-100 disabled:cursor-default`}>
                                     {role}
@@ -641,7 +648,7 @@ const DetailPanel: React.FC<{
                     </div>
                 )}
 
-                {canManageUsers && !isOwner && !isSelf && (
+                {canManageTarget && (
                     <div>
                         <p className="text-xs font-semibold text-on-surface-variant/50 uppercase tracking-wider mb-3">Account Status</p>
                         <div className="space-y-0 border border-outline-variant/20 rounded-lg divide-y divide-outline-variant/15">
@@ -672,7 +679,7 @@ const DetailPanel: React.FC<{
                 )}
             </div>
 
-            {canManageUsers && !isOwner && !isSelf && (
+            {canManageTarget && (
                 <div className="p-4 border-t border-outline-variant/20 space-y-2">
                     <button onClick={onSetPassword} className="w-full h-10 text-sm font-medium text-on-surface border border-outline-variant/30 hover:bg-surface-container-highest rounded-lg transition-colors flex items-center justify-center gap-2">
                         <Icon name="key" className="w-4 h-4" /> Set Password
@@ -704,9 +711,10 @@ const KV: React.FC<{ label: string; value: string; capitalize?: boolean }> = ({ 
 const RoleDropdownChevron: React.FC<{
     visible: boolean;
     currentRole: Role;
+    roleOptions: Role[];
     isLoading: boolean;
     onChange: (r: Role) => void;
-}> = ({ visible, currentRole, isLoading, onChange }) => {
+}> = ({ visible, currentRole, roleOptions, isLoading, onChange }) => {
     const [open, setOpen] = useState(false);
 
     if (!visible) {
@@ -730,7 +738,7 @@ const RoleDropdownChevron: React.FC<{
                 <>
                     <div className="fixed inset-0 z-40" onClick={e => { e.stopPropagation(); setOpen(false); }} />
                     <div className="absolute right-0 top-full mt-1 z-50 w-40 py-1 bg-surface-container-highest rounded-xl border border-outline-variant/40 shadow-xl">
-                        {(['admin', 'lead', 'analyst', 'viewer'] as Role[]).map(r => (
+                        {roleOptions.map(r => (
                             <button
                                 key={r}
                                 onClick={e => { e.stopPropagation(); onChange(r); setOpen(false); }}

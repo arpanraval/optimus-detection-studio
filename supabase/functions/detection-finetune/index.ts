@@ -11,7 +11,7 @@ import { getCorsHeaders, handleCorsPreflight } from '../_shared/cors.ts';
 import { decryptCredentials, getGraphToken, runHuntingQuery } from '../_shared/defender-hunting.ts';
 import { createSession, sendEvents, listEvents, userMessage, customToolResult, interrupt } from '../_shared/managed-agents.ts';
 import { buildKickoffMessage, capHuntingResult, mapHuntingError, validateLadder, normalizeEvents } from '../_shared/finetune-logic.ts';
-import { checkPermission } from '../_shared/permissions.ts';
+import { checkProfilePermission } from '../_shared/permissions.ts';
 import { checkRateLimit } from '../_shared/rate-limiter.ts';
 import { selectSiemQuery } from '../_shared/siem-query-selection.ts';
 import { sentinelToken, runSentinelQuery } from '../_shared/sentinel-query.ts';
@@ -81,7 +81,9 @@ async function handleStart(body: ReqBody, userId: string, admin: SupabaseClient,
 
   // RBAC — finetuning runs arbitrary KQL against the production SIEM, exactly like
   // run_preflight, which requires integrations:sync (a deliberate product decision).
-  const { allowed: hasPerm } = await checkPermission(admin, userId, 'integrations:sync');
+  const { data: permissionProfile } = await admin
+    .from('profiles').select('role, permission_overrides').eq('id', userId).single();
+  const { allowed: hasPerm } = checkProfilePermission(permissionProfile, 'integrations:sync');
   if (!hasPerm) {
     return json({ error: 'Permission denied — finetuning requires integrations:sync.' }, req, 403);
   }

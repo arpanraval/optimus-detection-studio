@@ -12,6 +12,8 @@ interface InviteUserModalProps {
     onClose: () => void;
     onInvite: (email: string, role: Role, customPermissions?: GranularPermission[]) => Promise<void>;
     isInviting?: boolean;
+    /** Roles the current user may grant; see the shared role policy. */
+    roleOptions: Role[];
 }
 
 const ROLE_OPTIONS: { value: Role; label: string; description: string }[] = [
@@ -29,9 +31,11 @@ export const InviteUserModal: React.FC<InviteUserModalProps> = ({
     onClose,
     onInvite,
     isInviting = false,
+    roleOptions,
 }) => {
     const [email, setEmail] = useState('');
     const [role, setRole] = useState<Role>('analyst');
+    const options = ROLE_OPTIONS.filter((option) => roleOptions.includes(option.value));
     const [showPermissions, setShowPermissions] = useState(false);
     const [customOverrides, setCustomOverrides] = useState<{
         granted: GranularPermission[];
@@ -186,7 +190,7 @@ export const InviteUserModal: React.FC<InviteUserModalProps> = ({
                                     Role
                                 </label>
                                 <div className="grid grid-cols-2 gap-2">
-                                    {ROLE_OPTIONS.map((option) => (
+                                    {options.map((option) => (
                                         <button
                                             key={option.value}
                                             type="button"

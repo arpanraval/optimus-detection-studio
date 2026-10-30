@@ -1,6 +1,14 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getCorsHeaders, handleCorsPreflight, corsErrorResponse } from '../_shared/cors.ts';
 import { checkRateLimit } from '../_shared/rate-limiter.ts';
+import {
+  ROLE_LEVELS,
+  canGrantRole,
+  canManageUser,
+  isGlobalRole,
+  normalizeEmail,
+  roleChangeError,
+} from '../_shared/role-policy.ts';
 
 declare const Deno: {
   env: {
@@ -9,16 +17,8 @@ declare const Deno: {
   serve(handler: (req: Request) => Promise<Response>): void;
 };
 
-// Valid roles (global, stored in profiles.role)
-const VALID_ROLES = ['owner', 'admin', 'lead', 'analyst', 'viewer', 'user'];
-const ROLE_HIERARCHY: Record<string, number> = {
-  owner: 5,
-  admin: 4,
-  lead: 3,
-  analyst: 2,
-  viewer: 1,
-  user: 0,
-};
+// Global roles (profiles.role) and who may grant them live in the shared role policy.
+const ROLE_HIERARCHY: Record<string, number> = ROLE_LEVELS;
 
 async function getSupabaseAdmin() {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
@@ -59,7 +59,7 @@ Deno.serve(async (req: Request) => {
   try {
     const supabaseAdmin = await getSupabaseAdmin();
     const userClient = await getUserClient(req);
-    
+
     const { data: { user }, error: userError } = await userClient.auth.getUser();
     if (userError || !user) {
       throw new Error('Authentication failed.');
@@ -89,11 +89,33 @@ Deno.serve(async (req: Request) => {
 
     const currentUserRole = currentUserProfile?.role || 'viewer';
     const currentUserRoleLevel = ROLE_HIERARCHY[currentUserRole] || 0;
-    
+
     // Helper to check if current user has required role level
     const hasRoleLevel = (requiredRole: string): boolean => {
       return currentUserRoleLevel >= (ROLE_HIERARCHY[requiredRole] || 0);
     };
+
+    const forbidden = (message: string) =>
+      new Response(JSON.stringify({ error: message }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+
+    // One pending invitation per email, replaced atomically in the database. The new account
+    // names this id (invitation_id), so a concurrent re-invite cannot give it another role.
+    const issueInvitation = async (inviteEmail: string, inviteRole: string) => {
+      const { data: id, error } = await supabaseAdmin.rpc('issue_user_invitation', {
+        p_email: inviteEmail,
+        p_role: inviteRole,
+        p_invited_by: user.id,
+      });
+      if (error) throw error;
+      return { id: id as string };
+    };
+
+    // Withdraw an invitation that never produced an account; never touch one already used.
+    const withdrawInvitation = (id: string) =>
+      supabaseAdmin.from('user_invitations').delete().eq('id', id).is('accepted_at', null);
 
     // Extract client IP once - use last value in XFF chain (closest trusted proxy)
     const xffHeader = req.headers.get('x-forwarded-for');
@@ -113,14 +135,14 @@ Deno.serve(async (req: Request) => {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
-        
+
         const { data: profiles, error } = await supabaseAdmin
           .from('profiles')
           .select('id, email, role, full_name, status, created_at, last_active_at')
           .order('full_name', { ascending: true });
-        
+
         if (error) throw error;
-        
+
         return new Response(JSON.stringify({ users: profiles }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
@@ -131,37 +153,29 @@ Deno.serve(async (req: Request) => {
       // ==========================================
       case 'create': {
         if (!hasRoleLevel('admin')) {
-          return new Response(JSON.stringify({ error: 'Admin access required.' }), {
-            status: 403,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
+          return forbidden('Admin access required.');
         }
-        
+
         if (!email || !password) throw new Error('Email and password are required.');
-        if (!role) throw new Error('Role is required.');
-        if (!VALID_ROLES.includes(role)) {
-          throw new Error(`Invalid role. Must be one of: ${VALID_ROLES.join(', ')}`);
+        if (!canGrantRole(currentUserRole, role)) {
+          return forbidden(isGlobalRole(role) ? `Only an owner can grant the ${role} role.` : 'A valid role is required.');
         }
-        
-        // Can't create users with higher role than yourself
-        if (ROLE_HIERARCHY[role] > currentUserRoleLevel) {
-          throw new Error(`Cannot create user with role higher than your own.`);
-        }
-        
+        const newEmail = normalizeEmail(email);
+
+        // The database gives a new account its role only from an invitation (handle_new_user),
+        // and refuses accounts without one, so issue it before creating the account.
+        const invitation = await issueInvitation(newEmail, role!);
+
         const { data, error } = await supabaseAdmin.auth.admin.createUser({
-          email,
+          email: newEmail,
           password,
           email_confirm: true,
+          user_metadata: { invitation_id: invitation.id },
         });
-        
-        if (error) throw error;
-        
-        // Set the global role in profiles
-        if (data.user) {
-          await supabaseAdmin
-            .from('profiles')
-            .update({ role })
-            .eq('id', data.user.id);
+
+        if (error) {
+          await withdrawInvitation(invitation.id);
+          throw error;
         }
 
         try {
@@ -172,11 +186,11 @@ Deno.serve(async (req: Request) => {
             action: 'user.created',
             entity_type: 'user',
             entity_id: data.user?.id || null,
-            entity_name: email,
+            entity_name: newEmail,
             ip_address: clientIp,
             user_agent: req.headers.get('user-agent') || null,
             source: 'edge_function',
-            details: { email, role },
+            details: { email: newEmail, role, invitation_id: invitation.id },
           });
         } catch (auditErr) {
           console.error('Audit log error:', auditErr);
@@ -192,45 +206,48 @@ Deno.serve(async (req: Request) => {
       // ==========================================
       case 'invite': {
         if (!email) throw new Error('Email is required.');
-        if (!role) throw new Error('Role is required.');
-        
-        if (!VALID_ROLES.includes(role)) {
-          throw new Error(`Invalid role. Must be one of: ${VALID_ROLES.join(', ')}`);
-        }
-        
-        if (!hasRoleLevel('admin')) {
-          return new Response(JSON.stringify({ error: 'Admin access required to invite users.' }), {
-            status: 403,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-        
-        // Can't invite users with higher role than yourself
-        if (ROLE_HIERARCHY[role] > currentUserRoleLevel) {
-          throw new Error(`Cannot invite user with role higher than your own.`);
-        }
-        
-        // Check if user already exists
-        const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers();
-        const existingUser = existingUsers?.users?.find(u => u.email === email);
-        
-        if (existingUser) {
-          // Check existing user's role - cannot demote equal or higher role
-          const { data: existingProfile } = await supabaseAdmin
-            .from('profiles')
-            .select('role')
-            .eq('id', existingUser.id)
-            .single();
-          const existingRoleLevel = ROLE_HIERARCHY[existingProfile?.role] || 0;
-          if (currentUserRole !== 'owner' && existingRoleLevel >= currentUserRoleLevel) {
-            throw new Error('Cannot modify users with same or higher role.');
-          }
 
-          // User exists - update their role
-          await supabaseAdmin
+        if (!hasRoleLevel('admin')) {
+          return forbidden('Admin access required to invite users.');
+        }
+
+        if (!canGrantRole(currentUserRole, role)) {
+          return forbidden(isGlobalRole(role) ? `Only an owner can grant the ${role} role.` : 'A valid role is required.');
+        }
+        const inviteEmail = normalizeEmail(email);
+
+        // Check if user already exists, by sign-in email in Supabase Auth. profiles.email is
+        // only a mirror, and listUsers returns a single page.
+        const { data: accountIds, error: lookupError } = await supabaseAdmin.rpc('auth_user_ids_for_email', {
+          p_email: inviteEmail,
+        });
+        if (lookupError) throw lookupError;
+        const existingIds = (accountIds ?? []) as string[];
+        if (existingIds.length > 1) {
+          return forbidden('More than one account signs in with this email. Change the role from the user list.');
+        }
+
+        if (existingIds.length === 1) {
+          const { data: existingProfile, error: existingError } = await supabaseAdmin
+            .from('profiles')
+            .select('id, role')
+            .eq('id', existingIds[0])
+            .single();
+          if (existingError || !existingProfile) throw existingError ?? new Error('Profile not found.');
+
+          // Inviting an existing user changes their role, under the same rules as changeRole.
+          const refusal = roleChangeError(
+            { id: user.id, role: currentUserRole },
+            { id: existingProfile.id, role: existingProfile.role },
+            role,
+          );
+          if (refusal) return forbidden(refusal);
+
+          const { error: updateError } = await supabaseAdmin
             .from('profiles')
             .update({ role, updated_at: new Date().toISOString() })
-            .eq('id', existingUser.id);
+            .eq('id', existingProfile.id);
+          if (updateError) throw updateError;
 
           try {
             await supabaseAdmin.from('audit_events').insert({
@@ -239,12 +256,12 @@ Deno.serve(async (req: Request) => {
               user_role: currentUserRole,
               action: 'user.invited',
               entity_type: 'user',
-              entity_id: existingUser.id,
-              entity_name: email,
+              entity_id: existingProfile.id,
+              entity_name: inviteEmail,
               ip_address: clientIp,
               user_agent: req.headers.get('user-agent') || null,
               source: 'edge_function',
-              details: { email, role, existing_user: true },
+              details: { email: inviteEmail, role, old_role: existingProfile.role, existing_user: true },
             });
           } catch (auditErr) {
             console.error('Audit log error:', auditErr);
@@ -253,41 +270,27 @@ Deno.serve(async (req: Request) => {
           return new Response(JSON.stringify({
             success: true,
             message: 'Existing user role updated.',
-            userId: existingUser.id
+            userId: existingProfile.id
           }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
 
-        // Create invitation record
-        const { data: invitation, error: inviteRecordError } = await supabaseAdmin
-          .from('user_invitations')
-          .insert({
-            email,
-            role,  // This is the GLOBAL role the user will get
-            invited_by: user.id,
-          })
-          .select()
-          .single();
-
-        if (inviteRecordError) throw inviteRecordError;
+        // Create invitation record. Supabase creates the account when it sends the email,
+        // and handle_new_user takes the GLOBAL role from this row.
+        const invitation = await issueInvitation(inviteEmail, role!);
 
         // Send Supabase auth invitation
         const siteUrl = Deno.env.get('SITE_URL') || 'http://localhost:5173';
 
-        const { error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+        const { error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(inviteEmail, {
           redirectTo: `${siteUrl}/auth/callback`,
-          data: {
-            role,  // Pass role in metadata for profile creation trigger
-          }
+          data: { invitation_id: invitation.id },
         });
 
         if (inviteError) {
           // Cleanup invitation record
-          await supabaseAdmin
-            .from('user_invitations')
-            .delete()
-            .eq('id', invitation.id);
+          await withdrawInvitation(invitation.id);
 
           throw inviteError;
         }
@@ -298,9 +301,9 @@ Deno.serve(async (req: Request) => {
           .insert({
             user_id: user.id,
             entity_type: 'user',
-            entity_id: email,
+            entity_id: inviteEmail,
             action: 'user_invited',
-            details: { email, role, invited_by: user.id },
+            details: { email: inviteEmail, role, invited_by: user.id },
           });
 
         try {
@@ -311,11 +314,11 @@ Deno.serve(async (req: Request) => {
             action: 'user.invited',
             entity_type: 'user',
             entity_id: invitation.id,
-            entity_name: email,
+            entity_name: inviteEmail,
             ip_address: clientIp,
             user_agent: req.headers.get('user-agent') || null,
             source: 'edge_function',
-            details: { email, role, invitation_id: invitation.id },
+            details: { email: inviteEmail, role, invitation_id: invitation.id },
           });
         } catch (auditErr) {
           console.error('Audit log error:', auditErr);
@@ -323,7 +326,7 @@ Deno.serve(async (req: Request) => {
 
         return new Response(JSON.stringify({
           success: true,
-          message: `Invitation sent to ${email}`,
+          message: `Invitation sent to ${inviteEmail}`,
           invitationId: invitation.id
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -336,57 +339,39 @@ Deno.serve(async (req: Request) => {
       case 'changeRole': {
         if (!userId) throw new Error('User ID is required.');
         if (!role) throw new Error('New role is required.');
-        
-        if (!VALID_ROLES.includes(role)) {
-          throw new Error(`Invalid role. Must be one of: ${VALID_ROLES.join(', ')}`);
-        }
-        
+
         if (!hasRoleLevel('admin')) {
-          return new Response(JSON.stringify({ error: 'Admin access required.' }), {
-            status: 403,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
+          return forbidden('Admin access required.');
         }
-        
+
         // Get target user's current role
         const { data: targetProfile } = await supabaseAdmin
           .from('profiles')
           .select('role, email')
           .eq('id', userId)
           .single();
-        
+
         if (!targetProfile) {
           throw new Error('Target user not found.');
         }
-        
-        const targetRoleLevel = ROLE_HIERARCHY[targetProfile.role] || 0;
-        const newRoleLevel = ROLE_HIERARCHY[role] || 0;
-        
-        // Can't modify users with same or higher role (unless you're owner)
-        if (currentUserRole !== 'owner' && targetRoleLevel >= currentUserRoleLevel) {
-          throw new Error('Cannot modify users with same or higher role.');
-        }
-        
-        // Can't promote to same or higher level than yourself (unless owner)
-        if (currentUserRole !== 'owner' && newRoleLevel >= currentUserRoleLevel) {
-          throw new Error('Cannot promote user to same or higher role than yourself.');
-        }
-        
-        // Can't demote yourself
-        if (userId === user.id) {
-          throw new Error('Cannot change your own role.');
-        }
-        
+
+        const refusal = roleChangeError(
+          { id: user.id, role: currentUserRole },
+          { id: userId, role: targetProfile.role },
+          role,
+        );
+        if (refusal) return forbidden(refusal);
+
         const oldRole = targetProfile.role;
-        
+
         // Update the GLOBAL role in profiles
         const { error: updateError } = await supabaseAdmin
           .from('profiles')
           .update({ role, updated_at: new Date().toISOString() })
           .eq('id', userId);
-        
+
         if (updateError) throw updateError;
-        
+
         // Log activity
         await supabaseAdmin
           .from('activity_log')
@@ -397,7 +382,7 @@ Deno.serve(async (req: Request) => {
             action: 'role_changed',
             details: { user_id: userId, old_role: oldRole, new_role: role },
           });
-        
+
         // Notify user
         await supabaseAdmin
           .from('user_notifications')
@@ -457,23 +442,23 @@ Deno.serve(async (req: Request) => {
           .select('role, email')
           .eq('id', userId)
           .single();
-        
+
         if (!targetProfile) {
           throw new Error('User not found.');
         }
-        
+
         const targetRoleLevel = ROLE_HIERARCHY[targetProfile.role] || 0;
-        
+
         // Can't deactivate users with same or higher role (unless owner)
         if (currentUserRole !== 'owner' && targetRoleLevel >= currentUserRoleLevel) {
           throw new Error('Cannot deactivate users with same or higher role.');
         }
-        
+
         // Can't deactivate yourself
         if (userId === user.id) {
           throw new Error('Cannot deactivate yourself.');
         }
-        
+
         // Update status in profiles
         const { error: updateError } = await supabaseAdmin
           .from('profiles')
@@ -621,13 +606,13 @@ Deno.serve(async (req: Request) => {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
-        
+
         if (!userId) throw new Error('User ID is required.');
-        
+
         if (userId === user.id) {
           throw new Error('Cannot delete your own account.');
         }
-        
+
         // Get target user's role and email
         const { data: targetProfile } = await supabaseAdmin
           .from('profiles')
@@ -678,20 +663,32 @@ Deno.serve(async (req: Request) => {
         if (!/[A-Z]/.test(password)) throw new Error('Password must contain at least one uppercase letter.');
         if (!/[a-z]/.test(password)) throw new Error('Password must contain at least one lowercase letter.');
         if (!/[0-9]/.test(password)) throw new Error('Password must contain at least one number.');
-        
+
         if (!hasRoleLevel('admin')) {
           return new Response(JSON.stringify({ error: 'Admin access required.' }), {
             status: 403,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
-        
+
+        // Setting a password signs in as that person, so it needs the same right as managing them.
+        const { data: passwordTarget } = await supabaseAdmin
+          .from('profiles')
+          .select('role')
+          .eq('id', userId)
+          .maybeSingle();
+        if (!passwordTarget || !canManageUser({ id: user.id, role: currentUserRole }, { id: userId, role: passwordTarget.role })) {
+          return forbidden(userId === user.id
+            ? 'Change your own password from Account Settings.'
+            : 'Only an owner can set the password of an admin or owner.');
+        }
+
         // Update user password using admin API
         const { data: updatedUser, error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
           userId,
           { password }
         );
-        
+
         if (updateError) throw updateError;
 
         // Revoke all other sessions for the user whose password was reset

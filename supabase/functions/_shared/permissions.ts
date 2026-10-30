@@ -42,6 +42,14 @@ export async function checkPermission(
     .select('role, permission_overrides')
     .eq('id', userId)
     .single();
+  return checkProfilePermission(profile, requiredPermission);
+}
+
+/** Evaluate a loaded profile without comparing Supabase clients' recursive generic types. */
+export function checkProfilePermission(
+  profile: { role?: string; permission_overrides?: unknown } | null,
+  requiredPermission: string,
+): { allowed: boolean; role: string } {
   const role = (profile?.role as string) || 'viewer';
   const overrides = profile?.permission_overrides as
     { granted?: string[]; revoked?: string[] } | undefined;

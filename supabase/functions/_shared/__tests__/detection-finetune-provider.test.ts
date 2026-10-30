@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const state = vi.hoisted(() => ({ provider: 'sentinel', owner: 'owner', action: 'start', inserted: null as unknown,
+const state = vi.hoisted(() => ({ provider: 'sentinel', owner: 'owner', role: 'admin', action: 'start', inserted: null as unknown,
   graphToken: vi.fn(), graphQuery: vi.fn(), sentinelToken: vi.fn(), sentinelQuery: vi.fn(),
   createSession: vi.fn(), sendEvents: vi.fn(), from: vi.fn(),
 }));
@@ -9,7 +9,6 @@ vi.mock('https://esm.sh/@supabase/supabase-js@2', () => ({ createClient: () => (
   auth: { getUser: async () => ({ data: { user: { id: 'owner' } }, error: null }) },
   from: state.from, rpc: async () => ({ data: 1, error: null }),
 }) }));
-vi.mock('../permissions', () => ({ checkPermission: async () => ({ allowed: true }) }));
 vi.mock('../rate-limiter', () => ({ checkRateLimit: async () => ({ allowed: true }) }));
 vi.mock('../defender-hunting', () => ({
   decryptCredentials: async () => ({ clientId: 'fixture-client', clientSecret: 'fixture-secret' }),
@@ -32,7 +31,7 @@ beforeAll(async () => {
 afterAll(() => vi.unstubAllGlobals());
 beforeEach(() => {
   vi.clearAllMocks();
-  state.provider = 'sentinel'; state.owner = 'owner'; state.action = 'start'; state.inserted = null;
+  state.provider = 'sentinel'; state.owner = 'owner'; state.role = 'admin'; state.action = 'start'; state.inserted = null;
   state.graphToken.mockResolvedValue('graph-token'); state.sentinelToken.mockResolvedValue('sentinel-token');
   state.graphQuery.mockResolvedValue({ ok: true, schema: [], results: [] });
   state.sentinelQuery.mockResolvedValue({ ok: true, schema: [], results: [] });
@@ -41,7 +40,7 @@ beforeEach(() => {
     let inserted = false;
     const integration = { id: 'connection', provider: state.provider, status: 'connected', user_id: state.owner,
       config: { tenantId: 'tenant', subscriptionId: 'sub', resourceGroup: 'rg', workspaceName: 'ws' } };
-    const data = () => table === 'integrations' ? integration : table === 'detections' ? {
+    const data = () => table === 'profiles' ? { role: state.role } : table === 'integrations' ? integration : table === 'detections' ? {
       id: 'detection', name: 'Test', user_id: 'owner', queries: [
         { id: 'first', language: 'KQL', query: 'WrongTable' }, { id: 'bound', language: 'KQL', query: 'SecurityEvent' },
       ],
@@ -62,6 +61,14 @@ const request = (body: unknown) => handler(new Request('http://localhost/finetun
 }));
 
 describe('Microsoft fine-tuning provider routing', () => {
+  it('denies a viewer before opening an agent session', async () => {
+    state.role = 'viewer';
+    const response = await request({ action: 'start', detectionId: 'detection', integrationId: 'connection' });
+    expect(response.status).toBe(403);
+    expect(state.createSession).not.toHaveBeenCalled();
+    expect(state.graphToken).not.toHaveBeenCalled();
+    expect(state.sentinelToken).not.toHaveBeenCalled();
+  });
   it.each(['sentinel', 'defender_xdr'])('starts %s using its executor and the bound query', async provider => {
     state.provider = provider;
     const response = await request({ action: 'start', detectionId: 'detection', integrationId: 'connection', windowDays: 7 });
