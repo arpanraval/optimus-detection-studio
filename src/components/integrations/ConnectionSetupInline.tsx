@@ -300,7 +300,9 @@ export const ConnectionSetupInline: React.FC<ConnectionSetupInlineProps> = ({
                 className={`w-4 h-4 ${testResult.success ? 'text-[#4D7C6F]' : 'text-[#A63D40]'}`}
               />
               <span className={`text-sm font-medium ${testResult.success ? 'text-[#4D7C6F]' : 'text-[#A63D40]'}`}>
-                {testResult.success ? 'Connection Successful' : 'Connection Failed'}
+                {testResult.code === 'TEST_NOT_SUPPORTED'
+                  ? 'Connection Not Verified'
+                  : testResult.success ? 'Connection Successful' : 'Connection Failed'}
               </span>
             </div>
             <p className="text-xs text-on-surface-variant ml-6 mt-1">{testResult.message}</p>

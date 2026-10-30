@@ -56,6 +56,7 @@ export interface ProviderMeta {
   IconComponent: React.ComponentType<{ size?: number; color?: string; className?: string }>;
   brandColor: string;
   useDefaultColor?: boolean;
+  /** Not yet validated end-to-end against a live tenant: rendered greyed out with no connect action. */
   comingSoon?: boolean;
   queryLanguages?: string[];
   logoPath: string;
@@ -79,6 +80,7 @@ export const PROVIDER_META: ProviderMeta[] = [
     IconComponent: SiGithub,
     brandColor: '#181717',
     useDefaultColor: true,
+    comingSoon: true,
     logoPath: '/logos/integrations/github.svg',
     logoPathLight: '/logos/integrations/github-light.svg',
   },
@@ -90,6 +92,7 @@ export const PROVIDER_META: ProviderMeta[] = [
     IconComponent: SiGitlab,
     brandColor: '#FC6D26',
     useDefaultColor: true,
+    comingSoon: true,
     logoPath: '/logos/integrations/gitlab.svg',
   },
   {
@@ -147,6 +150,7 @@ export const PROVIDER_META: ProviderMeta[] = [
     brandColor: '#005571',
     useDefaultColor: true,
     queryLanguages: ['Lucene', 'EQL', 'ES|QL'],
+    comingSoon: true,
     logoPath: '/logos/integrations/elastic.svg',
     nativeImportSupported: true,
   },
@@ -169,6 +173,7 @@ export const PROVIDER_META: ProviderMeta[] = [
     IconComponent: ChronicleIcon,
     brandColor: '#4285F4',
     queryLanguages: ['YARA-L'],
+    comingSoon: true,
     logoPath: '/logos/integrations/chronicle.svg',
     nativeImportSupported: true,
   },
@@ -182,6 +187,7 @@ export const PROVIDER_META: ProviderMeta[] = [
     IconComponent: SiJira,
     brandColor: '#0052CC',
     useDefaultColor: true,
+    comingSoon: true,
     logoPath: '/logos/integrations/jira.svg',
   },
   {
@@ -192,6 +198,7 @@ export const PROVIDER_META: ProviderMeta[] = [
     IconComponent: SiSlack,
     brandColor: '#4A154B',
     useDefaultColor: true,
+    comingSoon: true,
     logoPath: '/logos/integrations/slack.svg',
   },
 ];

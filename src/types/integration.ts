@@ -155,6 +155,7 @@ export interface ConnectionTestResult {
   success: boolean;
   message: string;
   latency_ms: number;
+  code?: 'TEST_NOT_SUPPORTED';
 }
 
 // -- Deployment tracking --

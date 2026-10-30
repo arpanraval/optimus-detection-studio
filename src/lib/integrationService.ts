@@ -1896,7 +1896,12 @@ async function devTestConnection(
     case 'chronicle':
       return devTestChronicle((integration.config || {}) as Record<string, unknown>, credentials);
     default:
-      return { success: false, message: `Dev mode test not implemented for ${integration.provider}. Deploy the edge function for cloud providers.`, latency_ms: 0 };
+      return {
+        success: false,
+        code: 'TEST_NOT_SUPPORTED',
+        message: `Connection testing is not supported for ${integration.provider}. Credentials have not been verified.`,
+        latency_ms: 0,
+      };
   }
 }
 
@@ -2745,8 +2750,8 @@ export const integrationService = {
       await supabase
         .from('integrations')
         .update({
-          status: result.success ? 'connected' : 'error',
-          last_tested_at: new Date().toISOString(),
+          status: result.code === 'TEST_NOT_SUPPORTED' ? 'configured' : result.success ? 'connected' : 'error',
+          last_tested_at: result.code === 'TEST_NOT_SUPPORTED' ? null : new Date().toISOString(),
           last_test_result: result,
         })
         .eq('id', integrationId);

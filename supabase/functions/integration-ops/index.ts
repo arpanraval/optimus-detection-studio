@@ -121,6 +121,7 @@ interface ConnectionTestResult {
   success: boolean
   message: string
   latency_ms: number
+  code?: 'TEST_NOT_SUPPORTED'
 }
 
 // -- Deployment validation --
@@ -2064,6 +2065,23 @@ async function handleTestConnection(
     )
   }
 
+  // Unsupported providers have no verification path. Do not load credentials or
+  // turn a saved configuration into a supposedly verified connection.
+  if (!['splunk', 'sentinel', 'defender_xdr', 'elastic', 'crowdstrike', 'chronicle'].includes(integration.provider)) {
+    const result: ConnectionTestResult = {
+      success: false,
+      code: 'TEST_NOT_SUPPORTED',
+      message: `Connection testing is not supported for ${integration.provider}. Credentials have not been verified.`,
+      latency_ms: 0,
+    }
+    await serviceClient.from('integrations')
+      .update({ status: 'configured', last_tested_at: null, last_test_result: result })
+      .eq('id', body.integrationId)
+    return new Response(JSON.stringify(result), {
+      status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
   // Update status to testing
   await serviceClient
     .from('integrations')
@@ -2110,7 +2128,7 @@ async function handleTestConnection(
         result = await chronicleTestConnection(integration.config, credentials)
         break
       default:
-        result = { success: true, message: `${integration.provider} connection test not yet implemented`, latency_ms: 0 }
+        result = { success: false, code: 'TEST_NOT_SUPPORTED', message: 'Connection testing is not supported for this provider.', latency_ms: 0 }
     }
   } catch (err) {
     console.error('Connection test error:', err instanceof Error ? err.message : err)

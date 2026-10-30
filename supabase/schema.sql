@@ -1169,7 +1169,7 @@ ALTER TABLE public.integrations ADD CONSTRAINT integrations_pkey PRIMARY KEY (id
 ALTER TABLE public.integrations ADD CONSTRAINT integrations_category_check CHECK ((category = ANY (ARRAY['siem'::text, 'version_control'::text, 'automation'::text])));
 ALTER TABLE public.integrations ADD CONSTRAINT integrations_auth_type_check CHECK ((auth_type = ANY (ARRAY['basic'::text, 'token'::text, 'api_key'::text, 'oauth2_client_credentials'::text, 'webhook'::text])));
 ALTER TABLE public.integrations ADD CONSTRAINT integrations_status_check CHECK ((status = ANY (ARRAY['configured'::text, 'testing'::text, 'connected'::text, 'error'::text, 'disabled'::text])));
-ALTER TABLE public.integrations ADD CONSTRAINT integrations_provider_check CHECK ((provider = ANY (ARRAY['splunk'::text, 'sentinel'::text, 'defender_xdr'::text, 'elastic'::text, 'crowdstrike'::text, 'github'::text, 'gitlab'::text, 'azure_devops'::text, 'jira'::text, 'slack'::text])));
+ALTER TABLE public.integrations ADD CONSTRAINT integrations_provider_check CHECK ((provider = ANY (ARRAY['splunk'::text, 'sentinel'::text, 'defender_xdr'::text, 'elastic'::text, 'crowdstrike'::text, 'chronicle'::text, 'github'::text, 'gitlab'::text, 'azure_devops'::text, 'jira'::text, 'slack'::text])));
 ALTER TABLE public.mitre_embeddings ADD CONSTRAINT mitre_embeddings_stix_id_key UNIQUE (stix_id);
 ALTER TABLE public.mitre_embeddings ADD CONSTRAINT mitre_embeddings_pkey PRIMARY KEY (id);
 ALTER TABLE public.mitre_metadata ADD CONSTRAINT mitre_metadata_pkey PRIMARY KEY (id);

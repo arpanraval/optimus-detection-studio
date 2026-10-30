@@ -56,7 +56,7 @@ export const SiemCard: React.FC<SiemCardProps> = ({
         animation: `slideUp 300ms cubic-bezier(0.05, 0.7, 0.1, 1.0) ${index * 30}ms both`,
       }}
     >
-      <div className="flex items-center gap-3">
+      <div className={`flex items-center gap-3 ${isComingSoon && !selected ? 'opacity-60' : ''}`}>
         <IntegrationLogo provider={providerMeta} size="lg" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -97,6 +97,12 @@ export const SiemCard: React.FC<SiemCardProps> = ({
           >
             {isConnected ? 'Reconfigure' : 'Connect'}
           </button>
+        </div>
+      )}
+
+      {onConnectClick && isComingSoon && (
+        <div className="mt-3 pt-3 border-t border-outline-variant/30">
+          <span className="text-[11px] text-on-surface-variant/60">Connection coming soon</span>
         </div>
       )}
     </div>
