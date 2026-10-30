@@ -1,0 +1,14 @@
+[
+  "supabase/migrations/20260729120000_threat_research_library_search_visibility_scope.sql",
+  "supabase/migrations/20260729130000_threat_research_events_agent_check_add_dossier.sql",
+  "supabase/migrations/20260729140000_threat_research_session_abort.sql",
+  "supabase/migrations/20260729150000_threat_research_job_checkpoints.sql",
+  "supabase/migrations/20260729160000_threat_research_token_budgets.sql",
+  "supabase/migrations/20260729170000_threat_research_partial_status.sql",
+  "supabase/migrations/20260729180000_tr_consume_budget_relock_and_validate.sql",
+  "supabase/migrations/20260730120000_threat_research_vendor_searches.sql",
+  "supabase/migrations/20261027113202_setup_integrations_recovery.sql",
+  "supabase/migrations/20261027164001_configure_background_automation.sql",
+  "supabase/migrations/20261028161620_secure_signup_role_assignment.sql",
+  "supabase/migrations/20261028190000_invite_only_account_provisioning.sql"
+]
