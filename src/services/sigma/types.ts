@@ -31,6 +31,7 @@ export interface BackendConfig {
   id: string;
   name: string;
   description: string;
+  /** micropip requirement(s), space-separated, each pinned with == (see backends.ts). */
   package: string;
   icon?: string;
   formats: Record<string, string>;

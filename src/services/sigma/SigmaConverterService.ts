@@ -136,9 +136,9 @@ async function installBackend(target) {
         const micropip = pyodide.pyimport("micropip");
         const pkg = backendConfig.package;
 
-        // Install latest backend version (pySigma 1.x compatible with PyYAML 6.0.3)
+        // Pinned in backends.ts to a release that supports pySigma 1.3.3
         console.log('[Worker] Installing backend package:', pkg);
-        await micropip.install(pkg);
+        await micropip.install(pkg.split(' '));
         installedBackends.add(target);
         
         pythonModuleLoaded = false;
@@ -255,13 +255,15 @@ print('[Python] PyYAML shim applied - CSafeLoader:', hasattr(yaml, 'CSafeLoader'
         // dependency on jq (a C-extension package with no pure-Python / WASM
         // wheel), which micropip cannot install in Pyodide -- it fails engine
         // init with "Can't find a pure Python 3 wheel for jq". 1.3.x is the
-        // last jq-free 1.x line and still targets PyYAML 6.0.3+.
-        console.log('[Worker] Installing pySigma (<1.4, jq-free for Pyodide)...');
-        await micropip.install('pysigma<1.4');
+        // last jq-free 1.x line and still targets PyYAML 6.0.3+. Pinned exactly,
+        // together with the plugins in backends.ts, so an upstream release
+        // cannot change the installed set.
+        console.log('[Worker] Installing pySigma 1.3.3 (jq-free for Pyodide)...');
+        await micropip.install('pysigma==1.3.3');
 
         // Install common pipelines
         console.log('[Worker] Installing pySigma pipelines...');
-        await micropip.install(['pysigma-pipeline-windows', 'pysigma-pipeline-sysmon']);
+        await micropip.install(['pysigma-pipeline-windows==2.0.1', 'pysigma-pipeline-sysmon==2.0.0']);
 
         updateStatus({ pyodideReady: true });
         console.log('[Worker] Pyodide ready, loading Python module...');

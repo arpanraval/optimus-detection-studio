@@ -1,11 +1,17 @@
 import { BackendConfig } from './types';
 
+// Backends are pinned to the newest release that still supports pySigma 1.x.
+// The worker pins pySigma 1.3.3 because 1.4+ needs jq (and 2.x google-re2),
+// C extensions with no Pyodide wheel. An unpinned install pulls whatever is
+// latest, and once a backend requires pySigma 2.x, micropip refuses it
+// (pysigma-backend-splunk 3.0.0 broke Splunk conversion this way).
+// Datadog and QRadar have no release compatible with pySigma 1.x.
 export const SUPPORTED_BACKENDS: Record<string, BackendConfig> = {
   splunk: {
     id: 'splunk',
     name: 'Splunk',
     description: 'Splunk SIEM SPL queries',
-    package: 'pysigma-backend-splunk',
+    package: 'pysigma-backend-splunk==2.1.0',
     formats: {
       default: 'Plain SPL queries',
       savedsearches: 'Splunk savedsearches.conf format',
@@ -19,7 +25,7 @@ export const SUPPORTED_BACKENDS: Record<string, BackendConfig> = {
     id: 'kusto',
     name: 'Microsoft Sentinel',
     description: 'Azure Sentinel KQL queries',
-    package: 'pysigma-backend-kusto',
+    package: 'pysigma-backend-kusto==1.0.1',
     formats: {
       default: 'Kusto Query Language'
     },
@@ -31,7 +37,7 @@ export const SUPPORTED_BACKENDS: Record<string, BackendConfig> = {
     id: 'kusto',
     name: 'Microsoft Defender XDR',
     description: 'Microsoft 365 Defender Advanced Hunting',
-    package: 'pysigma-backend-kusto',
+    package: 'pysigma-backend-kusto==1.0.1',
     formats: {
       default: 'Kusto Query Language'
     },
@@ -43,7 +49,7 @@ export const SUPPORTED_BACKENDS: Record<string, BackendConfig> = {
     id: 'lucene',
     name: 'Elasticsearch (Lucene)',
     description: 'Elasticsearch Lucene queries',
-    package: 'pysigma-backend-elasticsearch',
+    package: 'pysigma-backend-elasticsearch==2.1.0',
     formats: {
       default: 'Lucene query syntax',
       kibana_ndjson: 'Kibana NDJSON import'
@@ -56,7 +62,7 @@ export const SUPPORTED_BACKENDS: Record<string, BackendConfig> = {
     id: 'esql',
     name: 'Elasticsearch (ES|QL)',
     description: 'Elasticsearch ES|QL queries',
-    package: 'pysigma-backend-elasticsearch',
+    package: 'pysigma-backend-elasticsearch==2.1.0',
     formats: {
       default: 'ES|QL query syntax'
     },
@@ -68,7 +74,7 @@ export const SUPPORTED_BACKENDS: Record<string, BackendConfig> = {
     id: 'eql',
     name: 'Elasticsearch (EQL)',
     description: 'Elasticsearch Event Query Language',
-    package: 'pysigma-backend-elasticsearch',
+    package: 'pysigma-backend-elasticsearch==2.1.0',
     formats: {
       default: 'EQL query syntax'
     },
@@ -92,7 +98,7 @@ export const SUPPORTED_BACKENDS: Record<string, BackendConfig> = {
     id: 'logscale',
     name: 'CrowdStrike LogScale',
     description: 'CrowdStrike LogScale queries',
-    package: 'pysigma-backend-crowdstrike',
+    package: 'pysigma-backend-crowdstrike==3.0.0',
     formats: {
       default: 'LogScale query syntax'
     },
@@ -104,7 +110,7 @@ export const SUPPORTED_BACKENDS: Record<string, BackendConfig> = {
     id: 'carbonblack',
     name: 'VMware Carbon Black',
     description: 'Carbon Black EDR queries',
-    package: 'pysigma-backend-carbonblack',
+    package: 'pysigma-backend-carbonblack==0.1.14',
     formats: {
       default: 'Carbon Black query syntax'
     },
@@ -116,7 +122,7 @@ export const SUPPORTED_BACKENDS: Record<string, BackendConfig> = {
     id: 'sentinelone',
     name: 'SentinelOne',
     description: 'SentinelOne Deep Visibility queries',
-    package: 'pysigma-backend-sentinelone',
+    package: 'pysigma-backend-sentinelone==0.1.3',
     formats: {
       default: 'SentinelOne query syntax'
     },
@@ -128,7 +134,7 @@ export const SUPPORTED_BACKENDS: Record<string, BackendConfig> = {
     id: 'chronicle',
     name: 'Google Chronicle (SecOps)',
     description: 'Google Chronicle YARA-L queries',
-    package: 'pysigma-backend-secops',
+    package: 'pysigma-backend-secops==1.0.0',
     formats: {
       default: 'YARA-L rules'
     },
@@ -140,7 +146,8 @@ export const SUPPORTED_BACKENDS: Record<string, BackendConfig> = {
     id: 'opensearch',
     name: 'OpenSearch',
     description: 'OpenSearch Lucene queries',
-    package: 'pysigma-backend-opensearch',
+    // Depends on pysigma-backend-elasticsearch unpinned; the latest needs pySigma 1.4+.
+    package: 'pysigma-backend-opensearch==2.0.3 pysigma-backend-elasticsearch==2.1.0',
     formats: {
       default: 'Lucene query syntax',
       dashboards_ndjson: 'OpenSearch Dashboards import'
@@ -153,7 +160,7 @@ export const SUPPORTED_BACKENDS: Record<string, BackendConfig> = {
     id: 'loki',
     name: 'Grafana Loki',
     description: 'Grafana Loki LogQL queries',
-    package: 'pysigma-backend-loki',
+    package: 'pysigma-backend-loki==0.13.0',
     formats: {
       default: 'LogQL query syntax',
       ruler: 'Loki ruler format'
@@ -178,7 +185,7 @@ export const SUPPORTED_BACKENDS: Record<string, BackendConfig> = {
     id: 'cortexxdr',
     name: 'Palo Alto Cortex XDR',
     description: 'Cortex XDR XQL queries',
-    package: 'pysigma-backend-cortexxdr',
+    package: 'pysigma-backend-cortexxdr==0.1.6',
     formats: {
       default: 'XQL query syntax'
     },
