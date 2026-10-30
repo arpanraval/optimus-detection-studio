@@ -1,0 +1,31 @@
+name: dependency-audit
+
+on:
+  push:
+    branches: [master]
+    paths: [package.json, bun.lock, .github/workflows/dependency-audit.yml]
+  pull_request:
+    paths: [package.json, bun.lock, .github/workflows/dependency-audit.yml]
+  workflow_dispatch:
+  schedule:
+    - cron: '43 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.3
+      - run: bun install --frozen-lockfile
+      # Keep the full advisory list visible; high/critical findings block releases.
+      # The remaining ExcelJS -> uuid advisory is documented in SECURITY.md.
+      - name: Full advisory report
+        continue-on-error: true
+        run: bun audit
+      - name: Block high and critical advisories
+        run: bun audit --audit-level high

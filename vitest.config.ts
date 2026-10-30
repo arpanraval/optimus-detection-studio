@@ -6,6 +6,9 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'jsdom',
+    // Node 25's native localStorage shadows jsdom. Apply to every worker,
+    // including watch mode; production/browser storage is unchanged.
+    execArgv: ['--no-experimental-webstorage'],
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
 
@@ -63,10 +66,7 @@ export default defineConfig({
       // Entrypoints call serve() at module scope. The shim captures the
       // handler instead of binding a socket, so a test can drive the real
       // routing and action dispatch with a plain Request.
-      'https://deno.land/std@0.177.0/http/server.ts': path.resolve(
-        __dirname,
-        './vitest.shims/deno-std-http-server.ts',
-      ),
+      'https://deno.land/std@0.177.0/http/server.ts': path.resolve(__dirname, './vitest.shims/deno-std-http-server.ts'),
     },
   },
 });

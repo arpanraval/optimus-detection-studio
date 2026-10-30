@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "installCommand": "bun install",
+  "installCommand": "bun install --frozen-lockfile",
   "buildCommand": "bunx --bun vite build",
   "outputDirectory": "dist",
   "rewrites": [
