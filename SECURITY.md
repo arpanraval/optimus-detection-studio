@@ -59,6 +59,19 @@ settings. Misconfiguration of a self-hosted deployment is the operator's
 responsibility. If you believe a default in this repository leads users toward
 an insecure configuration, that is in scope and we would like to hear about it.
 
+## Dependency review
+
+CI checks the locked dependency set and blocks high and critical advisories.
+The complete advisory report remains visible, including lower-severity findings.
+
+As of 2026-10-28, `bun audit` reports one moderate advisory:
+[GHSA-w5hq-g745-h8pq](https://github.com/advisories/GHSA-w5hq-g745-h8pq) in
+ExcelJS's transitive `uuid` dependency. It affects v3/v5/v6 calls with an output
+buffer. The inspected ExcelJS integration uses v4 without an output buffer;
+no affected call was found in application source. Track the upstream fix and
+reassess if UUID usage or ExcelJS changes. This is a scoped reachability
+assessment, not a claim that the dependency is vulnerability-free.
+
 ## Please Avoid
 
 - Denial-of-service testing against shared/hosted demo environments.

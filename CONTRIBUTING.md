@@ -15,14 +15,14 @@ features, detection content, docs, and fixes.
 
 ## Development setup
 
-You'll need [Bun](https://bun.sh), the [Supabase CLI](https://supabase.com/docs/guides/cli),
+You'll need Node.js 24 (`.nvmrc`), [Bun](https://bun.sh), the [Supabase CLI](https://supabase.com/docs/guides/cli),
 and `psql`, plus your own Supabase project. See **[Setup](README.md#setup)** in the
 README for the full walkthrough.
 
 ```bash
 git clone https://github.com/arpanraval/optimus-detection-studio.git
 cd optimus-detection-studio
-bun install
+bun install --frozen-lockfile
 cp .env.example .env.local     # add your Supabase URL + anon key
 bun run setup                  # stand up your own backend
 bun run dev
@@ -35,6 +35,7 @@ Run the checks locally — CI runs the same:
 ```bash
 bun run lint
 bun run type-check
+bun run type-check:setup
 bun run test
 bun run build
 ```
@@ -65,4 +66,5 @@ If you're unsure how a schema change should be represented, open an issue first.
 ## License
 
 By contributing, you agree that your contributions are licensed under the
-[Apache License 2.0](LICENSE), the same license as the project.
+[GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only), the same license
+as the project.

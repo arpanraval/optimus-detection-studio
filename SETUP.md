@@ -19,6 +19,7 @@ You will need:
   both run on Anthropic models. OpenAI can be added as an optional generation
   provider.
 - Command-line tools: **Bun** (≥ 1.3), the **Supabase CLI**, and the Postgres client **`psql`**.
+- **Node.js 24** for Vitest/contributor checks (`nvm install && nvm use` reads `.nvmrc`). CI also tests Node 25.3's Web Storage compatibility.
 
 Install the tools:
 
@@ -41,6 +42,7 @@ On Debian/Ubuntu there is no supported global Supabase CLI package — use **`bu
 ```bash
 brew install git bun libpq                 # libpq provides psql
 brew install supabase/tap/supabase         # Supabase CLI
+export PATH="$(brew --prefix libpq)/bin:$PATH" # libpq is keg-only; add to your shell profile too
 ```
 
 Supabase CLI on other platforms: <https://supabase.com/docs/guides/cli>.
@@ -85,11 +87,19 @@ then collect these from **Settings**:
 | Value | Where | Used for |
 |---|---|---|
 | Project URL (`https://YOUR_REF.supabase.co`) | Settings → API | `.env.local` |
-| `anon` public key | Settings → API | `.env.local` |
-| Database connection string (URI) | Settings → Database → Connection string → **URI** | applying the schema |
+| Publishable key (`sb_publishable_…`) or legacy `anon` JWT | Settings → API Keys | `.env.local` |
+| Legacy `service_role` JWT | Settings → API Keys → Legacy keys | setup step 7: Vault and background workers |
+| Database connection string (URI) | Connect → **Session pooler** → URI | applying the schema |
 
-You do **not** need to copy the `service_role` key — Supabase injects it into edge
-functions automatically.
+Use the **Session pooler** URI (port 5432) by default: it works on IPv4 networks
+where the direct database host may be unreachable. Preserve its username and
+URL-encode special characters in the password. Avoid the transaction pooler for setup.
+
+Supabase injects the legacy service-role key into Edge Functions automatically,
+but setup also needs a copy for database-to-worker calls through Vault. This
+worker chain currently requires the **legacy `service_role` JWT**, not an
+`sb_secret_…` key. Public keys work in the frontend; backend keys must never be
+put in any `VITE_` variable.
 
 > The connection-string URI begins with `postgresql://` and **contains your
 > database password** — this is different from the anon key. Keep it private.
@@ -98,10 +108,14 @@ functions automatically.
 
 ## 3. Clone and install
 
+The canonical repository below requires access if it is private. A GitHub 404
+can mean missing access; request access from the maintainer. If you already have
+a checkout, use that directory and skip cloning.
+
 ```bash
 git clone https://github.com/arpanraval/optimus-detection-studio.git
 cd optimus-detection-studio
-bun install
+bun install --frozen-lockfile
 ```
 
 ---
@@ -117,11 +131,11 @@ PowerShell:
 Copy-Item .env.example .env.local
 ```
 
-Set your project URL and anon key (from step 2):
+Set your project URL and public key (from step 2). The variable keeps its legacy name:
 
 ```env
 VITE_SUPABASE_URL=https://YOUR_REF.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_SUPABASE_ANON_KEY=your-publishable-or-anon-key
 ```
 
 ---
@@ -138,10 +152,10 @@ tells you exactly what happened at each one:
 1. checks prerequisites (bun, Supabase CLI, psql)
 2. reads `.env.local` and asks for your **database connection string** (the URI from step 2)
 3. links your Supabase project
-4. applies [`supabase/schema.sql`](supabase/schema.sql) — 79 tables, RLS policies,
+4. applies [`supabase/schema.sql`](supabase/schema.sql) — required tables, RLS policies,
    functions, triggers, the realtime publication, seed data (CI-verified to
    apply on an empty database)
-5. deploys all **22 edge functions**
+5. deploys all edge functions in `supabase/functions/*/index.ts`
 6. sets your edge-function secrets — prompts for your Gemini / Anthropic keys
    (Enter to skip any) and **auto-generates** `INTEGRATION_ENCRYPTION_KEY`
 7. enables **Threat Research & background automation** — asks for your
@@ -150,11 +164,21 @@ tells you exactly what happened at each one:
 8. runs the install doctor (`bun run setup:check`) and prints a per-step
    summary: what completed, what was skipped, what failed and how to fix it
 
-**Safe to re-run.** Every step detects what is already done and skips it — if
-something fails halfway (network, wrong connection string, missing key), fix
-it and run `bun run setup` again; only the missing pieces are redone. Secrets
-that are already set are never overwritten, and an existing
-`INTEGRATION_ENCRYPTION_KEY` is never regenerated.
+**Re-running setup:** the fresh schema is only applied to an empty public schema.
+On existing installations, setup applies the repeatable repairs listed in
+`scripts/setup-migrations.json`, redeploys functions, and verifies required
+tables/functions by name. It does not replay historical migrations that would
+replace newer functions. An incomplete, unrelated database is not overwritten.
+Existing Edge Function secrets are preserved; setup stops if their inventory
+cannot be read, so it cannot accidentally regenerate the encryption key.
+Providing a service-role key in step 7 updates the two Vault values and the six
+named cron jobs atomically. Other cron jobs are preserved.
+
+Secret prompts do not echo typed or pasted characters. Database SQL is sent on
+stdin and the database password through the child process environment. CLI secrets
+use a temporary file restricted to the current user and removed after the CLI
+exits. Run setup on a trusted machine; forced termination can leave that file
+in the system temporary directory (`optimus-secrets-*`).
 
 Non-interactive (CI / scripts): export `SUPABASE_DB_URL="postgresql://..."`
 (plus optionally `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, and
@@ -235,7 +259,7 @@ the cron jobs aren't configured, sessions sit at *pending* forever with no
 error message.
 
 `bun run setup` (step 7) configures all of it when you paste your service-role
-key (Dashboard → Settings → API → `service_role`). To do it by hand instead,
+key (Dashboard → Settings → API Keys → Legacy keys → `service_role`). To do it by hand instead,
 open [`supabase/optional-scheduled-jobs.sql`](supabase/optional-scheduled-jobs.sql),
 fill in your project ref and service-role key, and run it in the Supabase SQL
 Editor.
@@ -244,9 +268,14 @@ What it sets up:
 
 - `pg_cron` + `pg_net` extensions
 - Vault secrets `tr_supabase_url` / `tr_service_role_key`
-- the `app.settings.*` database settings used by some auto-digest paths
-- four cron jobs: `threat-research-dispatcher` (every minute),
-  `auto-digest-watchdog`, `auto-digest-scheduler`, `ai_usage_rollup`
+- six cron jobs: `threat-research-dispatcher`, `pack-deploy-dispatcher`, and
+  `auto-digest-queue-consumer` (every minute); `auto-digest-watchdog` (every five
+  minutes); `auto-digest-scheduler` (hourly); `ai_usage_rollup` (daily at 02:00 UTC)
+
+Both guided setup and the manual SQL call `configure_background_automation`.
+The queue consumer reads its URL and key from Vault at execution time. No
+`app.settings.*` database permission is needed. A failure rolls back the entire
+configuration; re-running updates named jobs without creating duplicates.
 
 Threat Research also needs the `ANTHROPIC_API_KEY` secret (step 6). The
 scheduled auto-digest and AI-usage rollup parts are genuinely optional — manual
@@ -287,16 +316,25 @@ real prerequisites — skip this section unless you use Defender XDR:
 
 ## 7. Become owner and load MITRE data
 
-There is **no in-app sign-up form** — access is invite-only by design, so you create
-the first account yourself:
+Before exposing your deployment, disable **Allow new users to sign up** under
+**Authentication → Sign In / Providers** in your hosted Supabase dashboard.
+Local `supabase/config.toml` disables signup, but it does not change hosted Auth
+settings. An absent signup form does not disable Supabase's signup API.
+Administrators can still create and invite users.
 
-1. In the Supabase dashboard, go to **Authentication → Users → Add user →
-   Create new user**. Enter your email and a temporary password and tick
-   **Auto Confirm User**. The `on_auth_user_created` trigger creates your profile.
-2. Promote yourself in the Supabase SQL editor:
+There is **no in-app sign-up form**. Access is invite-only, and the database enforces it:
+every account needs an invitation, and an invitation is the only thing that sets a role.
+That includes accounts you add in the Supabase dashboard, so the first owner gets
+their invitation from a one-time SQL command:
+
+1. In the Supabase SQL editor, issue the owner invitation (valid for 24 hours):
    ```sql
-   update public.profiles set role = 'owner' where email = 'you@example.com';
+   select public.bootstrap_first_owner('you@example.com');
    ```
+   It refuses to run once an active owner exists. Only database administrators can run it.
+2. In the Supabase dashboard, go to **Authentication → Users → Add user →
+   Create new user**. Enter the same email and a temporary password and tick
+   **Auto Confirm User**. The `on_auth_user_created` trigger creates your profile as owner.
 3. Start the app and sign in with that email + temporary password:
    ```bash
    bun run dev
@@ -306,6 +344,11 @@ the first account yourself:
    wizard appears — use it or click **Skip for now**.
 4. In-app: **Settings → Data Sync → "Import MITRE Data"**, then **"Refresh Scores"**.
    This pulls the full ATT&CK STIX bundle from MITRE's public GitHub into your database.
+
+Add everyone else from **Settings → Users**. Owners can invite any role; admins can invite
+lead, analyst and viewer, and can manage only users below admin. To make someone else an owner,
+invite them first, then as a database administrator run
+`update public.profiles set role = 'owner' where lower(email) = 'them@example.com';`.
 
 > Keep the dev server on its default origin (`http://localhost:5173`). Edge
 > functions allow `localhost:5173`, `localhost:3000`, and `127.0.0.1:5173` by
@@ -319,7 +362,7 @@ the first account yourself:
 bun run setup:check   # env, Supabase reachability, deployed functions, secrets
 ```
 
-For the deep checks (table counts, extensions, seed, MITRE import, and the
+For the deep checks (required table names, extensions, seed, MITRE import, and the
 Threat Research plumbing — Vault secrets + cron jobs), pass your connection
 string so it can query the database directly:
 
@@ -338,9 +381,16 @@ You can also sanity-check the build at any time:
 
 ```bash
 bun run type-check
+bun run type-check:setup
 bun run test
 bun run build
 ```
+
+Contributor checks run on Node 24, with a Node 25 regression job. Vitest disables
+Node-native Web Storage in its workers so browser tests use jsdom storage.
+The build still reports large chunks, including the on-demand Excel library;
+Excel generation loads only when requested. Existing lint warnings remain
+advisory; lint errors fail CI.
 
 ---
 
@@ -353,12 +403,13 @@ bun run build
 | `supabase link` / `functions deploy` fails with an auth error | Run `supabase login` first (step 1). |
 | `command not found: bun` | Reload your shell, or `export PATH="$HOME/.bun/bin:$PATH"`. |
 | `command not found: psql` | Install the Postgres client (`postgresql-client` on Debian/Ubuntu, `libpq` on macOS). |
-| `bun run setup:check` skips the deep checks | Set `SUPABASE_DB_URL` (step 8); the deep checks need a direct DB connection. |
-| No sign-up link on the login page | Expected — access is invite-only. Create users in the Supabase dashboard (step 7) or via **Settings → User Management** once you are owner. |
+| `bun run setup:check` skips the deep checks | Set `SUPABASE_DB_URL` (step 8); use the Session pooler URI for SQL access. |
+| No sign-up link on the login page | Expected — access is invite-only. Invite people from **Settings → Users** once you are owner (step 7). |
+| "Database error creating new user" or "Database error saving new user" | The email has no invitation. Run `select public.bootstrap_first_owner('you@example.com');` for the first owner, or invite the person from **Settings → Users**. |
 | `secrets set` says `Env name cannot start with SUPABASE_` | Expected — `SUPABASE_*` values are auto-injected into edge functions. Don't set them (step 6). |
 | Browser console: CORS error calling `functions/v1/...` | The app is running on an origin outside the default allowlist (`localhost:5173`, `localhost:3000`, `127.0.0.1:5173`). Add yours: `supabase secrets set ALLOWED_ORIGINS=http://your-origin`. |
 | `supabase login` impossible (headless/CI) | Export `SUPABASE_ACCESS_TOKEN=sbp_...` (personal access token) instead — see step 1. |
 | Threat Research session stuck at *pending* forever | The background-automation step was skipped: Vault secrets / pg_net / the dispatcher cron are missing (step 6a). Re-run `bun run setup` and provide your service-role key, then check with `bun run setup:check`. Also confirm the `ANTHROPIC_API_KEY` secret is set. |
 | Detection Finetuning returns "Finetuning agent is not provisioned" | `FINETUNE_AGENT_ID` / `FINETUNE_ENVIRONMENT_ID` secrets not set — run the provisioning script (step 6b). |
 | Detection Finetuning 500s with agent IDs set | `ANTHROPIC_API_KEY` secret missing, or set to a key from a *different* Anthropic account than the one that provisioned the agent, or the account lacks Managed Agents (beta) access. A working Defender XDR integration is also required. |
-| Setup died halfway — is it safe to re-run? | Yes. `bun run setup` skips completed steps (applied schema, existing secrets, deployed functions) and only redoes what's missing. If the *schema apply* itself failed partway, reset the database (Dashboard → Settings → Database → Reset) and re-run. |
+| Setup died halfway — is it safe to re-run? | Fix the reported error and re-run. Schema application and each repair are transactional. Existing secrets are preserved; functions redeploy and compatible repairs repeat. A pre-existing partial schema requires inspecting missing migrations; do not reset a database containing data. |

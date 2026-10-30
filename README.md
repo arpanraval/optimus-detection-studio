@@ -9,7 +9,7 @@
 
 One system of record for every detection you run, across every SIEM and XDR, with live MITRE ATT&CK coverage and an AI layer that knows your library.
 
-[![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-833f70?style=flat-square)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL_v3-833f70?style=flat-square)](LICENSE)
 
 [Quickstart](#quickstart) &nbsp;·&nbsp; [Features](#what-it-does) &nbsp;·&nbsp; [Integrations](#integrations) &nbsp;·&nbsp; [Setup](#setup) &nbsp;·&nbsp; [Architecture](#architecture) &nbsp;·&nbsp; [Roadmap](#roadmap) &nbsp;·&nbsp; [Contributing](#contributing)
 
@@ -83,7 +83,7 @@ bun run setup                  # guided end-to-end install: schema, functions, s
 bun run dev
 ```
 
-`bun run setup` is a guided installer. It links your project and applies the full database from [`supabase/schema.sql`](supabase/schema.sql), a single self-contained schema (79 tables plus functions, RLS, triggers, realtime, and seed data) that CI verifies against an empty database. It then deploys all 22 edge functions, prompts for your AI keys, configures Threat Research background automation, verifies the install, and prints a per-step summary. It is safe to re-run: an existing schema and secrets you have already set are skipped. The full walkthrough (secrets, first owner, MITRE import) is in [Setup](#setup).
+`bun run setup` is a guided installer. It links your project and applies the full database from [`supabase/schema.sql`](supabase/schema.sql), a single self-contained schema (79 tables plus functions, RLS, triggers, realtime, and seed data) that CI verifies against an empty database. It then deploys all 22 edge functions, prompts for your AI keys, configures Threat Research background automation, verifies the install, and prints a per-step summary. Re-runs preserve the existing schema and Edge Function secrets, repeat compatibility repairs, and redeploy functions. Required tables and functions are checked by name. See [SETUP.md](SETUP.md) for retry behavior and supported API-key formats. The full walkthrough (secrets, first owner, MITRE import) is in [Setup](#setup).
 
 > **Prerequisites:** [Bun](https://bun.sh), the [Supabase CLI](https://supabase.com/docs/guides/cli), `psql`, a Supabase project (the free tier works), and a Gemini API key for the full AI experience.
 
@@ -237,11 +237,11 @@ Supabase injects `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE
 ### 5. Create the owner account and load MITRE data
 
 1. **Turn off public sign-ups** in the Supabase dashboard: **Authentication → Sign In / Providers → Allow new users to sign up** (off). Access is invite-only: there is no in-app sign-up form, and teammates are added from **Settings → Users**, which still works with sign-ups disabled.
-2. Create your first user: **Authentication → Users → Add user → Create new user** (tick *Auto Confirm User*). The `on_auth_user_created` trigger creates your profile.
-3. Promote yourself in the Supabase SQL editor:
+2. Issue the first owner's invitation in the Supabase SQL editor. Every account needs an invitation, including ones added in the dashboard, and the invitation sets the role:
    ```sql
-   update public.profiles set role = 'owner' where email = 'you@example.com';
+   select public.bootstrap_first_owner('you@example.com');
    ```
+3. Create that user: **Authentication → Users → Add user → Create new user** with the same email (tick *Auto Confirm User*). The `on_auth_user_created` trigger creates your profile as owner.
    Then start the app (`bun run dev`), sign in with that user, and follow the first-login prompt to confirm your display name and set a **new** password (it must differ from the one you just created). You'll land in the vendor-rule import wizard; use it or **Skip for now**.
 4. In-app: **Settings → Data Sync → "Import MITRE Data"**, then **"Refresh Scores"**. This pulls the full ATT&CK STIX bundle (techniques, groups, software, campaigns, mitigations, data sources, and their relationships) from MITRE's public GitHub into your database. A lightweight tactic/technique reference (`public/enterprise-attack-data.json`) ships in the repo for the coverage UI, reproduced under MITRE's terms; see [NOTICE](NOTICE).
 
@@ -345,7 +345,7 @@ Please report vulnerabilities privately as described in [SECURITY.md](SECURITY.m
 
 ## License
 
-Licensed under the [Apache License 2.0](LICENSE). This project bundles and builds on third-party content that requires attribution, including **MITRE ATT&CK®** and **SigmaHQ / pySigma**. See [NOTICE](NOTICE).
+Licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). This project bundles and builds on third-party content that requires attribution, including **MITRE ATT&CK®** and **SigmaHQ / pySigma**. See [NOTICE](NOTICE).
 
 ---
 

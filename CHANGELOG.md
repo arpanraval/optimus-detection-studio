@@ -7,7 +7,7 @@ project aims to follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- Open-source release scaffolding: Apache-2.0 `LICENSE`, `NOTICE` (MITRE ATT&CK®
+- Open-source release scaffolding: AGPL-3.0 `LICENSE`, `NOTICE` (MITRE ATT&CK®
   and SigmaHQ/pySigma attribution), `SECURITY.md`, `CONTRIBUTING.md`, and a
   Code of Conduct.
 - Self-hosted setup: a single consolidated `supabase/schema.sql`,
