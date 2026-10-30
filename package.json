@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "description": "AI-powered detection engineering & detection-intelligence platform — choose, build, quality-check, and operationalize SIEM/XDR detections with MITRE ATT&CK mapping, Sigma conversion, and threat-intel-driven gap analysis.",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "homepage": "https://github.com/arpanraval/optimus-detection-studio#readme",
   "repository": {

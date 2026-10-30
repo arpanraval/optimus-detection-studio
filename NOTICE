@@ -1,7 +1,8 @@
 Optimus Detection Studio
 Copyright 2026 Arpan Raval
 
-This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+This product is licensed under the GNU Affero General Public License, version 3
+(AGPL-3.0-only; see LICENSE).
 
 This product includes and/or builds upon the following third-party content
 and open-source projects. Their respective attributions and licenses are
@@ -28,9 +29,24 @@ The in-browser Sigma rule conversion feature is powered by the SigmaHQ
 pySigma project and its backend/pipeline packages, loaded at runtime via
 Pyodide/micropip. Sigma and pySigma are developed by the SigmaHQ community.
 
-    Sigma:   https://github.com/SigmaHQ/sigma
     pySigma: https://github.com/SigmaHQ/pySigma
     License: GNU Lesser General Public License v2.1 (LGPL-2.1)
+
+SigmaHQ detection rules have a separate license: Detection Rule License 1.1.
+The Sigma specification and logo are public domain. See the upstream notice:
+    https://github.com/SigmaHQ/sigma/blob/master/LICENSE
+
+Rules imported from SigmaHQ or other vendors retain their upstream licenses
+and attribution requirements. The application's AGPL-3.0 license does not
+relicense imported detection content.
+
+--------------------------------------------------------------------------------
+PyYAML
+--------------------------------------------------------------------------------
+The PyYAML wheel in public/wheels is distributed under the MIT license.
+Its copyright and complete license are included in the wheel at
+pyyaml-6.0.3.dist-info/licenses/LICENSE.
+    https://github.com/yaml/pyyaml
 
 --------------------------------------------------------------------------------
 Other open-source dependencies
