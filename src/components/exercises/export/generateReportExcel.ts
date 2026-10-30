@@ -1,4 +1,4 @@
-import ExcelJS from 'exceljs';
+import type ExcelJS from 'exceljs';
 import { MITRE_TACTICS } from '../../../mitre.js';
 import type {
   StateSponsoredReport,
@@ -251,6 +251,7 @@ export async function generateReportExcel(report: StateSponsoredReport): Promise
   const dateStr = formatDisplayDate(now);
   const timeStr = formatDisplayTime(now);
 
+  const { default: ExcelJS } = await import('exceljs');
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Optimus Detection Studio';
   wb.created = now;

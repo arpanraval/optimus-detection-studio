@@ -1,4 +1,4 @@
-import ExcelJS from 'exceljs';
+import type ExcelJS from 'exceljs';
 import { CoverageMap, CoveredDetectionInfo } from '@/hooks/useMitreCoverage';
 import { getMitreDataById, MITRE_TACTICS, TACTIC_MAP, TACTIC_NAME_TO_ID } from '@/mitre';
 
@@ -271,6 +271,7 @@ export class NavigatorService {
     const dateStr = exportDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     const timeStr = exportDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
 
+    const { default: ExcelJS } = await import('exceljs');
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Optimus Detection Studio';
     wb.created = exportDate;

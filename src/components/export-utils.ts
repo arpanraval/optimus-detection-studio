@@ -1,5 +1,5 @@
 import { Detection } from '../types';
-import ExcelJS from 'exceljs';
+import type ExcelJS from 'exceljs';
 import yaml from 'js-yaml';
 
 // ============================================================================
@@ -300,6 +300,7 @@ export async function downloadExcel(detections: Detection[], filename?: string, 
   const columns = EXPORT_COLUMNS.filter(c => keys.includes(c.key));
   
   try {
+    const { default: ExcelJS } = await import('exceljs');
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Optimus Detection Studio';
     workbook.created = new Date();

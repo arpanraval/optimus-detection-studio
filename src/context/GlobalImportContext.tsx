@@ -14,6 +14,7 @@ import { supabase } from '../lib/supabaseClient';
 import { useRegisterNavigationBlocker, useNavigationBlocker } from './NavigationBlockerContext';
 import { bulkImportJobManager, ImportCancelledError } from '../services/bulk-import/orchestrator/BulkImportJobManager';
 import { batchInserter } from '../services/bulk-import/persistence/BatchInserter';
+import { DuplicateDetector } from '../services/bulk-import/validators/DuplicateDetector';
 import type {
   ImportProgress,
   ImportJobConfig,
@@ -570,7 +571,6 @@ export function GlobalImportProvider({ children, userId }: GlobalImportProviderP
           dispatch({ type: 'SET_PRE_CHECK', payload: null });
           dispatch({ type: 'SET_STATUS', payload: 'pre_check' });
 
-          const { DuplicateDetector } = await import('../services/bulk-import/validators/DuplicateDetector');
           const detector = new DuplicateDetector();
           const summary = await detector.runPreCheck(parsedRules, preCheckUserId, targetLibrary);
 
